@@ -95,6 +95,49 @@ ADR_STAGES = {
     "031": "09", "032": "02, 04", "033": "09", "034": "07", "035": "02, 04, 05",
 }
 
+REQUIREMENT_PROGRESS = {
+    "REQ-TEN-001": (
+        "IMPLEMENTED",
+        "STAGE 01 foundation: migration 0001_stage_01 + PostgreSQL A/B integration evidence",
+    ),
+    "REQ-TEN-007": (
+        "IMPLEMENTED",
+        "STAGE 01 Redis namespace builder + unit/real Redis tests; extend through later features and verify finally in STAGE 10",
+    ),
+    "REQ-TEN-010": (
+        "IMPLEMENTED",
+        "STAGE 01 canary RLS: A/B, absent context, cross-write denial and pool reuse; later tenant tables remain to cover before STAGE 10 verification",
+    ),
+    "REQ-AUD-004": (
+        "IMPLEMENTED",
+        "STAGE 01 static event registry, fail-safe formatter, recursive redaction and secret scan; all later emitters remain to cover before STAGE 10 verification",
+    ),
+    "REQ-BOT-001": (
+        "IMPLEMENTED",
+        "STAGE 01 boundary: no Discord credential dependency; frontend secret-name scan PASS",
+    ),
+    "REQ-TEST-001": (
+        "PLANNED",
+        "STAGE 01 test harness delivered; tenant endpoints arrive in later stages",
+    ),
+    "REQ-TEST-002": (
+        "PLANNED",
+        "STAGE 01 test harness delivered; Permission Engine is out of scope",
+    ),
+    "REQ-TEST-003": (
+        "PLANNED",
+        "No Discord sandbox required in STAGE 01; live acceptance remains STAGE 10",
+    ),
+    "REQ-TEST-004": (
+        "PLANNED",
+        "STAGE 01 test harness delivered; destructive operations are out of scope",
+    ),
+    "REQ-TEST-005": (
+        "PLANNED",
+        "Frontend unit/build baseline delivered; product Playwright flows remain STAGE 10",
+    ),
+}
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()
@@ -120,9 +163,12 @@ def render() -> str:
             raise ValueError(f"Duplicate requirement in source registry: {req_id}")
         seen.add(req_id)
         primary, secondary = stage_for(req_id)
+        state, proof = REQUIREMENT_PROGRESS.get(
+            req_id, ("PLANNED", "À renseigner lors de l’étape")
+        )
         lines.append(
             f"| {req_id} | {escape_cell(summary)} | {modality} | {primary} | {secondary} | "
-            f"{tests_for(req_id)} | PLANNED | À renseigner lors de l’étape |"
+            f"{tests_for(req_id)} | {state} | {proof} |"
         )
     lines.extend([
         "", "## ADR → étapes", "",

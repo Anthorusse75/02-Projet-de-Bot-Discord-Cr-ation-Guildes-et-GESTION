@@ -1,0 +1,42 @@
+name: did-development
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: did
+      POSTGRES_USER: did_admin
+      POSTGRES_PASSWORD: local_admin_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - did-postgres-dev:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/010-did-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U did_admin -d did"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [did-dev]
+
+  redis:
+    image: redis:8.8.1-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - did-redis-dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [did-dev]
+
+volumes:
+  did-postgres-dev:
+  did-redis-dev:
+
+networks:
+  did-dev:
+    name: did-development

@@ -33,3 +33,6 @@ Thumbs.db
 *.log
 tmp/
 .docker-data/
+
+# Test evidence is immutable per run, local by default, and published by CI.
+artifacts/test-evidence/stage-*/
