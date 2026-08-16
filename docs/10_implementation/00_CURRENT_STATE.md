@@ -17,7 +17,7 @@
 | STAGE 03 corrective runtime commit | `8127e80616fcd57247377386422eb5082003e527` |
 | Last migration | `0004_stage_03` |
 | Implemented subsystems | Stages 01–02 ; Gateway intents minimaux et événements normalisés ; inbox/dedup/projection no-effect stale ; cache Discord PostgreSQL RLS et Redis hot ; gap persistant/freshness/tombstones honnêtes ; API cache-first/purge locale confirmée ; vrais processus worker/scheduler ; routage ID-only borné + wakeup/recovery ; Governor long-lived équitable ; single-flight générationnel ; sync/reconcile adaptatif ; outbox opérationnelle/invalidation ; WebSocket reauthorization continue ; métriques bornées |
-| Tests status | STAGE 01/02/03 local PASS au commit `6a964642151a3fa048706c3c5753cfe8585ef287` — 92 unit, 40 integration, 4 load, 4 frontend ; pipeline durable A=300/B=30 PASS ; migrations `base/0001/0002/0003 -> 0004` et retour `0004 -> 0002 -> 0004` PASS ; CI du nouveau HEAD requise avant rapport final |
+| Tests status | STAGE 01/02/03 local PASS au commit `6a964642151a3fa048706c3c5753cfe8585ef287` — 92 unit, 40 integration, 4 load, 4 frontend ; pipeline durable A=300/B=30 PASS ; migrations `base/0001/0002/0003 -> 0004` et retour `0004 -> 0002 -> 0004` PASS ; checks PR #3 `stage-01`, `stage-02`, `stage-03`, `stage-03-load` PASS sur le HEAD publié |
 | Discord live status | Stage 03 `PASS_WITH_APPROVED_LIMITATION` : sync réelle read-only A+B, PostgreSQL/Redis et isolation PASS, zéro mutation ; Gateway externe/reconnect et obfuscation live `SKIPPED_NOT_VERIFIED`/`CONTRACT_ONLY_NOT_LIVE_VERIFIED` |
 | Profiles not verified live | administrateur non propriétaire ; non-administrateur — `SKIPPED_NOT_VERIFIED`, à ne pas considérer comme vérifiés en STAGE 03 |
 | Documentation status | PASS — 11 stages, 246/246 REQ, 35 ADR ; IMP-001 revalidé le 2026-08-17 ; IMP-008 routage runtime ; handoff/preuve live Stage 03 conservés |
@@ -26,7 +26,7 @@
 | GitHub visibility | `PUBLIC_DURING_DEVELOPMENT` |
 | Git remote | `origin` → `https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION.git` |
 | Local GitHub CLI | Installée et authentifiée comme `Anthorusse75` ; protocole Git HTTPS |
-| Known failures | Aucun échec local de code, test, migration, documentation ou secret scan ; CI du nouveau HEAD encore à exécuter ; skips live Stage 03 et deux profils hérités Stage 02 restent explicitement non vérifiés |
+| Known failures | Aucun échec local ou CI de code, test, migration, documentation ou secret scan ; skips live Stage 03 et deux profils hérités Stage 02 restent explicitement non vérifiés |
 | Required external configuration | Variables Discord/OAuth et secrets locaux uniquement dans `.env.local` ignoré ; Docker Desktop pour les validations d’infrastructure |
 | Discord sandbox status | Bot réinstallé dans Guild A et Guild B ; grants OAuth temporaires révoqués ; aucun serveur supprimé |
 | Open blocking decisions | Aucune pour la Draft PR Stage 03 ; capability Channel Obfuscation temporaire non exposée par `discord.py 2.7.1`, sans faux support live |

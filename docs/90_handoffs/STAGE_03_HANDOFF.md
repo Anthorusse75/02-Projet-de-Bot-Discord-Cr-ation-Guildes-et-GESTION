@@ -85,6 +85,7 @@ Discord n’expose pas de commit/révision stable pour ces pages. Le JSON du 202
 | `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260816T224749379966Z-6a964642151a-local-docker/` |
 | `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260816T224835595039Z-6a964642151a-local-docker/` |
 | migrations `base/0001/0002/0003 -> 0004`, `0004 -> 0002 -> 0004` | PASS | JUnit/résumé Stage 03 final |
+| PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD publié, PR toujours Draft | GitHub Actions, deux runs complets déclenchés par la publication |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
 | Redis down/reprise, génération single-flight, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
 | gap persistant, stale no-effect, purge/tombstone/reobserve REST, RLS | PASS | `test_stage03_postgres.py` et tests security/failure |
