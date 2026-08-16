@@ -2,7 +2,7 @@
 
 | Champ | Valeur |
 |---|---|
-| Current stage | `STAGE_03_COMPLETE_PR_PREPARATION` |
+| Current stage | `STAGE_03_COMPLETE_PR_OPEN` |
 | Last completed stage | `STAGE_03_DISCORD_RUNTIME_CACHE_GOVERNOR_RECONCILIATION` |
 | Documentation baseline commit | `c285ac81afb0ec7a3c3197085ceff821a5d1c446` |
 | Initial publication-state commit | `677d2d5d1782930c3030a867549ea1601cbc2b05` |
@@ -20,7 +20,7 @@
 | Discord live status | Stage 03 `PASS_WITH_APPROVED_LIMITATION` : sync réelle read-only A+B, PostgreSQL/Redis et isolation PASS, zéro mutation ; Gateway externe/reconnect et obfuscation live `SKIPPED_NOT_VERIFIED`/`CONTRACT_ONLY_NOT_LIVE_VERIFIED` |
 | Profiles not verified live | administrateur non propriétaire ; non-administrateur — `SKIPPED_NOT_VERIFIED`, à ne pas considérer comme vérifiés en STAGE 03 |
 | Documentation status | PASS — 11 stages, 246/246 REQ, 35 ADR ; IMP-001 résolu ; handoff/preuve live Stage 03 présents |
-| GitHub publication | Stage 03 Draft PR à ouvrir après validation finale ; Stage 02 [PR #2](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/2) reste `MERGED` |
+| GitHub publication | Stage 03 [Draft PR #3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) ouverte vers `main`, non mergée ; Stage 02 PR #2 reste `MERGED` |
 | GitHub repository | `Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION` |
 | GitHub visibility | `PUBLIC_DURING_DEVELOPMENT` |
 | Git remote | `origin` → `https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION.git` |

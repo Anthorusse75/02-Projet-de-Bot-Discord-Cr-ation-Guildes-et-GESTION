@@ -5,9 +5,10 @@
 | Date | `2026-08-16` |
 | Base main | `366e676880d0c3f4c7cf4f54105a117b2dcda3d8` |
 | Branche | `stage/03-discord-runtime` |
+| Draft PR | [#3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) vers `main` |
 | Commit code | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | Migration | `0002_stage_02 -> 0003_stage_03` |
-| Statut | `COMPLETE_PR_PREPARATION` |
+| Statut | `COMPLETE_PR_OPEN` |
 
 ## Runtime Gateway et contrats
 
