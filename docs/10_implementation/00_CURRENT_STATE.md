@@ -2,26 +2,29 @@
 
 | Champ | Valeur |
 |---|---|
-| Current stage | `STAGE_02_READY_NOT_STARTED` |
-| Last completed stage | `STAGE_01_REPOSITORY_ENVIRONMENT_AND_FOUNDATIONS` |
+| Current stage | `STAGE_02_COMPLETE_PR_OPEN` |
+| Last completed stage | `STAGE_02_OAUTH_SESSIONS_TENANCY_RBAC_INSTALLATION` |
 | Documentation baseline commit | `c285ac81afb0ec7a3c3197085ceff821a5d1c446` |
 | Initial publication-state commit | `677d2d5d1782930c3030a867549ea1601cbc2b05` |
 | STAGE 01 implementation commit | `96f545a249e330906bf941e088dd8d63d6f856a6` |
 | STAGE 01 merge commit | `28774bf26f2fe590562021f567f0e67f623ff7f5` |
-| Last migration | `0001_stage_01` |
-| Implemented subsystems | Monorepo ; settings/redaction ; safe structured logging ; FastAPI health ; PostgreSQL/Redis ; SQLAlchemy/Alembic ; RLS/tenant context ; skeleton bot/worker/scheduler ; React/Vite shell ; quality/CI/scripts ; immutable test-evidence framework |
-| Tests status | `python scripts/validate_stage.py 01` PASS post-merge — 30 unit, 4 integration, 3 frontend, 19/19 gates ; RLS A/B/absence/cross-write et pool reuse PASS ; CI `main` run `31953326766` PASS sur le merge commit STAGE 01 |
-| Documentation status | `python scripts/validate_documentation.py` PASS — 11 stages, 246/246 REQ, 35 ADR |
-| GitHub publication | [PR #1](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/1) mergée normalement dans `main` ; branche obligatoire `stage/01-foundations` conservée |
+| STAGE 02 base `main` | `f2d422d68a8f33661b37f17df1b013bffcba132d` |
+| STAGE 02 implementation commit | `ccf44308dbef1124718cf1f841ef06b8b3cf8c47` |
+| Last migration | `0002_stage_02` |
+| Implemented subsystems | Fondations STAGE 01 ; OAuth2 Discord backend ; grants chiffrés ; sessions opaques Redis ; CSRF ; découverte et sélection de tenant ; modèle installation ; RBAC/capabilities ; bootstrap owner/admin ; RLS utilisateur et guilde ; endpoints auth/me/guilds ; frontend auth et sélecteur de guilde ; validation Discord live expurgée |
+| Tests status | STAGE 02 local PASS — 47 unit, 13 integration, 4 frontend, 23/23 gates ; migrations `base -> head` et `0001 -> head` PASS ; STAGE 01 regression PASS, 19/19 gates |
+| Discord live status | `PASS_WITH_APPROVED_LIMITATION` avec un compte propriétaire : identité, OAuth exact, install/uninstall/reinstall A+B, membre ciblé et révocation PASS ; profils administrateur non propriétaire et non-administrateur `SKIPPED_NOT_VERIFIED` |
+| Documentation status | PASS — 11 stages, 246/246 REQ, 35 ADR ; handoff et preuve live STAGE 02 présents |
+| GitHub publication | [Draft PR #2](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/2) ouverte vers `main` depuis `stage/02-auth-tenancy` ; ne pas merger automatiquement |
 | GitHub repository | `Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION` |
 | GitHub visibility | `PUBLIC_DURING_DEVELOPMENT` |
 | Git remote | `origin` → `https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION.git` |
-| Local GitHub CLI | Absent ; le push Git reste disponible et le connecteur GitHub peut ouvrir la PR |
-| Known failures | Aucun échec de code/test/CI connu |
-| Required external configuration | Aucune pour STAGE 01 ; Docker Desktop pour les validations d’infrastructure |
-| Discord sandbox status | Non configurée et non requise pour STAGE 01 |
-| Open blocking decisions | Aucune pour démarrer STAGE 02 |
-| Evidence storage | Runs locaux ignorés sous `artifacts/test-evidence/stage-XX/<run-id>/` ; runs CI uploadés avec stage/SHA/run/attempt ; aucun JUnit brut local committé |
-| Next stage | STAGE 02 est autorisée mais non démarrée ; commencer par son PRECHECK sur `stage/02-auth-tenancy` |
+| Local GitHub CLI | Installée et authentifiée comme `Anthorusse75` ; protocole Git HTTPS |
+| Known failures | Aucun échec local de code, test, migration, secret scan ou documentation ; deux profils Discord live explicitement non vérifiés |
+| Required external configuration | Variables Discord/OAuth et secrets locaux uniquement dans `.env.local` ignoré ; Docker Desktop pour les validations d’infrastructure |
+| Discord sandbox status | Bot réinstallé dans Guild A et Guild B ; grants OAuth temporaires révoqués ; aucun serveur supprimé |
+| Open blocking decisions | Aucune pour terminer STAGE 02 ; STAGE 03 interdite avant merge normal de la PR #2 |
+| Evidence storage | Runs locaux ignorés sous `artifacts/test-evidence/stage-XX/<run-id>/` ; preuve live expurgée suivie dans `docs/90_handoffs/STAGE_02_LIVE_EVIDENCE.json` ; runs CI uploadés avec stage/SHA/run/attempt |
+| Next stage | Après merge seulement : PRECHECK de STAGE 03 depuis le SHA final de `main` ; aucune implémentation STAGE 03 n’est commencée |
 
-Les preuves détaillées et les versions pinées sont conservées dans [`docs/90_handoffs/STAGE_01_HANDOFF.md`](../90_handoffs/STAGE_01_HANDOFF.md). Le HEAD courant est fourni par Git et n’est pas recopié ici de manière auto-référentielle.
+Les preuves, contrats et limites détaillés sont conservés dans [`docs/90_handoffs/STAGE_02_HANDOFF.md`](../90_handoffs/STAGE_02_HANDOFF.md). Le HEAD courant est fourni par Git et n’est pas recopié ici de manière auto-référentielle.
