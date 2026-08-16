@@ -4,12 +4,12 @@ Les ADR-001 à ADR-035 restent normatifs dans la source d’architecture. Ce reg
 
 ## IMP-001 — Channel Obfuscation officiellement confirmée
 
-- Date : 2026-08-16
+- Date : 2026-08-17
 - Statut : `RESOLVED_OFFICIAL_CONTRACT_CONFIRMED`
-- Revalidation : documentation Discord officielle consultée le 2026-08-16 : [changelog](https://docs.discord.com/developers/change-log), [Channel Resource](https://docs.discord.com/developers/resources/channel) et [Gateway Events](https://docs.discord.com/developers/events/gateway-events).
+- Revalidation : documentation Discord officielle consultée le 2026-08-17. Sources et headings exacts : [Change Log — « Channel Obfuscation for Users and Bots », 12 août 2026](https://docs.discord.com/developers/change-log), [Channel Resource — « Obfuscated Channels »](https://docs.discord.com/developers/resources/channel) et [Gateway Events — « Gateway Capabilities »](https://docs.discord.com/developers/events/gateway-events). Ces pages officielles n’exposent pas de commit ou de révision stable ; les URL, headings et date de consultation constituent donc la provenance reproductible disponible.
 - Contrat confirmé : le flag Channel `CHANNEL_OBFUSCATED` vaut `1 << 17`. Pendant la période de test, la capability Gateway `CHANNEL_OBFUSCATION` vaut `1 << 15`. Le rollout HTTP annoncé au 2026-11-16 omet de `Get Guild Channels` les salons inaccessibles ; il n’existe pas d’opt-in HTTP anticipé.
 - Payload obfusqué : `id`, `type`, `position` et `parent_id` restent exploitables ; `name` devient `___hidden___`, les champs sensibles sont nuls/réduits, et les overwrites sont réduits à `@everyone` refusant `VIEW_CHANNEL`. Le Gateway continue d’émettre les événements channel usuels et renvoie un `CHANNEL_UPDATE` complet au retour de visibilité. Les payloads d’interaction ne suivent pas cette obfuscation.
-- Décision : détection uniquement par le bit officiel, conservation du dernier payload complet et de ses overwrites, états explicites `VISIBLE`/`OBFUSCATED`/`ACCESS_LOST`, et omission HTTP jamais interprétée comme suppression. La fixture contractuelle du 2026-08-12 est versionnée.
+- Décision : détection uniquement par le bit officiel, conservation du dernier payload complet et de ses overwrites, états explicites `VISIBLE`/`OBFUSCATED`/`ACCESS_LOST`, et omission HTTP jamais interprétée comme suppression. Le JSON versionné du 2026-08-12 est une **fixture contractuelle dérivée de la documentation officielle**, pas un payload officiel publié par Discord.
 - Validation live : `CONTRACT_ONLY_NOT_LIVE_VERIFIED` pour la perte de visibilité, car aucun changement sûr de permissions sandbox n’a été imposé. La sync live A/B sans mutation est `PASS_WITH_APPROVED_LIMITATION`.
 
 ## IMP-002 — Publication GitHub initiale
@@ -62,3 +62,11 @@ Les ADR-001 à ADR-035 restent normatifs dans la source d’architecture. Ce reg
 - Décision : lorsqu’un binding de rôle est nécessaire, STAGE 02 appelle uniquement `GET /guilds/{guild.id}/members/{user.id}` pour l’acteur ; aucun endpoint de liste des membres n’est utilisé. Les décisions sensibles forcent cette relecture ciblée.
 - Gouvernance REST : le transport bot-token STAGE 02 est sérialisé, fournit un User-Agent, mémorise `Retry-After`/`X-RateLimit-Reset-After` et diffère les appels suivants après 429. Le gouverneur distribué, les buckets partagés et la fairness multi-workload restent strictement STAGE 03.
 - Écart aux sources : aucun écart Discord identifié lors de la relecture du 2026-08-16.
+
+## IMP-008 — Routage opérationnel multi-tenant des runtimes STAGE 03
+
+- Date : 2026-08-17
+- Statut : `RESOLVED`
+- Décision : le worker et le scheduler découvrent du travail global uniquement au moyen de trois fonctions PostgreSQL `SECURITY DEFINER` bornées et allowlistées qui retournent des `guild_id`, jamais des lignes métier. Les droits `PUBLIC` sont révoqués et seul `did_app` peut les exécuter. Toute lecture ou mutation qui suit rouvre une transaction avec `TenantContext` et reste soumise aux politiques RLS.
+- Wakeup/recovery : Redis transporte des hints perdables contenant seulement les IDs de Guild. PostgreSQL reste la source durable ; un polling de récupération borné retrouve jobs et outbox si Redis est vidé ou indisponible. Le scheduler enqueue seulement, le worker exécute le REST Discord hors transaction, puis ack/retry durablement.
+- Effets Redis : invalidation du hot cache, wakeup et Pub/Sub sont exécutés par l’outbox après commit PostgreSQL. Une panne Redis conserve la ligne `PENDING` avec backoff ; aucun chemin API/Gateway/reconcile ne transforme le cache Redis en vérité durable.
