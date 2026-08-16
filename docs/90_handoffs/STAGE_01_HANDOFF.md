@@ -5,8 +5,8 @@
 | Date | `2026-08-16` |
 | Base `main` | `5f27d043c0e3f3f1d38fda361720113c4e9f67db` (`implementation-baseline^{}`) |
 | Commit d’implémentation | `96f545a249e330906bf941e088dd8d63d6f856a6` |
-| Branche / PR | `stage/01-foundations` / en attente de publication de la branche |
-| Statut | `COMPLETE` localement ; publication GitHub à finaliser |
+| Branche / PR | `stage/01-foundations` / [draft PR #1](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/1) |
+| Statut | `COMPLETE` ; branche publiée et draft PR ouverte |
 
 ## Livré
 
@@ -51,12 +51,12 @@ Images : `python:3.13.14-slim-trixie`, `postgres:18.4-alpine`, `redis:8.8.1-alpi
 
 ## État opérationnel
 
-- stack test : PostgreSQL `18.4` et Redis `8.8.1` healthy au dernier contrôle ; arrêt et suppression des volumes prévus après publication ;
+- stack test : PostgreSQL `18.4` et Redis `8.8.1` étaient healthy pendant la validation, puis la stack a été arrêtée proprement avec `docker compose -f compose.test.yaml down` ;
 - dernière migration : `0001_stage_01` (Alembic head) ;
 - Guild sandbox : non requise et non configurée pour STAGE 01 ;
 - secrets/configuration encore requis : aucun secret Discord ; uniquement les URLs locales factices de Compose ;
 - jobs/queues/locks résiduels : aucun ; aucune fonctionnalité Discord, OAuth, cache métier, plan ou campagne n’existe ;
-- CI : workflow livré, exécution distante en attente de publication.
+- CI : workflow livré ; exécution distante déclenchée par la publication de la branche/PR.
 
 ## Écarts, risques et bugs connus
 

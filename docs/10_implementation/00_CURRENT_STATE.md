@@ -2,7 +2,7 @@
 
 | Champ | Valeur |
 |---|---|
-| Current stage | `STAGE_01_COMPLETE_PENDING_PUBLICATION` |
+| Current stage | `STAGE_01_COMPLETE_PR_OPEN` |
 | Last completed stage | `STAGE_01_REPOSITORY_ENVIRONMENT_AND_FOUNDATIONS` |
 | Documentation baseline commit | `c285ac81afb0ec7a3c3197085ceff821a5d1c446` |
 | Initial publication-state commit | `677d2d5d1782930c3030a867549ea1601cbc2b05` |
@@ -11,7 +11,7 @@
 | Implemented subsystems | Monorepo ; settings/redaction ; FastAPI health ; PostgreSQL/Redis ; SQLAlchemy/Alembic ; RLS/tenant context ; skeleton bot/worker/scheduler ; React/Vite shell ; quality/CI/scripts |
 | Tests status | `python scripts/validate_stage.py 01` PASS — 22 unit, 4 integration, 3 frontend ; RLS A/B/absence/cross-write et pool reuse PASS |
 | Documentation status | `python scripts/validate_documentation.py` PASS — 11 stages, 246/246 REQ, 35 ADR |
-| GitHub publication | Branche/PR STAGE 01 en attente de publication |
+| GitHub publication | `stage/01-foundations` poussée ; [draft PR #1](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/1) ouverte vers `main` |
 | GitHub repository | `Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION` |
 | GitHub visibility | `PUBLIC_DURING_DEVELOPMENT` |
 | Git remote | `origin` → `https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION.git` |
