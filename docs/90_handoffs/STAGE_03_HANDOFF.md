@@ -8,6 +8,7 @@
 | Draft PR | [#3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) vers `main` |
 | Commit code initial | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | Commit correctif runtime | `8127e80616fcd57247377386422eb5082003e527` |
+| Commit format | `6a964642151a3fa048706c3c5753cfe8585ef287` |
 | Migration | `0002_stage_02 -> 0003_stage_03 -> 0004_stage_03` |
 | Statut | `CORRECTED_PR_OPEN` |
 
@@ -79,11 +80,11 @@ Discord n’expose pas de commit/révision stable pour ces pages. Le JSON du 202
 
 | Commande/scénario | Résultat | Preuve |
 |---|---|---|
-| `python scripts/validate_stage.py 03` | PASS attendu au HEAD correctif; 92 unit + 40 integration + 4 frontend lors du contrôle préparatoire | preuve locale finale sous `artifacts/test-evidence/stage-03/` et CI du nouveau HEAD |
-| `python scripts/validate_stage.py 03 --profile load` | PASS préparatoire, 4 load dont pipeline durable A=300/B=30 | `load-fairness.json` du run final et artifact CI `stage-03-load` |
-| `python scripts/validate_stage.py 01` | PASS de précheck; régression finale requise au nouveau HEAD | preuve locale finale sous `artifacts/test-evidence/stage-01/` |
-| `python scripts/validate_stage.py 02` | PASS de précheck; régression finale requise au nouveau HEAD | preuve locale finale sous `artifacts/test-evidence/stage-02/` |
-| migrations `base/0001/0002/0003 -> 0004`, `0004 -> 0002 -> 0004` | PASS préparatoire | JUnit/résumé Stage 03 final |
+| `python scripts/validate_stage.py 03` | PASS, 92 unit + 40 integration + 4 frontend | `artifacts/test-evidence/stage-03/20260816T224913851301Z-6a964642151a-local-docker/` et CI du nouveau HEAD |
+| `python scripts/validate_stage.py 03 --profile load` | PASS, 4 load dont pipeline durable A=300/B=30 | `artifacts/test-evidence/stage-03/20260816T224954694458Z-6a964642151a-local-docker/load-fairness.json` et artifact CI `stage-03-load` |
+| `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260816T224749379966Z-6a964642151a-local-docker/` |
+| `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260816T224835595039Z-6a964642151a-local-docker/` |
+| migrations `base/0001/0002/0003 -> 0004`, `0004 -> 0002 -> 0004` | PASS | JUnit/résumé Stage 03 final |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
 | Redis down/reprise, génération single-flight, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
 | gap persistant, stale no-effect, purge/tombstone/reobserve REST, RLS | PASS | `test_stage03_postgres.py` et tests security/failure |
