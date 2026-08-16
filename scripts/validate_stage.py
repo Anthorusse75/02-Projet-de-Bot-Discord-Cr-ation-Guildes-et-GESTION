@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from argparse import ArgumentParser
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -51,7 +52,7 @@ class Result:
 
 @dataclass(frozen=True, slots=True)
 class StageDefinition:
-    steps: Callable[[Path], tuple[Step, ...]]
+    steps: Callable[[Path, bool], tuple[Step, ...]]
     requirements: tuple[str, ...]
 
 
@@ -61,7 +62,7 @@ def executable(name: str) -> str:
     return name
 
 
-def stage_01(evidence_directory: Path) -> tuple[Step, ...]:
+def stage_01(evidence_directory: Path, include_discord_live: bool = False) -> tuple[Step, ...]:
     uv = executable("uv")
     npm = executable("npm")
     python = sys.executable
@@ -158,6 +159,55 @@ def stage_01(evidence_directory: Path) -> tuple[Step, ...]:
     )
 
 
+def stage_02(evidence_directory: Path, include_discord_live: bool = False) -> tuple[Step, ...]:
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    uv = executable("uv")
+    migration_rehearsal = [
+        Step(
+            "migration downgrade base on disposable database",
+            (uv, "run", "alembic", "downgrade", "base"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration empty base to head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration downgrade to STAGE 01",
+            (uv, "run", "alembic", "downgrade", "0001_stage_01"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration STAGE 01 to head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+    ]
+    base_steps[migration_index : migration_index + 1] = migration_rehearsal
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage02.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step(
+            "Discord live sandbox validation",
+            tuple(live_arguments),
+            timeout_seconds=1800,
+        )
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -168,7 +218,19 @@ STAGES: dict[str, StageDefinition] = {
             "REQ-AUD-004",
             "REQ-BOT-001",
         ),
-    )
+    ),
+    "02": StageDefinition(
+        steps=stage_02,
+        requirements=(
+            *(f"REQ-INST-{index:03d}" for index in range(1, 8)),
+            *(f"REQ-AUTH-{index:03d}" for index in range(1, 15)),
+            *(f"REQ-TEN-{index:03d}" for index in range(1, 11)),
+            "REQ-BOT-001",
+            "REQ-BOT-002",
+            "REQ-BOT-003",
+            "REQ-BOT-007",
+        ),
+    ),
 }
 
 
@@ -294,6 +356,7 @@ def write_summary(
     run_id: str,
     started_at: datetime,
     evidence_directory: Path,
+    include_discord_live: bool = False,
 ) -> dict[str, object]:
     result = (
         "PASS"
@@ -312,7 +375,8 @@ def write_summary(
         "generated_at": datetime.now(UTC).isoformat(),
         "environment": environment,
         "commands": [
-            f"python scripts/validate_stage.py {stage}",
+            "python scripts/validate_stage.py "
+            f"{stage}{' --include-discord-live' if include_discord_live else ''}",
             *(gate.command for gate in results),
         ],
         "result": result,
@@ -327,12 +391,16 @@ def write_summary(
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in STAGES:
+    parser = ArgumentParser(description="Validate one implementation stage")
+    parser.add_argument("stage", choices=sorted(STAGES))
+    parser.add_argument("--include-discord-live", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.stage not in STAGES:
         known = ", ".join(sorted(STAGES))
         print(f"Usage: python scripts/validate_stage.py <stage>; known stages: {known}")
         return 2
 
-    stage = sys.argv[1]
+    stage = arguments.stage
     definition = STAGES[stage]
     started_at = datetime.now(UTC)
     commit = tested_commit()
@@ -345,7 +413,7 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    steps = definition.steps(evidence_directory)
+    steps = definition.steps(evidence_directory, arguments.include_discord_live)
     results: list[Result] = []
     for step in steps:
         result = run_step(step)
@@ -365,6 +433,7 @@ def main() -> int:
         run_id=run_id,
         started_at=started_at,
         evidence_directory=evidence_directory,
+        include_discord_live=arguments.include_discord_live,
     )
     summary_path = relative_path(evidence_directory / "summary.json")
     print(f"\nStage {stage}: {summary['result']} — summary: {summary_path}")

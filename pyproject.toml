@@ -10,7 +10,9 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
   "alembic==1.19.1",
   "asyncpg==0.31.0",
+  "cryptography==50.0.0",
   "fastapi==0.141.1",
+  "httpx==0.28.1",
   "pydantic==2.13.4",
   "pydantic-settings==2.15.0",
   "redis==8.1.0",
@@ -20,7 +22,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "httpx==0.28.1",
   "mypy==2.3.1",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
@@ -38,6 +39,10 @@ testpaths = ["backend/tests"]
 pythonpath = ["."]
 markers = [
   "integration: requires PostgreSQL and Redis from compose.test.yaml",
+  "api: exercises the FastAPI auth and tenant contracts",
+  "security: exercises an explicit security invariant",
+  "failure_injection: exercises a controlled failure or race",
+  "discord_live: requires explicit Discord sandbox credentials",
 ]
 
 [tool.coverage.run]

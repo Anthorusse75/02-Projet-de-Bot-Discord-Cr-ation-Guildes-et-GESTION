@@ -16,6 +16,15 @@ class TenantContext:
             raise ValueError("user_id must be positive when provided")
 
 
+@dataclass(frozen=True, slots=True)
+class UserContext:
+    user_id: int
+
+    def __post_init__(self) -> None:
+        if self.user_id <= 0:
+            raise ValueError("user_id must be positive")
+
+
 _tenant_context: ContextVar[TenantContext | None] = ContextVar("did_tenant_context", default=None)
 
 

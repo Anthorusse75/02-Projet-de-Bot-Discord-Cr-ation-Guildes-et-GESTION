@@ -24,6 +24,12 @@ def guild_namespace(guild_id: int) -> GuildRedisNamespace:
     return GuildRedisNamespace(guild_id)
 
 
+def user_control_key(*segments: str) -> str:
+    if not segments or any(not _SEGMENT.fullmatch(segment) for segment in segments):
+        raise ValueError("Redis key segments must be explicit lowercase safe segments")
+    return f"did:user-control:{':'.join(segments)}"
+
+
 def create_redis_client(redis_url: str) -> Redis:
     return Redis.from_url(redis_url, decode_responses=True)
 

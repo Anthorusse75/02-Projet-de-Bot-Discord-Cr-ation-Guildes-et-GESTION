@@ -21,31 +21,45 @@ EXPECTED_HASHES = {
 }
 
 REQUIRED_PATHS = [
-    "README.md", "AGENTS.md", ".gitignore", ".github/pull_request_template.md",
+    "README.md",
+    "AGENTS.md",
+    ".gitignore",
+    ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/implementation-stage.md",
     "docs/00_reference/REFERENCE_MANIFEST.md",
     "docs/10_implementation/00_MASTER_IMPLEMENTATION_INDEX.md",
     "docs/10_implementation/00_GLOBAL_IMPLEMENTATION_CONTRACT.md",
     "docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md",
     "docs/10_implementation/00_CURRENT_STATE.md",
-    "docs/20_testing/TEST_STRATEGY.md", "docs/20_testing/TEST_EVIDENCE_POLICY.md",
+    "docs/20_testing/TEST_STRATEGY.md",
+    "docs/20_testing/TEST_EVIDENCE_POLICY.md",
     "docs/20_testing/DISCORD_SANDBOX_TEST_MATRIX.md",
     "docs/30_security/SECRETS_AND_CREDENTIALS.md",
     "docs/30_security/THREAT_VALIDATION_CHECKLIST.md",
     "docs/30_security/TENANT_ISOLATION_TEST_POLICY.md",
     "docs/40_decisions/IMPLEMENTATION_DECISIONS.md",
-    "docs/90_handoffs/README.md", "docs/90_handoffs/STAGE_HANDOFF_TEMPLATE.md",
-    "scripts/generate_traceability.py", "scripts/validate_documentation.py",
+    "docs/90_handoffs/README.md",
+    "docs/90_handoffs/STAGE_HANDOFF_TEMPLATE.md",
+    "scripts/generate_traceability.py",
+    "scripts/validate_documentation.py",
 ]
 
 STAGE_HEADINGS = [
-    "## A. Identité", "## B. Sources normatives", "## C. PRECHECK obligatoire",
-    "## D. Scope exact", "## E. Design d’implémentation détaillé",
-    "## F. Liste prévue de fichiers", "## G. Stratégie de tests de l’étape",
-    "## H. Matrice de validation", "## I. Commandes exactes de validation",
-    "## J. Tests Discord réels", "## K. Secrets / credentials nécessaires",
-    "## L. Critères d’acceptation", "## M. Definition of Done",
-    "## N. Handoff obligatoire", "## O. Prompt de démarrage d’un nouveau chat Codex",
+    "## A. Identité",
+    "## B. Sources normatives",
+    "## C. PRECHECK obligatoire",
+    "## D. Scope exact",
+    "## E. Design d’implémentation détaillé",
+    "## F. Liste prévue de fichiers",
+    "## G. Stratégie de tests de l’étape",
+    "## H. Matrice de validation",
+    "## I. Commandes exactes de validation",
+    "## J. Tests Discord réels",
+    "## K. Secrets / credentials nécessaires",
+    "## L. Critères d’acceptation",
+    "## M. Definition of Done",
+    "## N. Handoff obligatoire",
+    "## O. Prompt de démarrage d’un nouveau chat Codex",
 ]
 
 
@@ -54,9 +68,13 @@ def sha256(path: Path) -> str:
 
 
 def source_requirements() -> list[str]:
-    text = (REFERENCE / "01_SPECIFICATIONS_FONCTIONNELLES_DISCORD_INFRA_DESIGNER.md").read_text(encoding="utf-8-sig")
+    text = (REFERENCE / "01_SPECIFICATIONS_FONCTIONNELLES_DISCORD_INFRA_DESIGNER.md").read_text(
+        encoding="utf-8-sig"
+    )
     registry = text.split("# 53. Registre normatif des exigences", 1)[1]
-    return re.findall(r"^- \*\*(REQ-[A-Z0-9-]+) — (?:MUST|SHOULD|MAY)\*\* :", registry, re.MULTILINE)
+    return re.findall(
+        r"^- \*\*(REQ-[A-Z0-9-]+) — (?:MUST|SHOULD|MAY)\*\* :", registry, re.MULTILINE
+    )
 
 
 def trace_requirements() -> list[str]:
@@ -90,7 +108,13 @@ def main(check_git_clean: bool) -> int:
         for heading in STAGE_HEADINGS:
             if heading not in text:
                 errors.append(f"{stage.name}: missing heading {heading}")
-        for token in ("PRECHECK", "Stratégie de tests", "Critères d’acceptation", "Handoff", "Prompt de démarrage"):
+        for token in (
+            "PRECHECK",
+            "Stratégie de tests",
+            "Critères d’acceptation",
+            "Handoff",
+            "Prompt de démarrage",
+        ):
             if token.lower() not in text.lower():
                 errors.append(f"{stage.name}: missing required content token {token}")
         if "```text" not in text or "Implémente uniquement STAGE" not in text:
@@ -113,7 +137,9 @@ def main(check_git_clean: bool) -> int:
     if extra:
         errors.append(f"unknown requirements in traceability: {extra}")
     if len(source) != 246:
-        warnings.append(f"source requirement count changed from imported baseline 246 to {len(source)}")
+        warnings.append(
+            f"source requirement count changed from imported baseline 246 to {len(source)}"
+        )
 
     manifest = (REFERENCE / "REFERENCE_MANIFEST.md").read_text(encoding="utf-8-sig")
     for filename, expected in EXPECTED_HASHES.items():
@@ -133,7 +159,10 @@ def main(check_git_clean: bool) -> int:
             errors.append(f"forbidden product-version token V1/V2/V3 in {path.relative_to(ROOT)}")
 
     secret_patterns = [
-        re.compile(r"(?i)(discord_(?:bot_token|client_secret)|session_secret|encryption_key)[ \t]*=[ \t]*[^<\s][^\r\n\s]{8,}"),
+        re.compile(
+            r"""(?i)(discord_(?:bot_token|client_secret)|session_secret|encryption_key)"""
+            r"""[ \t]*=[ \t]*["'][^<\s"']{8,}["']"""
+        ),
         re.compile(r"(?i)authorization:\s*(?:bot|bearer)\s+[A-Za-z0-9._-]{12,}"),
         re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     ]
@@ -175,7 +204,9 @@ def main(check_git_clean: bool) -> int:
         elif status.stdout.strip():
             errors.append("git worktree is not clean")
 
-    print(f"Stages: {len(stages)} | Source REQ: {len(source)} | Traced REQ: {len(traced)} | ADR expected: 35")
+    print(
+        f"Stages: {len(stages)} | Source REQ: {len(source)} | Traced REQ: {len(traced)} | ADR expected: 35"
+    )
     for warning in warnings:
         print(f"WARNING: {warning}")
     for error in errors:

@@ -39,7 +39,7 @@ def test_summary_contains_policy_metadata_and_detailed_gates(
     step = validate_stage.Step("unit", ("python", "-m", "pytest"), cwd=tmp_path)
     gate = validate_stage.Result("unit", "python -m pytest", ".", "PASS", 1.25, 0)
     definition = validate_stage.StageDefinition(
-        steps=lambda _: (step,),
+        steps=lambda _path, _include_live: (step,),
         requirements=("REQ-EXAMPLE-001",),
     )
 

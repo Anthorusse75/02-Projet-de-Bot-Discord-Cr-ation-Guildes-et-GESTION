@@ -1,6 +1,6 @@
 # Discord Infrastructure Designer
 
-Ce dépôt contient la source de vérité et l’implémentation de **Discord Infrastructure Designer**. STAGE 01 fournit uniquement les fondations techniques ; aucune fonctionnalité Discord, OAuth2 ou dashboard métier n’est simulée.
+Ce dépôt contient la source de vérité et l’implémentation de **Discord Infrastructure Designer**. STAGE 02 ajoute l’authentification OAuth2 Discord backend, les sessions opaques, la sélection de Guild, l’isolation RLS, le bootstrap d’installation et le RBAC interne. Le runtime Gateway, le cache structurel et les mutations Discord restent hors scope jusqu’aux étapes suivantes.
 
 ## Point d’entrée
 
@@ -19,7 +19,7 @@ Les deux documents de [`docs/00_reference/`](docs/00_reference/) restent les sou
 - Docker Desktop avec Docker Compose ;
 - `uv`.
 
-WSL n’est pas requis. Aucun secret ou token Discord n’est nécessaire pour STAGE 01.
+WSL n’est pas requis. Aucun secret Discord n’est nécessaire pour les validations contractuelles et d’intégration. Le profil live explicite utilise uniquement les noms documentés dans `.env.example`; les valeurs réelles restent dans `.env.local`, ignoré par Git.
 
 ## Bootstrap et développement
 
@@ -40,16 +40,18 @@ uv run python -m did.worker
 uv run python -m did.scheduler
 ```
 
-Le frontend minimal démarre avec `cd frontend && npm run dev`. Les seuls endpoints API sont `/health/live` et `/health/ready`.
+Le frontend démarre avec `cd frontend && npm run dev`. Les endpoints livrés sont `/health/live`, `/health/ready`, le flow `/auth/discord/*`, ainsi que les routes versionnées `me` et `guilds` pour la découverte, la sélection, le bootstrap, la désinstallation et le RBAC. Les Snowflakes Discord sont transportés en chaînes.
 
-## Validation STAGE 01
+## Validation STAGE 02
 
 ```bash
 docker compose -f compose.test.yaml up -d --wait
-python scripts/validate_stage.py 01
+python scripts/validate_stage.py 02
+# Après configuration volontaire des deux sandboxes et des secrets dans .env.local :
+python scripts/validate_stage.py 02 --include-discord-live
 docker compose -f compose.test.yaml down --volumes
 python scripts/validate_documentation.py
 git diff --check
 ```
 
-Cette validation utilise de vrais services PostgreSQL et Redis, applique Alembic jusqu’à `0001_stage_01`, vérifie RLS A/B et fail-closed, réutilise explicitement une connexion du pool, puis exécute tous les gates backend/frontend et le scan de secrets.
+Cette validation utilise de vrais services PostgreSQL et Redis, répète les migrations base vide → `0002_stage_02` et `0001_stage_01` → `0002_stage_02`, vérifie RLS A/B, IDOR, sessions/CSRF/OAuth, concurrence et rollback, puis exécute tous les gates backend/frontend et les scans de secrets. Sans l’option live, le rapport Discord porte explicitement le statut `SKIPPED_NOT_VERIFIED`.
