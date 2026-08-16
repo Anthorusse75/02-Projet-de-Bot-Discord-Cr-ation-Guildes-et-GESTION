@@ -78,3 +78,63 @@ jobs:
       - name: Stop test infrastructure
         if: always()
         run: docker compose -f compose.test.yaml down --volumes
+
+  stage-03:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.13.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Start real PostgreSQL and Redis
+        run: docker compose -f compose.test.yaml up -d --wait
+      - name: Validate STAGE 03 without external Discord secrets
+        env:
+          DID_VALIDATION_ENVIRONMENT: ci
+          DID_EVIDENCE_RUN_ID: gha-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ github.sha }}
+          DID_EVIDENCE_ARTIFACT_ID: stage-03-test-evidence-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+        run: python scripts/validate_stage.py 03
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: stage-03-test-evidence-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: artifacts/test-evidence/
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f compose.test.yaml down --volumes
+
+  stage-03-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Validate deterministic STAGE 03 load profile
+        env:
+          DID_VALIDATION_ENVIRONMENT: ci-load
+          DID_EVIDENCE_RUN_ID: gha-load-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ github.sha }}
+          DID_EVIDENCE_ARTIFACT_ID: stage-03-load-evidence-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+        run: python scripts/validate_stage.py 03 --profile load
+      - name: Upload load evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: stage-03-load-evidence-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: artifacts/test-evidence/

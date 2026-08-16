@@ -14,6 +14,8 @@ from did.api.health import ReadinessProbes
 from did.api.health import router as health_router
 from did.api.me import router as me_router
 from did.api.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
+from did.api.runtime_cache import guild_events_socket
+from did.api.runtime_cache import router as runtime_cache_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
@@ -25,6 +27,8 @@ from did.infrastructure.database import (
 )
 from did.infrastructure.logging import configure_logging
 from did.infrastructure.redis import create_redis_client, redis_is_ready
+from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
+from did.infrastructure.runtime_repository import RuntimeRepository
 from did.oauth.crypto import TokenCipher, decode_encryption_key
 from did.oauth.discord import (
     DiscordMemberClient,
@@ -88,6 +92,7 @@ def create_app(
             assert configured.session_secret is not None
             assert configured.oauth_token_encryption_key is not None
             repository = AuthRepository(create_session_factory(engine))
+            runtime_repository = RuntimeRepository(create_session_factory(engine))
             sessions = RedisSessionStore(
                 redis_client,
                 session_secret=configured.session_secret.get_secret_value(),
@@ -128,6 +133,9 @@ def create_app(
                 authorization=authorization,
                 installations=installations,
                 sessions=sessions,
+                runtime_repository=runtime_repository,
+                hot_cache=RedisHotCache(redis_client),
+                pubsub=TenantPubSub(redis_client),
             )
         try:
             yield
@@ -158,6 +166,8 @@ def create_app(
     application.include_router(auth_router)
     application.include_router(me_router)
     application.include_router(guilds_router)
+    application.include_router(runtime_cache_router)
+    application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
     async def handle_api_problem(request: Request, exc: ApiProblem) -> JSONResponse:

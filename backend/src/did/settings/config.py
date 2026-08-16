@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     oauth_state_ttl_seconds: int = Field(default=300, ge=60, le=900)
     guild_discovery_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     authorization_freshness_seconds: int = Field(default=120, ge=15, le=900)
+    discord_member_events_enabled: bool = False
+    discord_global_concurrency: int = Field(default=4, ge=1, le=32)
+    discord_per_guild_concurrency: int = Field(default=1, ge=1, le=8)
+    discord_workload_queue_limit: int = Field(default=1000, ge=10, le=100000)
+    reconcile_active_target_seconds: int = Field(default=21600, ge=300, le=86400)
+    reconcile_inactive_target_seconds: int = Field(default=86400, ge=3600, le=604800)
     frontend_post_auth_path: str = "/"
     cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173",)
 

@@ -34,6 +34,13 @@ class EventId(StrEnum):
     INSTALLATION_BOOTSTRAPPED = "installation.bootstrapped"
     INSTALLATION_UNINSTALLED = "installation.uninstalled"
     RBAC_CHANGED = "rbac.changed"
+    GATEWAY_DISPATCH_REJECTED = "gateway.dispatch.rejected"
+    GATEWAY_GAP_DETECTED = "gateway.gap.detected"
+    GATEWAY_NON_RESUMED = "gateway.non_resumed"
+    DISCORD_WORKLOAD_HALTED = "discord.workload.halted"
+    DISCORD_BACKPRESSURE = "discord.workload.backpressure"
+    REDIS_CACHE_REBUILT = "redis.cache.rebuilt"
+    OUTBOX_PUBLISH_FAILED = "outbox.publish.failed"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"

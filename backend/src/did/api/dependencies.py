@@ -7,6 +7,8 @@ from fastapi import Depends, Request
 from did.application.auth.service import AuthorizationService, AuthService
 from did.application.installations.service import InstallationService
 from did.infrastructure.auth_repository import AuthRepository
+from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
+from did.infrastructure.runtime_repository import RuntimeRepository
 from did.oauth.stores import RedisSessionStore, SessionData
 from did.settings import AppEnvironment, Settings
 
@@ -27,6 +29,9 @@ class ServiceContainer:
     authorization: AuthorizationService
     installations: InstallationService
     sessions: RedisSessionStore
+    runtime_repository: RuntimeRepository
+    hot_cache: RedisHotCache
+    pubsub: TenantPubSub
 
 
 def services(request: Request) -> ServiceContainer:

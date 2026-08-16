@@ -1,0 +1,1210 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import bindparam, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from did.domain.discord_runtime import EventEnvelope, ObservabilityState, WorkloadJob
+from did.infrastructure.auth_repository import InstallationIdentityMismatch
+from did.infrastructure.database import tenant_transaction
+from did.infrastructure.runtime_metrics import RuntimeMetrics
+from did.tenancy import TenantContext
+
+
+class RuntimeRepository:
+    """Durable tenant-scoped event ledger and Discord cache projector."""
+
+    def __init__(
+        self, factory: async_sessionmaker[AsyncSession], *, metrics: RuntimeMetrics | None = None
+    ) -> None:
+        self._factory = factory
+        self.metrics = metrics or RuntimeMetrics()
+        self._application_id: int | None = None
+        self._bot_user_id: int | None = None
+
+    def bind_bot_identity(self, *, application_id: int, bot_user_id: int) -> None:
+        if application_id <= 0 or bot_user_id <= 0:
+            raise ValueError("Discord application and bot identities must be positive")
+        identity = (self._application_id, self._bot_user_id)
+        if identity != (None, None) and identity != (application_id, bot_user_id):
+            raise InstallationIdentityMismatch("runtime bot identity changed after binding")
+        self._application_id = application_id
+        self._bot_user_id = bot_user_id
+
+    async def ingest_gateway_event(self, envelope: EventEnvelope) -> bool:
+        async with tenant_transaction(self._factory, TenantContext(envelope.guild_id)) as session:
+            # The inbox is deliberately FK-bound to an installation. A brand-new guild is
+            # first discovered by GUILD_CREATE, so establish that tenant root in the same
+            # transaction before recording the event. Projection below enriches it.
+            if envelope.event_type == "GUILD_CREATE":
+                existing_identity = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT application_id, bot_user_id FROM guild_installations "
+                                "WHERE guild_id=:guild_id"
+                            ),
+                            {"guild_id": envelope.guild_id},
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing_identity is not None:
+                    application_mismatch = (
+                        self._application_id is not None
+                        and existing_identity["application_id"] is not None
+                        and int(existing_identity["application_id"]) != self._application_id
+                    )
+                    bot_mismatch = (
+                        self._bot_user_id is not None
+                        and existing_identity["bot_user_id"] is not None
+                        and int(existing_identity["bot_user_id"]) != self._bot_user_id
+                    )
+                    if application_mismatch or bot_mismatch:
+                        raise InstallationIdentityMismatch(
+                            "Gateway installation application or bot identity does not match"
+                        )
+                await session.execute(
+                    text(
+                        "INSERT INTO guild_installations "
+                        "(guild_id, name, owner_id, installation_status, last_gateway_seen_at, "
+                        "application_id, bot_user_id) VALUES "
+                        "(:guild_id, :name, :owner_id, 'PENDING_SETUP', :seen_at, "
+                        ":application_id, :bot_user_id) ON CONFLICT (guild_id) DO UPDATE SET "
+                        "application_id=COALESCE(guild_installations.application_id, "
+                        "EXCLUDED.application_id), bot_user_id=COALESCE("
+                        "guild_installations.bot_user_id, EXCLUDED.bot_user_id)"
+                    ),
+                    {
+                        "guild_id": envelope.guild_id,
+                        "name": envelope.payload["name"],
+                        "owner_id": envelope.payload.get("owner_id"),
+                        "seen_at": envelope.received_at,
+                        "application_id": self._application_id,
+                        "bot_user_id": self._bot_user_id,
+                    },
+                )
+            inserted = await session.scalar(
+                text(
+                    "INSERT INTO discord_gateway_inbox "
+                    "(event_id, guild_id, event_type, discord_sequence, discord_session_id, "
+                    "occurred_at, received_at, correlation_id, causation_id, schema_version, "
+                    "source, origin, causation_depth, payload) VALUES "
+                    "(:event_id, :guild_id, :event_type, :discord_sequence, :session_id, "
+                    ":occurred_at, :received_at, :correlation_id, :causation_id, "
+                    ":schema_version, :source, :origin, :causation_depth, CAST(:payload AS jsonb)) "
+                    "ON CONFLICT DO NOTHING RETURNING event_id"
+                ),
+                {
+                    "event_id": envelope.event_id,
+                    "guild_id": envelope.guild_id,
+                    "event_type": envelope.event_type,
+                    "discord_sequence": envelope.discord_sequence,
+                    "session_id": envelope.discord_session_id,
+                    "occurred_at": envelope.occurred_at,
+                    "received_at": envelope.received_at,
+                    "correlation_id": envelope.correlation_id,
+                    "causation_id": envelope.causation_id,
+                    "schema_version": envelope.schema_version,
+                    "source": envelope.source.value,
+                    "origin": envelope.origin.value,
+                    "causation_depth": envelope.causation_depth,
+                    "payload": json.dumps(envelope.payload, separators=(",", ":")),
+                },
+            )
+            if inserted is None:
+                self.metrics.gateway_signal("duplicate")
+                return False
+            self.metrics.gateway_signal("dispatch")
+            await self._project(session, envelope)
+            await session.execute(
+                text(
+                    "UPDATE discord_gateway_inbox SET status='PROJECTED', projected_at=now() "
+                    "WHERE event_id=:event_id"
+                ),
+                {"event_id": envelope.event_id},
+            )
+            await self._append_outbox(
+                session,
+                guild_id=envelope.guild_id,
+                topic="discord.cache.changed",
+                payload={
+                    "event_id": str(envelope.event_id),
+                    "event_type": envelope.event_type,
+                    "guild_id": str(envelope.guild_id),
+                },
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.event_id,
+            )
+            await self._refresh_coverage(session, envelope.guild_id, envelope.received_at)
+            return True
+
+    async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> None:
+        event_type = envelope.event_type
+        if event_type in {"CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE"}:
+            await self._project_channel(session, envelope, envelope.payload)
+        elif event_type in {"GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE"}:
+            await self._project_role(session, envelope, envelope.payload)
+        elif event_type == "GUILD_CREATE":
+            await self._project_guild_create(session, envelope)
+        elif event_type == "GUILD_UPDATE":
+            await session.execute(
+                text(
+                    "UPDATE guild_installations SET "
+                    "name=COALESCE(:name, name), owner_id=COALESCE(:owner_id, owner_id), "
+                    "last_gateway_seen_at=:seen_at, version=version+1 "
+                    "WHERE guild_id=:guild_id"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "name": envelope.payload.get("name"),
+                    "owner_id": envelope.payload.get("owner_id"),
+                    "seen_at": envelope.received_at,
+                },
+            )
+        elif event_type == "GUILD_DELETE":
+            await self._project_guild_delete(session, envelope)
+        elif event_type == "GUILD_MEMBER_UPDATE":
+            await self._project_member(session, envelope)
+
+    async def _project_guild_create(self, session: AsyncSession, envelope: EventEnvelope) -> None:
+        payload = envelope.payload
+        await session.execute(
+            text(
+                "INSERT INTO guild_installations "
+                "(guild_id, name, owner_id, installation_status, last_gateway_seen_at) VALUES "
+                "(:guild_id, :name, :owner_id, 'PENDING_SETUP', :seen_at) "
+                "ON CONFLICT (guild_id) DO UPDATE SET "
+                "name=EXCLUDED.name, owner_id=COALESCE(EXCLUDED.owner_id, "
+                "guild_installations.owner_id), "
+                "last_gateway_seen_at=EXCLUDED.last_gateway_seen_at, "
+                "installation_status=CASE "
+                "WHEN guild_installations.installation_status IN "
+                "('DISCOVERED','INSTALLED','UNINSTALLED') "
+                "THEN 'PENDING_SETUP' ELSE guild_installations.installation_status END, "
+                "uninstalled_at=CASE WHEN guild_installations.installation_status='UNINSTALLED' "
+                "THEN NULL ELSE guild_installations.uninstalled_at END, "
+                "version=guild_installations.version+1"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "name": payload["name"],
+                "owner_id": payload.get("owner_id"),
+                "seen_at": envelope.received_at,
+            },
+        )
+        for channel in payload.get("channels", []):
+            await self._project_channel(session, envelope, channel, audit=False)
+        for role in payload.get("roles", []):
+            await self._project_role(session, envelope, role, audit=False)
+        await self._append_audit(
+            session,
+            envelope,
+            event_type="INSTALLATION_DETECTED",
+            target_type="GUILD",
+            target_id=envelope.guild_id,
+            result_state="OBSERVED",
+        )
+
+    async def _project_guild_delete(self, session: AsyncSession, envelope: EventEnvelope) -> None:
+        if bool(envelope.payload.get("unavailable")):
+            await session.execute(
+                text(
+                    "UPDATE discord_cache_coverage SET gateway_continuity='DISCONNECTED', "
+                    "freshness_state='STALE', updated_at=now(), state_version=state_version+1 "
+                    "WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": envelope.guild_id},
+            )
+            return
+        await session.execute(
+            text(
+                "UPDATE guild_installations SET installation_status='UNINSTALLED', "
+                "uninstalled_at=:seen_at, last_gateway_seen_at=:seen_at, version=version+1 "
+                "WHERE guild_id=:guild_id"
+            ),
+            {"guild_id": envelope.guild_id, "seen_at": envelope.received_at},
+        )
+        await session.execute(
+            text(
+                "UPDATE discord_io_jobs SET status='CANCELLED', updated_at=now() "
+                "WHERE guild_id=:guild_id AND status IN ('PENDING','LEASED')"
+            ),
+            {"guild_id": envelope.guild_id},
+        )
+        await self._append_audit(
+            session,
+            envelope,
+            event_type="INSTALLATION_UNINSTALLED",
+            target_type="GUILD",
+            target_id=envelope.guild_id,
+            result_state="UNINSTALLED",
+        )
+
+    async def _project_channel(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        payload: dict[str, Any],
+        *,
+        audit: bool = True,
+    ) -> None:
+        channel_id = int(payload["channel_id"])
+        if envelope.event_type == "CHANNEL_DELETE":
+            await session.execute(
+                text(
+                    "INSERT INTO discord_channels_cache "
+                    "(guild_id, channel_id, type, parent_id, position, flags, observability_state, "
+                    "is_obfuscated, freshness_state, deleted_confirmed_at, last_gateway_seen_at, "
+                    "last_gateway_sequence, last_gateway_session_id) VALUES "
+                    "(:guild_id, :channel_id, :type, :parent_id, :position, :flags, "
+                    "'DELETED_CONFIRMED', false, 'FRESH', :seen_at, :seen_at, :sequence, "
+                    ":session_id) "
+                    "ON CONFLICT (guild_id, channel_id) DO UPDATE SET "
+                    "observability_state='DELETED_CONFIRMED', is_obfuscated=false, "
+                    "freshness_state='FRESH', deleted_confirmed_at=EXCLUDED.deleted_confirmed_at, "
+                    "last_gateway_seen_at=EXCLUDED.last_gateway_seen_at, "
+                    "last_gateway_sequence=EXCLUDED.last_gateway_sequence, "
+                    "last_gateway_session_id=EXCLUDED.last_gateway_session_id, "
+                    "state_version=discord_channels_cache.state_version+1, cache_updated_at=now() "
+                    "WHERE discord_channels_cache.last_gateway_session_id IS DISTINCT FROM "
+                    "EXCLUDED.last_gateway_session_id OR "
+                    "discord_channels_cache.last_gateway_sequence IS NULL OR "
+                    "EXCLUDED.last_gateway_sequence >= discord_channels_cache.last_gateway_sequence"
+                ),
+                self._channel_parameters(envelope, payload),
+            )
+            drift_type = "CHANNEL_DELETED"
+        elif bool(payload.get("is_obfuscated")):
+            await session.execute(
+                text(
+                    "INSERT INTO discord_channels_cache "
+                    "(guild_id, channel_id, type, parent_id, position, flags, observability_state, "
+                    "is_obfuscated, freshness_state, access_lost_at, obfuscated_at, "
+                    "last_gateway_seen_at, last_gateway_sequence, last_gateway_session_id) VALUES "
+                    "(:guild_id, :channel_id, :type, :parent_id, :position, :flags, "
+                    "'OBFUSCATED', true, 'FRESH', :seen_at, :seen_at, :seen_at, :sequence, "
+                    ":session_id) "
+                    "ON CONFLICT (guild_id, channel_id) DO UPDATE SET "
+                    "type=EXCLUDED.type, parent_id=EXCLUDED.parent_id, position=EXCLUDED.position, "
+                    "flags=EXCLUDED.flags, observability_state='OBFUSCATED', is_obfuscated=true, "
+                    "freshness_state='FRESH', access_lost_at=COALESCE("
+                    "discord_channels_cache.access_lost_at, EXCLUDED.access_lost_at), "
+                    "obfuscated_at=EXCLUDED.obfuscated_at, "
+                    "last_gateway_seen_at=EXCLUDED.last_gateway_seen_at, "
+                    "last_gateway_sequence=EXCLUDED.last_gateway_sequence, "
+                    "last_gateway_session_id=:session_id, "
+                    "state_version=discord_channels_cache.state_version+1, cache_updated_at=now() "
+                    "WHERE discord_channels_cache.last_gateway_session_id IS DISTINCT FROM "
+                    ":session_id OR discord_channels_cache.last_gateway_sequence IS NULL OR "
+                    "EXCLUDED.last_gateway_sequence >= discord_channels_cache.last_gateway_sequence"
+                ),
+                self._channel_parameters(envelope, payload),
+            )
+            drift_type = "CHANNEL_OBFUSCATED"
+        else:
+            result = await session.execute(
+                text(
+                    "INSERT INTO discord_channels_cache "
+                    "(guild_id, channel_id, type, name, topic, parent_id, position, nsfw, flags, "
+                    "last_full_payload, observability_state, is_obfuscated, freshness_state, "
+                    "last_full_observed_at, last_gateway_seen_at, last_gateway_sequence, "
+                    "last_gateway_session_id) VALUES "
+                    "(:guild_id, :channel_id, :type, :name, :topic, :parent_id, :position, :nsfw, "
+                    ":flags, CAST(:full_payload AS jsonb), 'VISIBLE', false, 'FRESH', :seen_at, "
+                    ":seen_at, :sequence, :session_id) "
+                    "ON CONFLICT (guild_id, channel_id) DO UPDATE SET "
+                    "type=EXCLUDED.type, name=EXCLUDED.name, topic=EXCLUDED.topic, "
+                    "parent_id=EXCLUDED.parent_id, position=EXCLUDED.position, nsfw=EXCLUDED.nsfw, "
+                    "flags=EXCLUDED.flags, last_full_payload=EXCLUDED.last_full_payload, "
+                    "observability_state='VISIBLE', is_obfuscated=false, freshness_state='FRESH', "
+                    "last_full_observed_at=EXCLUDED.last_full_observed_at, "
+                    "last_gateway_seen_at=EXCLUDED.last_gateway_seen_at, access_lost_at=NULL, "
+                    "obfuscated_at=NULL, deleted_confirmed_at=NULL, "
+                    "last_gateway_sequence=EXCLUDED.last_gateway_sequence, "
+                    "last_gateway_session_id=:session_id, "
+                    "state_version=discord_channels_cache.state_version+1, cache_updated_at=now() "
+                    "WHERE discord_channels_cache.last_gateway_session_id IS DISTINCT FROM "
+                    ":session_id OR discord_channels_cache.last_gateway_sequence IS NULL OR "
+                    "EXCLUDED.last_gateway_sequence >= "
+                    "discord_channels_cache.last_gateway_sequence "
+                    "RETURNING channel_id"
+                ),
+                self._channel_parameters(envelope, payload),
+            )
+            applied = result.scalar_one_or_none()
+            if applied is not None:
+                reobserved = await session.scalar(
+                    text(
+                        "DELETE FROM discord_channel_tombstones "
+                        "WHERE guild_id=:guild_id AND channel_id=:channel_id RETURNING channel_id"
+                    ),
+                    {"guild_id": envelope.guild_id, "channel_id": channel_id},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM channel_overwrites_cache "
+                        "WHERE guild_id=:guild_id AND channel_id=:channel_id"
+                    ),
+                    {"guild_id": envelope.guild_id, "channel_id": channel_id},
+                )
+                await self._insert_overwrites(
+                    session,
+                    guild_id=envelope.guild_id,
+                    channel_id=channel_id,
+                    overwrites=payload.get("permission_overwrites", []),
+                    observed_at=envelope.received_at,
+                )
+                if reobserved is not None:
+                    await self._append_audit(
+                        session,
+                        envelope,
+                        event_type="PURGED_RESOURCE_REOBSERVED",
+                        target_type="CHANNEL",
+                        target_id=channel_id,
+                        result_state="VISIBLE",
+                    )
+            drift_type = (
+                "CHANNEL_CREATED_OUTSIDE_PLATFORM"
+                if envelope.event_type == "CHANNEL_CREATE"
+                else "CHANNEL_PERMISSION_CHANGED"
+            )
+        if audit:
+            await self._append_audit(
+                session,
+                envelope,
+                event_type=drift_type,
+                target_type="CHANNEL",
+                target_id=channel_id,
+                result_state=str(
+                    ObservabilityState.DELETED_CONFIRMED.value
+                    if envelope.event_type == "CHANNEL_DELETE"
+                    else (
+                        ObservabilityState.OBFUSCATED.value
+                        if payload.get("is_obfuscated")
+                        else ObservabilityState.VISIBLE.value
+                    )
+                ),
+            )
+
+    def _channel_parameters(
+        self, envelope: EventEnvelope, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "guild_id": envelope.guild_id,
+            "channel_id": int(payload["channel_id"]),
+            "type": int(payload["type"]),
+            "name": payload.get("name"),
+            "topic": payload.get("topic"),
+            "parent_id": payload.get("parent_id"),
+            "position": int(payload.get("position", 0)),
+            "nsfw": payload.get("nsfw"),
+            "flags": int(payload.get("flags", 0)),
+            "full_payload": json.dumps(payload, separators=(",", ":")),
+            "seen_at": envelope.received_at,
+            "sequence": envelope.discord_sequence,
+            "session_id": envelope.discord_session_id,
+        }
+
+    async def _insert_overwrites(
+        self,
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        channel_id: int,
+        overwrites: Iterable[dict[str, Any]],
+        observed_at: datetime,
+    ) -> None:
+        statement = text(
+            "INSERT INTO channel_overwrites_cache "
+            "(guild_id, channel_id, target_id, target_type, allow_bits, deny_bits, "
+            "last_full_observed_at) VALUES "
+            "(:guild_id, :channel_id, :target_id, :target_type, :allow_bits, :deny_bits, "
+            ":observed_at)"
+        )
+        for overwrite in overwrites:
+            await session.execute(
+                statement,
+                {
+                    "guild_id": guild_id,
+                    "channel_id": channel_id,
+                    "target_id": int(overwrite["id"]),
+                    "target_type": int(overwrite["type"]),
+                    "allow_bits": int(overwrite.get("allow", 0)),
+                    "deny_bits": int(overwrite.get("deny", 0)),
+                    "observed_at": observed_at,
+                },
+            )
+
+    async def _project_role(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        payload: dict[str, Any],
+        *,
+        audit: bool = True,
+    ) -> None:
+        role_id = int(payload["role_id"])
+        if envelope.event_type == "GUILD_ROLE_DELETE":
+            await session.execute(
+                text(
+                    "UPDATE discord_roles_cache SET deleted_confirmed_at=:seen_at, "
+                    "last_gateway_seen_at=:seen_at, last_gateway_session_id=:session_id, "
+                    "last_gateway_sequence=:sequence, state_version=state_version+1, "
+                    "cache_updated_at=now() WHERE guild_id=:guild_id AND role_id=:role_id "
+                    "AND (last_gateway_session_id IS DISTINCT FROM :session_id OR "
+                    "last_gateway_sequence IS NULL OR :sequence >= last_gateway_sequence)"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "role_id": role_id,
+                    "seen_at": envelope.received_at,
+                    "session_id": envelope.discord_session_id,
+                    "sequence": envelope.discord_sequence,
+                },
+            )
+            drift_type = "ROLE_DELETED"
+        else:
+            await session.execute(
+                text(
+                    "INSERT INTO discord_roles_cache "
+                    "(guild_id, role_id, name, position, permissions_bits, managed, color, hoist, "
+                    "mentionable, raw_json, last_gateway_seen_at, last_gateway_session_id, "
+                    "last_gateway_sequence) VALUES "
+                    "(:guild_id, :role_id, :name, :position, :permissions, :managed, :color, "
+                    ":hoist, :mentionable, CAST(:raw_json AS jsonb), :seen_at, :session_id, "
+                    ":sequence) "
+                    "ON CONFLICT (guild_id, role_id) DO UPDATE SET name=EXCLUDED.name, "
+                    "position=EXCLUDED.position, permissions_bits=EXCLUDED.permissions_bits, "
+                    "managed=EXCLUDED.managed, color=EXCLUDED.color, hoist=EXCLUDED.hoist, "
+                    "mentionable=EXCLUDED.mentionable, raw_json=EXCLUDED.raw_json, "
+                    "last_gateway_seen_at=EXCLUDED.last_gateway_seen_at, "
+                    "last_gateway_session_id=:session_id, last_gateway_sequence=:sequence, "
+                    "deleted_confirmed_at=NULL, "
+                    "state_version=discord_roles_cache.state_version+1, cache_updated_at=now() "
+                    "WHERE discord_roles_cache.last_gateway_session_id IS DISTINCT FROM "
+                    ":session_id OR discord_roles_cache.last_gateway_sequence IS NULL OR "
+                    ":sequence >= discord_roles_cache.last_gateway_sequence"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "role_id": role_id,
+                    "name": payload["name"],
+                    "position": payload["position"],
+                    "permissions": payload["permissions"],
+                    "managed": payload["managed"],
+                    "color": payload["color"],
+                    "hoist": payload["hoist"],
+                    "mentionable": payload["mentionable"],
+                    "raw_json": json.dumps(payload, separators=(",", ":")),
+                    "seen_at": envelope.received_at,
+                    "session_id": envelope.discord_session_id,
+                    "sequence": envelope.discord_sequence,
+                },
+            )
+            drift_type = (
+                "ROLE_MOVED" if envelope.event_type == "GUILD_ROLE_UPDATE" else "ROLE_CREATED"
+            )
+        await session.execute(
+            text(
+                "UPDATE discord_member_authorization_cache SET validity='INVALIDATED', "
+                "invalidated_at=:seen_at, cache_updated_at=now() WHERE guild_id=:guild_id"
+            ),
+            {"guild_id": envelope.guild_id, "seen_at": envelope.received_at},
+        )
+        if audit:
+            await self._append_audit(
+                session,
+                envelope,
+                event_type=drift_type,
+                target_type="ROLE",
+                target_id=role_id,
+                result_state="OBSERVED",
+            )
+
+    async def _project_member(self, session: AsyncSession, envelope: EventEnvelope) -> None:
+        await session.execute(
+            text(
+                "INSERT INTO discord_member_authorization_cache "
+                "(guild_id, discord_user_id, role_ids, source, validity, observed_at) VALUES "
+                "(:guild_id, :user_id, :role_ids, 'GATEWAY', 'FRESH', :seen_at) "
+                "ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET "
+                "role_ids=EXCLUDED.role_ids, source='GATEWAY', validity='FRESH', "
+                "observed_at=EXCLUDED.observed_at, invalidated_at=NULL, cache_updated_at=now()"
+            ).bindparams(bindparam("role_ids")),
+            {
+                "guild_id": envelope.guild_id,
+                "user_id": int(envelope.payload["discord_user_id"]),
+                "role_ids": [int(role_id) for role_id in envelope.payload["role_ids"]],
+                "seen_at": envelope.received_at,
+            },
+        )
+
+    async def _refresh_coverage(
+        self, session: AsyncSession, guild_id: int, observed_at: datetime
+    ) -> None:
+        await session.execute(
+            text(
+                "INSERT INTO discord_cache_coverage "
+                "(guild_id, coverage_mode, freshness_state, known_channels, visible_channels, "
+                "obfuscated_channels, known_roles, last_gateway_event_at) SELECT "
+                ":guild_id, 'PARTIAL', 'FRESH', "
+                "(SELECT count(*) FROM discord_channels_cache WHERE guild_id=:guild_id), "
+                "(SELECT count(*) FROM discord_channels_cache WHERE guild_id=:guild_id "
+                "AND observability_state='VISIBLE'), "
+                "(SELECT count(*) FROM discord_channels_cache WHERE guild_id=:guild_id "
+                "AND observability_state='OBFUSCATED'), "
+                "(SELECT count(*) FROM discord_roles_cache WHERE guild_id=:guild_id "
+                "AND deleted_confirmed_at IS NULL), :observed_at "
+                "ON CONFLICT (guild_id) DO UPDATE SET "
+                "known_channels=EXCLUDED.known_channels, "
+                "visible_channels=EXCLUDED.visible_channels, "
+                "obfuscated_channels=EXCLUDED.obfuscated_channels, "
+                "known_roles=EXCLUDED.known_roles, "
+                "last_gateway_event_at=EXCLUDED.last_gateway_event_at, freshness_state='FRESH', "
+                "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
+            ),
+            {"guild_id": guild_id, "observed_at": observed_at},
+        )
+
+    async def _append_audit(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        *,
+        event_type: str,
+        target_type: str,
+        target_id: int | str,
+        result_state: str,
+    ) -> None:
+        await session.execute(
+            text(
+                "INSERT INTO internal_audit_events "
+                "(id, guild_id, source, event_type, target_type, target_id, correlation_id, "
+                "causation_id, result_state, data_json, occurred_at) VALUES "
+                "(:id, :guild_id, 'DISCORD', :event_type, :target_type, :target_id, "
+                ":correlation_id, :causation_id, :result_state, CAST(:data AS jsonb), :occurred_at)"
+            ),
+            {
+                "id": uuid4(),
+                "guild_id": envelope.guild_id,
+                "event_type": event_type,
+                "target_type": target_type,
+                "target_id": str(target_id),
+                "correlation_id": envelope.correlation_id,
+                "causation_id": envelope.event_id,
+                "result_state": result_state,
+                "data": json.dumps({"origin": envelope.origin.value}),
+                "occurred_at": envelope.occurred_at or envelope.received_at,
+            },
+        )
+
+    async def _append_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        topic: str,
+        payload: dict[str, Any],
+        correlation_id: UUID,
+        causation_id: UUID | None,
+    ) -> UUID:
+        event_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO discord_outbox "
+                "(event_id, guild_id, topic, payload, correlation_id, causation_id) VALUES "
+                "(:event_id, :guild_id, :topic, CAST(:payload AS jsonb), "
+                ":correlation_id, :causation_id)"
+            ),
+            {
+                "event_id": event_id,
+                "guild_id": guild_id,
+                "topic": topic,
+                "payload": json.dumps(payload, separators=(",", ":")),
+                "correlation_id": correlation_id,
+                "causation_id": causation_id,
+            },
+        )
+        return event_id
+
+    async def channels(
+        self,
+        guild_id: int,
+        actor_user_id: int | None,
+        *,
+        include_hidden_deleted: bool = False,
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT guild_id, channel_id, type, name, topic, parent_id, position, nsfw, "
+            "observability_state, is_obfuscated, freshness_state, last_full_observed_at, "
+            "last_gateway_seen_at, last_rest_seen_at, last_mutation_confirmed_at, "
+            "access_lost_at, obfuscated_at, deleted_confirmed_at, state_version, "
+            "cache_updated_at FROM discord_channels_cache WHERE guild_id=:guild_id "
+        )
+        if not include_hidden_deleted:
+            query += "AND observability_state='VISIBLE' "
+        query += "ORDER BY position, channel_id"
+        async with tenant_transaction(
+            self._factory, TenantContext(guild_id, actor_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(query),
+                        {"guild_id": guild_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def apply_rest_channel_snapshot(
+        self,
+        *,
+        guild_id: int,
+        channels: Iterable[dict[str, Any]],
+        correlation_id: UUID,
+        observed_at: datetime | None = None,
+    ) -> None:
+        observed = observed_at or datetime.now(UTC)
+        normalized = list(channels)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            observed_ids: list[int] = []
+            for channel in normalized:
+                channel_id = int(channel["channel_id"])
+                observed_ids.append(channel_id)
+                await session.execute(
+                    text(
+                        "INSERT INTO discord_channels_cache "
+                        "(guild_id, channel_id, type, name, topic, parent_id, position, "
+                        "nsfw, flags, "
+                        "last_full_payload, observability_state, is_obfuscated, freshness_state, "
+                        "last_full_observed_at, last_rest_seen_at) VALUES "
+                        "(:guild_id, :channel_id, :type, :name, :topic, :parent_id, :position, "
+                        ":nsfw, :flags, CAST(:payload AS jsonb), 'VISIBLE', false, 'FRESH', "
+                        ":observed_at, :observed_at) ON CONFLICT (guild_id, channel_id) "
+                        "DO UPDATE SET "
+                        "type=EXCLUDED.type, name=EXCLUDED.name, topic=EXCLUDED.topic, "
+                        "parent_id=EXCLUDED.parent_id, position=EXCLUDED.position, "
+                        "nsfw=EXCLUDED.nsfw, "
+                        "flags=EXCLUDED.flags, last_full_payload=EXCLUDED.last_full_payload, "
+                        "observability_state='VISIBLE', is_obfuscated=false, "
+                        "freshness_state='FRESH', "
+                        "last_full_observed_at=EXCLUDED.last_full_observed_at, "
+                        "last_rest_seen_at=EXCLUDED.last_rest_seen_at, access_lost_at=NULL, "
+                        "obfuscated_at=NULL, deleted_confirmed_at=NULL, "
+                        "state_version=discord_channels_cache.state_version+1, "
+                        "cache_updated_at=now()"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "channel_id": channel_id,
+                        "type": int(channel["type"]),
+                        "name": channel.get("name"),
+                        "topic": channel.get("topic"),
+                        "parent_id": channel.get("parent_id"),
+                        "position": int(channel.get("position", 0)),
+                        "nsfw": channel.get("nsfw"),
+                        "flags": int(channel.get("flags", 0)),
+                        "payload": json.dumps(channel, separators=(",", ":")),
+                        "observed_at": observed,
+                    },
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM discord_channel_tombstones "
+                        "WHERE guild_id=:guild_id AND channel_id=:channel_id"
+                    ),
+                    {"guild_id": guild_id, "channel_id": channel_id},
+                )
+                await session.execute(
+                    text(
+                        "DELETE FROM channel_overwrites_cache "
+                        "WHERE guild_id=:guild_id AND channel_id=:channel_id"
+                    ),
+                    {"guild_id": guild_id, "channel_id": channel_id},
+                )
+                await self._insert_overwrites(
+                    session,
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    overwrites=channel.get("permission_overwrites", []),
+                    observed_at=observed,
+                )
+            if observed_ids:
+                await session.execute(
+                    text(
+                        "UPDATE discord_channels_cache SET observability_state='ACCESS_LOST', "
+                        "is_obfuscated=false, freshness_state='AGING', "
+                        "access_lost_at=COALESCE(access_lost_at, :observed_at), "
+                        "cache_updated_at=now(), "
+                        "state_version=state_version+1 WHERE guild_id=:guild_id "
+                        "AND observability_state='VISIBLE' "
+                        "AND NOT (channel_id = ANY(:observed_ids))"
+                    ),
+                    {"guild_id": guild_id, "observed_at": observed, "observed_ids": observed_ids},
+                )
+            else:
+                await session.execute(
+                    text(
+                        "UPDATE discord_channels_cache SET observability_state='ACCESS_LOST', "
+                        "is_obfuscated=false, freshness_state='AGING', "
+                        "access_lost_at=COALESCE(access_lost_at, :observed_at), "
+                        "cache_updated_at=now(), "
+                        "state_version=state_version+1 WHERE guild_id=:guild_id "
+                        "AND observability_state='VISIBLE'"
+                    ),
+                    {"guild_id": guild_id, "observed_at": observed},
+                )
+            await session.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id, coverage_mode, freshness_state, last_full_reconcile_at, "
+                    "last_successful_rest_sync_at) VALUES "
+                    "(:guild_id, 'PARTIAL', 'FRESH', :observed_at, :observed_at) "
+                    "ON CONFLICT (guild_id) DO UPDATE SET freshness_state='FRESH', "
+                    "last_full_reconcile_at=EXCLUDED.last_full_reconcile_at, "
+                    "last_successful_rest_sync_at=EXCLUDED.last_successful_rest_sync_at, "
+                    "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
+                ),
+                {"guild_id": guild_id, "observed_at": observed},
+            )
+            await self._append_outbox(
+                session,
+                guild_id=guild_id,
+                topic="discord.cache.reconciled",
+                payload={"guild_id": str(guild_id), "resource_type": "channels"},
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+
+    async def purge_channels(
+        self,
+        *,
+        guild_id: int,
+        actor_user_id: int,
+        channel_ids: Iterable[int],
+        correlation_id: UUID,
+    ) -> int:
+        targets = sorted(set(channel_ids))
+        if not targets or len(targets) > 500:
+            raise ValueError("purge requires between 1 and 500 unique channel IDs")
+        allowed = {
+            ObservabilityState.OBFUSCATED.value,
+            ObservabilityState.ACCESS_LOST.value,
+            ObservabilityState.DELETED_CONFIRMED.value,
+            ObservabilityState.USER_CONFIRMED_DELETED.value,
+        }
+        async with tenant_transaction(
+            self._factory, TenantContext(guild_id, actor_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT channel_id, type, parent_id, position, observability_state "
+                            "FROM discord_channels_cache WHERE guild_id=:guild_id "
+                            "AND channel_id = ANY(:channel_ids) FOR UPDATE"
+                        ),
+                        {"guild_id": guild_id, "channel_ids": targets},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if len(rows) != len(targets) or any(
+                row["observability_state"] not in allowed for row in rows
+            ):
+                raise ValueError(
+                    "purge targets must be known non-visible or confirmed-deleted channels"
+                )
+            now = datetime.now(UTC)
+            for row in rows:
+                metadata = f"{row['channel_id']}:{row['type']}:{row['parent_id']}:{row['position']}"
+                metadata_hash = hashlib.sha256(metadata.encode()).hexdigest()
+                await session.execute(
+                    text(
+                        "INSERT INTO discord_channel_tombstones "
+                        "(guild_id, channel_id, resource_type, reason, confirmed_by_user_id, "
+                        "confirmed_at, purged_at, last_known_parent_id, last_known_type, "
+                        "last_known_position, metadata_hash) VALUES "
+                        "(:guild_id, :channel_id, :resource_type, 'USER_CONFIRMED_DELETED', "
+                        ":actor, :now, :now, :parent_id, :type, :position, :metadata_hash) "
+                        "ON CONFLICT (guild_id, channel_id) DO UPDATE SET "
+                        "reason=EXCLUDED.reason, "
+                        "confirmed_by_user_id=EXCLUDED.confirmed_by_user_id, "
+                        "confirmed_at=EXCLUDED.confirmed_at, purged_at=EXCLUDED.purged_at, "
+                        "metadata_hash=EXCLUDED.metadata_hash"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "channel_id": row["channel_id"],
+                        "resource_type": "CATEGORY" if row["type"] == 4 else "CHANNEL",
+                        "actor": actor_user_id,
+                        "now": now,
+                        "parent_id": row["parent_id"],
+                        "type": row["type"],
+                        "position": row["position"],
+                        "metadata_hash": metadata_hash,
+                    },
+                )
+            await session.execute(
+                text(
+                    "DELETE FROM channel_overwrites_cache WHERE guild_id=:guild_id "
+                    "AND channel_id = ANY(:channel_ids)"
+                ),
+                {"guild_id": guild_id, "channel_ids": targets},
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM discord_channels_cache WHERE guild_id=:guild_id "
+                    "AND channel_id = ANY(:channel_ids)"
+                ),
+                {"guild_id": guild_id, "channel_ids": targets},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO internal_audit_events "
+                    "(id, guild_id, actor_user_id, source, event_type, target_type, target_id, "
+                    "correlation_id, result_state, data_json, occurred_at) VALUES "
+                    "(:id, :guild_id, :actor, 'DASHBOARD', 'CHANNEL_CACHE_PURGED', 'CHANNEL_SET', "
+                    ":target_id, :correlation_id, 'PURGED_TOMBSTONE', CAST(:data AS jsonb), :now)"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": guild_id,
+                    "actor": actor_user_id,
+                    "target_id": ",".join(str(item) for item in targets),
+                    "correlation_id": correlation_id,
+                    "data": json.dumps({"count": len(targets)}),
+                    "now": now,
+                },
+            )
+            await self._append_outbox(
+                session,
+                guild_id=guild_id,
+                topic="discord.cache.purged",
+                payload={"guild_id": str(guild_id), "count": len(targets)},
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+            return len(targets)
+
+    async def apply_rest_role_snapshot(
+        self,
+        *,
+        guild_id: int,
+        roles: Iterable[dict[str, Any]],
+        correlation_id: UUID,
+        observed_at: datetime | None = None,
+    ) -> None:
+        observed = observed_at or datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            for role in roles:
+                await session.execute(
+                    text(
+                        "INSERT INTO discord_roles_cache "
+                        "(guild_id, role_id, name, position, permissions_bits, managed, "
+                        "color, hoist, "
+                        "mentionable, raw_json, last_rest_seen_at) VALUES "
+                        "(:guild_id, :role_id, :name, :position, :permissions, :managed, :color, "
+                        ":hoist, :mentionable, CAST(:raw_json AS jsonb), :observed_at) "
+                        "ON CONFLICT (guild_id, role_id) DO UPDATE SET name=EXCLUDED.name, "
+                        "position=EXCLUDED.position, permissions_bits=EXCLUDED.permissions_bits, "
+                        "managed=EXCLUDED.managed, color=EXCLUDED.color, hoist=EXCLUDED.hoist, "
+                        "mentionable=EXCLUDED.mentionable, raw_json=EXCLUDED.raw_json, "
+                        "last_rest_seen_at=EXCLUDED.last_rest_seen_at, deleted_confirmed_at=NULL, "
+                        "state_version=discord_roles_cache.state_version+1, cache_updated_at=now()"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "role_id": int(role["role_id"]),
+                        "name": str(role["name"]),
+                        "position": int(role.get("position", 0)),
+                        "permissions": int(role.get("permissions", 0)),
+                        "managed": bool(role.get("managed", False)),
+                        "color": int(role.get("color", 0)),
+                        "hoist": bool(role.get("hoist", False)),
+                        "mentionable": bool(role.get("mentionable", False)),
+                        "raw_json": json.dumps(role, separators=(",", ":")),
+                        "observed_at": observed,
+                    },
+                )
+            await session.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id, coverage_mode, freshness_state, known_roles, "
+                    "last_successful_rest_sync_at) VALUES "
+                    "(:guild_id, 'PARTIAL', 'FRESH', "
+                    "(SELECT count(*) FROM discord_roles_cache WHERE guild_id=:guild_id "
+                    "AND deleted_confirmed_at IS NULL), :observed_at) "
+                    "ON CONFLICT (guild_id) DO UPDATE SET known_roles=EXCLUDED.known_roles, "
+                    "freshness_state='FRESH', "
+                    "last_successful_rest_sync_at=EXCLUDED.last_successful_rest_sync_at, "
+                    "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
+                ),
+                {"guild_id": guild_id, "observed_at": observed},
+            )
+            await self._append_outbox(
+                session,
+                guild_id=guild_id,
+                topic="discord.cache.roles.reconciled",
+                payload={"guild_id": str(guild_id), "resource_type": "roles"},
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+
+    async def mark_structure_sync_complete(
+        self, guild_id: int, *, completed_at: datetime | None = None
+    ) -> None:
+        completed = completed_at or datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "UPDATE discord_cache_coverage SET coverage_mode='FULL', "
+                    "freshness_state='FRESH', last_full_reconcile_at=:completed, "
+                    "state_version=state_version+1, updated_at=now() WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": guild_id, "completed": completed},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO discord_reconcile_checkpoints "
+                    "(guild_id, resource_type, checkpoint, status, last_attempt_at, "
+                    "last_success_at, next_due_at, attempt_count) VALUES "
+                    "(:guild_id, 'STRUCTURE', CAST(:checkpoint AS jsonb), 'SUCCEEDED', "
+                    ":completed, :completed, NULL, 1) ON CONFLICT (guild_id, resource_type) "
+                    "DO UPDATE SET checkpoint=EXCLUDED.checkpoint, status='SUCCEEDED', "
+                    "last_attempt_at=EXCLUDED.last_attempt_at, "
+                    "last_success_at=EXCLUDED.last_success_at, attempt_count="
+                    "discord_reconcile_checkpoints.attempt_count+1, updated_at=now()"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "checkpoint": json.dumps({"schema_version": 1, "complete": True}),
+                    "completed": completed,
+                },
+            )
+
+    async def record_gateway_discontinuity(
+        self,
+        *,
+        guild_id: int,
+        continuity: str,
+        correlation_id: UUID,
+    ) -> None:
+        if continuity not in {"GAP_DETECTED", "NON_RESUMED", "DISCONNECTED"}:
+            raise ValueError("only unsafe Gateway continuity states mark cache stale")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id, coverage_mode, freshness_state, gateway_continuity) VALUES "
+                    "(:guild_id, 'DEGRADED', 'STALE', :continuity) "
+                    "ON CONFLICT (guild_id) DO UPDATE SET coverage_mode='DEGRADED', "
+                    "freshness_state='STALE', gateway_continuity=EXCLUDED.gateway_continuity, "
+                    "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
+                ),
+                {"guild_id": guild_id, "continuity": continuity},
+            )
+            await session.execute(
+                text(
+                    "UPDATE discord_channels_cache SET freshness_state='STALE', "
+                    "cache_updated_at=now() WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": guild_id},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO internal_audit_events "
+                    "(id, guild_id, source, event_type, target_type, target_id, correlation_id, "
+                    "result_state, data_json, occurred_at) VALUES "
+                    "(:id, :guild_id, 'SYSTEM', 'CACHE_STALE_AFTER_GATEWAY_GAP', 'GUILD', "
+                    ":target_id, :correlation_id, :continuity, CAST('{}' AS jsonb), now())"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": guild_id,
+                    "target_id": str(guild_id),
+                    "correlation_id": correlation_id,
+                    "continuity": continuity,
+                },
+            )
+
+    async def enqueue_job(
+        self, job: WorkloadJob, *, requested_by: int | None, correlation_id: UUID
+    ) -> UUID:
+        async with tenant_transaction(
+            self._factory, TenantContext(job.guild_id, requested_by)
+        ) as session:
+            inserted = await session.scalar(
+                text(
+                    "INSERT INTO discord_io_jobs "
+                    "(job_id, guild_id, workload_type, logical_key, priority, payload, "
+                    "requested_by, correlation_id, available_at) VALUES "
+                    "(:job_id, :guild_id, :workload_type, :logical_key, :priority, "
+                    "CAST(:payload AS jsonb), :requested_by, :correlation_id, :available_at) "
+                    "ON CONFLICT (guild_id, logical_key) "
+                    "WHERE status IN ('PENDING','LEASED') DO NOTHING RETURNING job_id"
+                ),
+                {
+                    "job_id": job.job_id,
+                    "guild_id": job.guild_id,
+                    "workload_type": job.workload_type,
+                    "logical_key": job.logical_key,
+                    "priority": int(job.priority),
+                    "payload": json.dumps(job.payload, separators=(",", ":")),
+                    "requested_by": requested_by,
+                    "correlation_id": correlation_id,
+                    "available_at": job.enqueued_at,
+                },
+            )
+            if inserted is None:
+                existing = await session.scalar(
+                    text(
+                        "SELECT job_id FROM discord_io_jobs WHERE guild_id=:guild_id "
+                        "AND logical_key=:logical_key AND status IN ('PENDING','LEASED') "
+                        "ORDER BY created_at LIMIT 1"
+                    ),
+                    {"guild_id": job.guild_id, "logical_key": job.logical_key},
+                )
+                if existing is None:
+                    raise RuntimeError("active workload coalescing conflict was not recoverable")
+                return UUID(str(existing))
+            self.metrics.job_submitted(job.priority)
+            await self._append_outbox(
+                session,
+                guild_id=job.guild_id,
+                topic="discord.io.job.enqueued",
+                payload={"job_id": str(job.job_id), "guild_id": str(job.guild_id)},
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+            return job.job_id
+
+    async def pending_outbox(self, guild_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT event_id, guild_id, topic, payload, correlation_id, "
+                            "causation_id "
+                            "FROM discord_outbox WHERE guild_id=:guild_id AND status='PENDING' "
+                            "AND next_attempt_at <= now() ORDER BY created_at LIMIT :limit"
+                        ),
+                        {"guild_id": guild_id, "limit": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def lease_next_job(
+        self, guild_id: int, *, lease_owner: str, lease_seconds: int = 30
+    ) -> dict[str, Any] | None:
+        if not lease_owner or len(lease_owner) > 128 or lease_seconds < 1:
+            raise ValueError("job lease owner and duration must be bounded")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH candidate AS (SELECT job_id FROM discord_io_jobs "
+                            "WHERE guild_id=:guild_id AND available_at <= now() AND "
+                            "(status='PENDING' OR (status='LEASED' AND leased_until < now())) "
+                            "ORDER BY priority, available_at, created_at LIMIT 1 "
+                            "FOR UPDATE SKIP LOCKED) UPDATE discord_io_jobs AS jobs SET "
+                            "status='LEASED', lease_owner=:owner, "
+                            "leased_until=now() + (:lease_seconds * interval '1 second'), "
+                            "attempt_count=attempt_count+1, updated_at=now() FROM candidate "
+                            "WHERE jobs.job_id=candidate.job_id RETURNING jobs.job_id, "
+                            "jobs.guild_id, jobs.workload_type, jobs.logical_key, jobs.priority, "
+                            "jobs.payload, jobs.correlation_id, jobs.attempt_count"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "owner": lease_owner,
+                            "lease_seconds": lease_seconds,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def complete_job(self, guild_id: int, job_id: UUID, *, lease_owner: str) -> bool:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            updated = await session.scalar(
+                text(
+                    "UPDATE discord_io_jobs SET status='SUCCEEDED', leased_until=NULL, "
+                    "lease_owner=NULL, updated_at=now() WHERE guild_id=:guild_id "
+                    "AND job_id=:job_id AND status='LEASED' AND lease_owner=:owner "
+                    "RETURNING job_id"
+                ),
+                {"guild_id": guild_id, "job_id": job_id, "owner": lease_owner},
+            )
+        return updated is not None
+
+    async def retry_job(
+        self,
+        guild_id: int,
+        job_id: UUID,
+        *,
+        lease_owner: str,
+        retry_after_seconds: float | None,
+        terminal: bool,
+    ) -> bool:
+        delay = max(0.0, min(retry_after_seconds or 0.0, 3600.0))
+        status = "FAILED" if terminal else "PENDING"
+        available_at = datetime.now(UTC) + timedelta(seconds=delay)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            updated = await session.scalar(
+                text(
+                    "UPDATE discord_io_jobs SET status=:status, available_at=:available_at, "
+                    "leased_until=NULL, lease_owner=NULL, updated_at=now() "
+                    "WHERE guild_id=:guild_id AND job_id=:job_id AND status='LEASED' "
+                    "AND lease_owner=:owner RETURNING job_id"
+                ),
+                {
+                    "status": status,
+                    "available_at": available_at,
+                    "guild_id": guild_id,
+                    "job_id": job_id,
+                    "owner": lease_owner,
+                },
+            )
+        return updated is not None
+
+    async def mark_outbox_published(self, guild_id: int, event_id: UUID) -> None:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "UPDATE discord_outbox SET status='PUBLISHED', published_at=now(), "
+                    "attempt_count=attempt_count+1 WHERE guild_id=:guild_id AND event_id=:event_id"
+                ),
+                {"guild_id": guild_id, "event_id": event_id},
+            )
+
+    async def mark_outbox_retry(self, guild_id: int, event_id: UUID) -> None:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "UPDATE discord_outbox SET attempt_count=attempt_count+1, "
+                    "next_attempt_at=now() + "
+                    "(LEAST(300, power(2, LEAST(attempt_count, 8))) * interval '1 second') "
+                    "WHERE guild_id=:guild_id AND event_id=:event_id AND status='PENDING'"
+                ),
+                {"guild_id": guild_id, "event_id": event_id},
+            )

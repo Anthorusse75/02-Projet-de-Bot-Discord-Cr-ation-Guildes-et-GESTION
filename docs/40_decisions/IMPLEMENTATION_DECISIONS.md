@@ -2,13 +2,15 @@
 
 Les ADR-001 à ADR-035 restent normatifs dans la source d’architecture. Ce registre contient uniquement les décisions prises pendant l’exécution et les clarifications de cohérence ; il ne réécrit pas les sources.
 
-## IMP-001 — Channel Obfuscation future-dated
+## IMP-001 — Channel Obfuscation officiellement confirmée
 
 - Date : 2026-08-16
-- Statut : `OPEN_REVALIDATION_STAGE_03`
-- Constat : les deux sources décrivent un changement « Channel Obfuscation » annoncé pour le 16 novembre 2026, date future par rapport à la date de référence du dépôt. Une recherche dans la documentation officielle accessible au moment de l’import n’a pas permis de confirmer ce contrat précis.
-- Décision : conserver l’exigence comme compatibilité anticipée et modèle de robustesse (`VISIBLE`, `OBFUSCATED`, `ACCESS_LOST`, tombstones), mais ne pas figer le payload, le flag ou la sémantique REST dans le code avant relecture du changelog et des docs Discord officiels au PRECHECK de STAGE 03.
-- Validation : contract tests tolérants aux champs évolutifs, fixture versionnée issue d’une source officielle, puis test sandbox lorsque le mode est disponible. Une absence HTTP seule ne prouve jamais une suppression, invariant sûr indépendamment du rollout.
+- Statut : `RESOLVED_OFFICIAL_CONTRACT_CONFIRMED`
+- Revalidation : documentation Discord officielle consultée le 2026-08-16 : [changelog](https://docs.discord.com/developers/change-log), [Channel Resource](https://docs.discord.com/developers/resources/channel) et [Gateway Events](https://docs.discord.com/developers/events/gateway-events).
+- Contrat confirmé : le flag Channel `CHANNEL_OBFUSCATED` vaut `1 << 17`. Pendant la période de test, la capability Gateway `CHANNEL_OBFUSCATION` vaut `1 << 15`. Le rollout HTTP annoncé au 2026-11-16 omet de `Get Guild Channels` les salons inaccessibles ; il n’existe pas d’opt-in HTTP anticipé.
+- Payload obfusqué : `id`, `type`, `position` et `parent_id` restent exploitables ; `name` devient `___hidden___`, les champs sensibles sont nuls/réduits, et les overwrites sont réduits à `@everyone` refusant `VIEW_CHANNEL`. Le Gateway continue d’émettre les événements channel usuels et renvoie un `CHANNEL_UPDATE` complet au retour de visibilité. Les payloads d’interaction ne suivent pas cette obfuscation.
+- Décision : détection uniquement par le bit officiel, conservation du dernier payload complet et de ses overwrites, états explicites `VISIBLE`/`OBFUSCATED`/`ACCESS_LOST`, et omission HTTP jamais interprétée comme suppression. La fixture contractuelle du 2026-08-12 est versionnée.
+- Validation live : `CONTRACT_ONLY_NOT_LIVE_VERIFIED` pour la perte de visibilité, car aucun changement sûr de permissions sandbox n’a été imposé. La sync live A/B sans mutation est `PASS_WITH_APPROVED_LIMITATION`.
 
 ## IMP-002 — Publication GitHub initiale
 

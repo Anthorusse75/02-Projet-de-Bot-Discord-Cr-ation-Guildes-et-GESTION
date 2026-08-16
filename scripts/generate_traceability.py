@@ -176,6 +176,36 @@ REQUIREMENT_PROGRESS["REQ-BOT-007"] = (
     "STAGE 02 accepts only official OAuth2 bearer grants and a backend bot token; no self-bot/user-token path exists",
 )
 
+for requirement_id in (f"REQ-GW-{index:03d}" for index in range(1, 9)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 03 minimal GUILDS intent, normalized dispatches, durable dedup/inbox, session-aware ordering, reconnect/gap tests and safe A/B live structure sync; final cross-stage verification remains STAGE 10",
+    )
+
+for requirement_id in (f"REQ-CACHE-{index:03d}" for index in range(1, 14)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 03 PostgreSQL/RLS channel-role-overwrite cache, safe observability/tombstones, Redis rebuild, cache-only API, reconcile and failure evidence; later consumers must preserve these invariants",
+    )
+
+for requirement_id in (f"REQ-RATE-{index:03d}" for index in range(1, 7)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 03 discord.py protocol limiter plus workload governor with bounded concurrency, priority aging, backpressure, coalescing, invalid budget and deterministic A/B fairness load report",
+    )
+
+for requirement_id in (f"REQ-AUD-{index:03d}" for index in range(1, 7)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 03 normalized durable audit/drift, correlation/causation, transactional outbox recovery, bounded telemetry and redaction tests; future emitters remain subject to final verification",
+    )
+
+for requirement_id in (f"REQ-TEN-{index:03d}" for index in range(5, 10)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 03 A/B RLS cache/jobs, Redis keys/single-flight/pubsub and backend-authorized WebSocket isolation tests; later tenant resource families remain independently gated",
+    )
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()
