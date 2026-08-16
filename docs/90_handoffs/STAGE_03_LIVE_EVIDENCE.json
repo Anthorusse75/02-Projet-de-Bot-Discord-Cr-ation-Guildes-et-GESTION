@@ -1,0 +1,28 @@
+{
+  "stage": "03",
+  "profile": "discord-live-sandbox-read-only",
+  "status": "PASS_WITH_APPROVED_LIMITATION",
+  "generated_at": "2026-08-16T21:32:41.282119+00:00",
+  "checks": [
+    "bot-token identity login through discord.py",
+    "Guild A/B Get Guild Channels and Get Guild Roles through governed initial sync",
+    "categories/channels/roles/overwrites normalized and persisted in PostgreSQL test DB",
+    "Redis hot projections rebuilt from PostgreSQL for Guild A/B",
+    "tenant Redis namespaces distinct; Discord mutations remained zero"
+  ],
+  "resource_counts": {
+    "guild_1_channels": 62,
+    "guild_1_roles": 39,
+    "guild_2_channels": 24,
+    "guild_2_roles": 11
+  },
+  "skipped_not_verified": [
+    "external Discord mutation observed through Gateway",
+    "forced Gateway reconnect/RESUME/non-resumed",
+    "Channel Obfuscation live visibility change: CONTRACT_ONLY_NOT_LIVE_VERIFIED",
+    "inherited STAGE 02 administrator non-owner profile",
+    "inherited STAGE 02 non-administrator profile"
+  ],
+  "discord_mutations": 0,
+  "secrets_recorded": false
+}
