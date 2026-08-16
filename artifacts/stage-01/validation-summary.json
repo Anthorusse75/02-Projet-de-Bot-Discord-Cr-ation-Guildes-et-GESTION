@@ -1,0 +1,121 @@
+{
+  "stage": "01",
+  "generated_at": "2026-08-16T13:33:47.221231+00:00",
+  "status": "PASS",
+  "results": [
+    {
+      "name": "compose development config",
+      "status": "PASS",
+      "duration_seconds": 0.148,
+      "return_code": 0
+    },
+    {
+      "name": "compose test config",
+      "status": "PASS",
+      "duration_seconds": 0.15,
+      "return_code": 0
+    },
+    {
+      "name": "backend container build",
+      "status": "PASS",
+      "duration_seconds": 9.608,
+      "return_code": 0
+    },
+    {
+      "name": "PostgreSQL service healthy",
+      "status": "PASS",
+      "duration_seconds": 0.205,
+      "return_code": 0
+    },
+    {
+      "name": "Redis service healthy",
+      "status": "PASS",
+      "duration_seconds": 0.226,
+      "return_code": 0
+    },
+    {
+      "name": "python lock sync",
+      "status": "PASS",
+      "duration_seconds": 0.036,
+      "return_code": 0
+    },
+    {
+      "name": "backend lint",
+      "status": "PASS",
+      "duration_seconds": 0.126,
+      "return_code": 0
+    },
+    {
+      "name": "backend format",
+      "status": "PASS",
+      "duration_seconds": 0.114,
+      "return_code": 0
+    },
+    {
+      "name": "backend typecheck",
+      "status": "PASS",
+      "duration_seconds": 0.429,
+      "return_code": 0
+    },
+    {
+      "name": "backend unit tests",
+      "status": "PASS",
+      "duration_seconds": 1.088,
+      "return_code": 0
+    },
+    {
+      "name": "migration upgrade head",
+      "status": "PASS",
+      "duration_seconds": 0.734,
+      "return_code": 0
+    },
+    {
+      "name": "PostgreSQL RLS and Redis integration",
+      "status": "PASS",
+      "duration_seconds": 1.491,
+      "return_code": 0
+    },
+    {
+      "name": "frontend lock install",
+      "status": "PASS",
+      "duration_seconds": 3.747,
+      "return_code": 0
+    },
+    {
+      "name": "frontend lint",
+      "status": "PASS",
+      "duration_seconds": 1.046,
+      "return_code": 0
+    },
+    {
+      "name": "frontend typecheck",
+      "status": "PASS",
+      "duration_seconds": 1.03,
+      "return_code": 0
+    },
+    {
+      "name": "frontend tests",
+      "status": "PASS",
+      "duration_seconds": 2.022,
+      "return_code": 0
+    },
+    {
+      "name": "frontend build",
+      "status": "PASS",
+      "duration_seconds": 1.36,
+      "return_code": 0
+    },
+    {
+      "name": "secret scan",
+      "status": "PASS",
+      "duration_seconds": 0.252,
+      "return_code": 0
+    },
+    {
+      "name": "documentation validation",
+      "status": "PASS",
+      "duration_seconds": 0.191,
+      "return_code": 0
+    }
+  ]
+}

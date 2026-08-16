@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "discord-infrastructure-designer"
+version = "0.1.0"
+description = "Technical foundations for Discord Infrastructure Designer"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "alembic==1.19.1",
+  "asyncpg==0.31.0",
+  "fastapi==0.141.1",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.15.0",
+  "redis==8.1.0",
+  "sqlalchemy==2.0.52",
+  "uvicorn==0.52.3",
+]
+
+[dependency-groups]
+dev = [
+  "httpx==0.28.1",
+  "mypy==2.3.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/did"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+markers = [
+  "integration: requires PostgreSQL and Redis from compose.test.yaml",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["did"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["backend/src", "backend/tests", "scripts"]
+extend-exclude = [
+  "docs",
+  "scripts/generate_traceability.py",
+  "scripts/validate_documentation.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/**" = ["S105", "S106"]
+"backend/alembic/versions/**" = ["E501"]
+"scripts/check_secrets.py" = ["S603"]
+"scripts/validate_stage.py" = ["S603"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "backend/src"
+packages = ["did"]
+
+[[tool.mypy.overrides]]
+module = "backend.alembic.*"
+ignore_errors = true

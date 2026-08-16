@@ -137,7 +137,20 @@ def main(check_git_clean: bool) -> int:
         re.compile(r"(?i)authorization:\s*(?:bot|bearer)\s+[A-Za-z0-9._-]{12,}"),
         re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     ]
-    for path in [p for p in ROOT.rglob("*") if p.is_file() and ".git" not in p.parts]:
+    repository_listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if repository_listing.returncode != 0:
+        errors.append("unable to enumerate repository files for secret validation")
+        repository_files = []
+    else:
+        repository_files = [
+            ROOT / item.decode() for item in repository_listing.stdout.split(b"\0") if item
+        ]
+    for path in [p for p in repository_files if p.is_file()]:
         if path.suffix.lower() not in {".md", ".py", ".yml", ".yaml", ".json", ".txt", ""}:
             continue
         text = path.read_text(encoding="utf-8-sig", errors="ignore")
