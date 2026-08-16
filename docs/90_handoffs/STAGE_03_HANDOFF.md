@@ -75,9 +75,10 @@ La fixture officielle du 2026-08-12 est testée. `discord.py 2.7.1` n’expose p
 
 | Commande/scénario | Résultat | Preuve |
 |---|---|---|
-| `python scripts/validate_stage.py 03` | PASS, 92 unit + 30 integration + 4 frontend, 29 gates | `artifacts/test-evidence/stage-03/20260816T213558158154Z-366e676880d0-local-docker/` |
-| `python scripts/validate_stage.py 03 --profile load` | PASS, 3 load | `artifacts/test-evidence/stage-03/20260816T213523406256Z-366e676880d0-local-docker/` |
-| `python scripts/validate_stage.py 03 --include-discord-live` | PASS_WITH_APPROVED_LIMITATION (runner exécuté directement avant intégration au framework) | `STAGE_03_LIVE_EVIDENCE.json` |
+| `python scripts/validate_stage.py 03 --include-discord-live` | PASS, 92 unit + 30 integration + 4 frontend; live `PASS_WITH_APPROVED_LIMITATION` | `artifacts/test-evidence/stage-03/20260816T213935777741Z-31914869fbf5-local-docker/` et `STAGE_03_LIVE_EVIDENCE.json` |
+| `python scripts/validate_stage.py 03 --profile load` | PASS, 3 load | `artifacts/test-evidence/stage-03/20260816T214016834401Z-31914869fbf5-local-docker/` |
+| `python scripts/validate_stage.py 01` | PASS, régression | `artifacts/test-evidence/stage-01/20260816T214024110883Z-31914869fbf5-local-docker/` |
+| `python scripts/validate_stage.py 02` | PASS, régression | `artifacts/test-evidence/stage-02/20260816T214056090951Z-31914869fbf5-local-docker/` |
 | migrations `base/0001/0002 -> head`, `head -> 0002 -> head` | PASS | JUnit/résumé Stage 03 |
 | Redis loss, single-flight owner crash, outbox down/publish-before-ack, worker lease crash | PASS | tests integration/failure |
 | RLS, Redis, queue, Pub/Sub et WebSocket A/B | PASS | tests security Stage 03 |
