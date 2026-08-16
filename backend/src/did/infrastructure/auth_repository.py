@@ -5,13 +5,23 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from did.domain.auth import AccessStatus, InstallationStatus, PlatformRole, ScopeKind
+from did.domain.auth import (
+    AccessStatus,
+    AuthorizationScope,
+    InstallationStatus,
+    PlatformRole,
+    ScopeKind,
+)
 from did.infrastructure.database import tenant_transaction
 from did.oauth.models import DiscordUser, EncryptedTokenSet, OAuthGrantRecord, OAuthTokenSet
 from did.tenancy import TenantContext, UserContext
 
 
 class ConcurrentGrantRefreshError(RuntimeError):
+    pass
+
+
+class InstallationIdentityMismatch(RuntimeError):
     pass
 
 
@@ -255,7 +265,7 @@ class AuthRepository:
         bot_user_id: int,
     ) -> None:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            result = await session.execute(
                 text(
                     "INSERT INTO guild_installations "
                     "(guild_id, name, icon_hash, owner_id, installation_status, application_id, "
@@ -264,9 +274,26 @@ class AuthRepository:
                     ":application_id, :bot_user_id, now()) "
                     "ON CONFLICT (guild_id) DO UPDATE SET name=EXCLUDED.name, "
                     "icon_hash=EXCLUDED.icon_hash, owner_id=EXCLUDED.owner_id, "
-                    "installation_status='PENDING_SETUP', application_id=EXCLUDED.application_id, "
-                    "bot_user_id=EXCLUDED.bot_user_id, uninstalled_at=NULL, "
-                    "last_gateway_seen_at=now(), version=guild_installations.version+1"
+                    "installation_status=CASE "
+                    "WHEN guild_installations.installation_status IN "
+                    "('DISCOVERED', 'INSTALLED', 'UNINSTALLED') THEN 'PENDING_SETUP' "
+                    "ELSE guild_installations.installation_status END, "
+                    "application_id=COALESCE(guild_installations.application_id, "
+                    "EXCLUDED.application_id), "
+                    "bot_user_id=COALESCE(guild_installations.bot_user_id, EXCLUDED.bot_user_id), "
+                    "installed_at=CASE WHEN guild_installations.installation_status='UNINSTALLED' "
+                    "THEN now() ELSE guild_installations.installed_at END, "
+                    "activated_at=CASE WHEN guild_installations.installation_status='UNINSTALLED' "
+                    "THEN NULL ELSE guild_installations.activated_at END, "
+                    "uninstalled_at=CASE WHEN "
+                    "guild_installations.installation_status='UNINSTALLED' "
+                    "THEN NULL ELSE guild_installations.uninstalled_at END, "
+                    "last_gateway_seen_at=now(), version=guild_installations.version+1 "
+                    "WHERE (guild_installations.application_id IS NULL OR "
+                    "guild_installations.application_id=EXCLUDED.application_id) "
+                    "AND (guild_installations.bot_user_id IS NULL OR "
+                    "guild_installations.bot_user_id=EXCLUDED.bot_user_id) "
+                    "RETURNING installation_status"
                 ),
                 {
                     "guild_id": guild_id,
@@ -277,6 +304,10 @@ class AuthRepository:
                     "bot_user_id": bot_user_id,
                 },
             )
+            if result.scalar_one_or_none() is None:
+                raise InstallationIdentityMismatch(
+                    "installation application or bot identity does not match"
+                )
 
     async def get_installation(self, guild_id: int, user_id: int) -> InstallationRecord | None:
         async with tenant_transaction(
@@ -327,9 +358,10 @@ class AuthRepository:
             await session.execute(
                 text(
                     "INSERT INTO guild_user_access "
-                    "(guild_id, discord_user_id, platform_role, status, created_by) "
-                    "VALUES (:guild_id, :user_id, 'OWNER', 'ACTIVE', :user_id) "
-                    "ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET "
+                    "(guild_id, discord_user_id, platform_role, status, scope_kind, scope_id, "
+                    "created_by) "
+                    "VALUES (:guild_id, :user_id, 'OWNER', 'ACTIVE', 'GUILD', '*', :user_id) "
+                    "ON CONFLICT (guild_id, discord_user_id, scope_kind, scope_id) DO UPDATE SET "
                     "platform_role='OWNER', status='ACTIVE', "
                     "policy_version=guild_user_access.policy_version+1, updated_at=now()"
                 ),
@@ -348,34 +380,49 @@ class AuthRepository:
                 {"guild_id": guild_id},
             )
 
-    async def get_access(self, guild_id: int, user_id: int) -> AccessRecord | None:
+    async def get_accesses(self, guild_id: int, user_id: int) -> tuple[AccessRecord, ...]:
         async with tenant_transaction(
             self._factory, TenantContext(guild_id=guild_id, user_id=user_id)
         ) as session:
-            row = (
+            rows = (
                 (
                     await session.execute(
                         text(
                             "SELECT guild_id, discord_user_id, platform_role, status, scope_kind, "
                             "scope_id, policy_version FROM guild_user_access "
-                            "WHERE guild_id=:guild_id AND discord_user_id=:user_id"
+                            "WHERE guild_id=:guild_id AND discord_user_id=:user_id "
+                            "ORDER BY scope_kind, scope_id"
                         ),
                         {"guild_id": guild_id, "user_id": user_id},
                     )
                 )
                 .mappings()
-                .one_or_none()
+                .all()
             )
-        if row is None:
-            return None
-        return AccessRecord(
-            guild_id=int(row["guild_id"]),
-            discord_user_id=int(row["discord_user_id"]),
-            platform_role=PlatformRole(row["platform_role"]),
-            status=AccessStatus(row["status"]),
-            scope_kind=ScopeKind(row["scope_kind"]),
-            scope_id=str(row["scope_id"]),
-            policy_version=int(row["policy_version"]),
+        return tuple(
+            AccessRecord(
+                guild_id=int(row["guild_id"]),
+                discord_user_id=int(row["discord_user_id"]),
+                platform_role=PlatformRole(row["platform_role"]),
+                status=AccessStatus(row["status"]),
+                scope_kind=ScopeKind(row["scope_kind"]),
+                scope_id=str(row["scope_id"]),
+                policy_version=int(row["policy_version"]),
+            )
+            for row in rows
+        )
+
+    async def get_access(
+        self, guild_id: int, user_id: int, scope: AuthorizationScope
+    ) -> AccessRecord | None:
+        accesses = await self.get_accesses(guild_id, user_id)
+        return next(
+            (
+                access
+                for access in accesses
+                if access.scope_kind is scope.kind and access.scope_id == scope.scope_id
+            ),
+            None,
         )
 
     async def save_user_access(
@@ -385,6 +432,7 @@ class AuthRepository:
         target_user_id: int,
         role: PlatformRole,
         actor_user_id: int,
+        scope: AuthorizationScope,
         status: AccessStatus = AccessStatus.ACTIVE,
     ) -> None:
         async with tenant_transaction(
@@ -393,9 +441,10 @@ class AuthRepository:
             await session.execute(
                 text(
                     "INSERT INTO guild_user_access "
-                    "(guild_id, discord_user_id, platform_role, status, created_by) "
-                    "VALUES (:guild_id, :target, :role, :status, :actor) "
-                    "ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET "
+                    "(guild_id, discord_user_id, platform_role, status, scope_kind, scope_id, "
+                    "created_by) "
+                    "VALUES (:guild_id, :target, :role, :status, :scope_kind, :scope_id, :actor) "
+                    "ON CONFLICT (guild_id, discord_user_id, scope_kind, scope_id) DO UPDATE SET "
                     "platform_role=EXCLUDED.platform_role, status=EXCLUDED.status, "
                     "policy_version=guild_user_access.policy_version+1, updated_at=now()"
                 ),
@@ -404,6 +453,8 @@ class AuthRepository:
                     "target": target_user_id,
                     "role": role.value,
                     "status": status.value,
+                    "scope_kind": scope.kind.value,
+                    "scope_id": scope.scope_id,
                     "actor": actor_user_id,
                 },
             )
@@ -444,6 +495,7 @@ class AuthRepository:
         discord_role_id: int,
         dashboard_role: PlatformRole,
         actor_user_id: int,
+        scope: AuthorizationScope,
     ) -> None:
         async with tenant_transaction(
             self._factory, TenantContext(guild_id=guild_id, user_id=actor_user_id)
@@ -451,8 +503,8 @@ class AuthRepository:
             await session.execute(
                 text(
                     "INSERT INTO guild_role_bindings "
-                    "(guild_id, discord_role_id, dashboard_role, created_by) "
-                    "VALUES (:guild_id, :role_id, :dashboard_role, :actor) "
+                    "(guild_id, discord_role_id, dashboard_role, scope_kind, scope_id, created_by) "
+                    "VALUES (:guild_id, :role_id, :dashboard_role, :scope_kind, :scope_id, :actor) "
                     "ON CONFLICT (guild_id, discord_role_id, scope_kind, scope_id) DO UPDATE SET "
                     "dashboard_role=EXCLUDED.dashboard_role"
                 ),
@@ -460,7 +512,34 @@ class AuthRepository:
                     "guild_id": guild_id,
                     "role_id": discord_role_id,
                     "dashboard_role": dashboard_role.value,
+                    "scope_kind": scope.kind.value,
+                    "scope_id": scope.scope_id,
                     "actor": actor_user_id,
+                },
+            )
+
+    async def delete_role_binding(
+        self,
+        *,
+        guild_id: int,
+        discord_role_id: int,
+        actor_user_id: int,
+        scope: AuthorizationScope,
+    ) -> None:
+        async with tenant_transaction(
+            self._factory, TenantContext(guild_id=guild_id, user_id=actor_user_id)
+        ) as session:
+            await session.execute(
+                text(
+                    "DELETE FROM guild_role_bindings WHERE guild_id=:guild_id "
+                    "AND discord_role_id=:role_id AND scope_kind=:scope_kind "
+                    "AND scope_id=:scope_id"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "role_id": discord_role_id,
+                    "scope_kind": scope.kind.value,
+                    "scope_id": scope.scope_id,
                 },
             )
 

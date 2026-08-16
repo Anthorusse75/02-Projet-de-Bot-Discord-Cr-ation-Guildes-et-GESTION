@@ -170,6 +170,11 @@ def upgrade() -> None:
             "scope_kind IN (" + ",".join(f"'{scope}'" for scope in SCOPE_KINDS) + ")",
             name="ck_guild_user_access_scope_kind",
         ),
+        sa.CheckConstraint(
+            "(scope_kind = 'GUILD' AND scope_id = '*') OR "
+            "(scope_kind <> 'GUILD' AND btrim(scope_id) <> '' AND scope_id <> '*')",
+            name="ck_guild_user_access_scope_pair",
+        ),
         sa.CheckConstraint("policy_version > 0", name="ck_guild_user_access_policy_version"),
         sa.ForeignKeyConstraint(
             ["guild_id"],
@@ -186,13 +191,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["created_by"], ["users.discord_user_id"], name="fk_guild_user_access_creator"
         ),
-        sa.PrimaryKeyConstraint("guild_id", "discord_user_id", name="pk_guild_user_access"),
-        sa.UniqueConstraint(
+        sa.PrimaryKeyConstraint(
             "guild_id",
             "discord_user_id",
             "scope_kind",
             "scope_id",
-            name="uq_guild_user_access_scope",
+            name="pk_guild_user_access",
         ),
     )
     op.create_table(
@@ -213,6 +217,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "scope_kind IN (" + ",".join(f"'{scope}'" for scope in SCOPE_KINDS) + ")",
             name="ck_guild_role_bindings_scope_kind",
+        ),
+        sa.CheckConstraint(
+            "(scope_kind = 'GUILD' AND scope_id = '*') OR "
+            "(scope_kind <> 'GUILD' AND btrim(scope_id) <> '' AND scope_id <> '*')",
+            name="ck_guild_role_bindings_scope_pair",
         ),
         sa.ForeignKeyConstraint(
             ["guild_id"],

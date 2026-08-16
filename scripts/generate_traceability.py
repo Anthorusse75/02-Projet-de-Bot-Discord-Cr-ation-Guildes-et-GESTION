@@ -117,16 +117,16 @@ REQUIREMENT_PROGRESS = {
         "STAGE 01 boundary: no Discord credential dependency; frontend secret-name scan PASS",
     ),
     "REQ-TEST-001": (
-        "PLANNED",
-        "STAGE 01 test harness delivered; tenant endpoints arrive in later stages",
+        "IMPLEMENTED",
+        "STAGE 02 tenant endpoints have cross-tenant, foreign-ID and zero-forbidden-repository-call tests; future endpoint families remain to cover",
     ),
     "REQ-TEST-002": (
         "PLANNED",
         "STAGE 01 test harness delivered; Permission Engine is out of scope",
     ),
     "REQ-TEST-003": (
-        "PLANNED",
-        "No Discord sandbox required in STAGE 01; live acceptance remains STAGE 10",
+        "IMPLEMENTED",
+        "STAGE 02 exercised two independent Discord sandbox Guilds with redacted evidence; final transverse verification remains STAGE 10",
     ),
     "REQ-TEST-004": (
         "PLANNED",
@@ -141,13 +141,13 @@ REQUIREMENT_PROGRESS = {
 for requirement_id in (f"REQ-INST-{index:03d}" for index in range(1, 8)):
     REQUIREMENT_PROGRESS[requirement_id] = (
         "IMPLEMENTED",
-        "STAGE 02 migration 0002 + installation/bootstrap/RBAC API integration tests; Discord A/B live verification remains required before VERIFIED",
+        "STAGE 02 migration 0002 + conservative installation transition matrix, identity mismatch refusal, bootstrap/RBAC integration tests and Discord A/B live evidence; later event-driven lifecycle work remains before VERIFIED",
     )
 
 for requirement_id in (f"REQ-AUTH-{index:03d}" for index in range(1, 15)):
     REQUIREMENT_PROGRESS[requirement_id] = (
         "IMPLEMENTED",
-        "STAGE 02 OAuth/session/CSRF/crypto/fresh-authorization implementation with unit, contract, Redis and API integration tests; live verification remains required before VERIFIED",
+        "STAGE 02 browser-bound one-shot OAuth state, session/CSRF/crypto and scoped fresh-authorization implementation with unit, Redis and API integration tests; transverse final verification remains required",
     )
 
 for requirement_id in (
@@ -160,7 +160,7 @@ for requirement_id in (
 ):
     REQUIREMENT_PROGRESS[requirement_id] = (
         "IMPLEMENTED",
-        "STAGE 02 guild/user RLS, authorization-before-repository, A/B IDOR zero-call and pool-context integration tests; later tenant resource families remain independently gated",
+        "STAGE 02 guild/user RLS, scoped RBAC, authorization-before-installation-disclosure, A/B IDOR zero-call and pool-context integration tests; later tenant resource families remain independently gated",
     )
 
 REQUIREMENT_PROGRESS["REQ-BOT-001"] = (

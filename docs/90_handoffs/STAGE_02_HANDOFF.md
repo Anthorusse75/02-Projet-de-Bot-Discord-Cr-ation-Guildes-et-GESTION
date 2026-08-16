@@ -11,16 +11,19 @@
 
 ## Livré
 
-- flux OAuth2 Discord Authorization Code entièrement backend, `state` aléatoire à usage unique stocké sous forme de hash dans Redis, expiration 300 secondes et validation stricte du callback ;
+- flux OAuth2 Discord Authorization Code entièrement backend, `state` aléatoire à usage unique stocké sous forme de hash dans Redis, expiration 300 secondes et liaison à un nonce navigateur CSPRNG dont seul le hash est conservé côté serveur ;
+- cookie de transaction OAuth `did_oauth_binding` en développement et `__Host-did_oauth_binding` en production, court, `HttpOnly`, `SameSite=Lax`, `Secure` en production et supprimé après callback ; une liaison absente ou incorrecte refuse sans consommer la transaction légitime, tandis qu’un succès la consomme atomiquement ;
 - scopes OAuth exactement `identify guilds`, échange et rafraîchissement en formulaire URL-encodé, révocation locale et distante des grants ;
 - jetons d’accès et de rafraîchissement chiffrés au repos en AES-256-GCM avec nonce distinct, données associées, version de clé et mise à jour optimiste par `row_version` ;
 - sessions Redis opaques : identifiant aléatoire signé par HMAC, rotation à l’authentification, révocation unitaire et globale, expiration inactive de 3 600 secondes et durée absolue de 604 800 secondes ;
 - cookie `did_session` en développement et `__Host-did_session` en production, `HttpOnly`, `SameSite=Lax`, `Secure` en production, chemin `/` ; jeton CSRF lié à la session et exigé via `X-CSRF-Token` pour les mutations ;
-- découverte des guildes cache-first (TTL 300 secondes), sélection explicite du tenant et Snowflakes transportés comme strings dans l’API et le frontend ;
-- lecture live d’autorisation bornée à `Get Guild Member` pour l’acteur courant, cache de fraîcheur de 120 secondes et aucun appel à la liste complète des membres ;
-- contrôle RBAC par capacités, rôles plateforme `OWNER`, `TENANT_ADMIN`, `READ_ONLY`, statuts d’accès `ACTIVE`/`REVOKED` et portées `GUILD`, `LOGICAL_GROUP`, `VISIBILITY_SCOPE` ;
-- bootstrap autorisé uniquement au propriétaire Discord ou à un utilisateur portant le bit `ADMINISTRATOR`, idempotent, créant l’accès `OWNER` et activant l’installation ;
-- cycle d’installation explicite `DISCOVERED`, `INSTALLED`, `PENDING_SETUP`, `ACTIVE`, `DEGRADED`, `REVOKED`, `UNINSTALLED` ;
+- découverte des guildes cache-first (TTL 300 secondes), mais aucune donnée d’installation n’est lue ou retournée à un membre Discord sans RBAC DID ; seule une candidature de bootstrap `PENDING_SETUP` confirmée par un rafraîchissement Discord frais peut être exposée ;
+- lecture live d’autorisation bornée à `Get Guild Member` pour l’acteur courant, cache de fraîcheur de 120 secondes et aucun appel à la liste complète des membres ; toute mutation sensible, y compris avec grant direct, exige cette preuve dans la fenêtre de fraîcheur et échoue fermée ;
+- contrôle RBAC par capacités, rôles plateforme `OWNER`, `TENANT_ADMIN`, `READ_ONLY`, statuts d’accès `ACTIVE`/`REVOKED` et portées fonctionnelles `GUILD`, `LOGICAL_GROUP`, `VISIBILITY_SCOPE` ; `GUILD/*` couvre ses sous-portées, une portée limitée ne couvre que le couple type/ID exact et les grants de portées sœurs ne sont jamais agrégés ;
+- délégation utilisateur et binding de rôle portent explicitement `scope_kind`/`scope_id`, autorisent plusieurs portées par principal, et le retrait idempotent d’un binding est exposé par `DELETE` ; la cible d’une délégation doit déjà être une identité DID, sinon l’API retourne l’erreur métier stable `409 TARGET_DID_IDENTITY_REQUIRED` avant insertion ;
+- le grant `OWNER GUILD/*` créé au bootstrap est immutable depuis l’endpoint générique : aucune dégradation, révocation ou auto-révocation ; aucun transfert d’ownership implicite n’est introduit ;
+- bootstrap autorisé uniquement au propriétaire Discord ou à un utilisateur portant le bit `ADMINISTRATOR`, sur un `/users/@me/guilds` forcément rafraîchi, idempotent, créant l’accès `OWNER` et activant l’installation ;
+- cycle d’installation explicite `DISCOVERED`, `INSTALLED`, `PENDING_SETUP`, `ACTIVE`, `DEGRADED`, `REVOKED`, `UNINSTALLED` : une réobservation normale conserve `PENDING_SETUP`, `ACTIVE`, `DEGRADED` ou `REVOKED`; `DISCOVERED`/`INSTALLED` deviennent `PENDING_SETUP`; seule une vraie réinstallation `UNINSTALLED` revient à `PENDING_SETUP`; un changement d’application ou de bot est refusé sans adoption silencieuse ;
 - endpoints de contrôle et frontend minimal avec connexion, sélection de guilde et clés i18n ; aucune mutation structurelle Discord n’est exécutée depuis le frontend ou un router FastAPI ;
 - garde conservatrice des requêtes bot-token STAGE 02 : User-Agent valide, sérialisation locale, prise en compte de `Retry-After` et des en-têtes de reset. Le gouverneur distribué complet reste réservé à STAGE 03.
 
@@ -38,6 +41,8 @@ La migration `0002_stage_02` crée les tables suivantes :
 | `guild_role_bindings` | contexte `app.current_guild_id()` |
 
 Toutes activent et forcent RLS avec `USING` et `WITH CHECK`. Les repositories ouvrent des transactions courtes avec le contexte utilisateur ou guilde adapté ; les tests couvrent l’isolation A/B, l’absence de contexte, les écritures croisées et la réutilisation du pool.
+
+La clé primaire de `guild_user_access` est `(guild_id, discord_user_id, scope_kind, scope_id)` ; celle de `guild_role_bindings` est `(guild_id, discord_role_id, scope_kind, scope_id)`. Des contraintes imposent `GUILD/*` et interdisent un wildcard ou un ID vide sur les portées limitées.
 
 ## Contrat des endpoints
 
@@ -58,6 +63,7 @@ Dans le tableau ci-dessous, `{api-version}` vaut actuellement `1`.
 | `DELETE /api/v{api-version}/guilds/{guild_id}/installation` | marque l’installation comme désinstallée |
 | `PUT /api/v{api-version}/guilds/{guild_id}/rbac/users` | délègue ou révoque un accès utilisateur |
 | `PUT /api/v{api-version}/guilds/{guild_id}/rbac/roles` | associe un rôle Discord à un rôle plateforme |
+| `DELETE /api/v{api-version}/guilds/{guild_id}/rbac/roles/{discord_role_id}` | retire idempotemment un binding sur une portée explicite |
 
 ## Configuration et secrets
 
@@ -78,12 +84,12 @@ Le script `scripts/configure_local_stage02_secrets.py` génère les deux secrets
 | Commande ou scénario | Résultat | Preuve locale ignorée |
 |---|---|---|
 | `python scripts/validate_stage.py 02` | PASS, 23/23 gates | `artifacts/test-evidence/stage-02/stage02-local-final-precommit/summary.json` |
-| backend unit | 47 PASS | JUnit du même run |
-| PostgreSQL/Redis integration | 13 PASS | JUnit du même run |
+| backend unit | 49 PASS | JUnit du même run ; portées canoniques et contrats de payload inclus |
+| PostgreSQL/Redis integration | 17 PASS | JUnit du même run ; cross-browser OAuth, zéro fuite TEN-002, RBAC multi-portée, OWNER, revoke, fraîcheur et transitions inclus |
 | frontend lint/typecheck/tests/build | PASS, 4 tests | résumé du même run |
-| migrations `base -> head` et `0001_stage_01 -> head` | PASS | gates du même run |
+| migrations `base -> head`, `0001_stage_01 -> head` et `0002 -> 0001 -> 0002` | PASS | gates du même run et revalidation corrective |
 | `python scripts/validate_stage.py 01` | PASS, 19/19 gates de régression | `artifacts/test-evidence/stage-01/stage01-regression-stage02-precommit/summary.json` |
-| `python scripts/check_secrets.py` | PASS, 140 fichiers | sortie locale et gate STAGE 02 |
+| `python scripts/check_secrets.py` | PASS, 141 fichiers | sortie locale et gate STAGE 02 |
 | `python scripts/validate_documentation.py` | PASS, 11 stages, 246/246 REQ, 35 ADR | gate STAGE 02 |
 | `git diff --check` | PASS | contrôle local avant commit |
 
@@ -114,6 +120,7 @@ Les branches d’autorisation correspondantes sont couvertes par les tests autom
 Consultation effectuée le `2026-08-16` :
 
 - [OAuth2](https://docs.discord.com/developers/topics/oauth2) : Authorization Code, `state`, scopes, échange, rafraîchissement et révocation ;
+- [RFC 6749, section 10.12](https://www.rfc-editor.org/rfc/rfc6749#section-10.12) et [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700) : token CSRF one-shot non devinable et liaison sûre au user-agent ;
 - [User resource](https://docs.discord.com/developers/resources/user) : contrat de l’utilisateur et des guildes courantes ;
 - [Guild resource](https://docs.discord.com/developers/resources/guild) : `Get Guild Member` ciblé ;
 - [Permissions](https://docs.discord.com/developers/topics/permissions) : bit `ADMINISTRATOR` ;

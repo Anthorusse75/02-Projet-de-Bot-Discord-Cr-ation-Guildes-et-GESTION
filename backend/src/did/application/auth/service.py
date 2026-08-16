@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 from did.domain.auth import (
     AccessStatus,
     ActorMembership,
+    AuthorizationScope,
     Capability,
     GuildDiscovery,
     InstallationStatus,
@@ -62,6 +63,7 @@ class AuthorizationDecision:
     user_id: int
     role: PlatformRole
     capabilities: frozenset[Capability]
+    scope: AuthorizationScope
     installation: InstallationRecord
 
 
@@ -90,9 +92,14 @@ class AuthService:
         return state, self.oauth_client.authorization_url(state=state.state)
 
     async def callback(
-        self, *, code: str, state: str, previous_session_id: str | None
+        self,
+        *,
+        code: str,
+        state: str,
+        browser_binding: str | None,
+        previous_session_id: str | None,
     ) -> LoginResult:
-        state_record = await self.state_store.consume(state)
+        state_record = await self.state_store.consume(state, browser_binding)
         try:
             tokens = await self.oauth_client.exchange_code(code)
             self._validate_scopes(tokens)
@@ -225,8 +232,10 @@ class AuthorizationService:
                 return cached
         return await self.auth.refresh_guilds(discord_user_id)
 
-    async def discovery(self, discord_user_id: int, guild_id: int) -> GuildDiscovery:
-        guilds = await self.guilds_for_user(discord_user_id)
+    async def discovery(
+        self, discord_user_id: int, guild_id: int, *, force_refresh: bool = False
+    ) -> GuildDiscovery:
+        guilds = await self.guilds_for_user(discord_user_id, force_refresh=force_refresh)
         guild = next((item for item in guilds if item.guild_id == guild_id), None)
         if guild is None:
             self._deny(guild_id, discord_user_id, "GUILD_MEMBERSHIP_REQUIRED")
@@ -245,39 +254,52 @@ class AuthorizationService:
         discord_user_id: int,
         guild_id: int,
         capability: Capability,
+        scope: AuthorizationScope,
         sensitive: bool = False,
+        require_active_installation: bool = True,
     ) -> AuthorizationDecision:
         await self.discovery(discord_user_id, guild_id)
-        installation = await self.repository.get_installation(guild_id, discord_user_id)
-        if installation is None:
-            self._deny(guild_id, discord_user_id, "INSTALLATION_NOT_FOUND")
-        assert installation is not None
-        if installation.status is not InstallationStatus.ACTIVE:
-            self._deny(guild_id, discord_user_id, "INSTALLATION_NOT_ACTIVE")
-        access = await self.repository.get_access(guild_id, discord_user_id)
-        role: PlatformRole | None = None
-        if access is not None and access.status is AccessStatus.ACTIVE:
-            role = access.platform_role
+        accesses = await self.repository.get_accesses(guild_id, discord_user_id)
+        direct_roles = [
+            access.platform_role
+            for access in accesses
+            if access.status is AccessStatus.ACTIVE
+            and AuthorizationScope(access.scope_kind, access.scope_id).covers(scope)
+        ]
+        role = _strongest(*direct_roles)
         bindings = await self.repository.role_bindings(guild_id, discord_user_id)
-        if bindings:
+        applicable_bindings = [
+            binding
+            for binding in bindings
+            if AuthorizationScope(binding.scope_kind, binding.scope_id).covers(scope)
+        ]
+        direct_grant_satisfies = role is not None and capability in capabilities_for_role(role)
+        if sensitive or (applicable_bindings and not direct_grant_satisfies):
             membership = await self._membership(
                 guild_id=guild_id,
                 user_id=discord_user_id,
-                force=sensitive,
+                force=False,
             )
             matching_roles = [
                 binding.dashboard_role
-                for binding in bindings
+                for binding in applicable_bindings
                 if binding.discord_role_id in membership.role_ids
             ]
             role = _strongest(role, *matching_roles)
         if role is None or capability not in capabilities_for_role(role):
             self._deny(guild_id, discord_user_id, "CAPABILITY_REQUIRED")
+        installation = await self.repository.get_installation(guild_id, discord_user_id)
+        if installation is None:
+            self._deny(guild_id, discord_user_id, "INSTALLATION_NOT_FOUND")
+        assert installation is not None
+        if require_active_installation and installation.status is not InstallationStatus.ACTIVE:
+            self._deny(guild_id, discord_user_id, "INSTALLATION_NOT_ACTIVE")
         return AuthorizationDecision(
             guild_id=guild_id,
             user_id=discord_user_id,
             role=role,
             capabilities=capabilities_for_role(role),
+            scope=scope,
             installation=installation,
         )
 

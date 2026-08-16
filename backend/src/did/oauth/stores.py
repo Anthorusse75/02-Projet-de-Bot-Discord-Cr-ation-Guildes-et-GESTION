@@ -25,6 +25,7 @@ class SessionError(ValueError):
 class OAuthState:
     state: str
     return_to: str
+    browser_binding: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,19 +49,42 @@ class RedisOAuthStateStore:
         if not _is_local_path(return_to):
             raise OAuthStateError("OAuth return path is not allowlisted")
         state = secrets.token_urlsafe(32)
+        browser_binding = secrets.token_urlsafe(32)
         key = user_control_key("oauth-state", hashlib.sha256(state.encode()).hexdigest())
-        payload = json.dumps({"return_to": return_to}, separators=(",", ":"))
+        payload = json.dumps(
+            {
+                "return_to": return_to,
+                "browser_binding_hash": _binding_digest(browser_binding),
+            },
+            separators=(",", ":"),
+        )
         created = await self._redis.set(key, payload, ex=self._ttl_seconds, nx=True)
         if not created:
             raise OAuthStateError("OAuth state collision")
-        return OAuthState(state=state, return_to=return_to)
+        return OAuthState(state=state, return_to=return_to, browser_binding=browser_binding)
 
-    async def consume(self, state: str) -> OAuthState:
-        if not state:
-            raise OAuthStateError("OAuth state is missing")
+    async def consume(self, state: str, browser_binding: str | None) -> OAuthState:
+        if not state or not browser_binding:
+            raise OAuthStateError("OAuth state or browser binding is missing")
         key = user_control_key("oauth-state", hashlib.sha256(state.encode()).hexdigest())
-        payload = await self._redis.getdel(key)
-        if not isinstance(payload, str):
+        script = (
+            "local payload = redis.call('get', KEYS[1]); "
+            "if not payload then return {0, ''} end; "
+            "local ok, record = pcall(cjson.decode, payload); "
+            "if not ok or type(record) ~= 'table' then return {-2, ''} end; "
+            "if record.browser_binding_hash ~= ARGV[1] then return {-1, ''} end; "
+            "redis.call('del', KEYS[1]); return {1, payload}"
+        )
+        result = await self._redis.eval(script, 1, key, _binding_digest(browser_binding))
+        if not isinstance(result, list) or len(result) != 2:
+            raise OAuthStateError("OAuth state validation failed")
+        status = int(result[0])
+        if status == -1:
+            raise OAuthStateError("OAuth browser binding does not match")
+        if status == -2:
+            raise OAuthStateError("OAuth state record is invalid")
+        payload = result[1]
+        if status != 1 or not isinstance(payload, str):
             raise OAuthStateError("OAuth state is invalid, expired, or already used")
         try:
             return_to = json.loads(payload)["return_to"]
@@ -290,3 +314,7 @@ def _decode_session(payload: str, session_id: str) -> SessionData:
 
 def _is_local_path(value: str) -> bool:
     return value.startswith("/") and not value.startswith("//") and "\\" not in value
+
+
+def _binding_digest(browser_binding: str) -> str:
+    return hashlib.sha256(browser_binding.encode()).hexdigest()

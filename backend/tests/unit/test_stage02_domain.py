@@ -5,8 +5,10 @@ import pytest
 from did.domain.auth import (
     DISCORD_ADMINISTRATOR,
     ActorMembership,
+    AuthorizationScope,
     Capability,
     PlatformRole,
+    ScopeKind,
     bootstrap_allowed,
     capabilities_for_role,
 )
@@ -43,3 +45,19 @@ def test_authorization_freshness_is_distinct_from_display_age() -> None:
     )
     assert not membership.is_fresh(max_age_seconds=120)
     assert membership.is_fresh(max_age_seconds=300)
+
+
+def test_authorization_scope_is_canonical_and_does_not_cross_siblings() -> None:
+    guild = AuthorizationScope.guild()
+    alpha = AuthorizationScope(ScopeKind.LOGICAL_GROUP, "alpha")
+    beta = AuthorizationScope(ScopeKind.LOGICAL_GROUP, "beta")
+    visibility = AuthorizationScope(ScopeKind.VISIBILITY_SCOPE, "alpha")
+
+    assert guild.covers(alpha)
+    assert alpha.covers(alpha)
+    assert not alpha.covers(beta)
+    assert not alpha.covers(visibility)
+    with pytest.raises(ValueError, match="canonical"):
+        AuthorizationScope(ScopeKind.GUILD, "alpha")
+    with pytest.raises(ValueError, match="explicit"):
+        AuthorizationScope(ScopeKind.LOGICAL_GROUP, "*")

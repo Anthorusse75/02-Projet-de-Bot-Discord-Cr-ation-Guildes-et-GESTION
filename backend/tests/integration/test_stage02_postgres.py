@@ -148,6 +148,120 @@ async def test_cross_tenant_write_and_missing_composite_parent_are_rejected() ->
         await engine.dispose()
 
 
+async def test_scoped_rbac_keys_allow_siblings_and_enforce_canonical_pairs() -> None:
+    await _seed_stage02()
+    engine = create_database_engine(ADMIN_URL, pool_size=1)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO guild_user_access "
+                    "(guild_id, discord_user_id, platform_role, status, scope_kind, scope_id, "
+                    "created_by) VALUES "
+                    "(:guild, :user, 'TENANT_ADMIN', 'ACTIVE', 'LOGICAL_GROUP', 'alpha', :user), "
+                    "(:guild, :user, 'READ_ONLY', 'ACTIVE', 'LOGICAL_GROUP', 'beta', :user)"
+                ),
+                {"guild": GUILD_A, "user": USER_A},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO guild_role_bindings "
+                    "(guild_id, discord_role_id, dashboard_role, scope_kind, scope_id, created_by) "
+                    "VALUES "
+                    "(:guild, 88, 'TENANT_ADMIN', 'LOGICAL_GROUP', 'alpha', :user), "
+                    "(:guild, 88, 'READ_ONLY', 'LOGICAL_GROUP', 'beta', :user)"
+                ),
+                {"guild": GUILD_A, "user": USER_A},
+            )
+            access_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM guild_user_access "
+                    "WHERE guild_id=:guild AND discord_user_id=:user"
+                ),
+                {"guild": GUILD_A, "user": USER_A},
+            )
+            binding_count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM guild_role_bindings "
+                    "WHERE guild_id=:guild AND discord_role_id=88"
+                ),
+                {"guild": GUILD_A},
+            )
+            primary_key = await connection.scalar(
+                text(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conname='pk_guild_user_access'"
+                )
+            )
+            constraints = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT conname FROM pg_constraint WHERE conname IN "
+                            "('fk_guild_user_access_user', "
+                            "'fk_guild_user_access_installation', "
+                            "'fk_guild_role_bindings_installation', "
+                            "'uq_guild_installations_app')"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            indexes = set(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT indexname FROM pg_indexes WHERE indexname IN "
+                            "('ix_guild_user_access_user', 'ix_installations_status', "
+                            "'ix_oauth_grants_active')"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert access_count == 3
+        assert binding_count == 2
+        assert primary_key == ("PRIMARY KEY (guild_id, discord_user_id, scope_kind, scope_id)")
+        assert constraints == {
+            "fk_guild_user_access_user",
+            "fk_guild_user_access_installation",
+            "fk_guild_role_bindings_installation",
+            "uq_guild_installations_app",
+        }
+        assert indexes == {
+            "ix_guild_user_access_user",
+            "ix_installations_status",
+            "ix_oauth_grants_active",
+        }
+
+        with pytest.raises(DBAPIError):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "INSERT INTO guild_user_access "
+                        "(guild_id, discord_user_id, platform_role, status, scope_kind, scope_id, "
+                        "created_by) VALUES "
+                        "(:guild, :user, 'READ_ONLY', 'ACTIVE', 'GUILD', 'alpha', :user)"
+                    ),
+                    {"guild": GUILD_A, "user": USER_A},
+                )
+        with pytest.raises(DBAPIError):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "INSERT INTO guild_role_bindings "
+                        "(guild_id, discord_role_id, dashboard_role, scope_kind, scope_id, "
+                        "created_by) VALUES "
+                        "(:guild, 89, 'READ_ONLY', 'VISIBILITY_SCOPE', '*', :user)"
+                    ),
+                    {"guild": GUILD_A, "user": USER_A},
+                )
+    finally:
+        await engine.dispose()
+
+
 async def test_oauth_ciphertext_columns_do_not_store_plaintext() -> None:
     await _seed_stage02()
     admin = create_database_engine(ADMIN_URL, pool_size=1)

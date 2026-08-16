@@ -46,6 +46,12 @@ def session_cookie_name(settings: Settings) -> str:
     return "did_session"
 
 
+def oauth_binding_cookie_name(settings: Settings) -> str:
+    if settings.app_env is AppEnvironment.PRODUCTION:
+        return "__Host-did_oauth_binding"
+    return "did_oauth_binding"
+
+
 ServicesDep = Annotated[ServiceContainer, Depends(services)]
 
 

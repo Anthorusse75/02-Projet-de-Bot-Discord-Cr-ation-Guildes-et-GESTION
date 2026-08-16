@@ -18,18 +18,24 @@ async def test_oauth_state_is_ttl_bound_single_use_and_rejects_open_redirect() -
     store = RedisOAuthStateStore(redis, ttl_seconds=60)
     try:
         state = await store.create(return_to="/guilds")
-        assert (await store.consume(state.state)).return_to == "/guilds"
+        assert state.browser_binding is not None
+        with pytest.raises(OAuthStateError, match="binding"):
+            await store.consume(state.state, "wrong-browser-binding")
+        with pytest.raises(OAuthStateError, match="missing"):
+            await store.consume(state.state, None)
+        assert (await store.consume(state.state, state.browser_binding)).return_to == "/guilds"
         with pytest.raises(OAuthStateError, match="already used"):
-            await store.consume(state.state)
+            await store.consume(state.state, state.browser_binding)
         with pytest.raises(OAuthStateError, match="allowlisted"):
             await store.create(return_to="https://attacker.example/")
         with pytest.raises(OAuthStateError, match="allowlisted"):
             await store.create(return_to="//attacker.example/")
         expiring_store = RedisOAuthStateStore(redis, ttl_seconds=1)
         expiring_state = await expiring_store.create(return_to="/guilds")
+        assert expiring_state.browser_binding is not None
         await asyncio.sleep(1.05)
         with pytest.raises(OAuthStateError, match="expired"):
-            await expiring_store.consume(expiring_state.state)
+            await expiring_store.consume(expiring_state.state, expiring_state.browser_binding)
     finally:
         await redis.aclose()
 

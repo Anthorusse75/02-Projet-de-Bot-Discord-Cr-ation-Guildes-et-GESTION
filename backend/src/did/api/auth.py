@@ -7,6 +7,7 @@ from did.api.dependencies import (
     ApiProblem,
     CsrfSessionDep,
     ServicesDep,
+    oauth_binding_cookie_name,
     session_cookie_name,
 )
 from did.application.auth.service import AuthenticationError
@@ -23,14 +24,25 @@ async def discord_login(
     return_to: Annotated[str, Query()] = "/",
 ) -> RedirectResponse:
     try:
-        _, url = await container.auth.start(return_to=return_to)
+        transaction, url = await container.auth.start(return_to=return_to)
     except OAuthStateError as exc:
         raise ApiProblem(
             status_code=400,
             code="OAUTH_RETURN_PATH_INVALID",
             message_key="errors.auth.returnPath",
         ) from exc
-    return RedirectResponse(url=url, status_code=302)
+    assert transaction.browser_binding is not None
+    response = RedirectResponse(url=url, status_code=302)
+    response.set_cookie(
+        oauth_binding_cookie_name(container.settings),
+        transaction.browser_binding,
+        max_age=container.settings.oauth_state_ttl_seconds,
+        httponly=True,
+        secure=container.settings.app_env is AppEnvironment.PRODUCTION,
+        samesite="lax",
+        path="/",
+    )
+    return response
 
 
 @router.get("/auth/discord/callback")
@@ -40,40 +52,63 @@ async def discord_callback(
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
-) -> RedirectResponse:
+) -> Response:
+    binding = request.cookies.get(oauth_binding_cookie_name(container.settings))
     if error is not None:
         if state:
             try:
-                await container.auth.state_store.consume(state)
+                await container.auth.state_store.consume(state, binding)
             except OAuthStateError:
                 pass
-        raise ApiProblem(
-            status_code=400,
-            code="OAUTH_PROVIDER_DENIED",
-            message_key="errors.auth.providerDenied",
+        return _callback_problem(
+            request,
+            container,
+            ApiProblem(
+                status_code=400,
+                code="OAUTH_PROVIDER_DENIED",
+                message_key="errors.auth.providerDenied",
+            ),
         )
     if not code or not state:
-        raise ApiProblem(
-            status_code=400,
-            code="OAUTH_CALLBACK_INVALID",
-            message_key="errors.auth.callback",
+        return _callback_problem(
+            request,
+            container,
+            ApiProblem(
+                status_code=400,
+                code="OAUTH_CALLBACK_INVALID",
+                message_key="errors.auth.callback",
+            ),
         )
     previous = request.cookies.get(session_cookie_name(container.settings))
     try:
-        result = await container.auth.callback(code=code, state=state, previous_session_id=previous)
-    except OAuthStateError as exc:
-        raise ApiProblem(
-            status_code=400,
-            code="OAUTH_STATE_INVALID",
-            message_key="errors.auth.state",
-        ) from exc
-    except (AuthenticationError, DiscordOAuthError) as exc:
-        raise ApiProblem(
-            status_code=502,
-            code="OAUTH_EXCHANGE_FAILED",
-            message_key="errors.auth.exchange",
-        ) from exc
+        result = await container.auth.callback(
+            code=code,
+            state=state,
+            browser_binding=binding,
+            previous_session_id=previous,
+        )
+    except OAuthStateError:
+        return _callback_problem(
+            request,
+            container,
+            ApiProblem(
+                status_code=400,
+                code="OAUTH_STATE_INVALID",
+                message_key="errors.auth.state",
+            ),
+        )
+    except (AuthenticationError, DiscordOAuthError):
+        return _callback_problem(
+            request,
+            container,
+            ApiProblem(
+                status_code=502,
+                code="OAUTH_EXCHANGE_FAILED",
+                message_key="errors.auth.exchange",
+            ),
+        )
     response = RedirectResponse(url=result.return_to, status_code=303)
+    _delete_oauth_binding(response, container)
     response.set_cookie(
         session_cookie_name(container.settings),
         result.session.session_id,
@@ -134,4 +169,22 @@ def problem_response(problem: ApiProblem, request_id: str) -> JSONResponse:
                 "request_id": request_id,
             }
         },
+    )
+
+
+def _callback_problem(
+    request: Request, container: ServicesDep, problem: ApiProblem
+) -> JSONResponse:
+    response = problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+    _delete_oauth_binding(response, container)
+    return response
+
+
+def _delete_oauth_binding(response: Response, container: ServicesDep) -> None:
+    response.delete_cookie(
+        oauth_binding_cookie_name(container.settings),
+        path="/",
+        secure=container.settings.app_env is AppEnvironment.PRODUCTION,
+        httponly=True,
+        samesite="lax",
     )

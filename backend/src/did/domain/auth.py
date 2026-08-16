@@ -32,6 +32,29 @@ class ScopeKind(StrEnum):
     VISIBILITY_SCOPE = "VISIBILITY_SCOPE"
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorizationScope:
+    kind: ScopeKind
+    scope_id: str
+
+    def __post_init__(self) -> None:
+        if self.kind is ScopeKind.GUILD:
+            if self.scope_id != "*":
+                raise ValueError("GUILD scope_id must be the canonical wildcard")
+            return
+        if not self.scope_id or not self.scope_id.strip() or self.scope_id == "*":
+            raise ValueError("limited scope_id must be explicit and non-empty")
+        if self.scope_id != self.scope_id.strip():
+            raise ValueError("scope_id cannot contain surrounding whitespace")
+
+    @classmethod
+    def guild(cls) -> "AuthorizationScope":
+        return cls(ScopeKind.GUILD, "*")
+
+    def covers(self, target: "AuthorizationScope") -> bool:
+        return self.kind is ScopeKind.GUILD or self == target
+
+
 class Capability(StrEnum):
     TENANT_READ = "tenant.read"
     TENANT_BOOTSTRAP = "tenant.bootstrap"
