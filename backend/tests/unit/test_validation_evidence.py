@@ -32,6 +32,7 @@ def test_summary_contains_policy_metadata_and_detailed_gates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(validate_stage, "ROOT", tmp_path)
+    monkeypatch.setenv("DID_EVIDENCE_ARTIFACT_ID", "stage-02-evidence-run-123")
     evidence_directory = tmp_path / "artifacts" / "test-evidence" / "stage-02" / "run-123"
     evidence_directory.mkdir(parents=True)
     (evidence_directory / "backend-unit.xml").write_text("<testsuites />", encoding="utf-8")
@@ -78,4 +79,5 @@ def test_summary_contains_policy_metadata_and_detailed_gates(
     assert summary["artifacts"] == [
         "artifacts/test-evidence/stage-02/run-123/summary.json",
         "artifacts/test-evidence/stage-02/run-123/backend-unit.xml",
+        "github-actions-artifact:stage-02-evidence-run-123",
     ]
