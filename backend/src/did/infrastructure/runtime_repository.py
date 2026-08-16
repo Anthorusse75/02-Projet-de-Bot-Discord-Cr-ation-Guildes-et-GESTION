@@ -767,9 +767,7 @@ class RuntimeRepository:
                             "guild_id": guild_id,
                             "target_id": str(channel_id),
                             "correlation_id": correlation_id,
-                            "data": json.dumps(
-                                {"origin": "RECONCILE", "source": "TARGETED_REST"}
-                            ),
+                            "data": json.dumps({"origin": "RECONCILE", "source": "TARGETED_REST"}),
                             "occurred_at": observed,
                         },
                     )
@@ -1170,12 +1168,8 @@ class RuntimeRepository:
         if not 1 <= limit <= 1000:
             raise ValueError("runtime routing limit must be between 1 and 1000")
         statements = {
-            "runtime_job_guilds": text(
-                "SELECT guild_id FROM app.runtime_job_guilds(:limit)"
-            ),
-            "runtime_outbox_guilds": text(
-                "SELECT guild_id FROM app.runtime_outbox_guilds(:limit)"
-            ),
+            "runtime_job_guilds": text("SELECT guild_id FROM app.runtime_job_guilds(:limit)"),
+            "runtime_outbox_guilds": text("SELECT guild_id FROM app.runtime_outbox_guilds(:limit)"),
             "runtime_reconcile_guilds": text(
                 "SELECT guild_id FROM app.runtime_reconcile_guilds(:limit)"
             ),
@@ -1198,9 +1192,7 @@ class RuntimeRepository:
     async def runtime_reconcile_guilds(self, *, limit: int = 256) -> list[int]:
         return await self._runtime_guild_ids("runtime_reconcile_guilds", limit=limit)
 
-    async def reconcile_signals(
-        self, guild_id: int, *, rate_limit_pressure: float
-    ) -> Any:
+    async def reconcile_signals(self, guild_id: int, *, rate_limit_pressure: float) -> Any:
         from did.application.reconciliation.scheduler import ReconcileSignals
 
         if not 0.0 <= rate_limit_pressure <= 1.0:

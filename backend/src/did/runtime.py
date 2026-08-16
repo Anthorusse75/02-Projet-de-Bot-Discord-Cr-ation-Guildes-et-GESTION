@@ -53,9 +53,7 @@ async def run_process(
         if background_task is None:
             return None
         result = (await asyncio.gather(background_task, return_exceptions=True))[0]
-        if isinstance(result, BaseException) and not isinstance(
-            result, asyncio.CancelledError
-        ):
+        if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
             return result
         return None
 
@@ -157,12 +155,8 @@ async def run_process(
             scheduler = ReconcileScheduler(
                 repository,
                 AdaptiveReconcilePolicy(
-                    active_target=timedelta(
-                        seconds=settings.reconcile_active_target_seconds
-                    ),
-                    inactive_target=timedelta(
-                        seconds=settings.reconcile_inactive_target_seconds
-                    ),
+                    active_target=timedelta(seconds=settings.reconcile_active_target_seconds),
+                    inactive_target=timedelta(seconds=settings.reconcile_inactive_target_seconds),
                 ),
                 wakeup=RedisRuntimeWakeup(redis),
                 poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,

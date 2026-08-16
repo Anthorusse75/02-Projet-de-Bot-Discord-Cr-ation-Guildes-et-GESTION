@@ -49,9 +49,7 @@ class ReconcileScheduler:
                 pressure = await self._wakeup.rate_limit_pressure()
             except Exception:
                 self._logger.warning("scheduler rate-pressure signal unavailable")
-        guild_ids = await self._repository.runtime_reconcile_guilds(
-            limit=self._routing_batch_size
-        )
+        guild_ids = await self._repository.runtime_reconcile_guilds(limit=self._routing_batch_size)
         signals = [
             await self._repository.reconcile_signals(guild_id, rate_limit_pressure=pressure)
             for guild_id in guild_ids

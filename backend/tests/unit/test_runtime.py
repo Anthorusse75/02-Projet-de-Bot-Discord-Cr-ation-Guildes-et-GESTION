@@ -30,9 +30,7 @@ async def test_non_discord_processes_start_and_stop_without_discord_token(
 async def test_worker_fails_closed_without_discord_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def immediate_lifecycle(
-        stop_event: object, *, on_start: object, on_stop: object
-    ) -> None:
+    async def immediate_lifecycle(stop_event: object, *, on_start: object, on_stop: object) -> None:
         del stop_event, on_stop
         assert callable(on_start)
         await on_start()

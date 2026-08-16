@@ -50,9 +50,7 @@ class DiscordWorkerRuntime:
             now = loop.time()
             guild_ids: set[int] = set()
             try:
-                guild_ids.update(
-                    await self._wakeup.pop_job_guilds(limit=self._routing_batch_size)
-                )
+                guild_ids.update(await self._wakeup.pop_job_guilds(limit=self._routing_batch_size))
             except Exception:
                 self._logger.warning("runtime Redis wakeup unavailable; using durable recovery")
             if now >= next_recovery:
@@ -87,9 +85,7 @@ class DiscordWorkerRuntime:
 
     async def _publish_pending_outbox(self) -> int:
         published = 0
-        guild_ids = await self._repository.runtime_outbox_guilds(
-            limit=self._routing_batch_size
-        )
+        guild_ids = await self._repository.runtime_outbox_guilds(limit=self._routing_batch_size)
         for guild_id in guild_ids:
             try:
                 published += await self._outbox.publish_guild(guild_id, limit=100)

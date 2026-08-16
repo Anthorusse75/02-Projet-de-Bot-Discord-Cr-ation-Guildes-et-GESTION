@@ -255,7 +255,7 @@ def stage_03(
                 environment={
                     **TEST_ENV,
                     "DID_RUN_INTEGRATION": "1",
-                    "DID_LOAD_REPORT": relative_path(evidence_directory / "load-fairness.json")
+                    "DID_LOAD_REPORT": relative_path(evidence_directory / "load-fairness.json"),
                 },
             ),
             Step("secret scan", (python, "scripts/check_secrets.py")),

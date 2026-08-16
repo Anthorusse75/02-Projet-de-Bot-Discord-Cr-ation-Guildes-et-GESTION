@@ -39,9 +39,7 @@ class DiscordSyncService:
         # The durable worker submits this bounded operation through its one long-lived
         # Governor.  The sync service therefore performs no nested drain and cannot
         # create a competing scheduler/consumer around the same Governor instance.
-        channel_result = await self._singleflight.run(
-            guild_id, "refresh:channels", fetch_channels
-        )
+        channel_result = await self._singleflight.run(guild_id, "refresh:channels", fetch_channels)
         role_result = await self._singleflight.run(guild_id, "refresh:roles", fetch_roles)
         if stop_event is not None and stop_event.is_set():
             return {"channels": 0, "roles": 0, "interrupted": 1}

@@ -84,9 +84,7 @@ class Settings(BaseSettings):
     reconcile_active_target_seconds: int = Field(default=21600, ge=300, le=86400)
     reconcile_inactive_target_seconds: int = Field(default=86400, ge=3600, le=604800)
     reconcile_scheduler_poll_seconds: float = Field(default=5.0, ge=0.1, le=300.0)
-    websocket_authorization_max_staleness_seconds: float = Field(
-        default=300.0, ge=1.0, le=900.0
-    )
+    websocket_authorization_max_staleness_seconds: float = Field(default=300.0, ge=1.0, le=900.0)
     frontend_post_auth_path: str = "/"
     cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173",)
 

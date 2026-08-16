@@ -216,8 +216,10 @@ class RedisSingleFlight:
                         )
                 current = await self._redis.get(lock_key)
                 current_generation = (
-                    current.decode() if isinstance(current, bytes) else str(current)
-                ) if current is not None else None
+                    (current.decode() if isinstance(current, bytes) else str(current))
+                    if current is not None
+                    else None
+                )
                 if current_generation != generation:
                     # The observed generation crashed, expired, or completed without a
                     # result.  A new outer iteration may recover as a fresh owner.

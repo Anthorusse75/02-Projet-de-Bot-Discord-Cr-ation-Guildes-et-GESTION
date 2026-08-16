@@ -241,10 +241,7 @@ async def test_http_omission_is_access_loss_then_local_purge_and_reobservation()
             tombstone = (
                 (
                     await session.execute(
-                        text(
-                            "SELECT reason, confirmed_by_user_id "
-                            "FROM discord_channel_tombstones"
-                        )
+                        text("SELECT reason, confirmed_by_user_id FROM discord_channel_tombstones")
                     )
                 )
                 .mappings()

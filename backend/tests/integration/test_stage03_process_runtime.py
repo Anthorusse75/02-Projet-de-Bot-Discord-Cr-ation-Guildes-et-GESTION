@@ -54,8 +54,7 @@ async def reset_runtime() -> tuple[RuntimeRepository, Any]:
             await connection.execute(text("TRUNCATE users, guild_installations CASCADE"))
             await connection.execute(
                 text(
-                    "INSERT INTO users (discord_user_id, username) "
-                    "VALUES (:actor, 'process-actor')"
+                    "INSERT INTO users (discord_user_id, username) VALUES (:actor, 'process-actor')"
                 ),
                 {"actor": ACTOR},
             )
