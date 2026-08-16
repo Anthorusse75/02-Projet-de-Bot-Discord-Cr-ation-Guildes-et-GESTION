@@ -25,5 +25,7 @@ La validation contrôle notamment les 11 étapes, la couverture des exigences, l
 
 - phase courante : préparation de STAGE 01 ;
 - code applicatif : absent par conception ;
-- dépôt distant : à créer lorsque GitHub CLI est installé et authentifié ;
+- repository GitHub : [`Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION`](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION), publié sur `main` ;
+- visibilité : dépôt volontairement public pendant le développement ;
+- prochaine étape : STAGE 01, qui n’a pas encore commencé ;
 - secrets Discord : aucun requis pour la phase documentaire.

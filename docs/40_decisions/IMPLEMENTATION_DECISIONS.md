@@ -10,12 +10,17 @@ Les ADR-001 à ADR-035 restent normatifs dans la source d’architecture. Ce reg
 - Décision : conserver l’exigence comme compatibilité anticipée et modèle de robustesse (`VISIBLE`, `OBFUSCATED`, `ACCESS_LOST`, tombstones), mais ne pas figer le payload, le flag ou la sémantique REST dans le code avant relecture du changelog et des docs Discord officiels au PRECHECK de STAGE 03.
 - Validation : contract tests tolérants aux champs évolutifs, fixture versionnée issue d’une source officielle, puis test sandbox lorsque le mode est disponible. Une absence HTTP seule ne prouve jamais une suppression, invariant sûr indépendamment du rollout.
 
-## IMP-002 — Publication GitHub initiale différée
+## IMP-002 — Publication GitHub initiale
 
 - Date : 2026-08-16
-- Statut : `BLOCKED_EXTERNAL_TOOLING`
-- Constat : `gh` n’est pas installé dans l’environnement initial.
-- Décision : produire et committer le dépôt local sur `main`; ne configurer aucun remote fictif. Après installation de GitHub CLI, exécuter `gh auth login`, vérifier l’absence/concordance du dépôt `discord-infrastructure-designer`, créer le dépôt privé, ajouter `origin`, pousser `main`, puis consigner l’URL et le SHA dans `00_CURRENT_STATE.md`.
+- Statut : `RESOLVED`
+- Constat initial : `gh` n’était pas installé dans l’environnement initial ; le dossier a donc d’abord été validé et committé localement sans déclarer de publication inexistante.
+- Résolution :
+  - le repository GitHub réel est `Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION` ;
+  - `origin` est configuré vers `https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION.git` ;
+  - `main` est publié et synchronisé avec le dépôt distant au moment de la résolution ;
+  - la visibilité `PUBLIC_DURING_DEVELOPMENT` est volontaire ; un éventuel passage en privé constitue une décision ultérieure et n’est pas un prérequis de STAGE 01 ;
+  - l’absence locale éventuelle de GitHub CLI n’empêche ni le workflow Git existant ni le démarrage de STAGE 01.
 
 ## IMP-003 — Numérotation dupliquée des invariants d’architecture
 
