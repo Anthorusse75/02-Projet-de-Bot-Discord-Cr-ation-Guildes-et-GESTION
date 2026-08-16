@@ -101,16 +101,16 @@ REQUIREMENT_PROGRESS = {
         "STAGE 01 foundation: migration 0001_stage_01 + PostgreSQL A/B integration evidence",
     ),
     "REQ-TEN-007": (
-        "VERIFIED",
-        "backend-unit.xml (namespace ownership) + backend-integration.xml (real Redis)",
+        "IMPLEMENTED",
+        "STAGE 01 Redis namespace builder + unit/real Redis tests; extend through later features and verify finally in STAGE 10",
     ),
     "REQ-TEN-010": (
-        "VERIFIED",
-        "backend-integration.xml: A/B, absent context, cross-write denial, pool reuse",
+        "IMPLEMENTED",
+        "STAGE 01 canary RLS: A/B, absent context, cross-write denial and pool reuse; later tenant tables remain to cover before STAGE 10 verification",
     ),
     "REQ-AUD-004": (
-        "VERIFIED",
-        "backend-unit.xml (recursive redaction) + validation-summary.json (secret scan)",
+        "IMPLEMENTED",
+        "STAGE 01 static event registry, fail-safe formatter, recursive redaction and secret scan; all later emitters remain to cover before STAGE 10 verification",
     ),
     "REQ-BOT-001": (
         "IMPLEMENTED",

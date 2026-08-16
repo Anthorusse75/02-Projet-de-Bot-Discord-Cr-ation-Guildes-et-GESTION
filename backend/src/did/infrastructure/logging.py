@@ -2,18 +2,32 @@ import json
 import logging
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 _SENSITIVE_FRAGMENTS = (
+    "api_key",
     "authorization",
     "cookie",
+    "credential",
     "database_url",
     "password",
+    "private_key",
     "redis_url",
     "secret",
     "token",
 )
+
+
+class EventId(StrEnum):
+    """Closed registry of static log event identifiers."""
+
+    PROCESS_STARTED = "process.started"
+    PROCESS_STOPPED = "process.stopped"
+
+
+UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"
 
 
 def redact(value: Any, *, key: str = "") -> Any:
@@ -28,18 +42,37 @@ def redact(value: Any, *, key: str = "") -> Any:
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        event_id = getattr(record, "event_id", None)
+        if not isinstance(event_id, EventId):
+            event = UNSTRUCTURED_EVENT_ID
+        else:
+            event = event_id.value
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
-            "event": record.getMessage(),
+            "event": event,
         }
         correlation_id = correlation_id_var.get()
         if correlation_id is not None:
             payload["correlation_id"] = correlation_id
         fields = getattr(record, "fields", None)
         if isinstance(fields, dict):
-            payload.update(redact(fields))
+            payload["fields"] = redact(fields)
         return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+
+def emit_event(
+    logger: logging.Logger,
+    level: int,
+    event_id: EventId,
+    *,
+    fields: dict[str, Any] | None = None,
+) -> None:
+    """Emit a registered event; all dynamic values belong in recursively redacted fields."""
+
+    if not isinstance(event_id, EventId):
+        raise TypeError("event_id must be a registered EventId")
+    logger.log(level, event_id.value, extra={"event_id": event_id, "fields": fields or {}})
 
 
 def configure_logging(level: str = "INFO") -> None:

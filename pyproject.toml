@@ -35,6 +35,7 @@ packages = ["backend/src/did"]
 addopts = "--strict-config --strict-markers"
 asyncio_mode = "auto"
 testpaths = ["backend/tests"]
+pythonpath = ["."]
 markers = [
   "integration: requires PostgreSQL and Redis from compose.test.yaml",
 ]

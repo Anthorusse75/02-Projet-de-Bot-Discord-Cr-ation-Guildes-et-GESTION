@@ -3,7 +3,7 @@ import logging
 import signal
 
 from did.application.lifecycle import run_until_stopped
-from did.infrastructure.logging import configure_logging
+from did.infrastructure.logging import EventId, configure_logging, emit_event
 from did.settings import Settings
 
 
@@ -20,10 +20,20 @@ async def run_process(process_name: str) -> None:
             pass
 
     async def on_start() -> None:
-        logger.info("process_started", extra={"fields": {"process": process_name}})
+        emit_event(
+            logger,
+            logging.INFO,
+            EventId.PROCESS_STARTED,
+            fields={"process": process_name},
+        )
 
     async def on_stop() -> None:
-        logger.info("process_stopped", extra={"fields": {"process": process_name}})
+        emit_event(
+            logger,
+            logging.INFO,
+            EventId.PROCESS_STOPPED,
+            fields={"process": process_name},
+        )
 
     await run_until_stopped(stop_event, on_start=on_start, on_stop=on_stop)
 
