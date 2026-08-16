@@ -1,11 +1,11 @@
 import { Route, Routes } from 'react-router-dom'
 
-import { FoundationShell } from '../pages/FoundationShell'
+import { AuthTenantShell } from '../pages/AuthTenantShell'
 
 export function App() {
   return (
     <Routes>
-      <Route path="*" element={<FoundationShell />} />
+      <Route path="*" element={<AuthTenantShell />} />
     </Routes>
   )
 }

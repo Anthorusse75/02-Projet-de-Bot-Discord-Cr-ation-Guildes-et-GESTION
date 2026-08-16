@@ -25,6 +25,15 @@ class EventId(StrEnum):
 
     PROCESS_STARTED = "process.started"
     PROCESS_STOPPED = "process.stopped"
+    AUTH_LOGIN_SUCCEEDED = "auth.login.succeeded"
+    AUTH_LOGIN_DENIED = "auth.login.denied"
+    AUTH_LOGOUT = "auth.logout"
+    AUTH_GRANT_REVOKED = "auth.grant.revoked"
+    AUTHORIZATION_DENIED = "authorization.denied"
+    INSTALLATION_DETECTED = "installation.detected"
+    INSTALLATION_BOOTSTRAPPED = "installation.bootstrapped"
+    INSTALLATION_UNINSTALLED = "installation.uninstalled"
+    RBAC_CHANGED = "rbac.changed"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"

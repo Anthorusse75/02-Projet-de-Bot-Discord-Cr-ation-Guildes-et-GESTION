@@ -1,0 +1,26 @@
+{
+  "stage": "02",
+  "profile": "discord-live-sandbox",
+  "status": "PASS_WITH_APPROVED_LIMITATION",
+  "executed_at": "2026-08-16T16:30:04Z",
+  "checks": [
+    "bot identity matches application",
+    "OAuth identify/guilds profile: owner",
+    "minimal bot installation observed: Guild A",
+    "bot uninstall observed: Guild A",
+    "bot reinstall observed: Guild A",
+    "minimal bot installation observed: Guild B",
+    "bot uninstall observed: Guild B",
+    "bot reinstall observed: Guild B",
+    "targeted Get Guild Member for the live actor",
+    "temporary OAuth grants revoked"
+  ],
+  "skipped_not_verified": [
+    "live administrator non-owner profile",
+    "live non-administrator profile"
+  ],
+  "limitation": "The user explicitly required a single-account live profile; automated tests cover the two skipped authorization branches.",
+  "cleanup": "The bot was reinstalled on both sandboxes and temporary OAuth grants were revoked.",
+  "identifiers_recorded": false,
+  "secrets_recorded": false
+}

@@ -35,3 +35,28 @@ Les ADR-001 à ADR-035 restent normatifs dans la source d’architecture. Ce reg
 - Statut : `CLARIFIED`
 - Constat : l’architecture §72 énumère deux fois `did.localization.*`, une fois pour le catalogue UI et une fois pour les locale packs/préférences. Les responsabilités sont complémentaires, pas deux packages concurrents.
 - Décision : conserver un seul package `did.localization` structuré en sous-modules catalogue, packs, résolution et préférences ; `did.translation` reste réservé à la traduction de contenu.
+
+## IMP-005 — OAuth2 Discord confidentiel côté backend
+
+- Date : 2026-08-16
+- Statut : `RESOLVED`
+- Sources officielles relues : [OAuth2 Discord](https://docs.discord.com/developers/topics/oauth2), [User resource](https://docs.discord.com/developers/resources/user) et [installation d’application](https://docs.discord.com/developers/resources/application).
+- Décision : DID utilise uniquement l’Authorization Code Grant avec échange et refresh côté backend confidentiel, authentifié par `client_secret`. Les scopes initiaux forment exactement l’ensemble `identify guilds`; `guilds.members.read` n’est pas demandé. L’Implicit Grant et les tokens utilisateur non OAuth2 sont interdits.
+- PKCE : non ajouté à ce client backend confidentiel, car le secret client et le code ne sont jamais traités par le navigateur applicatif. `state` reste CSPRNG, hashé dans Redis, expirant et à usage unique. Toute évolution vers un client public imposerait une nouvelle décision et PKCE.
+- Écart aux sources : aucun écart Discord identifié lors de la relecture du 2026-08-16.
+
+## IMP-006 — Session opaque et CSRF synchronizer token
+
+- Date : 2026-08-16
+- Statut : `RESOLVED`
+- Décision : le cookie ne contient qu’un identifiant de session opaque ; son enregistrement Redis est indexé par HMAC, tourne après authentification, possède des durées idle/absolue et est révoqué au logout. En production, le cookie `__Host-did_session` est `Secure`, `HttpOnly`, `Path=/`, sans `Domain`, avec `SameSite=Lax`.
+- CSRF : les mutations cookie-authenticated exigent un synchronizer token aléatoire conservé dans la session et fourni via `X-CSRF-Token`. Il est indépendant du `state` OAuth et tourne lors d’un changement de Guild active.
+
+## IMP-007 — Lookup membre ciblé gouverné avant STAGE 03
+
+- Date : 2026-08-16
+- Statut : `RESOLVED_STAGE_02_SCOPE`
+- Sources officielles relues : [Guild resource](https://docs.discord.com/developers/resources/guild), [permissions](https://docs.discord.com/developers/topics/permissions), [limites REST](https://docs.discord.com/developers/topics/rate-limits) et [référence HTTP](https://docs.discord.com/developers/reference).
+- Décision : lorsqu’un binding de rôle est nécessaire, STAGE 02 appelle uniquement `GET /guilds/{guild.id}/members/{user.id}` pour l’acteur ; aucun endpoint de liste des membres n’est utilisé. Les décisions sensibles forcent cette relecture ciblée.
+- Gouvernance REST : le transport bot-token STAGE 02 est sérialisé, fournit un User-Agent, mémorise `Retry-After`/`X-RateLimit-Reset-After` et diffère les appels suivants après 429. Le gouverneur distribué, les buckets partagés et la fairness multi-workload restent strictement STAGE 03.
+- Écart aux sources : aucun écart Discord identifié lors de la relecture du 2026-08-16.

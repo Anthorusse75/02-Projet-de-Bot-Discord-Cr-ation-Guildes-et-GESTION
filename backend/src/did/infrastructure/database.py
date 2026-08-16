@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from did.tenancy.context import TenantContext
+from did.tenancy.context import TenantContext, UserContext
 
 
 def create_database_engine(database_url: str, *, pool_size: int = 5) -> AsyncEngine:
@@ -27,11 +27,11 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
 
 async def apply_rls_context(
     session: AsyncSession,
-    context: TenantContext | None,
+    context: TenantContext | UserContext | None,
 ) -> None:
     """Apply transaction-local GUCs; blank values are deliberately fail-closed."""
-    guild_id = "" if context is None else str(context.guild_id)
-    user_id = "" if context is None or context.user_id is None else str(context.user_id)
+    guild_id = "" if not isinstance(context, TenantContext) else str(context.guild_id)
+    user_id = "" if context is None else str(context.user_id or "")
     await session.execute(
         text("SELECT set_config('app.current_guild_id', :guild_id, true)"),
         {"guild_id": guild_id},
@@ -45,7 +45,7 @@ async def apply_rls_context(
 @asynccontextmanager
 async def tenant_transaction(
     factory: async_sessionmaker[AsyncSession],
-    context: TenantContext | None,
+    context: TenantContext | UserContext | None,
 ) -> AsyncIterator[AsyncSession]:
     """Open a short transaction with an explicit, transaction-local RLS context."""
     async with factory() as session, session.begin():

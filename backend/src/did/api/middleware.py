@@ -22,6 +22,7 @@ def _correlation_id(request: Request) -> str:
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         correlation_id = _correlation_id(request)
+        request.state.correlation_id = correlation_id
         token = bind_correlation_id(correlation_id)
         try:
             response = await call_next(request)
@@ -29,3 +30,15 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             reset_correlation_id(token)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+        )
+        return response

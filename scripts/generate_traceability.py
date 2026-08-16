@@ -138,6 +138,44 @@ REQUIREMENT_PROGRESS = {
     ),
 }
 
+for requirement_id in (f"REQ-INST-{index:03d}" for index in range(1, 8)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 02 migration 0002 + installation/bootstrap/RBAC API integration tests; Discord A/B live verification remains required before VERIFIED",
+    )
+
+for requirement_id in (f"REQ-AUTH-{index:03d}" for index in range(1, 15)):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 02 OAuth/session/CSRF/crypto/fresh-authorization implementation with unit, contract, Redis and API integration tests; live verification remains required before VERIFIED",
+    )
+
+for requirement_id in (
+    "REQ-TEN-001",
+    "REQ-TEN-002",
+    "REQ-TEN-003",
+    "REQ-TEN-004",
+    "REQ-TEN-007",
+    "REQ-TEN-010",
+):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 02 guild/user RLS, authorization-before-repository, A/B IDOR zero-call and pool-context integration tests; later tenant resource families remain independently gated",
+    )
+
+REQUIREMENT_PROGRESS["REQ-BOT-001"] = (
+    "IMPLEMENTED",
+    "STAGE 02 bot token remains backend-only; frontend scan, redacted adapters and security gates PASS",
+)
+REQUIREMENT_PROGRESS["REQ-BOT-002"] = (
+    "IMPLEMENTED",
+    "STAGE 02 install link requests zero bot permissions and bootstrap tests distinguish user ADMINISTRATOR from bot permissions",
+)
+REQUIREMENT_PROGRESS["REQ-BOT-007"] = (
+    "IMPLEMENTED",
+    "STAGE 02 accepts only official OAuth2 bearer grants and a backend bot token; no self-bot/user-token path exists",
+)
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()
