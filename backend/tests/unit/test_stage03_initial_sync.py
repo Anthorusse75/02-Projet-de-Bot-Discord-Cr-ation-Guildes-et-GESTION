@@ -1,7 +1,6 @@
 import asyncio
 
 from did.application.reconciliation import DiscordSyncService
-from did.worker.io import DiscordWorkloadGovernor
 
 GUILD = 730303030303030301
 
@@ -44,14 +43,6 @@ class RepositoryProbe:
         self.completions += 1
 
 
-class HotCacheProbe:
-    async def invalidate_channels(self, guild_id: int) -> None:
-        return None
-
-    async def rebuild_channels(self, repository: object, guild_id: int):
-        return []
-
-
 class SingleFlightProbe:
     async def run(self, guild_id: int, logical_key: str, operation):
         return await operation()
@@ -61,9 +52,7 @@ def service(adapter: AdapterProbe, repository: RepositoryProbe) -> DiscordSyncSe
     return DiscordSyncService(
         adapter=adapter,  # type: ignore[arg-type]
         repository=repository,  # type: ignore[arg-type]
-        hot_cache=HotCacheProbe(),  # type: ignore[arg-type]
         singleflight=SingleFlightProbe(),  # type: ignore[arg-type]
-        governor=DiscordWorkloadGovernor(global_concurrency=2),
     )
 
 

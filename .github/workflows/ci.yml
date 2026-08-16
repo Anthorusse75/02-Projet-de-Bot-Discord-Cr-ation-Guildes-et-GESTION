@@ -126,6 +126,8 @@ jobs:
         with:
           version: "0.12.5"
           enable-cache: true
+      - name: Start test infrastructure
+        run: docker compose -f compose.test.yaml up -d --wait
       - name: Validate deterministic STAGE 03 load profile
         env:
           DID_VALIDATION_ENVIRONMENT: ci-load
@@ -138,3 +140,6 @@ jobs:
         with:
           name: stage-03-load-evidence-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: artifacts/test-evidence/
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f compose.test.yaml down --volumes

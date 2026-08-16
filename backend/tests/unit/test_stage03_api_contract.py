@@ -93,6 +93,7 @@ class RuntimeRepositoryProbe:
         assert values["guild_id"] == GUILD
         assert values["actor_user_id"] == USER
         assert values["channel_ids"] == [CHANNEL]
+        assert values["user_confirmed_deleted"] is True
         self.purges += 1
         return 1
 
@@ -136,13 +137,19 @@ async def test_purge_preview_and_execution_are_strictly_local() -> None:
     assert preview["discord_delete_calls"] == 0
     result = await purge_channels(
         str(GUILD),
-        PurgeRequest(channel_ids=[str(CHANNEL)], confirm_local_only=True),
+        PurgeRequest(
+            channel_ids=[str(CHANNEL)],
+            confirm_local_only=True,
+            confirm_resource_deleted=True,
+        ),
         session(),
         services,
     )
     assert result == {"purged": 1, "local_only": True, "discord_delete_calls": 0}
     assert services.runtime_repository.purges == 1
-    assert services.hot_cache.invalidations == 1
+    # Redis invalidation is an outbox side effect; a Redis outage cannot turn a
+    # committed PostgreSQL purge into an API failure.
+    assert services.hot_cache.invalidations == 0
     assert services.runtime_repository.discord_calls == 0
 
 

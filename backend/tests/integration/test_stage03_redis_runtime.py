@@ -1,10 +1,12 @@
 import asyncio
 import os
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
 
+from did.api.runtime_cache import cached_channels
 from did.application.discord_runtime import normalize_gateway_dispatch
 from did.infrastructure.database import create_database_engine, create_session_factory
 from did.infrastructure.redis import create_redis_client
@@ -76,6 +78,31 @@ def channel_create():
     return envelope
 
 
+def channel_update(name: str, *, sequence: int):
+    envelope = normalize_gateway_dispatch(
+        {
+            "op": 0,
+            "s": sequence,
+            "t": "CHANNEL_UPDATE",
+            "d": {
+                "guild_id": str(GUILD_A),
+                "id": str(CHANNEL_A),
+                "type": 0,
+                "position": 0,
+                "parent_id": None,
+                "name": name,
+                "topic": None,
+                "nsfw": False,
+                "permission_overwrites": [],
+            },
+        },
+        discord_session_id="redis-runtime-session",
+        received_at=datetime.now(UTC),
+    )
+    assert envelope is not None
+    return envelope
+
+
 async def test_redis_loss_rebuilds_from_postgres_without_durable_loss() -> None:
     repository, engine = await seeded_repository()
     redis = create_redis_client(REDIS_URL)
@@ -117,13 +144,45 @@ async def test_singleflight_success_failure_timeout_and_expired_owner_recovery()
         assert results == [{"value": "shared"}] * 3
         assert calls == 1
 
+        async def operation_v2() -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            return {"value": "new-generation"}
+
+        second_generation = await flight.run(GUILD_A, "same-request", operation_v2)
+        assert second_generation == {"value": "new-generation"}
+        assert calls == 2
+
+        concurrent_failure_calls = 0
+
+        async def concurrent_failure() -> dict[str, object]:
+            nonlocal concurrent_failure_calls
+            concurrent_failure_calls += 1
+            await asyncio.sleep(0.05)
+            raise ValueError("controlled concurrent failure")
+
+        failures = await asyncio.gather(
+            *(flight.run(GUILD_A, "concurrent-failure", concurrent_failure) for _ in range(3)),
+            return_exceptions=True,
+        )
+        assert concurrent_failure_calls == 1
+        assert all(isinstance(failure, Exception) for failure in failures)
+
+        sequential_failure_calls = 0
+
         async def failure() -> dict[str, object]:
+            nonlocal sequential_failure_calls
+            sequential_failure_calls += 1
             raise ValueError("controlled")
 
         with pytest.raises(ValueError, match="controlled"):
             await flight.run(GUILD_A, "failure", failure)
-        with pytest.raises(RuntimeError, match="coalesced operation failed"):
+        with pytest.raises(ValueError, match="controlled"):
             await flight.run(GUILD_A, "failure", failure)
+        assert sequential_failure_calls == 2
+
+        tenant_b = await flight.run(GUILD_B, "same-request", operation_v2)
+        assert tenant_b == {"value": "new-generation"}
 
         lock_key, _ = flight._keys(GUILD_A, "expired-owner")
         await redis.set(lock_key, "crashed-worker", ex=1)
@@ -202,6 +261,64 @@ async def test_outbox_survives_publish_failure_and_publish_before_ack_crash() ->
         await asyncio.sleep(2.05)
         assert await OutboxPublisher(repository, pubsub).publish_guild(GUILD_A) == 1
         assert await OutboxPublisher(repository, pubsub).publish_guild(GUILD_A) == 0
+    finally:
+        await redis.aclose()
+        await engine.dispose()
+
+
+async def test_gateway_cache_invalidation_retries_durably_after_redis_failure() -> None:
+    repository, engine = await seeded_repository()
+    redis = create_redis_client(REDIS_URL)
+    pubsub = TenantPubSub(redis)
+    hot = RedisHotCache(redis)
+
+    class AuthorizationProbe:
+        discord_calls = 0
+
+        async def authorize(self, **_: object) -> None:
+            return None
+
+    container = SimpleNamespace(
+        authorization=AuthorizationProbe(),
+        runtime_repository=repository,
+        hot_cache=hot,
+    )
+    session = SimpleNamespace(discord_user_id=GUILD_A + 100)
+    try:
+        await redis.flushdb()
+        await repository.ingest_gateway_event(channel_create())
+        assert await OutboxPublisher(repository, pubsub, hot_cache=hot).publish_guild(GUILD_A) == 1
+        initial = await cached_channels(
+            str(GUILD_A), session, container, include_hidden_deleted=False
+        )
+        assert initial["channels"][0]["name"] == "durable"
+
+        await repository.ingest_gateway_event(channel_update("projected-new-value", sequence=2))
+
+        class RedisDownHotCache:
+            async def invalidate_channels(self, guild_id: int) -> None:
+                assert guild_id == GUILD_A
+                raise ConnectionError("controlled hot-cache outage")
+
+        with pytest.raises(ConnectionError, match="controlled hot-cache outage"):
+            await OutboxPublisher(
+                repository,
+                pubsub,
+                hot_cache=RedisDownHotCache(),  # type: ignore[arg-type]
+            ).publish_guild(GUILD_A)
+        still_old = await hot.get_channels(GUILD_A)
+        assert still_old is not None
+        assert still_old[0]["name"] == "durable"
+
+        await asyncio.sleep(1.05)
+        assert await OutboxPublisher(repository, pubsub, hot_cache=hot).publish_guild(GUILD_A) == 1
+        assert await hot.get_channels(GUILD_A) is None
+        rebuilt = await cached_channels(
+            str(GUILD_A), session, container, include_hidden_deleted=False
+        )
+        assert rebuilt["channels"][0]["name"] == "projected-new-value"
+        assert container.authorization.discord_calls == 0
+        assert await repository.pending_outbox(GUILD_A) == []
     finally:
         await redis.aclose()
         await engine.dispose()

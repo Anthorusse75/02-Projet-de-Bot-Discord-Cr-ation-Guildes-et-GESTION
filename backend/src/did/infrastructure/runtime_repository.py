@@ -123,7 +123,7 @@ class RuntimeRepository:
                 self.metrics.gateway_signal("duplicate")
                 return False
             self.metrics.gateway_signal("dispatch")
-            await self._project(session, envelope)
+            applied = await self._project(session, envelope)
             await session.execute(
                 text(
                     "UPDATE discord_gateway_inbox SET status='PROJECTED', projected_at=now() "
@@ -131,36 +131,38 @@ class RuntimeRepository:
                 ),
                 {"event_id": envelope.event_id},
             )
-            await self._append_outbox(
-                session,
-                guild_id=envelope.guild_id,
-                topic="discord.cache.changed",
-                payload={
-                    "event_id": str(envelope.event_id),
-                    "event_type": envelope.event_type,
-                    "guild_id": str(envelope.guild_id),
-                },
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.event_id,
-            )
-            await self._refresh_coverage(session, envelope.guild_id, envelope.received_at)
+            if applied:
+                await self._append_outbox(
+                    session,
+                    guild_id=envelope.guild_id,
+                    topic="discord.cache.changed",
+                    payload={
+                        "event_id": str(envelope.event_id),
+                        "event_type": envelope.event_type,
+                        "guild_id": str(envelope.guild_id),
+                    },
+                    correlation_id=envelope.correlation_id,
+                    causation_id=envelope.event_id,
+                )
+                await self._refresh_coverage(session, envelope.guild_id, envelope.received_at)
             return True
 
-    async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> None:
+    async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
         event_type = envelope.event_type
         if event_type in {"CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE"}:
-            await self._project_channel(session, envelope, envelope.payload)
+            return await self._project_channel(session, envelope, envelope.payload)
         elif event_type in {"GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE"}:
-            await self._project_role(session, envelope, envelope.payload)
+            return await self._project_role(session, envelope, envelope.payload)
         elif event_type == "GUILD_CREATE":
             await self._project_guild_create(session, envelope)
+            return True
         elif event_type == "GUILD_UPDATE":
-            await session.execute(
+            result = await session.execute(
                 text(
                     "UPDATE guild_installations SET "
                     "name=COALESCE(:name, name), owner_id=COALESCE(:owner_id, owner_id), "
                     "last_gateway_seen_at=:seen_at, version=version+1 "
-                    "WHERE guild_id=:guild_id"
+                    "WHERE guild_id=:guild_id RETURNING guild_id"
                 ),
                 {
                     "guild_id": envelope.guild_id,
@@ -169,10 +171,14 @@ class RuntimeRepository:
                     "seen_at": envelope.received_at,
                 },
             )
+            return result.scalar_one_or_none() is not None
         elif event_type == "GUILD_DELETE":
             await self._project_guild_delete(session, envelope)
+            return True
         elif event_type == "GUILD_MEMBER_UPDATE":
             await self._project_member(session, envelope)
+            return True
+        return False
 
     async def _project_guild_create(self, session: AsyncSession, envelope: EventEnvelope) -> None:
         payload = envelope.payload
@@ -255,10 +261,10 @@ class RuntimeRepository:
         payload: dict[str, Any],
         *,
         audit: bool = True,
-    ) -> None:
+    ) -> bool:
         channel_id = int(payload["channel_id"])
         if envelope.event_type == "CHANNEL_DELETE":
-            await session.execute(
+            result = await session.execute(
                 text(
                     "INSERT INTO discord_channels_cache "
                     "(guild_id, channel_id, type, parent_id, position, flags, observability_state, "
@@ -277,13 +283,16 @@ class RuntimeRepository:
                     "WHERE discord_channels_cache.last_gateway_session_id IS DISTINCT FROM "
                     "EXCLUDED.last_gateway_session_id OR "
                     "discord_channels_cache.last_gateway_sequence IS NULL OR "
-                    "EXCLUDED.last_gateway_sequence >= discord_channels_cache.last_gateway_sequence"
+                    "EXCLUDED.last_gateway_sequence >= "
+                    "discord_channels_cache.last_gateway_sequence "
+                    "RETURNING channel_id"
                 ),
                 self._channel_parameters(envelope, payload),
             )
+            applied = result.scalar_one_or_none() is not None
             drift_type = "CHANNEL_DELETED"
         elif bool(payload.get("is_obfuscated")):
-            await session.execute(
+            result = await session.execute(
                 text(
                     "INSERT INTO discord_channels_cache "
                     "(guild_id, channel_id, type, parent_id, position, flags, observability_state, "
@@ -304,10 +313,13 @@ class RuntimeRepository:
                     "state_version=discord_channels_cache.state_version+1, cache_updated_at=now() "
                     "WHERE discord_channels_cache.last_gateway_session_id IS DISTINCT FROM "
                     ":session_id OR discord_channels_cache.last_gateway_sequence IS NULL OR "
-                    "EXCLUDED.last_gateway_sequence >= discord_channels_cache.last_gateway_sequence"
+                    "EXCLUDED.last_gateway_sequence >= "
+                    "discord_channels_cache.last_gateway_sequence "
+                    "RETURNING channel_id"
                 ),
                 self._channel_parameters(envelope, payload),
             )
+            applied = result.scalar_one_or_none() is not None
             drift_type = "CHANNEL_OBFUSCATED"
         else:
             result = await session.execute(
@@ -339,8 +351,9 @@ class RuntimeRepository:
                 ),
                 self._channel_parameters(envelope, payload),
             )
-            applied = result.scalar_one_or_none()
-            if applied is not None:
+            applied_id = result.scalar_one_or_none()
+            applied = applied_id is not None
+            if applied:
                 reobserved = await session.scalar(
                     text(
                         "DELETE FROM discord_channel_tombstones "
@@ -376,7 +389,7 @@ class RuntimeRepository:
                 if envelope.event_type == "CHANNEL_CREATE"
                 else "CHANNEL_PERMISSION_CHANGED"
             )
-        if audit:
+        if audit and applied:
             await self._append_audit(
                 session,
                 envelope,
@@ -393,6 +406,7 @@ class RuntimeRepository:
                     )
                 ),
             )
+        return applied
 
     def _channel_parameters(
         self, envelope: EventEnvelope, payload: dict[str, Any]
@@ -450,17 +464,18 @@ class RuntimeRepository:
         payload: dict[str, Any],
         *,
         audit: bool = True,
-    ) -> None:
+    ) -> bool:
         role_id = int(payload["role_id"])
         if envelope.event_type == "GUILD_ROLE_DELETE":
-            await session.execute(
+            result = await session.execute(
                 text(
                     "UPDATE discord_roles_cache SET deleted_confirmed_at=:seen_at, "
                     "last_gateway_seen_at=:seen_at, last_gateway_session_id=:session_id, "
                     "last_gateway_sequence=:sequence, state_version=state_version+1, "
                     "cache_updated_at=now() WHERE guild_id=:guild_id AND role_id=:role_id "
                     "AND (last_gateway_session_id IS DISTINCT FROM :session_id OR "
-                    "last_gateway_sequence IS NULL OR :sequence >= last_gateway_sequence)"
+                    "last_gateway_sequence IS NULL OR :sequence >= last_gateway_sequence) "
+                    "RETURNING role_id"
                 ),
                 {
                     "guild_id": envelope.guild_id,
@@ -470,9 +485,10 @@ class RuntimeRepository:
                     "sequence": envelope.discord_sequence,
                 },
             )
+            applied = result.scalar_one_or_none() is not None
             drift_type = "ROLE_DELETED"
         else:
-            await session.execute(
+            result = await session.execute(
                 text(
                     "INSERT INTO discord_roles_cache "
                     "(guild_id, role_id, name, position, permissions_bits, managed, color, hoist, "
@@ -491,7 +507,8 @@ class RuntimeRepository:
                     "state_version=discord_roles_cache.state_version+1, cache_updated_at=now() "
                     "WHERE discord_roles_cache.last_gateway_session_id IS DISTINCT FROM "
                     ":session_id OR discord_roles_cache.last_gateway_sequence IS NULL OR "
-                    ":sequence >= discord_roles_cache.last_gateway_sequence"
+                    ":sequence >= discord_roles_cache.last_gateway_sequence "
+                    "RETURNING role_id"
                 ),
                 {
                     "guild_id": envelope.guild_id,
@@ -509,17 +526,19 @@ class RuntimeRepository:
                     "sequence": envelope.discord_sequence,
                 },
             )
+            applied = result.scalar_one_or_none() is not None
             drift_type = (
                 "ROLE_MOVED" if envelope.event_type == "GUILD_ROLE_UPDATE" else "ROLE_CREATED"
             )
-        await session.execute(
-            text(
-                "UPDATE discord_member_authorization_cache SET validity='INVALIDATED', "
-                "invalidated_at=:seen_at, cache_updated_at=now() WHERE guild_id=:guild_id"
-            ),
-            {"guild_id": envelope.guild_id, "seen_at": envelope.received_at},
-        )
-        if audit:
+        if applied:
+            await session.execute(
+                text(
+                    "UPDATE discord_member_authorization_cache SET validity='INVALIDATED', "
+                    "invalidated_at=:seen_at, cache_updated_at=now() WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": envelope.guild_id, "seen_at": envelope.received_at},
+            )
+        if audit and applied:
             await self._append_audit(
                 session,
                 envelope,
@@ -528,6 +547,7 @@ class RuntimeRepository:
                 target_id=role_id,
                 result_state="OBSERVED",
             )
+        return applied
 
     async def _project_member(self, session: AsyncSession, envelope: EventEnvelope) -> None:
         await session.execute(
@@ -568,7 +588,12 @@ class RuntimeRepository:
                 "visible_channels=EXCLUDED.visible_channels, "
                 "obfuscated_channels=EXCLUDED.obfuscated_channels, "
                 "known_roles=EXCLUDED.known_roles, "
-                "last_gateway_event_at=EXCLUDED.last_gateway_event_at, freshness_state='FRESH', "
+                "last_gateway_event_at=EXCLUDED.last_gateway_event_at, "
+                "freshness_state=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                "('GAP_DETECTED','NON_RESUMED') THEN 'STALE' ELSE 'FRESH' END, "
+                "coverage_mode=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                "('GAP_DETECTED','NON_RESUMED') THEN 'DEGRADED' "
+                "ELSE discord_cache_coverage.coverage_mode END, "
                 "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
             ),
             {"guild_id": guild_id, "observed_at": observed_at},
@@ -719,13 +744,35 @@ class RuntimeRepository:
                         "observed_at": observed,
                     },
                 )
-                await session.execute(
+                reobserved = await session.scalar(
                     text(
                         "DELETE FROM discord_channel_tombstones "
-                        "WHERE guild_id=:guild_id AND channel_id=:channel_id"
+                        "WHERE guild_id=:guild_id AND channel_id=:channel_id "
+                        "RETURNING channel_id"
                     ),
                     {"guild_id": guild_id, "channel_id": channel_id},
                 )
+                if reobserved is not None:
+                    await session.execute(
+                        text(
+                            "INSERT INTO internal_audit_events "
+                            "(id, guild_id, source, event_type, target_type, target_id, "
+                            "correlation_id, result_state, data_json, occurred_at) VALUES "
+                            "(:id, :guild_id, 'DISCORD', 'PURGED_RESOURCE_REOBSERVED', "
+                            "'CHANNEL', :target_id, :correlation_id, 'VISIBLE', "
+                            "CAST(:data AS jsonb), :occurred_at)"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "guild_id": guild_id,
+                            "target_id": str(channel_id),
+                            "correlation_id": correlation_id,
+                            "data": json.dumps(
+                                {"origin": "RECONCILE", "source": "TARGETED_REST"}
+                            ),
+                            "occurred_at": observed,
+                        },
+                    )
                 await session.execute(
                     text(
                         "DELETE FROM channel_overwrites_cache "
@@ -771,7 +818,12 @@ class RuntimeRepository:
                     "(guild_id, coverage_mode, freshness_state, last_full_reconcile_at, "
                     "last_successful_rest_sync_at) VALUES "
                     "(:guild_id, 'PARTIAL', 'FRESH', :observed_at, :observed_at) "
-                    "ON CONFLICT (guild_id) DO UPDATE SET freshness_state='FRESH', "
+                    "ON CONFLICT (guild_id) DO UPDATE SET freshness_state=CASE "
+                    "WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED') THEN 'STALE' ELSE 'FRESH' END, "
+                    "coverage_mode=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED') THEN 'DEGRADED' "
+                    "ELSE discord_cache_coverage.coverage_mode END, "
                     "last_full_reconcile_at=EXCLUDED.last_full_reconcile_at, "
                     "last_successful_rest_sync_at=EXCLUDED.last_successful_rest_sync_at, "
                     "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
@@ -794,6 +846,7 @@ class RuntimeRepository:
         actor_user_id: int,
         channel_ids: Iterable[int],
         correlation_id: UUID,
+        user_confirmed_deleted: bool,
     ) -> int:
         targets = sorted(set(channel_ids))
         if not targets or len(targets) > 500:
@@ -811,7 +864,8 @@ class RuntimeRepository:
                 (
                     await session.execute(
                         text(
-                            "SELECT channel_id, type, parent_id, position, observability_state "
+                            "SELECT channel_id, type, parent_id, position, observability_state, "
+                            "deleted_confirmed_at "
                             "FROM discord_channels_cache WHERE guild_id=:guild_id "
                             "AND channel_id = ANY(:channel_ids) FOR UPDATE"
                         ),
@@ -827,18 +881,77 @@ class RuntimeRepository:
                 raise ValueError(
                     "purge targets must be known non-visible or confirmed-deleted channels"
                 )
+            requires_confirmation = any(
+                row["observability_state"]
+                in {
+                    ObservabilityState.OBFUSCATED.value,
+                    ObservabilityState.ACCESS_LOST.value,
+                }
+                for row in rows
+            )
+            if requires_confirmation and not user_confirmed_deleted:
+                raise ValueError(
+                    "obfuscated or access-lost channels require explicit deletion confirmation"
+                )
             now = datetime.now(UTC)
             for row in rows:
                 metadata = f"{row['channel_id']}:{row['type']}:{row['parent_id']}:{row['position']}"
                 metadata_hash = hashlib.sha256(metadata.encode()).hexdigest()
+                current_state = str(row["observability_state"])
+                user_confirmed = current_state in {
+                    ObservabilityState.OBFUSCATED.value,
+                    ObservabilityState.ACCESS_LOST.value,
+                    ObservabilityState.USER_CONFIRMED_DELETED.value,
+                }
+                reason = (
+                    ObservabilityState.USER_CONFIRMED_DELETED.value
+                    if user_confirmed
+                    else ObservabilityState.DELETED_CONFIRMED.value
+                )
+                if user_confirmed and current_state != ObservabilityState.USER_CONFIRMED_DELETED:
+                    await session.execute(
+                        text(
+                            "UPDATE discord_channels_cache SET "
+                            "observability_state='USER_CONFIRMED_DELETED', "
+                            "deleted_confirmed_at=:now, state_version=state_version+1, "
+                            "cache_updated_at=now() WHERE guild_id=:guild_id "
+                            "AND channel_id=:channel_id"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "channel_id": row["channel_id"],
+                            "now": now,
+                        },
+                    )
+                    await session.execute(
+                        text(
+                            "INSERT INTO internal_audit_events "
+                            "(id, guild_id, actor_user_id, source, event_type, target_type, "
+                            "target_id, correlation_id, result_state, data_json, occurred_at) "
+                            "VALUES (:id, :guild_id, :actor, 'DASHBOARD', "
+                            "'CHANNEL_USER_CONFIRMED_DELETED', 'CHANNEL', :target_id, "
+                            ":correlation_id, 'USER_CONFIRMED_DELETED', "
+                            "CAST(:data AS jsonb), :now)"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "guild_id": guild_id,
+                            "actor": actor_user_id,
+                            "target_id": str(row["channel_id"]),
+                            "correlation_id": correlation_id,
+                            "data": json.dumps({"previous_state": current_state}),
+                            "now": now,
+                        },
+                    )
                 await session.execute(
                     text(
                         "INSERT INTO discord_channel_tombstones "
                         "(guild_id, channel_id, resource_type, reason, confirmed_by_user_id, "
                         "confirmed_at, purged_at, last_known_parent_id, last_known_type, "
                         "last_known_position, metadata_hash) VALUES "
-                        "(:guild_id, :channel_id, :resource_type, 'USER_CONFIRMED_DELETED', "
-                        ":actor, :now, :now, :parent_id, :type, :position, :metadata_hash) "
+                        "(:guild_id, :channel_id, :resource_type, :reason, "
+                        ":confirmed_by, :confirmed_at, :now, :parent_id, :type, :position, "
+                        ":metadata_hash) "
                         "ON CONFLICT (guild_id, channel_id) DO UPDATE SET "
                         "reason=EXCLUDED.reason, "
                         "confirmed_by_user_id=EXCLUDED.confirmed_by_user_id, "
@@ -849,7 +962,9 @@ class RuntimeRepository:
                         "guild_id": guild_id,
                         "channel_id": row["channel_id"],
                         "resource_type": "CATEGORY" if row["type"] == 4 else "CHANNEL",
-                        "actor": actor_user_id,
+                        "reason": reason,
+                        "confirmed_by": actor_user_id if user_confirmed else None,
+                        "confirmed_at": row["deleted_confirmed_at"] or now,
                         "now": now,
                         "parent_id": row["parent_id"],
                         "type": row["type"],
@@ -948,7 +1063,11 @@ class RuntimeRepository:
                     "(SELECT count(*) FROM discord_roles_cache WHERE guild_id=:guild_id "
                     "AND deleted_confirmed_at IS NULL), :observed_at) "
                     "ON CONFLICT (guild_id) DO UPDATE SET known_roles=EXCLUDED.known_roles, "
-                    "freshness_state='FRESH', "
+                    "freshness_state=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED') THEN 'STALE' ELSE 'FRESH' END, "
+                    "coverage_mode=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED') THEN 'DEGRADED' "
+                    "ELSE discord_cache_coverage.coverage_mode END, "
                     "last_successful_rest_sync_at=EXCLUDED.last_successful_rest_sync_at, "
                     "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
                 ),
@@ -971,7 +1090,8 @@ class RuntimeRepository:
             await session.execute(
                 text(
                     "UPDATE discord_cache_coverage SET coverage_mode='FULL', "
-                    "freshness_state='FRESH', last_full_reconcile_at=:completed, "
+                    "freshness_state='FRESH', gateway_continuity='CONNECTED', "
+                    "last_full_reconcile_at=:completed, "
                     "state_version=state_version+1, updated_at=now() WHERE guild_id=:guild_id"
                 ),
                 {"guild_id": guild_id, "completed": completed},
@@ -1039,6 +1159,96 @@ class RuntimeRepository:
                     "continuity": continuity,
                 },
             )
+
+    async def _runtime_guild_ids(self, function_name: str, *, limit: int) -> list[int]:
+        if function_name not in {
+            "runtime_job_guilds",
+            "runtime_outbox_guilds",
+            "runtime_reconcile_guilds",
+        }:
+            raise ValueError("runtime routing function is not allowlisted")
+        if not 1 <= limit <= 1000:
+            raise ValueError("runtime routing limit must be between 1 and 1000")
+        statements = {
+            "runtime_job_guilds": text(
+                "SELECT guild_id FROM app.runtime_job_guilds(:limit)"
+            ),
+            "runtime_outbox_guilds": text(
+                "SELECT guild_id FROM app.runtime_outbox_guilds(:limit)"
+            ),
+            "runtime_reconcile_guilds": text(
+                "SELECT guild_id FROM app.runtime_reconcile_guilds(:limit)"
+            ),
+        }
+        async with tenant_transaction(self._factory, None) as session:
+            rows = (
+                await session.execute(
+                    statements[function_name],
+                    {"limit": limit},
+                )
+            ).scalars()
+            return [int(guild_id) for guild_id in rows]
+
+    async def runtime_job_guilds(self, *, limit: int = 256) -> list[int]:
+        return await self._runtime_guild_ids("runtime_job_guilds", limit=limit)
+
+    async def runtime_outbox_guilds(self, *, limit: int = 256) -> list[int]:
+        return await self._runtime_guild_ids("runtime_outbox_guilds", limit=limit)
+
+    async def runtime_reconcile_guilds(self, *, limit: int = 256) -> list[int]:
+        return await self._runtime_guild_ids("runtime_reconcile_guilds", limit=limit)
+
+    async def reconcile_signals(
+        self, guild_id: int, *, rate_limit_pressure: float
+    ) -> Any:
+        from did.application.reconciliation.scheduler import ReconcileSignals
+
+        if not 0.0 <= rate_limit_pressure <= 1.0:
+            raise ValueError("rate-limit pressure must be between 0 and 1")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT installations.last_gateway_seen_at, "
+                            "coverage.coverage_mode, coverage.gateway_continuity, "
+                            "checkpoints.last_success_at, "
+                            "EXISTS (SELECT 1 FROM discord_io_jobs jobs "
+                            "WHERE jobs.guild_id=:guild_id AND jobs.status IN ('PENDING','LEASED') "
+                            "AND jobs.priority <= 2) AS pending_critical_work, "
+                            "(SELECT count(*) FROM internal_audit_events audit "
+                            "WHERE audit.guild_id=:guild_id "
+                            "AND audit.event_type IN ('CHANNEL_CREATED_OUTSIDE_PLATFORM', "
+                            "'CHANNEL_PERMISSION_CHANGED','ROLE_MOVED','ROLE_DELETED') "
+                            "AND audit.occurred_at >= now() - interval '24 hours') AS drift_count "
+                            "FROM guild_installations installations "
+                            "LEFT JOIN discord_cache_coverage coverage "
+                            "ON coverage.guild_id=installations.guild_id "
+                            "LEFT JOIN discord_reconcile_checkpoints checkpoints "
+                            "ON checkpoints.guild_id=installations.guild_id "
+                            "AND checkpoints.resource_type='STRUCTURE' "
+                            "WHERE installations.guild_id=:guild_id"
+                        ),
+                        {"guild_id": guild_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        last_gateway = row["last_gateway_seen_at"]
+        active = last_gateway is not None and last_gateway >= datetime.now(UTC) - timedelta(hours=1)
+        continuity = str(row["gateway_continuity"] or "DISCONNECTED")
+        return ReconcileSignals(
+            guild_id=guild_id,
+            last_reconcile_at=row["last_success_at"],
+            active=active,
+            gateway_gap=continuity == "GAP_DETECTED",
+            non_resumed=continuity == "NON_RESUMED",
+            pending_critical_work=bool(row["pending_critical_work"]),
+            drift_count=int(row["drift_count"]),
+            coverage_degraded=str(row["coverage_mode"] or "DEGRADED") == "DEGRADED",
+            rate_limit_pressure=rate_limit_pressure,
+        )
 
     async def enqueue_job(
         self, job: WorkloadJob, *, requested_by: int | None, correlation_id: UUID
@@ -1130,7 +1340,8 @@ class RuntimeRepository:
                             "attempt_count=attempt_count+1, updated_at=now() FROM candidate "
                             "WHERE jobs.job_id=candidate.job_id RETURNING jobs.job_id, "
                             "jobs.guild_id, jobs.workload_type, jobs.logical_key, jobs.priority, "
-                            "jobs.payload, jobs.correlation_id, jobs.attempt_count"
+                            "jobs.payload, jobs.correlation_id, jobs.attempt_count, "
+                            "jobs.created_at"
                         ),
                         {
                             "guild_id": guild_id,

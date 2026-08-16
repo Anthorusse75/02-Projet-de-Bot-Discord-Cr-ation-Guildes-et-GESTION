@@ -41,7 +41,7 @@ def test_minimal_intents_do_not_enable_privileged_or_message_content() -> None:
     )
 
 
-def test_official_channel_obfuscation_fixture_is_detected_only_by_flag() -> None:
+def test_contract_fixture_derived_from_official_docs_is_detected_only_by_flag() -> None:
     fixture = json.loads(
         Path("backend/tests/fixtures/discord/channel_obfuscated_2026-08-12.json").read_text(
             encoding="utf-8"

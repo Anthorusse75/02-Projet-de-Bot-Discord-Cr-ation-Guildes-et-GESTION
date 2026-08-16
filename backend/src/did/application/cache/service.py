@@ -42,12 +42,13 @@ class CachePurgeService:
         actor_user_id: int,
         channel_ids: list[int],
         correlation_id: UUID,
+        user_confirmed_deleted: bool,
     ) -> int:
         count = await self._repository.purge_channels(
             guild_id=guild_id,
             actor_user_id=actor_user_id,
             channel_ids=channel_ids,
             correlation_id=correlation_id,
+            user_confirmed_deleted=user_confirmed_deleted,
         )
-        await self._hot_cache.invalidate_channels(guild_id)
         return count

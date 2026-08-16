@@ -76,8 +76,10 @@ class DiscordGatewayClient(discord.Client):
             return
         sequence = packet.get("s")
         if isinstance(sequence, int) and not isinstance(sequence, bool):
+            previous_continuity = self.session_tracker.continuity
             continuity = self.session_tracker.observe_sequence(sequence)
         else:
+            previous_continuity = self.session_tracker.continuity
             continuity = self.session_tracker.continuity
         try:
             envelope = normalize_gateway_dispatch(packet, discord_session_id=session_id)
@@ -87,7 +89,10 @@ class DiscordGatewayClient(discord.Client):
             return
         if envelope is None:
             return
-        if continuity is GatewayContinuity.GAP_DETECTED:
+        if (
+            continuity is GatewayContinuity.GAP_DETECTED
+            and previous_continuity is not GatewayContinuity.GAP_DETECTED
+        ):
             self.repository.metrics.gateway_signal("gap")
             await self.repository.record_gateway_discontinuity(
                 guild_id=envelope.guild_id,

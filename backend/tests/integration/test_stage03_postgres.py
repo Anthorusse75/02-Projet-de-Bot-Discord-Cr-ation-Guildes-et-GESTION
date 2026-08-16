@@ -214,12 +214,23 @@ async def test_http_omission_is_access_loss_then_local_purge_and_reobservation()
         assert row["deleted_confirmed_at"] is None
         assert row["name"] == "never-false-delete"
 
+        with pytest.raises(ValueError, match="explicit deletion confirmation"):
+            await repository.purge_channels(
+                guild_id=GUILD_A,
+                actor_user_id=ACTOR,
+                channel_ids=[CHANNEL_A],
+                correlation_id=uuid4(),
+                user_confirmed_deleted=False,
+            )
+        assert len(await repository.channels(GUILD_A, ACTOR, include_hidden_deleted=True)) == 1
+
         assert (
             await repository.purge_channels(
                 guild_id=GUILD_A,
                 actor_user_id=ACTOR,
                 channel_ids=[CHANNEL_A],
                 correlation_id=uuid4(),
+                user_confirmed_deleted=True,
             )
             == 1
         )
@@ -227,35 +238,56 @@ async def test_http_omission_is_access_loss_then_local_purge_and_reobservation()
         async with tenant_transaction(
             create_session_factory(engine), TenantContext(GUILD_A, ACTOR)
         ) as session:
-            assert (
-                await session.scalar(text("SELECT count(*) FROM discord_channel_tombstones")) == 1
+            tombstone = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT reason, confirmed_by_user_id "
+                            "FROM discord_channel_tombstones"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
             )
+            assert dict(tombstone) == {
+                "reason": "USER_CONFIRMED_DELETED",
+                "confirmed_by_user_id": ACTOR,
+            }
 
-        await repository.ingest_gateway_event(
-            dispatch(
-                "CHANNEL_CREATE",
-                channel_payload(GUILD_A, CHANNEL_A, "reobserved"),
-                sequence=2,
-            )
+        await repository.apply_rest_channel_snapshot(
+            guild_id=GUILD_A,
+            channels=[
+                {
+                    "channel_id": CHANNEL_A,
+                    "type": 0,
+                    "name": "reobserved-by-rest",
+                    "topic": "targeted-reconcile",
+                    "parent_id": None,
+                    "position": 1,
+                    "nsfw": False,
+                    "flags": 0,
+                    "permission_overwrites": [],
+                }
+            ],
+            correlation_id=uuid4(),
         )
         assert (await repository.channels(GUILD_A, ACTOR, include_hidden_deleted=True))[0][
             "name"
-        ] == "reobserved"
+        ] == "reobserved-by-rest"
         async with tenant_transaction(
             create_session_factory(engine), TenantContext(GUILD_A, ACTOR)
         ) as session:
             assert (
                 await session.scalar(text("SELECT count(*) FROM discord_channel_tombstones")) == 0
             )
-            assert (
-                await session.scalar(
-                    text(
-                        "SELECT count(*) FROM internal_audit_events "
-                        "WHERE event_type='PURGED_RESOURCE_REOBSERVED'"
-                    )
+            audit_data = await session.scalar(
+                text(
+                    "SELECT data_json FROM internal_audit_events "
+                    "WHERE event_type='PURGED_RESOURCE_REOBSERVED'"
                 )
-                == 1
             )
+            assert audit_data == {"origin": "RECONCILE", "source": "TARGETED_REST"}
     finally:
         await engine.dispose()
 
@@ -311,6 +343,9 @@ async def test_runtime_rls_and_durable_job_coalescing_are_tenant_scoped() -> Non
         assert first_id == second_id
         async with tenant_transaction(factory, TenantContext(GUILD_A, ACTOR)) as session:
             assert await session.scalar(text("SELECT count(*) FROM discord_io_jobs")) == 1
+        assert await repository.runtime_job_guilds() == [GUILD_A]
+        assert set(await repository.runtime_outbox_guilds()) == {GUILD_A, GUILD_B}
+        assert set(await repository.runtime_reconcile_guilds()) == {GUILD_A, GUILD_B}
     finally:
         await engine.dispose()
 
@@ -396,6 +431,34 @@ async def test_channel_and_role_update_delete_project_confirmed_state() -> None:
         channel = (await repository.channels(GUILD_A, ACTOR, include_hidden_deleted=True))[0]
         assert channel["observability_state"] == "DELETED_CONFIRMED"
         assert channel["deleted_confirmed_at"] is not None
+        assert (
+            await repository.purge_channels(
+                guild_id=GUILD_A,
+                actor_user_id=ACTOR,
+                channel_ids=[CHANNEL_A],
+                correlation_id=uuid4(),
+                user_confirmed_deleted=False,
+            )
+            == 1
+        )
+        async with tenant_transaction(factory, TenantContext(GUILD_A, ACTOR)) as session:
+            tombstone = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT reason, confirmed_by_user_id "
+                            "FROM discord_channel_tombstones WHERE channel_id=:channel"
+                        ),
+                        {"channel": CHANNEL_A},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert dict(tombstone) == {
+                "reason": "DELETED_CONFIRMED",
+                "confirmed_by_user_id": None,
+            }
 
         await repository.ingest_gateway_event(
             dispatch(
@@ -451,6 +514,218 @@ async def test_channel_and_role_update_delete_project_confirmed_state() -> None:
             assert role["name"] == "updated"
             assert int(role["permissions_bits"]) == 8
             assert role["deleted_confirmed_at"] is not None
+    finally:
+        await engine.dispose()
+
+
+async def test_gateway_gap_remains_stale_until_full_structure_reconcile() -> None:
+    await reset_runtime()
+    engine = create_database_engine(APP_URL, pool_size=2)
+    factory = create_session_factory(engine)
+    repository = RuntimeRepository(factory)
+    try:
+        await repository.ingest_gateway_event(
+            dispatch(
+                "CHANNEL_CREATE",
+                channel_payload(GUILD_A, CHANNEL_A, "before-gap"),
+                sequence=10,
+            )
+        )
+        await repository.record_gateway_discontinuity(
+            guild_id=GUILD_A,
+            continuity="GAP_DETECTED",
+            correlation_id=uuid4(),
+        )
+        await repository.ingest_gateway_event(
+            dispatch(
+                "CHANNEL_UPDATE",
+                channel_payload(GUILD_A, CHANNEL_A, "after-gap-dispatch"),
+                sequence=12,
+            )
+        )
+        await repository.apply_rest_channel_snapshot(
+            guild_id=GUILD_A,
+            channels=[
+                {
+                    "channel_id": CHANNEL_A,
+                    "type": 0,
+                    "name": "targeted-rest-during-gap",
+                    "topic": None,
+                    "parent_id": None,
+                    "position": 1,
+                    "nsfw": False,
+                    "flags": 0,
+                    "permission_overwrites": [],
+                }
+            ],
+            correlation_id=uuid4(),
+        )
+        async with tenant_transaction(factory, TenantContext(GUILD_A, ACTOR)) as session:
+            coverage = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT coverage_mode, freshness_state, gateway_continuity "
+                            "FROM discord_cache_coverage"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert dict(coverage) == {
+                "coverage_mode": "DEGRADED",
+                "freshness_state": "STALE",
+                "gateway_continuity": "GAP_DETECTED",
+            }
+
+        await repository.mark_structure_sync_complete(GUILD_A)
+        async with tenant_transaction(factory, TenantContext(GUILD_A, ACTOR)) as session:
+            coverage = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT coverage_mode, freshness_state, gateway_continuity "
+                            "FROM discord_cache_coverage"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert dict(coverage) == {
+                "coverage_mode": "FULL",
+                "freshness_state": "FRESH",
+                "gateway_continuity": "CONNECTED",
+            }
+    finally:
+        await engine.dispose()
+
+
+async def test_out_of_order_gateway_events_do_not_emit_false_audit_or_outbox() -> None:
+    await reset_runtime()
+    engine = create_database_engine(APP_URL, pool_size=2)
+    factory = create_session_factory(engine)
+    repository = RuntimeRepository(factory)
+    role_id = 130303030303030398
+    try:
+        newest_channel = dispatch(
+            "CHANNEL_UPDATE",
+            channel_payload(GUILD_A, CHANNEL_A, "newest-channel"),
+            sequence=30,
+        )
+        await repository.ingest_gateway_event(newest_channel)
+        stale_obfuscated = dispatch(
+            "CHANNEL_UPDATE",
+            channel_payload(
+                GUILD_A,
+                CHANNEL_A,
+                "___hidden___",
+                flags=CHANNEL_OBFUSCATED_FLAG,
+            ),
+            sequence=29,
+        )
+        stale_deleted = dispatch(
+            "CHANNEL_DELETE",
+            channel_payload(GUILD_A, CHANNEL_A, "stale-delete"),
+            sequence=28,
+        )
+        assert await repository.ingest_gateway_event(stale_obfuscated) is True
+        assert await repository.ingest_gateway_event(stale_deleted) is True
+
+        newest_role = dispatch(
+            "GUILD_ROLE_UPDATE",
+            {
+                "guild_id": str(GUILD_A),
+                "role": {
+                    "id": str(role_id),
+                    "name": "newest-role",
+                    "position": 3,
+                    "permissions": "8",
+                },
+            },
+            sequence=40,
+        )
+        await repository.ingest_gateway_event(newest_role)
+        stale_role_update = dispatch(
+            "GUILD_ROLE_UPDATE",
+            {
+                "guild_id": str(GUILD_A),
+                "role": {
+                    "id": str(role_id),
+                    "name": "stale-role-update",
+                    "position": 1,
+                    "permissions": "0",
+                },
+            },
+            sequence=38,
+        )
+        stale_role_delete = dispatch(
+            "GUILD_ROLE_DELETE",
+            {"guild_id": str(GUILD_A), "role_id": str(role_id)},
+            sequence=39,
+        )
+        assert await repository.ingest_gateway_event(stale_role_update) is True
+        assert await repository.ingest_gateway_event(stale_role_delete) is True
+
+        channel = (await repository.channels(GUILD_A, ACTOR, include_hidden_deleted=True))[0]
+        assert channel["name"] == "newest-channel"
+        assert channel["observability_state"] == "VISIBLE"
+        async with tenant_transaction(factory, TenantContext(GUILD_A, ACTOR)) as session:
+            role = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT name, deleted_confirmed_at FROM discord_roles_cache "
+                            "WHERE role_id=:role"
+                        ),
+                        {"role": role_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert dict(role) == {"name": "newest-role", "deleted_confirmed_at": None}
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM internal_audit_events "
+                        "WHERE causation_id = ANY(:causation_ids)"
+                    ),
+                    {
+                        "causation_ids": [
+                            stale_obfuscated.event_id,
+                            stale_deleted.event_id,
+                            stale_role_update.event_id,
+                            stale_role_delete.event_id,
+                        ]
+                    },
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM discord_outbox "
+                        "WHERE causation_id = ANY(:causation_ids)"
+                    ),
+                    {
+                        "causation_ids": [
+                            stale_obfuscated.event_id,
+                            stale_deleted.event_id,
+                            stale_role_update.event_id,
+                            stale_role_delete.event_id,
+                        ]
+                    },
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text("SELECT last_gateway_event_at FROM discord_cache_coverage")
+                )
+                == newest_role.received_at
+            )
     finally:
         await engine.dispose()
 

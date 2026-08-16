@@ -15,9 +15,13 @@ from did.application.reconciliation import DiscordSyncService
 from did.infrastructure.database import create_database_engine, create_session_factory
 from did.infrastructure.discord import DiscordPyStructureAdapter
 from did.infrastructure.redis import create_redis_client
-from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight
+from did.infrastructure.runtime_redis import (
+    OutboxPublisher,
+    RedisHotCache,
+    RedisSingleFlight,
+    TenantPubSub,
+)
 from did.infrastructure.runtime_repository import RuntimeRepository
-from did.worker.io import DiscordWorkloadGovernor
 
 REQUIRED_VARIABLES = (
     "DISCORD_BOT_TOKEN",
@@ -120,15 +124,17 @@ async def run_live() -> dict[str, int]:
         sync = DiscordSyncService(
             adapter=adapter,
             repository=repository,
-            hot_cache=hot,
             singleflight=RedisSingleFlight(redis),
-            governor=DiscordWorkloadGovernor(
-                global_concurrency=2, per_guild_concurrency=1, max_queue_depth=20
-            ),
         )
         counts: dict[str, int] = {}
         for index, guild_id in enumerate(guilds, start=1):
             result = await sync.initial_sync(guild_id)
+            await OutboxPublisher(
+                repository,
+                TenantPubSub(redis),
+                hot_cache=hot,
+            ).publish_guild(guild_id)
+            await hot.rebuild_channels(repository, guild_id)
             counts[f"guild_{index}_channels"] = result["channels"]
             counts[f"guild_{index}_roles"] = result["roles"]
             durable = await repository.channels(guild_id, None, include_hidden_deleted=True)

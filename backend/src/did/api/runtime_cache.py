@@ -41,6 +41,7 @@ class ChannelSelection(BaseModel):
 
 class PurgeRequest(ChannelSelection):
     confirm_local_only: bool
+    confirm_resource_deleted: bool = False
 
 
 def _api_value(value: object) -> object:
@@ -170,12 +171,22 @@ async def purge_channels(
         scope=AuthorizationScope.guild(),
         sensitive=True,
     )
-    count = await CachePurgeService(container.runtime_repository, container.hot_cache).purge(
-        guild_id=parsed,
-        actor_user_id=session.discord_user_id,
-        channel_ids=body.parsed_ids(),
-        correlation_id=uuid4(),
-    )
+    try:
+        count = await CachePurgeService(container.runtime_repository, container.hot_cache).purge(
+            guild_id=parsed,
+            actor_user_id=session.discord_user_id,
+            channel_ids=body.parsed_ids(),
+            correlation_id=uuid4(),
+            user_confirmed_deleted=body.confirm_resource_deleted,
+        )
+    except ValueError as exc:
+        if "explicit deletion confirmation" not in str(exc):
+            raise
+        raise ApiProblem(
+            status_code=409,
+            code="RESOURCE_DELETION_CONFIRMATION_REQUIRED",
+            message_key="errors.cache.confirmResourceDeleted",
+        ) from exc
     return {"purged": count, "local_only": True, "discord_delete_calls": 0}
 
 
@@ -185,9 +196,8 @@ async def guild_events_socket(websocket: WebSocket, guild_id: str) -> None:
         await websocket.close(code=1013)
         return
     parsed = parse_snowflake(guild_id)
-    session = await container.sessions.load(
-        websocket.cookies.get(session_cookie_name(container.settings))
-    )
+    session_token = websocket.cookies.get(session_cookie_name(container.settings))
+    session = await container.sessions.load(session_token)
     if session is None:
         await websocket.close(code=4401)
         return
@@ -203,26 +213,107 @@ async def guild_events_socket(websocket: WebSocket, guild_id: str) -> None:
         return
     await websocket.accept()
     subscription = container.pubsub.subscribe(parsed)
+
+    queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=100)
+
+    async def pump_subscription() -> None:
+        async for event in subscription:
+            await queue.put(event)
+
+    pump_task = asyncio.create_task(pump_subscription())
+    loop = asyncio.get_running_loop()
+    auth_lease_seconds = container.settings.websocket_authorization_max_staleness_seconds
+    next_external_authorization = loop.time() + auth_lease_seconds
     try:
         while True:
-            event_task = asyncio.ensure_future(anext(subscription))
+            event_task = asyncio.create_task(queue.get())
             receive_task = asyncio.create_task(websocket.receive())
+            auth_lease_task = asyncio.create_task(
+                asyncio.sleep(max(0.0, next_external_authorization - loop.time()))
+            )
             done, pending = await asyncio.wait(
-                {event_task, receive_task}, return_when=asyncio.FIRST_COMPLETED
+                {event_task, receive_task, auth_lease_task, pump_task},
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
+                if task is pump_task:
+                    continue
                 task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(
+                *(task for task in pending if task is not pump_task),
+                return_exceptions=True,
+            )
+            if pump_task in done:
+                pump_task.result()
+                break
+            if auth_lease_task in done:
+                close_code = await _socket_reauthorization_code(
+                    container,
+                    session_token=session_token,
+                    expected_user_id=session.discord_user_id,
+                    guild_id=parsed,
+                    force_external=True,
+                )
+                if close_code is not None:
+                    await websocket.close(code=close_code)
+                    break
+                next_external_authorization = loop.time() + auth_lease_seconds
+                continue
             if receive_task in done:
                 message = receive_task.result()
                 if message["type"] == "websocket.disconnect":
                     break
                 continue
+            close_code = await _socket_reauthorization_code(
+                container,
+                session_token=session_token,
+                expected_user_id=session.discord_user_id,
+                guild_id=parsed,
+                force_external=False,
+            )
+            if close_code is not None:
+                await websocket.close(code=close_code)
+                break
             await websocket.send_json(event_task.result())
     except WebSocketDisconnect:
         return
     finally:
+        pump_task.cancel()
+        await asyncio.gather(pump_task, return_exceptions=True)
         await subscription.aclose()
+
+
+async def _socket_reauthorization_code(
+    container: ServiceContainer,
+    *,
+    session_token: str | None,
+    expected_user_id: int,
+    guild_id: int,
+    force_external: bool,
+) -> int | None:
+    refreshed = await container.sessions.load(session_token)
+    if refreshed is None or refreshed.discord_user_id != expected_user_id:
+        return 4401
+    try:
+        if force_external:
+            await container.authorization.discovery(
+                expected_user_id,
+                guild_id,
+                force_refresh=True,
+            )
+        await container.authorization.authorize(
+            discord_user_id=expected_user_id,
+            guild_id=guild_id,
+            capability=Capability.STRUCTURE_READ,
+            scope=AuthorizationScope.guild(),
+        )
+    except AuthorizationDenied:
+        return 4403
+    except Exception:
+        if force_external:
+            return 4403
+        raise
+    return None
 
 
 def correlation_uuid(value: str | None) -> UUID:

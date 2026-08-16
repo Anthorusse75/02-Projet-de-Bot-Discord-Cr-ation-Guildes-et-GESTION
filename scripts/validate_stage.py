@@ -238,6 +238,11 @@ def stage_03(
             Step("backend lint", (uv, "run", "ruff", "check", ".")),
             Step("backend typecheck", (uv, "run", "mypy")),
             Step(
+                "migration STAGE 03 durable load head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
                 "deterministic Discord workload load and fairness",
                 (
                     uv,
@@ -248,6 +253,8 @@ def stage_03(
                     f"--junitxml={relative_path(evidence_directory / 'backend-load.xml')}",
                 ),
                 environment={
+                    **TEST_ENV,
+                    "DID_RUN_INTEGRATION": "1",
                     "DID_LOAD_REPORT": relative_path(evidence_directory / "load-fairness.json")
                 },
             ),
