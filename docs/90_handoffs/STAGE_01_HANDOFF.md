@@ -48,6 +48,7 @@ Images : `python:3.13.14-slim-trixie`, `postgres:18.4-alpine`, `redis:8.8.1-alpi
 | Git Bash `bash -n` + `./scripts/bootstrap.sh` | PASS | sortie locale du 2026-08-16 | compatibilité Windows 11 |
 | `python scripts/check_secrets.py` | PASS | résumé de validation | AUD-004, BOT-001 |
 | `git diff --check` | PASS | contrôle local avant commit | qualité dépôt |
+| GitHub Actions CI | PASS sur `cec914d` | [run 31950389082](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/actions/runs/31950389082) | matrice S01 complète |
 
 ## État opérationnel
 
@@ -56,7 +57,7 @@ Images : `python:3.13.14-slim-trixie`, `postgres:18.4-alpine`, `redis:8.8.1-alpi
 - Guild sandbox : non requise et non configurée pour STAGE 01 ;
 - secrets/configuration encore requis : aucun secret Discord ; uniquement les URLs locales factices de Compose ;
 - jobs/queues/locks résiduels : aucun ; aucune fonctionnalité Discord, OAuth, cache métier, plan ou campagne n’existe ;
-- CI : workflow livré ; exécution distante déclenchée par la publication de la branche/PR.
+- CI : workflow livré et run complet `31950389082` PASS sur le commit `cec914d`.
 
 ## Écarts, risques et bugs connus
 
