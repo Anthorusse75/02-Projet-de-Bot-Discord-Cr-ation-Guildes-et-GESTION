@@ -11,6 +11,7 @@ dependencies = [
   "alembic==1.19.1",
   "asyncpg==0.31.0",
   "cryptography==50.0.0",
+  "discord.py==2.7.1",
   "fastapi==0.141.1",
   "httpx==0.28.1",
   "pydantic==2.13.4",
@@ -43,6 +44,7 @@ markers = [
   "security: exercises an explicit security invariant",
   "failure_injection: exercises a controlled failure or race",
   "discord_live: requires explicit Discord sandbox credentials",
+  "load: deterministic local load and fairness benchmark",
 ]
 
 [tool.coverage.run]

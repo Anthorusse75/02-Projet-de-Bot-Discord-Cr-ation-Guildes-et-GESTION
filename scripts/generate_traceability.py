@@ -176,6 +176,61 @@ REQUIREMENT_PROGRESS["REQ-BOT-007"] = (
     "STAGE 02 accepts only official OAuth2 bearer grants and a backend bot token; no self-bot/user-token path exists",
 )
 
+STAGE03_REQUIREMENT_PROGRESS = {
+    "REQ-GW-001": ("IMPLEMENTED", "STAGE 03 minimal GUILDS intent contract and tests"),
+    "REQ-GW-002": ("IMPLEMENTED", "STAGE 03 MESSAGE_CONTENT-disabled contract tests"),
+    "REQ-GW-003": ("IMPLEMENTED", "STAGE 03 explicit member-event capability model"),
+    "REQ-GW-004": ("IMPLEMENTED", "STAGE 03 normalized versioned EventEnvelope tests"),
+    "REQ-GW-005": ("IMPLEMENTED", "STAGE 03 durable inbox deduplication tests"),
+    "REQ-GW-006": (
+        "PLANNED",
+        "Plan invalidation requires the Stage 05 Plan Engine; Stage 03 only emits durable drift",
+    ),
+    "REQ-GW-007": ("IMPLEMENTED", "STAGE 03 obfuscation contract and no-false-delete tests"),
+    "REQ-GW-008": ("IMPLEMENTED", "STAGE 03 explicit GUILD_MEMBERS opt-in and degraded mode"),
+    "REQ-CACHE-001": ("IMPLEMENTED", "STAGE 03 cache-only dashboard read tests"),
+    "REQ-CACHE-002": ("IMPLEMENTED", "STAGE 03 PostgreSQL durable structure cache with RLS"),
+    "REQ-CACHE-003": ("IMPLEMENTED", "STAGE 03 idempotent Gateway projection tests"),
+    "REQ-CACHE-004": (
+        "PLANNED",
+        "Discord mutation write-through belongs to the Stage 05 mutation engine",
+    ),
+    "REQ-CACHE-005": ("IMPLEMENTED", "STAGE 03 observable/current versus last-known metadata model"),
+    "REQ-CACHE-006": ("IMPLEMENTED", "STAGE 03 ACCESS_LOST/OBFUSCATED transition tests"),
+    "REQ-CACHE-007": (
+        "PLANNED",
+        "The explicit Structure UI visibility option belongs to Stages 04/07",
+    ),
+    "REQ-CACHE-008": ("IMPLEMENTED", "STAGE 03 authorized individual/bulk purge contracts"),
+    "REQ-CACHE-009": ("IMPLEMENTED", "STAGE 03 local-only purge and auditable tombstone tests"),
+    "REQ-CACHE-010": ("IMPLEMENTED", "STAGE 03 Gateway and REST reobservation tests"),
+    "REQ-CACHE-011": ("IMPLEMENTED", "STAGE 03 purge preview count/list and durable audit tests"),
+    "REQ-CACHE-012": ("IMPLEMENTED", "STAGE 03 adaptive jitter/dedupe/priority/backpressure tests"),
+    "REQ-CACHE-013": ("IMPLEMENTED", "STAGE 03 atomic Redis generation single-flight tests"),
+    "REQ-RATE-001": ("IMPLEMENTED", "STAGE 03 delegates dynamic buckets to pinned discord.py"),
+    "REQ-RATE-002": ("IMPLEMENTED", "STAGE 03 Redis-coordinated system/global and per-Guild permits"),
+    "REQ-RATE-003": ("IMPLEMENTED", "STAGE 03 typed 429 Retry-After handling tests"),
+    "REQ-RATE-004": ("IMPLEMENTED", "STAGE 03 shared Redis invalid budget, 401 halt and pressure tests"),
+    "REQ-RATE-005": (
+        "PLANNED",
+        "Bulk endpoint selection requires the Stage 05 Plan Compiler, which does not exist yet",
+    ),
+    "REQ-RATE-006": ("IMPLEMENTED", "STAGE 03 bounded 429/wait/queue/cache-ratio/invalid metrics"),
+    "REQ-AUD-001": ("IMPLEMENTED", "Stage 03 dashboard cache purge audit records the actor"),
+    "REQ-AUD-002": ("PLANNED", "plan_id audit requires the Stage 05 Plan Engine"),
+    "REQ-AUD-003": ("PLANNED", "Discord mutation audit reasons require Stage 05 mutation adapters"),
+    "REQ-AUD-004": ("IMPLEMENTED", "Stage 01/03 redaction and secret-scan gates"),
+    "REQ-AUD-005": ("IMPLEMENTED", "STAGE 03 durable internal_audit_events ledger"),
+    "REQ-AUD-006": ("IMPLEMENTED", "STAGE 03 external-origin durable drift signals"),
+    "REQ-TEN-005": ("IMPLEMENTED", "STAGE 03 tenant Pub/Sub and continuously authorized WS tests"),
+    "REQ-TEN-006": ("IMPLEMENTED", "STAGE 03 guild-scoped durable jobs and bounded ID routing"),
+    "REQ-TEN-007": ("IMPLEMENTED", "STAGE 03 tenant Redis cache/single-flight/permit keys"),
+    "REQ-TEN-008": ("PLANNED", "Private templates belong to Stage 06 and do not exist yet"),
+    "REQ-TEN-009": ("IMPLEMENTED", "STAGE 03 RLS-isolated internal audit integration tests"),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE03_REQUIREMENT_PROGRESS)
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()

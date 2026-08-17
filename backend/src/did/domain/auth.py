@@ -74,6 +74,7 @@ class Capability(StrEnum):
     PLANS_CREATE = "plans.create"
     PLANS_APPLY = "plans.apply"
     AUDIT_READ = "audit.read"
+    CACHE_PURGE = "cache.purge"
     TEMPLATES_READ = "templates.read"
     TEMPLATES_WRITE = "templates.write"
     MESSAGES_PUBLISH = "messages.publish"

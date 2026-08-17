@@ -1,17 +1,48 @@
 import asyncio
 import logging
 import signal
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
+from uuid import uuid4
+
+import discord
 
 from did.application.lifecycle import run_until_stopped
+from did.application.reconciliation import (
+    AdaptiveReconcilePolicy,
+    DiscordSyncService,
+    ReconcileScheduler,
+)
+from did.bot.gateway import DiscordGatewayClient
+from did.infrastructure.database import create_database_engine, create_session_factory
+from did.infrastructure.discord import DiscordPyStructureAdapter
 from did.infrastructure.logging import EventId, configure_logging, emit_event
+from did.infrastructure.redis import create_redis_client
+from did.infrastructure.runtime_redis import (
+    OutboxPublisher,
+    RedisDiscordWorkloadCoordinator,
+    RedisHotCache,
+    RedisRuntimeWakeup,
+    RedisSingleFlight,
+    TenantPubSub,
+)
+from did.infrastructure.runtime_repository import RuntimeRepository
 from did.settings import Settings
+from did.worker.io import DiscordWorkerRuntime, DiscordWorkloadGovernor, DurableDiscordIOWorker
 
 
-async def run_process(process_name: str) -> None:
-    settings = Settings()
+async def run_process(
+    process_name: str,
+    *,
+    configured_settings: Settings | None = None,
+    external_stop_event: asyncio.Event | None = None,
+) -> None:
+    settings = configured_settings or Settings()
     configure_logging(settings.log_level)
     logger = logging.getLogger(__name__)
-    stop_event = asyncio.Event()
+    stop_event = external_stop_event or asyncio.Event()
+    background_task: asyncio.Task[None] | None = None
+    close_runtime: Callable[[], Awaitable[None]] | None = None
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -19,15 +50,150 @@ async def run_process(process_name: str) -> None:
         except NotImplementedError:  # Windows event loops do not expose POSIX handlers.
             pass
 
+    async def background_failure() -> BaseException | None:
+        if background_task is None:
+            return None
+        result = (await asyncio.gather(background_task, return_exceptions=True))[0]
+        if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+            return result
+        return None
+
     async def on_start() -> None:
+        nonlocal background_task, close_runtime
         emit_event(
             logger,
             logging.INFO,
             EventId.PROCESS_STARTED,
             fields={"process": process_name},
         )
+        if process_name == "bot" and settings.discord_bot_token is not None:
+            engine = create_database_engine(settings.database_url.get_secret_value())
+            repository = RuntimeRepository(create_session_factory(engine))
+            gateway_client = DiscordGatewayClient(
+                repository,
+                enable_member_events=settings.discord_member_events_enabled,
+            )
+            background_task = asyncio.create_task(
+                gateway_client.start(settings.discord_bot_token.get_secret_value()),
+                name="discord-gateway",
+            )
+            background_task.add_done_callback(lambda _: stop_event.set())
+
+            async def close_bot() -> None:
+                await gateway_client.close()
+                failure = await background_failure()
+                await engine.dispose()
+                if failure is not None:
+                    raise failure
+
+            close_runtime = close_bot
+        elif process_name == "worker":
+            if settings.discord_bot_token is None:
+                raise RuntimeError("worker requires a configured Discord bot token")
+            engine = create_database_engine(settings.database_url.get_secret_value())
+            redis = create_redis_client(settings.redis_url.get_secret_value())
+            rest_client = discord.Client(intents=discord.Intents.none())
+            try:
+                await rest_client.login(settings.discord_bot_token.get_secret_value())
+                repository = RuntimeRepository(create_session_factory(engine))
+                hot_cache = RedisHotCache(redis, metrics=repository.metrics)
+                worker_id = f"worker-{uuid4().hex}"
+                wakeup = RedisRuntimeWakeup(redis, reporter_id=worker_id)
+                coordinator = RedisDiscordWorkloadCoordinator(
+                    redis,
+                    global_concurrency=settings.discord_global_concurrency,
+                    per_guild_concurrency=settings.discord_per_guild_concurrency,
+                    permit_ttl_seconds=settings.discord_distributed_permit_ttl_seconds,
+                )
+                governor = DiscordWorkloadGovernor(
+                    global_concurrency=settings.discord_global_concurrency,
+                    per_guild_concurrency=settings.discord_per_guild_concurrency,
+                    max_queue_depth=settings.discord_workload_queue_limit,
+                    distributed_coordinator=coordinator,
+                )
+                sync = DiscordSyncService(
+                    adapter=DiscordPyStructureAdapter(rest_client),
+                    repository=repository,
+                    singleflight=RedisSingleFlight(redis),
+                )
+                worker = DurableDiscordIOWorker(
+                    repository,
+                    sync,
+                    worker_id=worker_id,
+                    lease_seconds=settings.discord_job_lease_seconds,
+                )
+                runtime = DiscordWorkerRuntime(
+                    repository=repository,
+                    worker=worker,
+                    governor=governor,
+                    outbox=OutboxPublisher(
+                        repository,
+                        TenantPubSub(redis),
+                        hot_cache=hot_cache,
+                        wakeup=wakeup,
+                        publisher_id=worker_id,
+                        lease_seconds=settings.discord_job_lease_seconds,
+                    ),
+                    wakeup=wakeup,
+                    poll_interval_seconds=settings.discord_worker_poll_seconds,
+                    recovery_interval_seconds=settings.discord_worker_recovery_seconds,
+                    routing_batch_size=settings.discord_runtime_routing_batch_size,
+                    dispatch_batch_size=settings.discord_worker_dispatch_batch_size,
+                )
+                background_task = asyncio.create_task(
+                    runtime.run(stop_event), name="discord-worker"
+                )
+                background_task.add_done_callback(lambda _: stop_event.set())
+            except Exception:
+                await rest_client.close()
+                await redis.aclose()
+                await engine.dispose()
+                raise
+
+            async def close_worker() -> None:
+                stop_event.set()
+                failure = await background_failure()
+                await rest_client.close()
+                await redis.aclose()
+                await engine.dispose()
+                if failure is not None:
+                    raise failure
+
+            close_runtime = close_worker
+        elif process_name == "scheduler":
+            engine = create_database_engine(settings.database_url.get_secret_value())
+            redis = create_redis_client(settings.redis_url.get_secret_value())
+            repository = RuntimeRepository(create_session_factory(engine))
+            scheduler = ReconcileScheduler(
+                repository,
+                AdaptiveReconcilePolicy(
+                    active_target=timedelta(seconds=settings.reconcile_active_target_seconds),
+                    inactive_target=timedelta(seconds=settings.reconcile_inactive_target_seconds),
+                ),
+                wakeup=RedisRuntimeWakeup(redis),
+                poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
+                routing_batch_size=settings.discord_runtime_routing_batch_size,
+            )
+            background_task = asyncio.create_task(
+                scheduler.run(stop_event), name="reconcile-scheduler"
+            )
+            background_task.add_done_callback(lambda _: stop_event.set())
+
+            async def close_scheduler() -> None:
+                stop_event.set()
+                failure = await background_failure()
+                await redis.aclose()
+                await engine.dispose()
+                if failure is not None:
+                    raise failure
+
+            close_runtime = close_scheduler
+        elif process_name not in {"api", "bot"}:
+            raise ValueError(f"unsupported process: {process_name}")
 
     async def on_stop() -> None:
+        if close_runtime is not None:
+            await close_runtime()
         emit_event(
             logger,
             logging.INFO,

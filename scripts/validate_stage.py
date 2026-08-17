@@ -52,7 +52,7 @@ class Result:
 
 @dataclass(frozen=True, slots=True)
 class StageDefinition:
-    steps: Callable[[Path, bool], tuple[Step, ...]]
+    steps: Callable[[Path, bool, str], tuple[Step, ...]]
     requirements: tuple[str, ...]
 
 
@@ -62,7 +62,12 @@ def executable(name: str) -> str:
     return name
 
 
-def stage_01(evidence_directory: Path, include_discord_live: bool = False) -> tuple[Step, ...]:
+def stage_01(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    del include_discord_live, profile
     uv = executable("uv")
     npm = executable("npm")
     python = sys.executable
@@ -130,7 +135,14 @@ def stage_01(evidence_directory: Path, include_discord_live: bool = False) -> tu
         Step("backend typecheck", (uv, "run", "mypy")),
         Step(
             "backend unit tests",
-            (uv, "run", "pytest", "-m", "not integration", junit_unit_argument),
+            (
+                uv,
+                "run",
+                "pytest",
+                "-m",
+                "not integration and not load and not discord_live",
+                junit_unit_argument,
+            ),
         ),
         Step(
             "migration upgrade head",
@@ -159,7 +171,12 @@ def stage_01(evidence_directory: Path, include_discord_live: bool = False) -> tu
     )
 
 
-def stage_02(evidence_directory: Path, include_discord_live: bool = False) -> tuple[Step, ...]:
+def stage_02(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    del profile
     base_steps = list(stage_01(evidence_directory))
     migration_index = next(
         index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
@@ -208,6 +225,74 @@ def stage_02(evidence_directory: Path, include_discord_live: bool = False) -> tu
     return tuple(base_steps)
 
 
+def stage_03(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    python = sys.executable
+    if profile == "load":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "migration STAGE 03 durable load head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "deterministic Discord workload load and fairness",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "load",
+                    f"--junitxml={relative_path(evidence_directory / 'backend-load.xml')}",
+                ),
+                environment={
+                    **TEST_ENV,
+                    "DID_RUN_INTEGRATION": "1",
+                    "DID_LOAD_REPORT": relative_path(evidence_directory / "load-fairness.json"),
+                },
+            ),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step("documentation validation", (python, "scripts/validate_documentation.py")),
+        )
+    base_steps = list(stage_02(evidence_directory, include_discord_live=False))
+    last_migration = max(
+        index for index, step in enumerate(base_steps) if step.name.startswith("migration ")
+    )
+    base_steps[last_migration + 1 : last_migration + 1] = [
+        Step(
+            "migration downgrade STAGE 03 to STAGE 02",
+            (uv, "run", "alembic", "downgrade", "0002_stage_02"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration STAGE 02 to STAGE 03 head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+    ]
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage03.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage03.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step("Discord live STAGE 03 safe sandbox validation", tuple(live_arguments), 600)
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -229,6 +314,18 @@ STAGES: dict[str, StageDefinition] = {
             "REQ-BOT-002",
             "REQ-BOT-003",
             "REQ-BOT-007",
+        ),
+    ),
+    "03": StageDefinition(
+        steps=stage_03,
+        requirements=(
+            *(f"REQ-GW-{index:03d}" for index in range(1, 9)),
+            *(f"REQ-CACHE-{index:03d}" for index in range(1, 14)),
+            *(f"REQ-RATE-{index:03d}" for index in range(1, 7)),
+            *(f"REQ-AUD-{index:03d}" for index in range(1, 7)),
+            *(f"REQ-TEN-{index:03d}" for index in range(5, 10)),
+            "REQ-INST-006",
+            "REQ-AUTH-013",
         ),
     ),
 }
@@ -357,6 +454,7 @@ def write_summary(
     started_at: datetime,
     evidence_directory: Path,
     include_discord_live: bool = False,
+    profile: str = "default",
 ) -> dict[str, object]:
     result = (
         "PASS"
@@ -376,7 +474,8 @@ def write_summary(
         "environment": environment,
         "commands": [
             "python scripts/validate_stage.py "
-            f"{stage}{' --include-discord-live' if include_discord_live else ''}",
+            f"{stage}{' --profile load' if profile == 'load' else ''}"
+            f"{' --include-discord-live' if include_discord_live else ''}",
             *(gate.command for gate in results),
         ],
         "result": result,
@@ -394,6 +493,7 @@ def main() -> int:
     parser = ArgumentParser(description="Validate one implementation stage")
     parser.add_argument("stage", choices=sorted(STAGES))
     parser.add_argument("--include-discord-live", action="store_true")
+    parser.add_argument("--profile", choices=("default", "load"), default="default")
     arguments = parser.parse_args()
     if arguments.stage not in STAGES:
         known = ", ".join(sorted(STAGES))
@@ -413,7 +513,10 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    steps = definition.steps(evidence_directory, arguments.include_discord_live)
+    if arguments.profile == "load" and stage != "03":
+        print("The load profile is defined only for STAGE 03")
+        return 2
+    steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []
     for step in steps:
         result = run_step(step)
@@ -434,6 +537,7 @@ def main() -> int:
         started_at=started_at,
         evidence_directory=evidence_directory,
         include_discord_live=arguments.include_discord_live,
+        profile=arguments.profile,
     )
     summary_path = relative_path(evidence_directory / "summary.json")
     print(f"\nStage {stage}: {summary['result']} — summary: {summary_path}")
