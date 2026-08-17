@@ -1,0 +1,31 @@
+{
+  "stage": "04",
+  "profile": "discord-live-sandbox-read-only",
+  "status": "PASS_WITH_APPROVED_LIMITATION",
+  "generated_at": "2026-08-17T08:47:13.596825+00:00",
+  "checks": [
+    "Guild A/B roles, channels and bot member observed read-only",
+    "effective bot channel permissions matched discord.py secondary oracle on applicable core actions",
+    "Snowflakes and permission bitfields retained as arbitrary-precision integers",
+    "Discord mutations remained zero"
+  ],
+  "missing_variable_names": [],
+  "resource_counts": {
+    "guild_1_channels_compared": 53,
+    "guild_1_roles_observed": 39,
+    "guild_1_permission_mismatches": 0,
+    "guild_2_channels_compared": 18,
+    "guild_2_roles_observed": 11,
+    "guild_2_permission_mismatches": 0
+  },
+  "skipped_not_verified": [
+    "active/public/private thread membership matrix requires controlled fixtures",
+    "category synced/desynced mutation fixtures are not created by this read-only runner",
+    "managed/equal role hierarchy mutation fixtures are not created by this read-only runner",
+    "inherited STAGE 02 administrator non-owner human profile",
+    "inherited STAGE 02 non-administrator human profile"
+  ],
+  "oracle": "Discord API observations with discord.py as secondary calculator",
+  "discord_mutations": 0,
+  "secrets_recorded": false
+}
