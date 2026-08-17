@@ -107,6 +107,7 @@ def test_invalid_request_budget_and_unauthorized_halt_are_fail_safe() -> None:
     assert governor.invalid_request_budget_degraded is True
     assert governor.metrics.invalid_requests_10m == 2
     assert governor.metrics.rate_limited == 1
+    assert governor.metrics.rate_limit_wait_seconds == 1.5
     governor.record_discord_failure(DiscordFailure(DiscordErrorKind.UNAUTHORIZED, 401))
     assert governor.halted is True
 

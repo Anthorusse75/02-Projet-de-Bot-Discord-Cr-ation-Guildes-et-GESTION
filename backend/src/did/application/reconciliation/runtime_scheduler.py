@@ -67,6 +67,11 @@ class ReconcileScheduler:
         )
         enqueued: list[tuple[int, UUID]] = []
         for item in ordered:
+            urgent_continuity_recovery = item.gateway_gap or item.non_resumed
+            if item.rate_limit_pressure >= 0.5 and not urgent_continuity_recovery:
+                # Workload pressure defers ordinary background reconciliation.  A
+                # Gateway continuity defect remains urgent and is never discarded.
+                continue
             if self._policy.next_due_at(item, now=reference) > reference:
                 continue
             job = WorkloadJob(

@@ -5,10 +5,16 @@ from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from did.domain.discord_runtime import DiscordErrorKind, DiscordFailure, WorkloadJob
+
+if TYPE_CHECKING:
+    from did.infrastructure.runtime_redis import (
+        DistributedPermit,
+        RedisDiscordWorkloadCoordinator,
+    )
 
 
 class BackpressureError(RuntimeError):
@@ -29,8 +35,11 @@ class GovernorMetrics:
     peak_queue_depth: int = 0
     peak_global_concurrency: int = 0
     peak_guild_concurrency: int = 0
+    peak_system_global_concurrency: int = 0
+    peak_system_guild_concurrency: int = 0
     invalid_requests_10m: int = 0
     rate_limited: int = 0
+    rate_limit_wait_seconds: float = 0.0
     dispatch_slots: list[int] = field(default_factory=list)
     queue_wait_seconds: list[float] = field(default_factory=list)
 
@@ -49,8 +58,11 @@ class GovernorMetrics:
             "peak_queue_depth": self.peak_queue_depth,
             "peak_global_concurrency": self.peak_global_concurrency,
             "peak_guild_concurrency": self.peak_guild_concurrency,
+            "peak_system_global_concurrency": self.peak_system_global_concurrency,
+            "peak_system_guild_concurrency": self.peak_system_guild_concurrency,
             "invalid_requests_10m": self.invalid_requests_10m,
             "rate_limited": self.rate_limited,
+            "rate_limit_wait_seconds": round(self.rate_limit_wait_seconds, 6),
             "average_queue_wait_seconds": round(average_wait, 6),
         }
 
@@ -74,6 +86,7 @@ class DiscordWorkloadGovernor:
         max_queue_depth: int = 1_000,
         aging_interval_seconds: float = 30.0,
         invalid_request_warning: int = 8_000,
+        distributed_coordinator: RedisDiscordWorkloadCoordinator | None = None,
     ) -> None:
         if global_concurrency < 1 or per_guild_concurrency < 1:
             raise ValueError("concurrency limits must be positive")
@@ -88,6 +101,7 @@ class DiscordWorkloadGovernor:
         self._max_queue_depth = max_queue_depth
         self._aging_interval = aging_interval_seconds
         self._invalid_request_warning = invalid_request_warning
+        self._distributed = distributed_coordinator
         self._queues: dict[int, list[_ScheduledWork]] = defaultdict(list)
         self._guild_ring: deque[int] = deque()
         self._coalesced: dict[tuple[int, str], asyncio.Future[Any]] = {}
@@ -97,6 +111,7 @@ class DiscordWorkloadGovernor:
         self._dispatch_slot = 0
         self._invalid_requests: deque[datetime] = deque()
         self._halted = False
+        self._backlog_active = False
         self.metrics = GovernorMetrics()
 
     @property
@@ -105,11 +120,51 @@ class DiscordWorkloadGovernor:
 
     @property
     def background_paused(self) -> bool:
-        return self.queue_depth >= max(1, self._max_queue_depth // 2)
+        return self._backlog_active or self.queue_depth >= max(1, self._max_queue_depth // 2)
+
+    @property
+    def running_count(self) -> int:
+        return self._running
+
+    @property
+    def global_concurrency_limit(self) -> int:
+        return self._global_limit
+
+    @property
+    def max_queue_depth(self) -> int:
+        return self._max_queue_depth
+
+    @property
+    def workload_pressure(self) -> float:
+        if self._backlog_active:
+            return 1.0
+        return min(
+            1.0,
+            (self.queue_depth + self._running) / max(1, self._global_limit),
+        )
+
+    def set_backlog_active(self, active: bool) -> None:
+        self._backlog_active = active
+
+    def can_admit(self, guild_id: int) -> bool:
+        queued_for_guild = len(self._queues.get(guild_id, ()))
+        return (
+            self.queue_depth < self._max_queue_depth
+            and self.queue_depth + self._running < self._global_limit
+            and queued_for_guild + self._running_by_guild[guild_id] < self._guild_limit
+        )
+
+    def record_admission_backpressure(self) -> None:
+        self.metrics.rejected_backpressure += 1
 
     @property
     def halted(self) -> bool:
         return self._halted
+
+    async def system_halted(self) -> bool:
+        return self._halted or (
+            self._distributed is not None and await self._distributed.is_halted()
+        )
 
     def submit(
         self, job: WorkloadJob, operation: Callable[[], Awaitable[Any]]
@@ -227,6 +282,78 @@ class DiscordWorkloadGovernor:
         except BaseException as exc:
             return work, None, exc
 
+    async def run_distributed(self, guild_id: int, operation: Callable[[], Awaitable[Any]]) -> Any:
+        """Acquire the system permit after the durable job heartbeat has started."""
+        if self._distributed is None:
+            return await operation()
+        if await self._distributed.is_halted():
+            raise WorkloadHaltedError("Discord token is halted system-wide")
+        try:
+            permit = await self._distributed.acquire(guild_id)
+        except RuntimeError as exc:
+            raise WorkloadHaltedError("Discord token is halted system-wide") from exc
+        self.metrics.peak_system_global_concurrency = max(
+            self.metrics.peak_system_global_concurrency,
+            permit.global_concurrency,
+        )
+        self.metrics.peak_system_guild_concurrency = max(
+            self.metrics.peak_system_guild_concurrency,
+            permit.guild_concurrency,
+        )
+        return await self._run_with_distributed_permit(permit, operation)
+
+    async def _run_with_distributed_permit(
+        self,
+        permit: DistributedPermit,
+        operation: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        from did.infrastructure.runtime_redis import DistributedPermitLostError
+
+        assert self._distributed is not None
+        coordinator = self._distributed
+        stopped = asyncio.Event()
+        lost = asyncio.Event()
+
+        async def heartbeat() -> None:
+            interval = max(0.05, coordinator.permit_ttl_seconds / 3)
+            while not stopped.is_set():
+                try:
+                    await asyncio.wait_for(stopped.wait(), timeout=interval)
+                    return
+                except TimeoutError:
+                    pass
+                try:
+                    renewed = await coordinator.renew(permit)
+                except Exception:
+                    renewed = False
+                if not renewed:
+                    lost.set()
+                    return
+
+        async def invoke_operation() -> Any:
+            return await operation()
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        operation_task: asyncio.Task[Any] = asyncio.create_task(invoke_operation())
+        lost_task = asyncio.create_task(lost.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {operation_task, lost_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if lost_task in done and lost.is_set() and not operation_task.done():
+                operation_task.cancel()
+                await asyncio.gather(operation_task, return_exceptions=True)
+                raise DistributedPermitLostError("distributed Discord permit expired")
+            return await operation_task
+        finally:
+            stopped.set()
+            if not operation_task.done():
+                operation_task.cancel()
+            heartbeat_task.cancel()
+            lost_task.cancel()
+            await asyncio.gather(heartbeat_task, lost_task, operation_task, return_exceptions=True)
+            await coordinator.release(permit)
+
     def record_discord_failure(
         self, failure: DiscordFailure, *, occurred_at: datetime | None = None
     ) -> None:
@@ -241,10 +368,17 @@ class DiscordWorkloadGovernor:
             self._invalid_requests.append(now)
         if failure.kind is DiscordErrorKind.RATE_LIMITED:
             self.metrics.rate_limited += 1
+            self.metrics.rate_limit_wait_seconds += max(0.0, failure.retry_after_seconds or 0.0)
         cutoff = now - timedelta(minutes=10)
         while self._invalid_requests and self._invalid_requests[0] < cutoff:
             self._invalid_requests.popleft()
         self.metrics.invalid_requests_10m = len(self._invalid_requests)
+
+    async def record_distributed_failure(self, failure: DiscordFailure) -> None:
+        if self._distributed is None:
+            return
+        count = await self._distributed.record_failure(failure)
+        self.metrics.invalid_requests_10m = max(self.metrics.invalid_requests_10m, count)
 
     @property
     def invalid_request_budget_degraded(self) -> bool:

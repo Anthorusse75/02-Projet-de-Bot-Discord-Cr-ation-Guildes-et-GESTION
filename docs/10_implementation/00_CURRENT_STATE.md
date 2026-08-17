@@ -15,9 +15,9 @@
 | STAGE 03 base `main` | `366e676880d0c3f4c7cf4f54105a117b2dcda3d8` |
 | STAGE 03 code commit | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | STAGE 03 corrective runtime commit | `8127e80616fcd57247377386422eb5082003e527` |
-| Last migration | `0004_stage_03` |
-| Implemented subsystems | Stages 01–02 ; Gateway intents minimaux et événements normalisés ; inbox/dedup/projection no-effect stale ; cache Discord PostgreSQL RLS et Redis hot ; gap persistant/freshness/tombstones honnêtes ; API cache-first/purge locale confirmée ; vrais processus worker/scheduler ; routage ID-only borné + wakeup/recovery ; Governor long-lived équitable ; single-flight générationnel ; sync/reconcile adaptatif ; outbox opérationnelle/invalidation ; WebSocket reauthorization continue ; métriques bornées |
-| Tests status | STAGE 01/02/03 local PASS au commit `6a964642151a3fa048706c3c5753cfe8585ef287` — 92 unit, 40 integration, 4 load, 4 frontend ; pipeline durable A=300/B=30 PASS ; migrations `base/0001/0002/0003 -> 0004` et retour `0004 -> 0002 -> 0004` PASS ; checks PR #3 `stage-01`, `stage-02`, `stage-03`, `stage-03-load` PASS sur le HEAD publié |
+| Last migration | `0005_stage_03` |
+| Implemented subsystems | Stages 01–02 ; Gateway intents minimaux et événements normalisés ; inbox/dedup/projection no-effect stale ; cache Discord PostgreSQL RLS et Redis hot ; gap persistant/freshness/tombstones honnêtes ; API cache-first/purge locale confirmée ; vrais processus worker/scheduler ; routage ID-only borné + wakeup/recovery ; admission JIT par vagues et leases renouvelables fenced ; permits/budget/401/429/pression Redis multi-worker ; single-flight acquire-or-observe Lua ; reconcile adaptatif sous pression ; outbox multi-publisher leasée ; WebSocket reauthorization continue ; métriques locales/système bornées |
+| Tests status | Correctif local Stage 01/02/03 PASS : 93 unit, 43 integration, 5 load, 4 frontend, 39 security et 6 failure-injection ; pipeline durable A=300/B=30 et deux workers lease court PASS ; migrations `base/0001/0002/0003/0004 -> 0005` et retour `0005 -> 0002 -> 0005` PASS. Preuves finales : Stage 01 `20260817T071409786205Z`, Stage 02 `20260817T071453459051Z`, Stage 03 `20260817T071529972512Z`, load `20260817T071612528383Z`. Checks du nouveau HEAD à renseigner après publication. |
 | Discord live status | Stage 03 `PASS_WITH_APPROVED_LIMITATION` : sync réelle read-only A+B, PostgreSQL/Redis et isolation PASS, zéro mutation ; Gateway externe/reconnect et obfuscation live `SKIPPED_NOT_VERIFIED`/`CONTRACT_ONLY_NOT_LIVE_VERIFIED` |
 | Profiles not verified live | administrateur non propriétaire ; non-administrateur — `SKIPPED_NOT_VERIFIED`, à ne pas considérer comme vérifiés en STAGE 03 |
 | Documentation status | PASS — 11 stages, 246/246 REQ, 35 ADR ; IMP-001 revalidé le 2026-08-17 ; IMP-008 routage runtime ; handoff/preuve live Stage 03 conservés |
@@ -29,7 +29,7 @@
 | Known failures | Aucun échec local ou CI de code, test, migration, documentation ou secret scan ; skips live Stage 03 et deux profils hérités Stage 02 restent explicitement non vérifiés |
 | Required external configuration | Variables Discord/OAuth et secrets locaux uniquement dans `.env.local` ignoré ; Docker Desktop pour les validations d’infrastructure |
 | Discord sandbox status | Bot réinstallé dans Guild A et Guild B ; grants OAuth temporaires révoqués ; aucun serveur supprimé |
-| Open blocking decisions | Aucune pour la Draft PR Stage 03 ; capability Channel Obfuscation temporaire non exposée par `discord.py 2.7.1`, sans faux support live |
+| Open blocking decisions | Aucune pour la Draft PR Stage 03 ; capability Channel Obfuscation temporaire non exposée par `discord.py 2.7.1`, sans faux support live ; exigences futures `REQ-GW-006`, `CACHE-004/007`, `RATE-005`, `AUD-002/003`, `TEN-008` honnêtement `PLANNED` |
 | Evidence storage | Runs locaux ignorés sous `artifacts/test-evidence/stage-XX/<run-id>/` ; preuves live expurgées suivies dans `docs/90_handoffs/STAGE_02_LIVE_EVIDENCE.json` et `STAGE_03_LIVE_EVIDENCE.json` ; CI upload par stage/SHA/run/attempt |
 | Next stage | STAGE 04 interdite avant merge et revue externe de la Draft PR Stage 03 |
 

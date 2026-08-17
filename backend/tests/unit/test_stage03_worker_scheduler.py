@@ -22,7 +22,15 @@ class WorkerRepositoryProbe:
 
     async def lease_next_job(self, guild_id: int, **_: object):
         self.calls.append("lease-committed")
-        return {"job_id": uuid4(), "workload_type": self.workload_type}
+        return {
+            "job_id": uuid4(),
+            "lease_token": uuid4(),
+            "workload_type": self.workload_type,
+        }
+
+    async def renew_job_lease(self, guild_id: int, job_id, **_: object) -> bool:
+        self.calls.append("lease-renewed")
+        return True
 
     async def complete_job(self, guild_id: int, job_id, **_: object) -> bool:
         self.calls.append("ack-transaction")

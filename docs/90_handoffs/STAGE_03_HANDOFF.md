@@ -9,7 +9,7 @@
 | Commit code initial | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | Commit correctif runtime | `8127e80616fcd57247377386422eb5082003e527` |
 | Commit format | `6a964642151a3fa048706c3c5753cfe8585ef287` |
-| Migration | `0002_stage_02 -> 0003_stage_03 -> 0004_stage_03` |
+| Migration | `0002_stage_02 -> 0003_stage_03 -> 0004_stage_03 -> 0005_stage_03` |
 | Statut | `CORRECTED_PR_OPEN` |
 
 ## Runtime Gateway et contrats
@@ -61,34 +61,39 @@ Discord n’expose pas de commit/révision stable pour ces pages. Le JSON du 202
 
 ## I/O Worker, governor et reconcile
 
-- Le vrai entrypoint `python -m did.worker` construit DB `did_app`, Redis, client HTTP `discord.py`, adapter, cache, single-flight, outbox, `DurableDiscordIOWorker` et **un unique Governor long-lived**. Le dispatcher lease au plus un job par Guild et par tour, soumet chaque opération au Governor, draine une seule fois par batch, réalise le réseau hors transaction, puis ack/retry dans une transaction tenant séparée. Lease expiré = reprise après crash. Un 401 halte ce vrai Governor.
-- `DiscordWorkloadGovernor` gouverne priorité, aging, round-robin Guild, concurrence globale/par Guild, coalescing, backpressure, pause background et budget invalid requests glissant 10 minutes. Il décide quand un workload part; `discord.py` reste propriétaire des buckets, headers et délais protocolaires Discord, sans limite de route hardcodée.
+- Le vrai entrypoint `python -m did.worker` construit DB `did_app`, Redis, client HTTP `discord.py`, adapter, cache, single-flight, outbox, `DurableDiscordIOWorker`, Governor local long-lived et coordinateur Redis distribué. Le dispatcher n’admet que les slots immédiatement démarrables : au plus la concurrence globale locale et la borne par Guild, puis drain par vagues. `dispatch_batch_size=512` ne signifie donc jamais 512 leases préchargés.
+- Chaque lease job, pris juste avant son admission dans une vague, porte `lease_owner`, `lease_token`, `lease_generation` et `leased_until`. Un heartbeat démarre avant l’attente d’un permit Redis et renouvelle pendant tout l’I/O. Renewal/ack/retry sont atomiquement fenced par owner+token ; ack/retry exigent aussi un lease non expiré. Après crash, expiration permet la reprise et l’ancien token ne peut plus acquitter.
+- Plusieurs workers actifs partagent des permits Redis globaux et par Guild avec TTL/token/renew/release compare-by-token. Ils partagent aussi budget invalid requests sur 10 minutes, pression 429 et halt 401. Les métriques distinguent les pics de concurrence locale et système. `discord.py` reste propriétaire des buckets, headers et délais protocolaires Discord ; DID ne réimplémente pas son limiteur protocolaire.
 - Priorités : `APPLY_CONTINUATION` P0, `UNKNOWN_OUTCOME_RECOVERY` P1, `CRITICAL_PREFLIGHT` P2, `USER_REFRESH` P3, `BACKGROUND_RECONCILE` P4, `LOW_MAINTENANCE` P5.
-- Valeurs par défaut : concurrence globale 4, par Guild 1, queue 1000. Une erreur 401 arrête le governor; 403/404 ne sont pas retryés aveuglément; 429 conserve `Retry-After` et le signal global.
-- Single-flight Redis tenant-scopé et générationnel : un owner effectif par génération, fan-out succès/erreur, timeout borné et reprise après expiration/crash du lock.
+- Valeurs par défaut : concurrence système globale 4, par Guild 1, queue locale 1000, lease job et permit 30 s renouvelables. Une erreur 401 arrête tous les workers via Redis; 403/404 ne sont pas retryés aveuglément; 429 conserve `Retry-After` et publie une pression partagée.
+- Single-flight Redis tenant-scopé et générationnel : un Lua atomique `ACQUIRE OR OBSERVE CURRENT GENERATION` lie tout waiter concurrent à la génération observée, y compris si l’owner publie/libère avant le retour du waiter. Succès/erreur sont fan-out, timeout et crash sont bornés, et un appel séquentiel crée une nouvelle génération.
 - Sync initiale : deux appels REST bornés (channels+overwrites, roles), puis persistance, couverture `FULL` et checkpoint. Les effets Redis sont exclusivement portés par l’outbox après commit.
-- Le vrai entrypoint `python -m did.scheduler` exécute une boucle `ReconcileScheduler`. `AdaptiveReconcilePolicy` cible environ 6 h actif / 24 h inactif, jitter stable, priorité accrue sur gap/non-resume/drift/coverage/travail critique et extension sous pression rate-limit. Il découvre des Guilds par IDs bornés et **enqueue seulement** `RECONCILE_STRUCTURE`; aucun Discord REST ni cron massif synchrone.
+- La pression workload est publiée par reporter pendant le drain, agrégée par maximum avec TTL, et ne peut plus être écrasée à zéro par un autre worker. Le scheduler diffère un reconcile de fond sous pression >= 0,5, mais conserve les urgences `GAP_DETECTED`/`NON_RESUMED`.
+- Le vrai entrypoint `python -m did.scheduler` exécute une boucle `ReconcileScheduler`. `AdaptiveReconcilePolicy` cible environ 6 h actif / 24 h inactif, jitter stable, priorité accrue sur gap/non-resume/drift/coverage/travail critique et extension sous pression. Il découvre des Guilds par IDs bornés et **enqueue seulement** `RECONCILE_STRUCTURE`; aucun Discord REST ni cron massif synchrone.
 
 ## Audit, métriques et charge
 
 - Audit DID durable distinct de l’audit natif Discord : source, Guild, acteur éventuel, correlation/causation, type, cible, résultat et timestamps. Les observations externes produisent des signaux drift exploitables ultérieurement sans anticiper Stage 04.
-- L’outbox DB transactionnelle tourne dans le vrai worker : invalidation hot cache, wakeup de job, Pub/Sub puis ack. Échec Redis conserve `PENDING` avec backoff; crash publish-before-ack provoque une livraison dupliquée tolérée; le polling PostgreSQL reprend automatiquement et marque `PUBLISHED` seulement après tous les effets. Gateway, refresh/reconcile et purge suivent ce même chemin.
-- Métriques sans labels `guild_id/channel_id/user_id` : queue depth/wait, priorité, concurrence, backpressure, coalescing, outcomes REST/429, budget invalid, gaps/duplicates, fraîcheur, rebuild, backlog outbox et âge reconcile. Event IDs de logs statiques et redaction Stage 01 restent obligatoires.
-- Le benchmark in-memory A=500/B=21 est conservé. La preuve décisive est durable end-to-end : PostgreSQL `discord_io_jobs` → Redis routing/wakeup → durable worker → Governor long-lived → faux Discord → ack PostgreSQL. A=300, B=30; premier slot B=1; un A avant B; borne=2; backlog max=330; concurrence globale max=2; par Guild max=1; 330 jobs `SUCCEEDED`; starvation=false.
+- L’outbox DB transactionnelle tourne dans le vrai worker avec lease owner/token/expiration et candidats `FOR UPDATE SKIP LOCKED`. Les lignes sont leasées just-in-time une par une et renouvelées pendant leurs effets : deux publishers vivants ne produisent pas de tempête sur le même event. Échec Redis conserve `PENDING` avec backoff; crash réel publish-before-ack autorise une rediffusion bornée après expiration, conformément au contrat at-least-once.
+- Métriques sans labels `guild_id/channel_id/user_id` : queue depth/wait, priorité, concurrence locale/système, backpressure, coalescing, outcomes REST/429 et attente rate-limit, cache hit ratio, budget invalid partagé, gaps/duplicates, fraîcheur, rebuild, backlog outbox et âge reconcile.
+- Le benchmark in-memory A=500/B=21 est conservé. La preuve durable A=300/B=30 passe désormais par vagues de deux leases maximum (un par Guild), avec 330 jobs `SUCCEEDED`, premier slot B=1 et starvation=false. Une preuve additionnelle lance deux runtimes, lease/permit 150 ms, faux Discord 180 ms, queue 10/batch 512 : concurrence système max 2, par Guild 1, chaque workload read-only appelé exactement une fois, recovery du lease/permit crashé, zéro `LEASED` final et processus vivants.
 
 ## Validation et preuves
 
+La traçabilité RATE est auditée exigence par exigence : `REQ-RATE-001` `IMPLEMENTED` (limites de route dynamiques déléguées à discord.py), `002` `IMPLEMENTED` (gouvernance commune Redis), `003` `IMPLEMENTED` (`Retry-After`), `004` `IMPLEMENTED` (budget/401/429 partagé), `005` **`PLANNED`** (Plan Compiler Stage 05 absent), `006` `IMPLEMENTED` (429, attente, queue, cache hit ratio et invalid requests). L’audit sémantique laisse aussi `REQ-GW-006`, `REQ-CACHE-004`, `REQ-CACHE-007`, `REQ-AUD-002`, `REQ-AUD-003` et `REQ-TEN-008` à `PLANNED`; aucune famille Stage 03 n’est plus promue par range aveugle.
+
 | Commande/scénario | Résultat | Preuve |
 |---|---|---|
-| `python scripts/validate_stage.py 03` | PASS, 92 unit + 40 integration + 4 frontend | `artifacts/test-evidence/stage-03/20260816T224913851301Z-6a964642151a-local-docker/` et CI du nouveau HEAD |
-| `python scripts/validate_stage.py 03 --profile load` | PASS, 4 load dont pipeline durable A=300/B=30 | `artifacts/test-evidence/stage-03/20260816T224954694458Z-6a964642151a-local-docker/load-fairness.json` et artifact CI `stage-03-load` |
-| `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260816T224749379966Z-6a964642151a-local-docker/` |
-| `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260816T224835595039Z-6a964642151a-local-docker/` |
-| migrations `base/0001/0002/0003 -> 0004`, `0004 -> 0002 -> 0004` | PASS | JUnit/résumé Stage 03 final |
+| `python scripts/validate_stage.py 03` | PASS, 93 unit + 43 integration + 4 frontend | `artifacts/test-evidence/stage-03/20260817T071529972512Z-b98ca5d281aa-local-docker/` ; CI du commit correctif à renseigner après push |
+| `python scripts/validate_stage.py 03 --profile load` | PASS, 5 load dont pipeline durable A=300/B=30 et deux workers lease court | `artifacts/test-evidence/stage-03/20260817T071612528383Z-b98ca5d281aa-local-docker/` puis `stage-03-load` CI |
+| `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260817T071409786205Z-b98ca5d281aa-local-docker/` |
+| `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260817T071453459051Z-b98ca5d281aa-local-docker/` |
+| migrations `base/0001/0002/0003/0004 -> 0005`, `0005 -> 0002 -> 0005` | PASS | résumé Stage 03 `20260817T071529972512Z` |
 | PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD publié, PR toujours Draft | GitHub Actions, deux runs complets déclenchés par la publication |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
-| Redis down/reprise, génération single-flight, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
+| Redis down/reprise, single-flight Lua forced race, coordination failure/outbox multi-worker, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
 | gap persistant, stale no-effect, purge/tombstone/reobserve REST, RLS | PASS | `test_stage03_postgres.py` et tests security/failure |
+| `pytest -m "security and not load"` / `failure_injection and not load` | PASS, 39 / 6 | exécution locale corrective |
 
 Live A/B lu sans mutation : Guild 1 = 62 salons / 39 rôles; Guild 2 = 24 salons / 11 rôles. Aucun identifiant de Guild, token ou secret n’est stocké dans la preuve. Les profils Stage 02 administrateur non propriétaire et non-administrateur restent `SKIPPED_NOT_VERIFIED`.
 

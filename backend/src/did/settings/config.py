@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     discord_worker_recovery_seconds: float = Field(default=2.0, ge=0.1, le=300.0)
     discord_runtime_routing_batch_size: int = Field(default=256, ge=1, le=1000)
     discord_worker_dispatch_batch_size: int = Field(default=512, ge=1, le=10000)
+    discord_job_lease_seconds: float = Field(default=30.0, ge=0.1, le=300.0)
+    discord_distributed_permit_ttl_seconds: float = Field(default=30.0, ge=0.1, le=300.0)
     reconcile_active_target_seconds: int = Field(default=21600, ge=300, le=86400)
     reconcile_inactive_target_seconds: int = Field(default=86400, ge=3600, le=604800)
     reconcile_scheduler_poll_seconds: float = Field(default=5.0, ge=0.1, le=300.0)

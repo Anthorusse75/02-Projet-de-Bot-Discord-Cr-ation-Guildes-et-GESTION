@@ -26,6 +26,10 @@ class RuntimeMetrics:
     outbox_backlog: int = 0
     queue_depth: int = 0
     reconcile_age_seconds: float = 0.0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    rate_limit_wait_seconds: float = 0.0
+    invalid_requests_10m: int = 0
 
     def gateway_signal(self, signal: str) -> None:
         if signal not in GATEWAY_SIGNALS:
@@ -44,6 +48,7 @@ class RuntimeMetrics:
         self.cache_freshness[state.value] += 1
 
     def snapshot(self) -> dict[str, object]:
+        cache_total = self.cache_hits + self.cache_misses
         return {
             "gateway": dict(self.gateway),
             "rest_outcomes": dict(self.rest_outcomes),
@@ -53,4 +58,7 @@ class RuntimeMetrics:
             "outbox_backlog": self.outbox_backlog,
             "queue_depth": self.queue_depth,
             "reconcile_age_seconds": self.reconcile_age_seconds,
+            "cache_hit_ratio": self.cache_hits / cache_total if cache_total else 0.0,
+            "rate_limit_wait_seconds": self.rate_limit_wait_seconds,
+            "invalid_requests_10m": self.invalid_requests_10m,
         }

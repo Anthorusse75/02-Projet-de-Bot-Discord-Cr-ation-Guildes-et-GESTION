@@ -8,11 +8,14 @@ from sqlalchemy import text
 
 from did.api.runtime_cache import cached_channels
 from did.application.discord_runtime import normalize_gateway_dispatch
+from did.domain.discord_runtime import DiscordErrorKind, DiscordFailure
 from did.infrastructure.database import create_database_engine, create_session_factory
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import (
     OutboxPublisher,
+    RedisDiscordWorkloadCoordinator,
     RedisHotCache,
+    RedisRuntimeWakeup,
     RedisSingleFlight,
     TenantPubSub,
 )
@@ -209,6 +212,66 @@ async def test_singleflight_success_failure_timeout_and_expired_owner_recovery()
         await redis.aclose()
 
 
+async def test_singleflight_acquire_or_observe_forced_release_race() -> None:
+    redis = create_redis_client(REDIS_URL)
+    waiter_observed = asyncio.Event()
+    owner_may_finish = asyncio.Event()
+    waiter_may_continue = asyncio.Event()
+    calls = 0
+
+    async def after_observe(_: str) -> None:
+        waiter_observed.set()
+        await waiter_may_continue.wait()
+
+    flight = RedisSingleFlight(redis, after_observe=after_observe)
+
+    async def operation() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await owner_may_finish.wait()
+        return {"generation_call": calls}
+
+    try:
+        await redis.flushdb()
+        owner = asyncio.create_task(flight.run(GUILD_A, "forced-race", operation))
+        await asyncio.sleep(0)
+        waiter = asyncio.create_task(flight.run(GUILD_A, "forced-race", operation))
+        await asyncio.wait_for(waiter_observed.wait(), timeout=1)
+        owner_may_finish.set()
+        assert await asyncio.wait_for(owner, timeout=1) == {"generation_call": 1}
+        waiter_may_continue.set()
+        assert await asyncio.wait_for(waiter, timeout=1) == {"generation_call": 1}
+        assert calls == 1
+
+        sequential = await flight.run(GUILD_A, "forced-race", operation)
+        assert sequential == {"generation_call": 2}
+        assert calls == 2
+    finally:
+        await redis.aclose()
+
+
+async def test_distributed_failure_budget_pressure_and_halt_are_shared() -> None:
+    redis = create_redis_client(REDIS_URL)
+    first = RedisDiscordWorkloadCoordinator(
+        redis, global_concurrency=2, per_guild_concurrency=1, invalid_request_warning=2
+    )
+    second = RedisDiscordWorkloadCoordinator(
+        redis, global_concurrency=2, per_guild_concurrency=1, invalid_request_warning=2
+    )
+    try:
+        await redis.flushdb()
+        assert await first.record_failure(DiscordFailure(DiscordErrorKind.FORBIDDEN, 403)) == 1
+        assert await second.invalid_request_count() == 1
+        await first.record_failure(DiscordFailure(DiscordErrorKind.RATE_LIMITED, 429))
+        assert await second.invalid_request_budget_degraded() is True
+        assert await RedisRuntimeWakeup(redis).rate_limit_pressure() == 1.0
+        await first.record_failure(DiscordFailure(DiscordErrorKind.UNAUTHORIZED, 401))
+        assert await second.is_halted() is True
+    finally:
+        await redis.aclose()
+
+
 async def test_pubsub_is_strictly_tenant_partitioned() -> None:
     redis = create_redis_client(REDIS_URL)
     pubsub = TenantPubSub(redis)
@@ -252,15 +315,59 @@ async def test_outbox_survives_publish_failure_and_publish_before_ack_crash() ->
         assert len(await repository.pending_outbox(GUILD_A)) == 1
 
         def crash_after_publish() -> None:
-            raise RuntimeError("controlled crash before ack")
+            raise asyncio.CancelledError("controlled process loss before ack")
 
-        with pytest.raises(RuntimeError, match="controlled crash before ack"):
+        with pytest.raises(asyncio.CancelledError, match="controlled process loss before ack"):
             await OutboxPublisher(
-                repository, pubsub, after_publish=crash_after_publish
+                repository,
+                pubsub,
+                after_publish=crash_after_publish,
+                publisher_id="crashed-outbox-worker",
+                lease_seconds=0.1,
             ).publish_guild(GUILD_A)
-        await asyncio.sleep(2.05)
+        assert await repository.pending_outbox(GUILD_A) == []
+        await asyncio.sleep(0.12)
         assert await OutboxPublisher(repository, pubsub).publish_guild(GUILD_A) == 1
         assert await OutboxPublisher(repository, pubsub).publish_guild(GUILD_A) == 0
+    finally:
+        await redis.aclose()
+        await engine.dispose()
+
+
+async def test_outbox_multiworker_leases_prevent_publication_storm() -> None:
+    repository, engine = await seeded_repository()
+    redis = create_redis_client(REDIS_URL)
+    published_side_effects = 0
+    both_started = asyncio.Event()
+
+    class PubSubProbe:
+        async def publish(self, guild_id: int, payload: dict[str, object]) -> int:
+            nonlocal published_side_effects
+            assert guild_id == GUILD_A
+            published_side_effects += 1
+            both_started.set()
+            await asyncio.sleep(0.18)
+            return 1
+
+    try:
+        await repository.ingest_gateway_event(channel_create())
+        first = OutboxPublisher(
+            repository,
+            PubSubProbe(),  # type: ignore[arg-type]
+            publisher_id="outbox-worker-a",
+            lease_seconds=0.1,
+        )
+        second = OutboxPublisher(
+            repository,
+            PubSubProbe(),  # type: ignore[arg-type]
+            publisher_id="outbox-worker-b",
+            lease_seconds=0.1,
+        )
+        results = await asyncio.gather(first.publish_guild(GUILD_A), second.publish_guild(GUILD_A))
+        assert sum(results) == 1
+        assert published_side_effects == 1
+        assert both_started.is_set()
+        assert await repository.pending_outbox(GUILD_A) == []
     finally:
         await redis.aclose()
         await engine.dispose()

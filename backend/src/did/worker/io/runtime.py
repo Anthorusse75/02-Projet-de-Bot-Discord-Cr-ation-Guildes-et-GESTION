@@ -6,7 +6,7 @@ from collections import deque
 
 from did.infrastructure.runtime_redis import OutboxPublisher, RedisRuntimeWakeup
 from did.infrastructure.runtime_repository import RuntimeRepository
-from did.worker.io.governor import DiscordWorkloadGovernor
+from did.worker.io.governor import BackpressureError, DiscordWorkloadGovernor
 from did.worker.io.worker import DurableDiscordIOWorker
 
 
@@ -60,15 +60,15 @@ class DiscordWorkerRuntime:
                 next_recovery = now + self._recovery_interval
 
             await self._publish_pending_outbox()
-            if guild_ids and not self.governor.halted:
+            if guild_ids and not await self.governor.system_halted():
                 await self._dispatch_fair_batch(sorted(guild_ids))
 
             try:
-                queue_ratio = min(
-                    1.0,
-                    self.governor.queue_depth / max(1, self._dispatch_batch_size),
+                pressure = (
+                    1.0
+                    if self.governor.invalid_request_budget_degraded
+                    else self.governor.workload_pressure
                 )
-                pressure = 1.0 if self.governor.invalid_request_budget_degraded else queue_ratio
                 await self._wakeup.set_rate_limit_pressure(pressure)
             except Exception:
                 self._logger.warning("runtime rate-pressure signal unavailable")
@@ -82,6 +82,10 @@ class DiscordWorkerRuntime:
         # drained and acknowledged before the process releases its resources.
         if self.governor.queue_depth:
             await self.governor.drain()
+        try:
+            await self._wakeup.clear_rate_limit_pressure()
+        except Exception:
+            self._logger.warning("runtime rate-pressure cleanup unavailable")
 
     async def _publish_pending_outbox(self) -> int:
         published = 0
@@ -97,20 +101,65 @@ class DiscordWorkerRuntime:
 
     async def _dispatch_fair_batch(self, guild_ids: list[int]) -> int:
         ring = deque(guild_ids)
-        futures: list[asyncio.Future[object]] = []
         dispatched = 0
-        while ring and dispatched < self._dispatch_batch_size and not self.governor.halted:
-            guild_id = ring.popleft()
-            future = await self._worker.dispatch_guild_once(guild_id, self.governor)
-            if future is None:
-                continue
-            futures.append(future)
-            dispatched += 1
-            # Lease at most one job per Guild per round.  A noisy tenant may fill the
-            # batch, but only through repeated round-robin turns alongside quiet Guilds.
-            ring.append(guild_id)
-        if futures:
-            await self.governor.drain()
-            await asyncio.gather(*futures, return_exceptions=True)
-            await self._publish_pending_outbox()
+        self.governor.set_backlog_active(True)
+        try:
+            while (
+                ring
+                and dispatched < self._dispatch_batch_size
+                and not await self.governor.system_halted()
+            ):
+                futures: list[asyncio.Future[object]] = []
+                blocked_turns = 0
+                while ring and dispatched < self._dispatch_batch_size:
+                    guild_id = ring.popleft()
+                    if not self.governor.can_admit(guild_id):
+                        self.governor.record_admission_backpressure()
+                        ring.append(guild_id)
+                        blocked_turns += 1
+                        if blocked_turns >= len(ring):
+                            break
+                        continue
+                    try:
+                        future = await self._worker.dispatch_guild_once(guild_id, self.governor)
+                    except BackpressureError:
+                        self.governor.record_admission_backpressure()
+                        ring.appendleft(guild_id)
+                        break
+                    if future is None:
+                        continue
+                    futures.append(future)
+                    dispatched += 1
+                    blocked_turns = 0
+                    # One admission per Guild per round preserves quiet-tenant progress.
+                    ring.append(guild_id)
+                if not futures:
+                    break
+                await self._drain_with_pressure()
+                await asyncio.gather(*futures, return_exceptions=True)
+                await self._publish_pending_outbox()
+        finally:
+            self.governor.set_backlog_active(False)
+            try:
+                await self._wakeup.set_rate_limit_pressure(0.0)
+            except Exception:
+                self._logger.warning("runtime rate-pressure signal unavailable")
         return dispatched
+
+    async def _drain_with_pressure(self) -> None:
+        drain = asyncio.create_task(self.governor.drain())
+        try:
+            while not drain.done():
+                try:
+                    await self._wakeup.set_rate_limit_pressure(self.governor.workload_pressure)
+                except Exception:
+                    self._logger.warning("runtime rate-pressure signal unavailable")
+                try:
+                    await asyncio.wait_for(asyncio.shield(drain), timeout=0.05)
+                except TimeoutError:
+                    pass
+            await drain
+        finally:
+            if not drain.done():
+                drain.cancel()
+                await asyncio.gather(drain, return_exceptions=True)

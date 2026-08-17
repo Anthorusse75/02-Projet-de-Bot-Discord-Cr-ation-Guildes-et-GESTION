@@ -763,11 +763,21 @@ async def test_durable_job_lease_recovers_after_worker_crash_and_acks_by_owner()
         assert recovered is not None
         assert recovered["attempt_count"] == 2
         assert (
-            await repository.complete_job(GUILD_A, job.job_id, lease_owner="worker-crashed")
+            await repository.complete_job(
+                GUILD_A,
+                job.job_id,
+                lease_owner="worker-crashed",
+                lease_token=first["lease_token"],
+            )
             is False
         )
         assert (
-            await repository.complete_job(GUILD_A, job.job_id, lease_owner="worker-recovered")
+            await repository.complete_job(
+                GUILD_A,
+                job.job_id,
+                lease_owner="worker-recovered",
+                lease_token=recovered["lease_token"],
+            )
             is True
         )
     finally:

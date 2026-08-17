@@ -20,6 +20,7 @@ from did.infrastructure.logging import EventId, configure_logging, emit_event
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import (
     OutboxPublisher,
+    RedisDiscordWorkloadCoordinator,
     RedisHotCache,
     RedisRuntimeWakeup,
     RedisSingleFlight,
@@ -95,12 +96,20 @@ async def run_process(
             try:
                 await rest_client.login(settings.discord_bot_token.get_secret_value())
                 repository = RuntimeRepository(create_session_factory(engine))
-                hot_cache = RedisHotCache(redis)
-                wakeup = RedisRuntimeWakeup(redis)
+                hot_cache = RedisHotCache(redis, metrics=repository.metrics)
+                worker_id = f"worker-{uuid4().hex}"
+                wakeup = RedisRuntimeWakeup(redis, reporter_id=worker_id)
+                coordinator = RedisDiscordWorkloadCoordinator(
+                    redis,
+                    global_concurrency=settings.discord_global_concurrency,
+                    per_guild_concurrency=settings.discord_per_guild_concurrency,
+                    permit_ttl_seconds=settings.discord_distributed_permit_ttl_seconds,
+                )
                 governor = DiscordWorkloadGovernor(
                     global_concurrency=settings.discord_global_concurrency,
                     per_guild_concurrency=settings.discord_per_guild_concurrency,
                     max_queue_depth=settings.discord_workload_queue_limit,
+                    distributed_coordinator=coordinator,
                 )
                 sync = DiscordSyncService(
                     adapter=DiscordPyStructureAdapter(rest_client),
@@ -110,7 +119,8 @@ async def run_process(
                 worker = DurableDiscordIOWorker(
                     repository,
                     sync,
-                    worker_id=f"worker-{uuid4().hex}",
+                    worker_id=worker_id,
+                    lease_seconds=settings.discord_job_lease_seconds,
                 )
                 runtime = DiscordWorkerRuntime(
                     repository=repository,
@@ -121,6 +131,8 @@ async def run_process(
                         TenantPubSub(redis),
                         hot_cache=hot_cache,
                         wakeup=wakeup,
+                        publisher_id=worker_id,
+                        lease_seconds=settings.discord_job_lease_seconds,
                     ),
                     wakeup=wakeup,
                     poll_interval_seconds=settings.discord_worker_poll_seconds,

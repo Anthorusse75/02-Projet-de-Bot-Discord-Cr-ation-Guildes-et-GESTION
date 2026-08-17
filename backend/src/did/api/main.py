@@ -134,7 +134,7 @@ def create_app(
                 installations=installations,
                 sessions=sessions,
                 runtime_repository=runtime_repository,
-                hot_cache=RedisHotCache(redis_client),
+                hot_cache=RedisHotCache(redis_client, metrics=runtime_repository.metrics),
                 pubsub=TenantPubSub(redis_client),
             )
         try:

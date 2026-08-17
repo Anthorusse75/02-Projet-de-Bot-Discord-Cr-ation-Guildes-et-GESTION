@@ -1302,7 +1302,9 @@ class RuntimeRepository:
                             "SELECT event_id, guild_id, topic, payload, correlation_id, "
                             "causation_id "
                             "FROM discord_outbox WHERE guild_id=:guild_id AND status='PENDING' "
-                            "AND next_attempt_at <= now() ORDER BY created_at LIMIT :limit"
+                            "AND next_attempt_at <= now() AND "
+                            "(leased_until IS NULL OR leased_until < now()) "
+                            "ORDER BY created_at LIMIT :limit"
                         ),
                         {"guild_id": guild_id, "limit": limit},
                     )
@@ -1312,11 +1314,56 @@ class RuntimeRepository:
             )
         return [dict(row) for row in rows]
 
+    async def lease_outbox(
+        self,
+        guild_id: int,
+        *,
+        lease_owner: str,
+        limit: int = 100,
+        lease_seconds: float = 30.0,
+    ) -> list[dict[str, Any]]:
+        if not lease_owner or len(lease_owner) > 128:
+            raise ValueError("outbox lease owner must be present and bounded")
+        if not 1 <= limit <= 1000 or lease_seconds < 0.05:
+            raise ValueError("outbox lease limit and duration must be bounded")
+        lease_token = uuid4()
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH candidates AS (SELECT event_id FROM discord_outbox "
+                            "WHERE guild_id=:guild_id AND status='PENDING' "
+                            "AND next_attempt_at <= now() AND "
+                            "(leased_until IS NULL OR leased_until < now()) "
+                            "ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED) "
+                            "UPDATE discord_outbox AS outbox SET lease_owner=:owner, "
+                            "lease_token=:token, leased_until=now() + "
+                            "(:lease_seconds * interval '1 second') FROM candidates "
+                            "WHERE outbox.event_id=candidates.event_id RETURNING "
+                            "outbox.event_id, outbox.guild_id, outbox.topic, outbox.payload, "
+                            "outbox.correlation_id, outbox.causation_id, outbox.lease_token"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "owner": lease_owner,
+                            "token": lease_token,
+                            "lease_seconds": lease_seconds,
+                            "limit": limit,
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def lease_next_job(
-        self, guild_id: int, *, lease_owner: str, lease_seconds: int = 30
+        self, guild_id: int, *, lease_owner: str, lease_seconds: float = 30.0
     ) -> dict[str, Any] | None:
-        if not lease_owner or len(lease_owner) > 128 or lease_seconds < 1:
+        if not lease_owner or len(lease_owner) > 128 or lease_seconds < 0.05:
             raise ValueError("job lease owner and duration must be bounded")
+        lease_token = uuid4()
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             row = (
                 (
@@ -1327,17 +1374,20 @@ class RuntimeRepository:
                             "(status='PENDING' OR (status='LEASED' AND leased_until < now())) "
                             "ORDER BY priority, available_at, created_at LIMIT 1 "
                             "FOR UPDATE SKIP LOCKED) UPDATE discord_io_jobs AS jobs SET "
-                            "status='LEASED', lease_owner=:owner, "
+                            "status='LEASED', lease_owner=:owner, lease_token=:token, "
                             "leased_until=now() + (:lease_seconds * interval '1 second'), "
+                            "lease_generation=lease_generation+1, "
                             "attempt_count=attempt_count+1, updated_at=now() FROM candidate "
                             "WHERE jobs.job_id=candidate.job_id RETURNING jobs.job_id, "
                             "jobs.guild_id, jobs.workload_type, jobs.logical_key, jobs.priority, "
                             "jobs.payload, jobs.correlation_id, jobs.attempt_count, "
-                            "jobs.created_at"
+                            "jobs.created_at, jobs.lease_token, jobs.lease_generation, "
+                            "jobs.leased_until"
                         ),
                         {
                             "guild_id": guild_id,
                             "owner": lease_owner,
+                            "token": lease_token,
                             "lease_seconds": lease_seconds,
                         },
                     )
@@ -1347,16 +1397,88 @@ class RuntimeRepository:
             )
         return dict(row) if row is not None else None
 
-    async def complete_job(self, guild_id: int, job_id: UUID, *, lease_owner: str) -> bool:
+    async def renew_outbox_lease(
+        self,
+        guild_id: int,
+        event_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+        lease_seconds: float,
+    ) -> bool:
+        if lease_seconds < 0.05:
+            raise ValueError("outbox lease duration must be at least 50ms")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            updated = await session.scalar(
+                text(
+                    "UPDATE discord_outbox SET leased_until=now() + "
+                    "(:lease_seconds * interval '1 second') "
+                    "WHERE guild_id=:guild_id AND event_id=:event_id AND status='PENDING' "
+                    "AND lease_owner=:owner AND lease_token=:token RETURNING event_id"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "event_id": event_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                    "lease_seconds": lease_seconds,
+                },
+            )
+        return updated is not None
+
+    async def renew_job_lease(
+        self,
+        guild_id: int,
+        job_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+        lease_seconds: float,
+    ) -> bool:
+        if lease_seconds < 0.05:
+            raise ValueError("job lease duration must be at least 50ms")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            updated = await session.scalar(
+                text(
+                    "UPDATE discord_io_jobs SET leased_until=now() + "
+                    "(:lease_seconds * interval '1 second'), updated_at=now() "
+                    "WHERE guild_id=:guild_id AND job_id=:job_id AND status='LEASED' "
+                    "AND lease_owner=:owner AND lease_token=:token RETURNING job_id"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "job_id": job_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                    "lease_seconds": lease_seconds,
+                },
+            )
+        return updated is not None
+
+    async def complete_job(
+        self,
+        guild_id: int,
+        job_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+    ) -> bool:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             updated = await session.scalar(
                 text(
                     "UPDATE discord_io_jobs SET status='SUCCEEDED', leased_until=NULL, "
-                    "lease_owner=NULL, updated_at=now() WHERE guild_id=:guild_id "
-                    "AND job_id=:job_id AND status='LEASED' AND lease_owner=:owner "
+                    "lease_owner=NULL, lease_token=NULL, updated_at=now() "
+                    "WHERE guild_id=:guild_id AND job_id=:job_id AND status='LEASED' "
+                    "AND lease_owner=:owner AND lease_token=:token "
+                    "AND leased_until > now() "
                     "RETURNING job_id"
                 ),
-                {"guild_id": guild_id, "job_id": job_id, "owner": lease_owner},
+                {
+                    "guild_id": guild_id,
+                    "job_id": job_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                },
             )
         return updated is not None
 
@@ -1366,6 +1488,7 @@ class RuntimeRepository:
         job_id: UUID,
         *,
         lease_owner: str,
+        lease_token: UUID,
         retry_after_seconds: float | None,
         terminal: bool,
     ) -> bool:
@@ -1376,9 +1499,10 @@ class RuntimeRepository:
             updated = await session.scalar(
                 text(
                     "UPDATE discord_io_jobs SET status=:status, available_at=:available_at, "
-                    "leased_until=NULL, lease_owner=NULL, updated_at=now() "
+                    "leased_until=NULL, lease_owner=NULL, lease_token=NULL, updated_at=now() "
                     "WHERE guild_id=:guild_id AND job_id=:job_id AND status='LEASED' "
-                    "AND lease_owner=:owner RETURNING job_id"
+                    "AND lease_owner=:owner AND lease_token=:token "
+                    "AND leased_until > now() RETURNING job_id"
                 ),
                 {
                     "status": status,
@@ -1386,28 +1510,60 @@ class RuntimeRepository:
                     "guild_id": guild_id,
                     "job_id": job_id,
                     "owner": lease_owner,
+                    "token": lease_token,
                 },
             )
         return updated is not None
 
-    async def mark_outbox_published(self, guild_id: int, event_id: UUID) -> None:
+    async def mark_outbox_published(
+        self,
+        guild_id: int,
+        event_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+    ) -> bool:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            updated = await session.scalar(
                 text(
                     "UPDATE discord_outbox SET status='PUBLISHED', published_at=now(), "
-                    "attempt_count=attempt_count+1 WHERE guild_id=:guild_id AND event_id=:event_id"
+                    "attempt_count=attempt_count+1, lease_owner=NULL, lease_token=NULL, "
+                    "leased_until=NULL WHERE guild_id=:guild_id AND event_id=:event_id "
+                    "AND status='PENDING' AND lease_owner=:owner AND lease_token=:token "
+                    "AND leased_until > now() RETURNING event_id"
                 ),
-                {"guild_id": guild_id, "event_id": event_id},
+                {
+                    "guild_id": guild_id,
+                    "event_id": event_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                },
             )
+        return updated is not None
 
-    async def mark_outbox_retry(self, guild_id: int, event_id: UUID) -> None:
+    async def mark_outbox_retry(
+        self,
+        guild_id: int,
+        event_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+    ) -> bool:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            updated = await session.scalar(
                 text(
                     "UPDATE discord_outbox SET attempt_count=attempt_count+1, "
                     "next_attempt_at=now() + "
-                    "(LEAST(300, power(2, LEAST(attempt_count, 8))) * interval '1 second') "
-                    "WHERE guild_id=:guild_id AND event_id=:event_id AND status='PENDING'"
+                    "(LEAST(300, power(2, LEAST(attempt_count, 8))) * interval '1 second'), "
+                    "lease_owner=NULL, lease_token=NULL, leased_until=NULL "
+                    "WHERE guild_id=:guild_id AND event_id=:event_id AND status='PENDING' "
+                    "AND lease_owner=:owner AND lease_token=:token RETURNING event_id"
                 ),
-                {"guild_id": guild_id, "event_id": event_id},
+                {
+                    "guild_id": guild_id,
+                    "event_id": event_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                },
             )
+        return updated is not None
