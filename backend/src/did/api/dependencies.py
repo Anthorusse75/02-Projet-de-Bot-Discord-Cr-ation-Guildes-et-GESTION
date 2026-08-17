@@ -9,6 +9,7 @@ from did.application.installations.service import InstallationService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.oauth.stores import RedisSessionStore, SessionData
 from did.settings import AppEnvironment, Settings
 
@@ -32,6 +33,7 @@ class ServiceContainer:
     runtime_repository: RuntimeRepository
     hot_cache: RedisHotCache
     pubsub: TenantPubSub
+    stage04_repository: Stage04Repository
 
 
 def services(request: Request) -> ServiceContainer:

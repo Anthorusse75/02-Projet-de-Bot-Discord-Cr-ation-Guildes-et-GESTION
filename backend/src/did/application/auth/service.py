@@ -20,6 +20,8 @@ from did.domain.auth import (
 from did.infrastructure.auth_repository import AuthRepository, InstallationRecord
 from did.infrastructure.logging import EventId, emit_event
 from did.infrastructure.redis import user_control_key
+from did.infrastructure.runtime_metrics import RuntimeMetrics
+from did.infrastructure.runtime_redis import RedisSingleFlight
 from did.oauth.crypto import TokenCipher
 from did.oauth.discord import DiscordMemberClient, DiscordOAuthClient
 from did.oauth.models import (
@@ -216,12 +218,16 @@ class AuthorizationService:
         membership_store: RedisActorMembershipStore,
         member_client: DiscordMemberClient | None,
         freshness_seconds: int,
+        membership_singleflight: RedisSingleFlight | None = None,
+        metrics: RuntimeMetrics | None = None,
     ) -> None:
         self.auth = auth
         self.repository = repository
         self.membership_store = membership_store
         self.member_client = member_client
         self.freshness_seconds = freshness_seconds
+        self.membership_singleflight = membership_singleflight
+        self.metrics = metrics
 
     async def guilds_for_user(
         self, discord_user_id: int, *, force_refresh: bool = False
@@ -314,8 +320,29 @@ class AuthorizationService:
         if self.member_client is None:
             self._deny(guild_id, user_id, "AUTHORIZATION_FRESHNESS_UNAVAILABLE")
         assert self.member_client is not None
-        try:
+
+        async def fetch_roles() -> dict[str, object]:
+            assert self.member_client is not None
+            if self.metrics is not None:
+                self.metrics.targeted_actor_refresh()
             roles = await self.member_client.get_member_roles(guild_id, user_id)
+            return {"role_ids": list(roles)}
+
+        try:
+            if self.membership_singleflight is None:
+                result = await fetch_roles()
+            else:
+                result = await self.membership_singleflight.run(
+                    guild_id,
+                    f"targeted-member-refresh:{user_id}",
+                    fetch_roles,
+                )
+            raw_roles = result.get("role_ids")
+            if not isinstance(raw_roles, list) or any(
+                not isinstance(role_id, int) or isinstance(role_id, bool) for role_id in raw_roles
+            ):
+                raise RuntimeError("targeted member refresh returned invalid roles")
+            roles = tuple(raw_roles)
         except Exception as exc:
             self._deny(guild_id, user_id, "GUILD_MEMBERSHIP_REQUIRED")
             raise AssertionError("unreachable") from exc

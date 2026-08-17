@@ -149,7 +149,14 @@ class RuntimeRepository:
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
         event_type = envelope.event_type
-        if event_type in {"CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE"}:
+        if event_type in {
+            "CHANNEL_CREATE",
+            "CHANNEL_UPDATE",
+            "CHANNEL_DELETE",
+            "THREAD_CREATE",
+            "THREAD_UPDATE",
+            "THREAD_DELETE",
+        }:
             return await self._project_channel(session, envelope, envelope.payload)
         elif event_type in {"GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE"}:
             return await self._project_role(session, envelope, envelope.payload)
@@ -208,6 +215,8 @@ class RuntimeRepository:
         )
         for channel in payload.get("channels", []):
             await self._project_channel(session, envelope, channel, audit=False)
+        for thread in payload.get("threads", []):
+            await self._project_channel(session, envelope, thread, audit=False)
         for role in payload.get("roles", []):
             await self._project_role(session, envelope, role, audit=False)
         await self._append_audit(
@@ -263,7 +272,8 @@ class RuntimeRepository:
         audit: bool = True,
     ) -> bool:
         channel_id = int(payload["channel_id"])
-        if envelope.event_type == "CHANNEL_DELETE":
+        is_delete = envelope.event_type in {"CHANNEL_DELETE", "THREAD_DELETE"}
+        if is_delete:
             result = await session.execute(
                 text(
                     "INSERT INTO discord_channels_cache "
@@ -290,7 +300,9 @@ class RuntimeRepository:
                 self._channel_parameters(envelope, payload),
             )
             applied = result.scalar_one_or_none() is not None
-            drift_type = "CHANNEL_DELETED"
+            drift_type = (
+                "THREAD_DELETED" if envelope.event_type == "THREAD_DELETE" else "CHANNEL_DELETED"
+            )
         elif bool(payload.get("is_obfuscated")):
             result = await session.execute(
                 text(
@@ -386,7 +398,7 @@ class RuntimeRepository:
                     )
             drift_type = (
                 "CHANNEL_CREATED_OUTSIDE_PLATFORM"
-                if envelope.event_type == "CHANNEL_CREATE"
+                if envelope.event_type in {"CHANNEL_CREATE", "THREAD_CREATE"}
                 else "CHANNEL_PERMISSION_CHANGED"
             )
         if audit and applied:
@@ -394,11 +406,11 @@ class RuntimeRepository:
                 session,
                 envelope,
                 event_type=drift_type,
-                target_type="CHANNEL",
+                target_type="THREAD" if envelope.event_type.startswith("THREAD_") else "CHANNEL",
                 target_id=channel_id,
                 result_state=str(
                     ObservabilityState.DELETED_CONFIRMED.value
-                    if envelope.event_type == "CHANNEL_DELETE"
+                    if is_delete
                     else (
                         ObservabilityState.OBFUSCATED.value
                         if payload.get("is_obfuscated")

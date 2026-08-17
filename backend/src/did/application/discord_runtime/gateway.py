@@ -22,6 +22,9 @@ SUPPORTED_DISPATCHES = frozenset(
         "CHANNEL_CREATE",
         "CHANNEL_UPDATE",
         "CHANNEL_DELETE",
+        "THREAD_CREATE",
+        "THREAD_UPDATE",
+        "THREAD_DELETE",
         "GUILD_ROLE_CREATE",
         "GUILD_ROLE_UPDATE",
         "GUILD_ROLE_DELETE",
@@ -101,6 +104,15 @@ def normalize_channel_payload(raw: object) -> dict[str, Any]:
         "is_obfuscated": obfuscated,
         "permission_overwrites": _normalize_overwrites(raw.get("permission_overwrites")),
     }
+    thread_metadata = raw.get("thread_metadata")
+    if thread_metadata is not None:
+        if not isinstance(thread_metadata, dict):
+            raise GatewayContractError("channel.thread_metadata must be an object")
+        archived = thread_metadata.get("archived")
+        locked = thread_metadata.get("locked")
+        if not isinstance(archived, bool) or not isinstance(locked, bool):
+            raise GatewayContractError("thread archived and locked states must be booleans")
+        payload.update({"archived": archived, "locked": locked})
     if obfuscated:
         payload.update({"name": None, "topic": None, "nsfw": None})
     else:
@@ -155,7 +167,14 @@ def _guild_id(event_type: str, data: dict[str, Any]) -> int:
 
 
 def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    if event_type in {"CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE"}:
+    if event_type in {
+        "CHANNEL_CREATE",
+        "CHANNEL_UPDATE",
+        "CHANNEL_DELETE",
+        "THREAD_CREATE",
+        "THREAD_UPDATE",
+        "THREAD_DELETE",
+    }:
         return normalize_channel_payload(data)
     if event_type in {"GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE"}:
         return normalize_role_payload(data.get("role"))
@@ -174,14 +193,20 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
         }
     if event_type == "GUILD_CREATE":
         channels = data.get("channels", [])
+        threads = data.get("threads", [])
         roles = data.get("roles", [])
-        if not isinstance(channels, list) or not isinstance(roles, list):
-            raise GatewayContractError("GUILD_CREATE channels and roles must be arrays")
+        if (
+            not isinstance(channels, list)
+            or not isinstance(threads, list)
+            or not isinstance(roles, list)
+        ):
+            raise GatewayContractError("GUILD_CREATE channels, threads and roles must be arrays")
         return {
             "name": str(data.get("name", "unknown"))[:100],
             "owner_id": _nullable_snowflake(data.get("owner_id"), "guild.owner_id"),
             "unavailable": bool(data.get("unavailable", False)),
             "channels": [normalize_channel_payload(channel) for channel in channels],
+            "threads": [normalize_channel_payload(thread) for thread in threads],
             "roles": [normalize_role_payload(role) for role in roles],
         }
     if event_type == "GUILD_UPDATE":

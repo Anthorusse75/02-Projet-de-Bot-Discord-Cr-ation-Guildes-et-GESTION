@@ -12,6 +12,9 @@ REST_OUTCOMES: Final = frozenset(
 GATEWAY_SIGNALS: Final = frozenset(
     {"dispatch", "duplicate", "rejected", "gap", "resumed", "non_resumed", "disconnected"}
 )
+PERMISSION_DECISIONS: Final = frozenset({"COMPLETE", "INCOMPLETE", "UNKNOWN"})
+CAPABILITY_OUTCOMES: Final = frozenset({"CAN", "CANNOT", "UNKNOWN"})
+SCOPE_OUTCOMES: Final = frozenset({"MATCH", "NO_MATCH", "UNKNOWN"})
 
 
 @dataclass(slots=True)
@@ -30,6 +33,13 @@ class RuntimeMetrics:
     cache_misses: int = 0
     rate_limit_wait_seconds: float = 0.0
     invalid_requests_10m: int = 0
+    permission_evaluation_duration_seconds: float = 0.0
+    permission_evaluation_count: int = 0
+    permission_decisions: Counter[str] = field(default_factory=Counter)
+    targeted_actor_refreshes: int = 0
+    coverage_gaps: Counter[str] = field(default_factory=Counter)
+    capability_check_outcomes: Counter[str] = field(default_factory=Counter)
+    scope_resolution_outcomes: Counter[str] = field(default_factory=Counter)
 
     def gateway_signal(self, signal: str) -> None:
         if signal not in GATEWAY_SIGNALS:
@@ -47,6 +57,31 @@ class RuntimeMetrics:
     def observe_freshness(self, state: FreshnessState) -> None:
         self.cache_freshness[state.value] += 1
 
+    def permission_evaluation(self, duration_seconds: float, decision: str) -> None:
+        if duration_seconds < 0 or decision not in PERMISSION_DECISIONS:
+            raise ValueError("permission metric values are outside the bounded registry")
+        self.permission_evaluation_duration_seconds += duration_seconds
+        self.permission_evaluation_count += 1
+        self.permission_decisions[decision] += 1
+
+    def targeted_actor_refresh(self) -> None:
+        self.targeted_actor_refreshes += 1
+
+    def coverage_gap(self, mode: str) -> None:
+        if mode not in {"PARTIAL", "DEGRADED", "STALE", "UNKNOWN", "OBFUSCATED"}:
+            raise ValueError("coverage gap is outside the bounded registry")
+        self.coverage_gaps[mode] += 1
+
+    def capability_check(self, outcome: str) -> None:
+        if outcome not in CAPABILITY_OUTCOMES:
+            raise ValueError("capability outcome is outside the bounded registry")
+        self.capability_check_outcomes[outcome] += 1
+
+    def scope_resolution(self, outcome: str) -> None:
+        if outcome not in SCOPE_OUTCOMES:
+            raise ValueError("scope outcome is outside the bounded registry")
+        self.scope_resolution_outcomes[outcome] += 1
+
     def snapshot(self) -> dict[str, object]:
         cache_total = self.cache_hits + self.cache_misses
         return {
@@ -61,4 +96,12 @@ class RuntimeMetrics:
             "cache_hit_ratio": self.cache_hits / cache_total if cache_total else 0.0,
             "rate_limit_wait_seconds": self.rate_limit_wait_seconds,
             "invalid_requests_10m": self.invalid_requests_10m,
+            "permission_evaluation_duration_seconds": (self.permission_evaluation_duration_seconds),
+            "permission_evaluation_count": self.permission_evaluation_count,
+            "permission_decision_incomplete": self.permission_decisions["INCOMPLETE"],
+            "permission_decision_unknown": self.permission_decisions["UNKNOWN"],
+            "targeted_actor_refresh": self.targeted_actor_refreshes,
+            "coverage_gap": dict(self.coverage_gaps),
+            "capability_check_outcome": dict(self.capability_check_outcomes),
+            "scope_resolution_outcome": dict(self.scope_resolution_outcomes),
         }
