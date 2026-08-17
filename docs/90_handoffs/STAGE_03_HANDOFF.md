@@ -8,6 +8,7 @@
 | Draft PR | [#3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) vers `main` |
 | Commit code initial | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | Commit correctif runtime | `8127e80616fcd57247377386422eb5082003e527` |
+| Commit correctif distribué | `275afb3b3a41b4f8dc11c137a559bca7c6dcf406` |
 | Commit format | `6a964642151a3fa048706c3c5753cfe8585ef287` |
 | Migration | `0002_stage_02 -> 0003_stage_03 -> 0004_stage_03 -> 0005_stage_03` |
 | Statut | `CORRECTED_PR_OPEN` |
@@ -84,11 +85,11 @@ La traçabilité RATE est auditée exigence par exigence : `REQ-RATE-001` `IMPLE
 
 | Commande/scénario | Résultat | Preuve |
 |---|---|---|
-| `python scripts/validate_stage.py 03` | PASS, 93 unit + 43 integration + 4 frontend | `artifacts/test-evidence/stage-03/20260817T071529972512Z-b98ca5d281aa-local-docker/` ; CI du commit correctif à renseigner après push |
-| `python scripts/validate_stage.py 03 --profile load` | PASS, 5 load dont pipeline durable A=300/B=30 et deux workers lease court | `artifacts/test-evidence/stage-03/20260817T071612528383Z-b98ca5d281aa-local-docker/` puis `stage-03-load` CI |
-| `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260817T071409786205Z-b98ca5d281aa-local-docker/` |
-| `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260817T071453459051Z-b98ca5d281aa-local-docker/` |
-| migrations `base/0001/0002/0003/0004 -> 0005`, `0005 -> 0002 -> 0005` | PASS | résumé Stage 03 `20260817T071529972512Z` |
+| `python scripts/validate_stage.py 03` | PASS, 93 unit + 43 integration + 4 frontend | `artifacts/test-evidence/stage-03/20260817T071933724741Z-275afb3b3a41-local-docker/` ; CI du commit correctif à renseigner après push |
+| `python scripts/validate_stage.py 03 --profile load` | PASS, 5 load dont pipeline durable A=300/B=30 et deux workers lease court | `artifacts/test-evidence/stage-03/20260817T072015088196Z-275afb3b3a41-local-docker/` puis `stage-03-load` CI |
+| `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260817T071822769059Z-275afb3b3a41-local-docker/` |
+| `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260817T071855550704Z-275afb3b3a41-local-docker/` |
+| migrations `base/0001/0002/0003/0004 -> 0005`, `0005 -> 0002 -> 0005` | PASS | résumé Stage 03 `20260817T071933724741Z` |
 | PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD publié, PR toujours Draft | GitHub Actions, deux runs complets déclenchés par la publication |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
 | Redis down/reprise, single-flight Lua forced race, coordination failure/outbox multi-worker, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
