@@ -5,13 +5,16 @@
 | Date | `2026-08-17` |
 | Base main | `366e676880d0c3f4c7cf4f54105a117b2dcda3d8` |
 | Branche | `stage/03-discord-runtime` |
-| Draft PR | [#3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) vers `main` |
+| PR | [#3](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/3) `MERGED` dans `main` |
 | Commit code initial | `795f3904d72455ae2e79c1978cc30a42dbf36050` |
 | Commit correctif runtime | `8127e80616fcd57247377386422eb5082003e527` |
 | Commit correctif distribué | `275afb3b3a41b4f8dc11c137a559bca7c6dcf406` |
+| HEAD mergé | `92b06c90f9c5e6521a559aba6e035bea7ec70c63` |
+| Commit de merge | `12ec64c0dda973ad245880aeb28d88c03a9c03b5` |
+| Tag | `stage-03-complete` → `12ec64c0dda973ad245880aeb28d88c03a9c03b5` |
 | Commit format | `6a964642151a3fa048706c3c5753cfe8585ef287` |
 | Migration | `0002_stage_02 -> 0003_stage_03 -> 0004_stage_03 -> 0005_stage_03` |
-| Statut | `CORRECTED_PR_OPEN` |
+| Statut | `MERGED` |
 
 ## Runtime Gateway et contrats
 
@@ -90,7 +93,9 @@ La traçabilité RATE est auditée exigence par exigence : `REQ-RATE-001` `IMPLE
 | `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260817T071822769059Z-275afb3b3a41-local-docker/` |
 | `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260817T071855550704Z-275afb3b3a41-local-docker/` |
 | migrations `base/0001/0002/0003/0004 -> 0005`, `0005 -> 0002 -> 0005` | PASS | résumé Stage 03 `20260817T071933724741Z` |
-| PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD courant de la PR, toujours Draft et body actualisé | GitHub Actions ; les Checks du HEAD courant font autorité sans recopier un SHA auto-référentiel |
+| PR #3 checks pré-merge `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD mergé | GitHub Actions, puis merge commit normal à deux parents |
+| validations locales post-merge Stage 01/02/03/load | PASS sur le commit de merge | `20260817T074514423206Z`, `20260817T074551457581Z`, `20260817T074632633065Z`, `20260817T074722548136Z` |
+| CI du commit de merge | PASS : `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | GitHub Actions run `32007098276` ; les Checks du HEAD `main` courant font autorité pour le dernier commit documentaire |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
 | Redis down/reprise, single-flight Lua forced race, coordination failure/outbox multi-worker, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
 | gap persistant, stale no-effect, purge/tombstone/reobserve REST, RLS | PASS | `test_stage03_postgres.py` et tests security/failure |
@@ -100,8 +105,13 @@ Live A/B lu sans mutation : Guild 1 = 62 salons / 39 rôles; Guild 2 = 24 salons
 
 ## Limites et prérequis Stage 04
 
-- Non vérifié live : modification Discord externe observée par Gateway, RESUME/non-resume forcé et visibilité obfusquée. Ces skips ne sont pas des PASS.
+- Discord live Stage 03 : `PASS_WITH_APPROVED_LIMITATION`.
+- Modification externe observée par Gateway : `SKIPPED_NOT_VERIFIED`.
+- Reconnect forcé RESUME/non-resume : `SKIPPED_NOT_VERIFIED`.
+- Channel Obfuscation live : `CONTRACT_ONLY_NOT_LIVE_VERIFIED`.
+- Profils Stage 02 administrateur non propriétaire et non-administrateur : `SKIPPED_NOT_VERIFIED`.
 - La capability obfuscation temporaire n’est pas émise par `discord.py 2.7.1`; réévaluer la bibliothèque ou le rollout officiel avant une revendication live.
 - Le worker et le scheduler sont fonctionnels directement par leurs entrypoints. Le déploiement peut configurer/scaler les processus, mais n’a pas à inventer leur routage. Les fonctions de découverte ID-only bornées ne contournent pas les lectures métier RLS.
 - Stage 04 peut consommer uniquement les caches/fraîcheurs exposés. Il ne doit ni considérer `ACCESS_LOST` comme delete, ni utiliser Redis comme vérité, ni ajouter du REST direct dans l’API.
 - Aucun Permission Engine, View As, Why Access, Desired State, Plan ou mutation métier de Stage 04+ n’a été commencé.
+- État de passage : `STAGE_04_READY_NOT_STARTED`. Stage 04 est autorisée, mais sa branche et son implémentation n’ont pas été commencées.
