@@ -215,7 +215,9 @@ def test_administrator_bypasses_all_channel_and_member_denies(
 
     decision = evaluate(guild(everyone_bits, *extra), subject, resource)
 
-    assert decision.effective_bits == REGISTRY.known_mask
+    assert decision.calculated_bits == REGISTRY.known_mask
+    assert decision.effective_bits & bits("VIEW_CHANNEL")
+    assert not decision.effective_bits & bits("SPEAK")
     assert TraceStep.ADMINISTRATOR_BYPASS in {entry.step for entry in decision.trace}
     assert TraceStep.EVERYONE_OVERWRITE_DENY not in {entry.step for entry in decision.trace}
     assert "permissions.warning.administratorBypassesOverwrites" in decision.warnings
@@ -225,7 +227,8 @@ def test_owner_bypass_is_distinct_from_administrator() -> None:
     resource = channel(overwrite(GUILD, 0, deny=REGISTRY.known_mask))
     decision = evaluate(guild(0), member(user_id=OWNER), resource)
 
-    assert decision.effective_bits == REGISTRY.known_mask
+    assert decision.calculated_bits == REGISTRY.known_mask
+    assert decision.effective_bits & bits("VIEW_CHANNEL")
     assert TraceStep.OWNER_BYPASS in {entry.step for entry in decision.trace}
     assert TraceStep.ADMINISTRATOR_BYPASS not in {entry.step for entry in decision.trace}
 

@@ -402,6 +402,27 @@ class PermissionEvaluator:
             return calculated, []
         effective = calculated
         denials: list[ImplicitDenial] = []
+        applicability = self._channel_applicability(resource.channel_type)
+        if applicability is not None:
+            inapplicable = 0
+            for flag in self.registry.flags:
+                if (
+                    ChannelApplicability.GUILD not in flag.applies_to
+                    and applicability not in flag.applies_to
+                ):
+                    inapplicable |= flag.value
+            denied = effective & inapplicable
+            if denied:
+                before = effective
+                effective &= ~inapplicable
+                denials.append(
+                    ImplicitDenial(
+                        denied,
+                        "CHANNEL_APPLICABILITY",
+                        "permissions.implicit.channelApplicability",
+                    )
+                )
+                trace.append(self._implicit_trace(resource.channel_id, before, effective, denied))
         view = self.registry.value("VIEW_CHANNEL")
         if not effective & view:
             denied = self._channel_known_mask(resource.channel_type) & effective

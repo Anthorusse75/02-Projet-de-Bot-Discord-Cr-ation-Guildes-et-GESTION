@@ -33,6 +33,53 @@ REQUIRED_VARIABLES = (
 REDIS_URL = os.environ.get("DID_REDIS_URL", "redis://localhost:56379/0")
 
 
+def oracle_comparison_mask(channel_type: ChannelType | int) -> int:
+    common = ("VIEW_CHANNEL", "MANAGE_CHANNELS", "MANAGE_ROLES")
+    if channel_type in {
+        ChannelType.GUILD_TEXT,
+        ChannelType.GUILD_ANNOUNCEMENT,
+        ChannelType.GUILD_FORUM,
+        ChannelType.GUILD_MEDIA,
+    }:
+        names = (
+            *common,
+            "SEND_MESSAGES",
+            "SEND_TTS_MESSAGES",
+            "MANAGE_MESSAGES",
+            "EMBED_LINKS",
+            "ATTACH_FILES",
+            "READ_MESSAGE_HISTORY",
+            "MENTION_EVERYONE",
+            "MANAGE_THREADS",
+            "CREATE_PUBLIC_THREADS",
+            "CREATE_PRIVATE_THREADS",
+            "SEND_MESSAGES_IN_THREADS",
+        )
+    elif channel_type is ChannelType.GUILD_VOICE:
+        names = (
+            *common,
+            "CONNECT",
+            "SPEAK",
+            "STREAM",
+            "MUTE_MEMBERS",
+            "DEAFEN_MEMBERS",
+            "MOVE_MEMBERS",
+            "USE_VAD",
+        )
+    elif channel_type is ChannelType.GUILD_STAGE_VOICE:
+        names = (
+            *common,
+            "CONNECT",
+            "STREAM",
+            "MUTE_MEMBERS",
+            "MOVE_MEMBERS",
+            "REQUEST_TO_SPEAK",
+        )
+    else:
+        return 0
+    return sum(DEFAULT_PERMISSION_REGISTRY.value(name) for name in names)
+
+
 def load_local_environment(path: Path) -> None:
     if not path.exists():
         return
@@ -200,6 +247,7 @@ async def run_live() -> dict[str, int]:
             snapshot, subject = _snapshot(live_guild, roles, channels, bot)
             mismatches = 0
             compared = 0
+            first_mismatch: str | None = None
             for live_channel, resource in zip(channels, snapshot.channels, strict=True):
                 if resource.channel_type in {
                     ChannelType.GUILD_CATEGORY,
@@ -209,12 +257,25 @@ async def run_live() -> dict[str, int]:
                 compared += 1
                 decision = evaluator.evaluate(guild=snapshot, member=subject, resource=resource)
                 oracle = live_channel.permissions_for(bot).value
-                if decision.effective_bits & DEFAULT_PERMISSION_REGISTRY.known_mask != (
-                    oracle & DEFAULT_PERMISSION_REGISTRY.known_mask
-                ):
+                comparison_mask = oracle_comparison_mask(resource.channel_type)
+                if decision.effective_bits & comparison_mask != oracle & comparison_mask:
                     mismatches += 1
+                    if first_mismatch is None:
+                        missing = DEFAULT_PERMISSION_REGISTRY.names(
+                            oracle & ~decision.effective_bits & comparison_mask
+                        )
+                        extra = DEFAULT_PERMISSION_REGISTRY.names(
+                            decision.effective_bits & ~oracle & comparison_mask
+                        )
+                        first_mismatch = (
+                            f"type={int(resource.channel_type)};"
+                            f"missing={','.join(missing) or 'none'};"
+                            f"extra={','.join(extra) or 'none'}"
+                        )
             if mismatches:
-                raise RuntimeError("permission evaluator differs from secondary live oracle")
+                raise RuntimeError(
+                    f"permission evaluator differs from secondary live oracle: {first_mismatch}"
+                )
             counts[f"guild_{index}_channels_compared"] = compared
             counts[f"guild_{index}_roles_observed"] = len(roles)
             counts[f"guild_{index}_permission_mismatches"] = mismatches
@@ -261,6 +322,17 @@ def main() -> int:
     try:
         counts = asyncio.run(run_live())
     except Exception as exc:
+        safe_failures = {
+            "Discord test Guild IDs must be positive snowflakes": "INVALID_GUILD_IDS",
+            "Discord test Guild IDs must be distinct positive snowflakes": "INVALID_GUILD_IDS",
+            "Discord bot identity is unavailable": "BOT_IDENTITY_UNAVAILABLE",
+            "Discord token is halted system-wide": "GOVERNOR_TOKEN_HALTED",
+            "permission evaluator differs from secondary live oracle": "ORACLE_MISMATCH",
+        }
+        failure_code = safe_failures.get(str(exc), type(exc).__name__)
+        mismatch_prefix = "permission evaluator differs from secondary live oracle: "
+        if str(exc).startswith(mismatch_prefix):
+            failure_code = "ORACLE_MISMATCH:" + str(exc).removeprefix(mismatch_prefix)
         write_report(
             arguments.report,
             status="FAIL",
@@ -268,7 +340,7 @@ def main() -> int:
             missing=[],
             skipped=skipped,
         )
-        print(f"Discord live STAGE 04: FAIL ({type(exc).__name__}); no secret recorded")
+        print(f"Discord live STAGE 04: FAIL ({failure_code}); no secret recorded")
         return 1
     write_report(
         arguments.report,
