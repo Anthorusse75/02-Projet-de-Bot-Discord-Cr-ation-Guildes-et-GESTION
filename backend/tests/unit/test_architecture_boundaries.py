@@ -66,3 +66,36 @@ def test_redis_prefix_is_owned_by_the_namespace_builder() -> None:
         if "did:guild:" in path.read_text(encoding="utf-8")
     ]
     assert owners == ["backend/src/did/infrastructure/redis.py"]
+
+
+def test_stage04_permission_engine_is_transport_and_persistence_independent() -> None:
+    permission_root = Path("backend/src/did/permissions")
+    forbidden = ("fastapi", "sqlalchemy", "redis", "discord", "did.infrastructure")
+    violations: list[str] = []
+    for path in permission_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            module = None
+            if isinstance(node, ast.ImportFrom):
+                module = node.module
+            elif isinstance(node, ast.Import) and node.names:
+                module = node.names[0].name
+            if module and module.startswith(forbidden):
+                violations.append(f"{path}:{node.lineno}:{module}")
+    assert violations == []
+
+
+def test_stage04_api_router_has_no_discord_transport_or_mutation_engine_dependency() -> None:
+    path = Path("backend/src/did/api/stage04.py")
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    imported = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    assert not any(
+        module.startswith(("discord", "did.infrastructure.discord", "did.application.plans"))
+        for module in imported
+    )
+    assert "DiscordMemberClient" not in source

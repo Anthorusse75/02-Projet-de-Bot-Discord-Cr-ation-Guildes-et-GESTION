@@ -103,6 +103,30 @@ def test_contract_fixture_derived_from_official_docs_is_detected_only_by_flag() 
             "channel_id",
         ),
         (
+            "THREAD_CREATE",
+            {
+                "guild_id": str(GUILD),
+                "id": "333333333333333333",
+                "type": 12,
+                "position": 0,
+                "parent_id": "222222222222222222",
+                "name": "private-thread",
+                "permission_overwrites": [],
+                "thread_metadata": {"archived": False, "locked": True},
+            },
+            "channel_id",
+        ),
+        (
+            "THREAD_DELETE",
+            {
+                "guild_id": str(GUILD),
+                "id": "333333333333333333",
+                "type": 12,
+                "parent_id": "222222222222222222",
+            },
+            "channel_id",
+        ),
+        (
             "GUILD_ROLE_CREATE",
             {
                 "guild_id": str(GUILD),
@@ -192,6 +216,41 @@ def test_guild_create_normalizes_initial_structure_without_member_list() -> None
     assert len(envelope.payload["channels"]) == 1
     assert len(envelope.payload["roles"]) == 1
     assert "members" not in envelope.payload
+
+
+def test_thread_metadata_and_initial_threads_are_normalized() -> None:
+    thread = {
+        "guild_id": str(GUILD),
+        "id": "333333333333333333",
+        "type": 12,
+        "position": 0,
+        "parent_id": "222222222222222222",
+        "name": "private-thread",
+        "permission_overwrites": [],
+        "thread_metadata": {"archived": True, "locked": False},
+    }
+    direct = normalize_gateway_dispatch(
+        dispatch("THREAD_UPDATE", thread), discord_session_id=SESSION
+    )
+    initial = normalize_gateway_dispatch(
+        dispatch(
+            "GUILD_CREATE",
+            {
+                "id": str(GUILD),
+                "name": "Guild",
+                "owner_id": "999999999999999999",
+                "channels": [],
+                "threads": [thread],
+                "roles": [],
+            },
+        ),
+        discord_session_id=SESSION,
+    )
+
+    assert direct is not None and initial is not None
+    assert direct.payload["archived"] is True
+    assert direct.payload["locked"] is False
+    assert initial.payload["threads"] == [direct.payload]
 
 
 @pytest.mark.parametrize(
