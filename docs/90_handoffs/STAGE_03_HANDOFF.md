@@ -90,7 +90,7 @@ La traçabilité RATE est auditée exigence par exigence : `REQ-RATE-001` `IMPLE
 | `python scripts/validate_stage.py 01` | PASS, régression complète | `artifacts/test-evidence/stage-01/20260817T071822769059Z-275afb3b3a41-local-docker/` |
 | `python scripts/validate_stage.py 02` | PASS, régression complète | `artifacts/test-evidence/stage-02/20260817T071855550704Z-275afb3b3a41-local-docker/` |
 | migrations `base/0001/0002/0003/0004 -> 0005`, `0005 -> 0002 -> 0005` | PASS | résumé Stage 03 `20260817T071933724741Z` |
-| PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur le HEAD publié, PR toujours Draft | GitHub Actions, deux runs complets déclenchés par la publication |
+| PR #3 checks `stage-01`, `stage-02`, `stage-03`, `stage-03-load` | PASS sur `e78cd4c91172`, PR toujours Draft et body actualisé | GitHub Actions, deux runs complets déclenchés par la publication |
 | vrais entrypoints worker/scheduler, wakeup présent/perdu, 401 Governor | PASS | `test_stage03_process_runtime.py` |
 | Redis down/reprise, single-flight Lua forced race, coordination failure/outbox multi-worker, hot-cache Gateway→API | PASS | `test_stage03_redis_runtime.py` |
 | gap persistant, stale no-effect, purge/tombstone/reobserve REST, RLS | PASS | `test_stage03_postgres.py` et tests security/failure |
