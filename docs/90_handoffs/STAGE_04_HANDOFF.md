@@ -5,10 +5,11 @@
 | Date | `2026-08-17` |
 | Base main | `1f7e4cd7f2ebe92e6c63ede0738731c5bcc3b6ee` |
 | Branche | `stage/04-read-permissions` |
-| PR | Draft PR à publier vers `main`; ne pas merger avant revue externe |
+| PR | [Draft PR #4](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/4) vers `main`, non mergée |
 | Commits code | `ce7558676250`, `7e154bc`, `05d11c1`, `5721fdc`, `29561b18f71f` |
+| Commit handoff/CI | `b90065a203f5` |
 | Migration | `0005_stage_03 -> 0006_stage_04` |
-| Statut | `STAGE_04_COMPLETE_PR_OPEN` après publication de la Draft PR |
+| Statut | `STAGE_04_COMPLETE_PR_OPEN` |
 
 ## Contrat livré
 
