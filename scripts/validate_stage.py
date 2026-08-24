@@ -293,6 +293,74 @@ def stage_03(
     return tuple(base_steps)
 
 
+def stage_04(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    del profile
+    uv = executable("uv")
+    base_steps = [
+        step
+        for step in stage_03(evidence_directory, include_discord_live=False)
+        if not step.name.startswith("migration ") and "Discord live" not in step.name
+    ]
+    first_integration = next(
+        index
+        for index, step in enumerate(base_steps)
+        if step.name == "PostgreSQL RLS and Redis integration"
+    )
+    migrations: list[Step] = []
+    for revision, label in (
+        ("base", "empty base"),
+        ("0001_stage_01", "STAGE 01"),
+        ("0002_stage_02", "STAGE 02"),
+        ("0003_stage_03", "STAGE 03 schema"),
+        ("0004_stage_03", "STAGE 03 routing"),
+        ("0005_stage_03", "STAGE 03 final"),
+    ):
+        migrations.extend(
+            (
+                Step(
+                    f"migration downgrade to {label}",
+                    (uv, "run", "alembic", "downgrade", revision),
+                    environment=TEST_ENV,
+                ),
+                Step(
+                    f"migration {label} to STAGE 04 head",
+                    (uv, "run", "alembic", "upgrade", "head"),
+                    environment=TEST_ENV,
+                ),
+            )
+        )
+    base_steps[first_integration:first_integration] = migrations
+    base_steps.append(
+        Step(
+            "STAGE 04 deterministic permission benchmark",
+            (
+                uv,
+                "run",
+                "pytest",
+                "-s",
+                "backend/tests/load/test_stage04_permission_load.py",
+                f"--junitxml={relative_path(evidence_directory / 'stage04-performance.xml')}",
+            ),
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage04.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage04.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(Step("Discord live STAGE 04 read-only oracle", tuple(live_arguments), 900))
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -326,6 +394,16 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-TEN-{index:03d}" for index in range(5, 10)),
             "REQ-INST-006",
             "REQ-AUTH-013",
+        ),
+    ),
+    "04": StageDefinition(
+        steps=stage_04,
+        requirements=(
+            *(f"REQ-STR-{index:03d}" for index in range(1, 6)),
+            *(f"REQ-PERM-{index:03d}" for index in range(1, 10)),
+            *(f"REQ-BOT-{index:03d}" for index in range(3, 7)),
+            "REQ-AUTH-013",
+            "REQ-AUTH-014",
         ),
     ),
 }

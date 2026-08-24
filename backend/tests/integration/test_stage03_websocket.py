@@ -134,6 +134,7 @@ def websocket_application(
         runtime_repository=None,  # type: ignore[arg-type]
         hot_cache=None,  # type: ignore[arg-type]
         pubsub=pubsub,  # type: ignore[arg-type]
+        stage04_repository=None,  # type: ignore[arg-type]
     )
     return application
 

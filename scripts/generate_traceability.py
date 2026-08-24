@@ -20,9 +20,21 @@ def stage_for(req_id: str) -> tuple[str, str]:
     number_match = re.search(r"(\d+)", req_id.rsplit("-", 1)[-1])
     number = int(number_match.group(1)) if number_match else 0
     primary = {
-        "INST": "02", "AUTH": "02", "GW": "03", "CACHE": "03", "RATE": "03",
-        "PERM": "04", "PLAN": "05", "DUP": "06", "UX": "07", "UI18N": "07",
-        "I18N": "08", "MSG": "09", "DATA": "10", "TEST": "10", "AUD": "03",
+        "INST": "02",
+        "AUTH": "02",
+        "GW": "03",
+        "CACHE": "03",
+        "RATE": "03",
+        "PERM": "04",
+        "PLAN": "05",
+        "DUP": "06",
+        "UX": "07",
+        "UI18N": "07",
+        "I18N": "08",
+        "MSG": "09",
+        "DATA": "10",
+        "TEST": "10",
+        "AUD": "03",
     }.get(family, "10")
     if family == "TEN":
         primary = "06" if number >= 11 else "02"
@@ -31,11 +43,23 @@ def stage_for(req_id: str) -> tuple[str, str]:
     if family == "BOT":
         primary = "02" if number in {1, 2, 3, 7} else "10"
     secondary_map = {
-        "INST": "03, 10", "AUTH": "03, 10", "GW": "04, 05, 10", "CACHE": "04, 05, 10",
-        "RATE": "05, 09, 10", "AUD": "01, 05, 09, 10", "PERM": "05, 07, 10",
-        "PLAN": "06, 08, 09, 10", "DUP": "07, 08, 10", "STR": "05, 06, 10",
-        "UX": "05, 06, 10", "UI18N": "10", "I18N": "06, 07, 09, 10",
-        "MSG": "08, 10", "BOT": "01, 03, 04, 10", "DATA": "03", "TEST": "toutes",
+        "INST": "03, 10",
+        "AUTH": "03, 10",
+        "GW": "04, 05, 10",
+        "CACHE": "04, 05, 10",
+        "RATE": "05, 09, 10",
+        "AUD": "01, 05, 09, 10",
+        "PERM": "05, 07, 10",
+        "PLAN": "06, 08, 09, 10",
+        "DUP": "07, 08, 10",
+        "STR": "05, 06, 10",
+        "UX": "05, 06, 10",
+        "UI18N": "10",
+        "I18N": "06, 07, 09, 10",
+        "MSG": "08, 10",
+        "BOT": "01, 03, 04, 10",
+        "DATA": "03",
+        "TEST": "toutes",
         "TEN": "01, 03, 05, 10",
     }
     return primary, secondary_map.get(family, "10")
@@ -85,14 +109,41 @@ def extract_adrs() -> list[tuple[str, str]]:
 
 
 ADR_STAGES = {
-    "001": "02, toutes", "002": "01, toutes", "003": "03–10", "004": "05–10",
-    "005": "01–11", "006": "01–10", "007": "04, 05, 10", "008": "03, 10",
-    "009": "01, 04, 07", "010": "05, 06, 10", "011": "08, 09", "012": "08",
-    "013": "08", "014": "08, 09", "015": "08", "016": "03–10", "017": "03, 04",
-    "018": "03, 05, 09", "019": "02, 06, 09", "020": "08, 09", "021": "05, 06",
-    "022": "03, 04, 07", "023": "03, 04", "024": "08", "025": "07",
-    "026": "09", "027": "09", "028": "07", "029": "02", "030": "06, 09",
-    "031": "09", "032": "02, 04", "033": "09", "034": "07", "035": "02, 04, 05",
+    "001": "02, toutes",
+    "002": "01, toutes",
+    "003": "03–10",
+    "004": "05–10",
+    "005": "01–11",
+    "006": "01–10",
+    "007": "04, 05, 10",
+    "008": "03, 10",
+    "009": "01, 04, 07",
+    "010": "05, 06, 10",
+    "011": "08, 09",
+    "012": "08",
+    "013": "08",
+    "014": "08, 09",
+    "015": "08",
+    "016": "03–10",
+    "017": "03, 04",
+    "018": "03, 05, 09",
+    "019": "02, 06, 09",
+    "020": "08, 09",
+    "021": "05, 06",
+    "022": "03, 04, 07",
+    "023": "03, 04",
+    "024": "08",
+    "025": "07",
+    "026": "09",
+    "027": "09",
+    "028": "07",
+    "029": "02",
+    "030": "06, 09",
+    "031": "09",
+    "032": "02, 04",
+    "033": "09",
+    "034": "07",
+    "035": "02, 04, 05",
 }
 
 REQUIREMENT_PROGRESS = {
@@ -195,7 +246,10 @@ STAGE03_REQUIREMENT_PROGRESS = {
         "PLANNED",
         "Discord mutation write-through belongs to the Stage 05 mutation engine",
     ),
-    "REQ-CACHE-005": ("IMPLEMENTED", "STAGE 03 observable/current versus last-known metadata model"),
+    "REQ-CACHE-005": (
+        "IMPLEMENTED",
+        "STAGE 03 observable/current versus last-known metadata model",
+    ),
     "REQ-CACHE-006": ("IMPLEMENTED", "STAGE 03 ACCESS_LOST/OBFUSCATED transition tests"),
     "REQ-CACHE-007": (
         "PLANNED",
@@ -208,9 +262,15 @@ STAGE03_REQUIREMENT_PROGRESS = {
     "REQ-CACHE-012": ("IMPLEMENTED", "STAGE 03 adaptive jitter/dedupe/priority/backpressure tests"),
     "REQ-CACHE-013": ("IMPLEMENTED", "STAGE 03 atomic Redis generation single-flight tests"),
     "REQ-RATE-001": ("IMPLEMENTED", "STAGE 03 delegates dynamic buckets to pinned discord.py"),
-    "REQ-RATE-002": ("IMPLEMENTED", "STAGE 03 Redis-coordinated system/global and per-Guild permits"),
+    "REQ-RATE-002": (
+        "IMPLEMENTED",
+        "STAGE 03 Redis-coordinated system/global and per-Guild permits",
+    ),
     "REQ-RATE-003": ("IMPLEMENTED", "STAGE 03 typed 429 Retry-After handling tests"),
-    "REQ-RATE-004": ("IMPLEMENTED", "STAGE 03 shared Redis invalid budget, 401 halt and pressure tests"),
+    "REQ-RATE-004": (
+        "IMPLEMENTED",
+        "STAGE 03 shared Redis invalid budget, 401 halt and pressure tests",
+    ),
     "REQ-RATE-005": (
         "PLANNED",
         "Bulk endpoint selection requires the Stage 05 Plan Compiler, which does not exist yet",
@@ -230,6 +290,99 @@ STAGE03_REQUIREMENT_PROGRESS = {
 }
 
 REQUIREMENT_PROGRESS.update(STAGE03_REQUIREMENT_PROGRESS)
+
+STAGE04_REQUIREMENT_PROGRESS = {
+    "REQ-CACHE-007": (
+        "PLANNED",
+        "STAGE 04 exposes explicit include_hidden_deleted structure API semantics; the user-facing Structure control remains STAGE 07",
+    ),
+    "REQ-STR-001": (
+        "IMPLEMENTED",
+        "STAGE 04 immutable Guild/category/channel/thread projection and cache-first structure API tests",
+    ),
+    "REQ-STR-002": (
+        "IMPLEMENTED",
+        "STAGE 04 rejects category parent_id and projects only one real Discord category level",
+    ),
+    "REQ-STR-003": (
+        "IMPLEMENTED",
+        "STAGE 04 tenant-safe logical groups are explicitly DID_LOGICAL_RESOURCE and non-recursive",
+    ),
+    "REQ-STR-004": (
+        "PLANNED",
+        "STAGE 04 models and diagnoses real parent_id read-only; move validation/execution belongs to STAGE 05",
+    ),
+    "REQ-STR-005": (
+        "PLANNED",
+        "STAGE 04 preserves real category/child topology read-only; deletion behavior is enforced with STAGE 05 plans",
+    ),
+    "REQ-PERM-001": (
+        "IMPLEMENTED",
+        "STAGE 04 arbitrary-precision registry/evaluator/API decimal-string and >2^53 unknown-bit tests",
+    ),
+    "REQ-PERM-002": (
+        "IMPLEMENTED",
+        "STAGE 04 owner and ADMINISTRATOR bypass vectors including channel/member denies",
+    ),
+    "REQ-PERM-003": (
+        "IMPLEMENTED",
+        "STAGE 04 pure simple-concept compiler emits only registry-backed Discord bits and never persists",
+    ),
+    "REQ-PERM-004": (
+        "IMPLEMENTED",
+        "STAGE 04 expert model exposes calculated/effective flags, raw overwrites, unknown bits and coverage",
+    ),
+    "REQ-PERM-005": (
+        "IMPLEMENTED",
+        "STAGE 04 View As member/role/newcomer uses known roles only and exposes incomplete knowledge",
+    ),
+    "REQ-PERM-006": (
+        "IMPLEMENTED",
+        "STAGE 04 deterministic ordered PermissionTraceEntry vectors cover every resolution phase",
+    ),
+    "REQ-PERM-007": (
+        "IMPLEMENTED",
+        "STAGE 04 ADMINISTRATOR bypass emits a stable visible warning and ignores overwrites",
+    ),
+    "REQ-PERM-008": (
+        "IMPLEMENTED",
+        "STAGE 04 read-only current/proposed overwrite simulation returns per-subject added/removed bits",
+    ),
+    "REQ-PERM-009": (
+        "IMPLEMENTED",
+        "STAGE 04 explain API separates Discord-native permission from DID dashboard authorization",
+    ),
+    "REQ-BOT-003": (
+        "IMPLEMENTED",
+        "STAGE 04 capability checker reports exact missing minimum permission, coverage, intent and hierarchy causes",
+    ),
+    "REQ-BOT-004": (
+        "PLANNED",
+        "STAGE 04 flags ADMINISTRATOR for the installed bot capability check; guild-wide bot security audit remains STAGE 10",
+    ),
+    "REQ-BOT-005": (
+        "PLANNED",
+        "STAGE 04 evaluates the installed bot for an explicit channel/operation; all-bot read/write inventory remains STAGE 10",
+    ),
+    "REQ-BOT-006": (
+        "PLANNED",
+        "STAGE 04 can simulate real overwrite inputs read-only; applying this configuration belongs to STAGE 05/10",
+    ),
+    "REQ-AUTH-013": (
+        "IMPLEMENTED",
+        "STAGE 02 targeted member lookup, strengthened in STAGE 04 with tenant single-flight and three-consumer integration test",
+    ),
+    "REQ-AUTH-014": (
+        "IMPLEMENTED",
+        "STAGE 02 display/authorization freshness split, with STAGE 04 stale fail-closed and coalesced refresh tests",
+    ),
+    "REQ-TEST-002": (
+        "IMPLEMENTED",
+        "STAGE 04 official table-driven vectors, permutation invariants, incomplete/security and deterministic benchmark",
+    ),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE04_REQUIREMENT_PROGRESS)
 
 
 def escape_cell(value: str) -> str:
@@ -256,27 +409,36 @@ def render() -> str:
             raise ValueError(f"Duplicate requirement in source registry: {req_id}")
         seen.add(req_id)
         primary, secondary = stage_for(req_id)
-        state, proof = REQUIREMENT_PROGRESS.get(
-            req_id, ("PLANNED", "À renseigner lors de l’étape")
-        )
+        state, proof = REQUIREMENT_PROGRESS.get(req_id, ("PLANNED", "À renseigner lors de l’étape"))
         lines.append(
             f"| {req_id} | {escape_cell(summary)} | {modality} | {primary} | {secondary} | "
             f"{tests_for(req_id)} | {state} | {proof} |"
         )
-    lines.extend([
-        "", "## ADR → étapes", "",
-        "| ADR | Décision | Étapes concernées |", "|---|---|---|",
-    ])
+    lines.extend(
+        [
+            "",
+            "## ADR → étapes",
+            "",
+            "| ADR | Décision | Étapes concernées |",
+            "|---|---|---|",
+        ]
+    )
     for adr_id, title in adrs:
         lines.append(f"| {adr_id} | {escape_cell(title)} | {ADR_STAGES[adr_id[-3:]]} |")
-    lines.extend([
-        "", "## Règle de mise à jour", "",
-        "Une exigence ne passe à `IMPLEMENTED` que lorsque le code et son test existent sur la branche de l’étape. Elle passe à `VERIFIED` uniquement après exécution verte sur le commit livré et ajout d’une preuve précise. STAGE 10 refuse sa clôture si une exigence MUST reste `PLANNED`/`IMPLEMENTED` sans déviation approuvée impossible, ou si une preuve ne permet pas de reproduire la validation.",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Règle de mise à jour",
+            "",
+            "Une exigence ne passe à `IMPLEMENTED` que lorsque le code et son test existent sur la branche de l’étape. Elle passe à `VERIFIED` uniquement après exécution verte sur le commit livré et ajout d’une preuve précise. STAGE 10 refuse sa clôture si une exigence MUST reste `PLANNED`/`IMPLEMENTED` sans déviation approuvée impossible, ou si une preuve ne permet pas de reproduire la validation.",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
 if __name__ == "__main__":
     OUTPUT.write_text(render(), encoding="utf-8", newline="\n")
-    print(f"Wrote {OUTPUT.relative_to(ROOT)} with {len(extract_requirements())} requirements and {len(extract_adrs())} ADRs")
+    print(
+        f"Wrote {OUTPUT.relative_to(ROOT)} with {len(extract_requirements())} requirements and {len(extract_adrs())} ADRs"
+    )

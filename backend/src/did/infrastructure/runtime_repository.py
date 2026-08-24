@@ -149,12 +149,25 @@ class RuntimeRepository:
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
         event_type = envelope.event_type
-        if event_type in {"CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE"}:
+        if event_type in {
+            "CHANNEL_CREATE",
+            "CHANNEL_UPDATE",
+            "CHANNEL_DELETE",
+            "THREAD_CREATE",
+            "THREAD_UPDATE",
+            "THREAD_DELETE",
+        }:
             return await self._project_channel(session, envelope, envelope.payload)
         elif event_type in {"GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE"}:
             return await self._project_role(session, envelope, envelope.payload)
         elif event_type == "GUILD_CREATE":
             await self._project_guild_create(session, envelope)
+            return True
+        elif event_type == "THREAD_LIST_SYNC":
+            await self._project_thread_list_sync(session, envelope)
+            return True
+        elif event_type in {"THREAD_MEMBER_UPDATE", "THREAD_MEMBERS_UPDATE"}:
+            await self._project_thread_membership_event(session, envelope)
             return True
         elif event_type == "GUILD_UPDATE":
             result = await session.execute(
@@ -208,6 +221,22 @@ class RuntimeRepository:
         )
         for channel in payload.get("channels", []):
             await self._project_channel(session, envelope, channel, audit=False)
+        for thread in payload.get("threads", []):
+            await self._project_channel(session, envelope, thread, audit=False)
+        await self._mark_threads_outside_active_sync(
+            session,
+            envelope,
+            thread_ids={int(thread["channel_id"]) for thread in payload.get("threads", [])},
+            parent_ids=None,
+        )
+        await self._project_sync_memberships(
+            session,
+            envelope,
+            payload.get("threads", []),
+            member_rows=(),
+            absence_is_proof=True,
+        )
+        await self._record_thread_sync_coverage(session, envelope, parent_ids=None)
         for role in payload.get("roles", []):
             await self._project_role(session, envelope, role, audit=False)
         await self._append_audit(
@@ -224,7 +253,8 @@ class RuntimeRepository:
             await session.execute(
                 text(
                     "UPDATE discord_cache_coverage SET gateway_continuity='DISCONNECTED', "
-                    "freshness_state='STALE', updated_at=now(), state_version=state_version+1 "
+                    "freshness_state='STALE', active_threads_coverage='DEGRADED', "
+                    "updated_at=now(), state_version=state_version+1 "
                     "WHERE guild_id=:guild_id"
                 ),
                 {"guild_id": envelope.guild_id},
@@ -263,7 +293,8 @@ class RuntimeRepository:
         audit: bool = True,
     ) -> bool:
         channel_id = int(payload["channel_id"])
-        if envelope.event_type == "CHANNEL_DELETE":
+        is_delete = envelope.event_type in {"CHANNEL_DELETE", "THREAD_DELETE"}
+        if is_delete:
             result = await session.execute(
                 text(
                     "INSERT INTO discord_channels_cache "
@@ -290,7 +321,9 @@ class RuntimeRepository:
                 self._channel_parameters(envelope, payload),
             )
             applied = result.scalar_one_or_none() is not None
-            drift_type = "CHANNEL_DELETED"
+            drift_type = (
+                "THREAD_DELETED" if envelope.event_type == "THREAD_DELETE" else "CHANNEL_DELETED"
+            )
         elif bool(payload.get("is_obfuscated")):
             result = await session.execute(
                 text(
@@ -386,7 +419,7 @@ class RuntimeRepository:
                     )
             drift_type = (
                 "CHANNEL_CREATED_OUTSIDE_PLATFORM"
-                if envelope.event_type == "CHANNEL_CREATE"
+                if envelope.event_type in {"CHANNEL_CREATE", "THREAD_CREATE"}
                 else "CHANNEL_PERMISSION_CHANGED"
             )
         if audit and applied:
@@ -394,11 +427,11 @@ class RuntimeRepository:
                 session,
                 envelope,
                 event_type=drift_type,
-                target_type="CHANNEL",
+                target_type="THREAD" if envelope.event_type.startswith("THREAD_") else "CHANNEL",
                 target_id=channel_id,
                 result_state=str(
                     ObservabilityState.DELETED_CONFIRMED.value
-                    if envelope.event_type == "CHANNEL_DELETE"
+                    if is_delete
                     else (
                         ObservabilityState.OBFUSCATED.value
                         if payload.get("is_obfuscated")
@@ -406,7 +439,221 @@ class RuntimeRepository:
                     )
                 ),
             )
+        if applied and int(payload["type"]) in {10, 11, 12}:
+            thread_state = (
+                "UNKNOWN"
+                if is_delete
+                else "ARCHIVED"
+                if payload.get("archived") is True
+                else "ACTIVE"
+            )
+            await session.execute(
+                text(
+                    "UPDATE discord_channels_cache SET thread_active_state=:thread_state "
+                    "WHERE guild_id=:guild_id AND channel_id=:channel_id"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "channel_id": channel_id,
+                    "thread_state": thread_state,
+                },
+            )
+            if payload.get("current_user_member") is True:
+                await self._upsert_current_thread_membership(
+                    session,
+                    envelope,
+                    thread_id=channel_id,
+                    user_id=self._bot_user_id,
+                    state="MEMBER",
+                    source=envelope.event_type,
+                )
         return applied
+
+    async def _project_thread_list_sync(
+        self, session: AsyncSession, envelope: EventEnvelope
+    ) -> None:
+        threads = envelope.payload.get("threads", [])
+        parent_ids = envelope.payload.get("channel_ids")
+        for thread in threads:
+            await self._project_channel(session, envelope, thread, audit=False)
+        await self._mark_threads_outside_active_sync(
+            session,
+            envelope,
+            thread_ids={int(thread["channel_id"]) for thread in threads},
+            parent_ids=None if parent_ids is None else {int(value) for value in parent_ids},
+        )
+        await self._project_sync_memberships(
+            session,
+            envelope,
+            threads,
+            member_rows=envelope.payload.get("members", []),
+            absence_is_proof=True,
+        )
+        await self._record_thread_sync_coverage(
+            session,
+            envelope,
+            parent_ids=None if parent_ids is None else {int(value) for value in parent_ids},
+        )
+
+    async def _mark_threads_outside_active_sync(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        *,
+        thread_ids: set[int],
+        parent_ids: set[int] | None,
+    ) -> None:
+        await session.execute(
+            text(
+                "UPDATE discord_channels_cache SET thread_active_state='NOT_IN_ACTIVE_SYNC', "
+                "observability_state='UNKNOWN', freshness_state='UNKNOWN', "
+                "state_version=state_version+1, cache_updated_at=now() "
+                "WHERE guild_id=:guild_id AND type IN (10,11,12) "
+                "AND deleted_confirmed_at IS NULL "
+                "AND (:all_parents OR parent_id = ANY(:parent_ids)) "
+                "AND NOT (channel_id = ANY(:thread_ids))"
+            ).bindparams(bindparam("parent_ids"), bindparam("thread_ids")),
+            {
+                "guild_id": envelope.guild_id,
+                "all_parents": parent_ids is None,
+                "parent_ids": list(parent_ids or []),
+                "thread_ids": list(thread_ids),
+            },
+        )
+
+    async def _project_sync_memberships(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        threads: Iterable[dict[str, Any]],
+        *,
+        member_rows: Iterable[dict[str, Any]],
+        absence_is_proof: bool,
+    ) -> None:
+        if self._bot_user_id is None:
+            return
+        member_thread_ids = {
+            int(row["thread_id"])
+            for row in member_rows
+            if int(row["discord_user_id"]) == self._bot_user_id
+        }
+        for thread in threads:
+            thread_id = int(thread["channel_id"])
+            is_member = bool(thread.get("current_user_member")) or thread_id in member_thread_ids
+            if is_member or absence_is_proof:
+                await self._upsert_current_thread_membership(
+                    session,
+                    envelope,
+                    thread_id=thread_id,
+                    user_id=self._bot_user_id,
+                    state="MEMBER" if is_member else "NOT_MEMBER",
+                    source=envelope.event_type,
+                )
+
+    async def _project_thread_membership_event(
+        self, session: AsyncSession, envelope: EventEnvelope
+    ) -> None:
+        if self._bot_user_id is None:
+            return
+        if envelope.event_type == "THREAD_MEMBER_UPDATE":
+            if int(envelope.payload["discord_user_id"]) != self._bot_user_id:
+                return
+            await self._upsert_current_thread_membership(
+                session,
+                envelope,
+                thread_id=int(envelope.payload["thread_id"]),
+                user_id=self._bot_user_id,
+                state="MEMBER",
+                source=envelope.event_type,
+            )
+            return
+        thread_id = int(envelope.payload["thread_id"])
+        if self._bot_user_id in {int(value) for value in envelope.payload["added_user_ids"]}:
+            state = "MEMBER"
+        elif self._bot_user_id in {int(value) for value in envelope.payload["removed_user_ids"]}:
+            state = "NOT_MEMBER"
+        else:
+            return
+        await self._upsert_current_thread_membership(
+            session,
+            envelope,
+            thread_id=thread_id,
+            user_id=self._bot_user_id,
+            state=state,
+            source=envelope.event_type,
+        )
+
+    async def _upsert_current_thread_membership(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        *,
+        thread_id: int,
+        user_id: int | None,
+        state: str,
+        source: str,
+    ) -> None:
+        if user_id is None:
+            return
+        await session.execute(
+            text(
+                "INSERT INTO discord_current_thread_memberships "
+                "(guild_id, thread_id, discord_user_id, membership_state, source, observed_at) "
+                "SELECT :guild_id, :thread_id, :user_id, :state, :source, :seen_at "
+                "WHERE EXISTS (SELECT 1 FROM discord_channels_cache WHERE guild_id=:guild_id "
+                "AND channel_id=:thread_id AND type IN (10,11,12)) "
+                "ON CONFLICT (guild_id, thread_id, discord_user_id) DO UPDATE SET "
+                "membership_state=EXCLUDED.membership_state, source=EXCLUDED.source, "
+                "observed_at=EXCLUDED.observed_at, state_version="
+                "discord_current_thread_memberships.state_version+1, updated_at=now()"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "state": state,
+                "source": source,
+                "seen_at": envelope.received_at,
+            },
+        )
+
+    async def _record_thread_sync_coverage(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        *,
+        parent_ids: set[int] | None,
+    ) -> None:
+        state = "ACTIVE_VISIBLE_THREADS_FULL" if parent_ids is None else "PARTIAL"
+        coverage_mode = "FULL" if envelope.event_type == "GUILD_CREATE" else "PARTIAL"
+        await session.execute(
+            text(
+                "INSERT INTO discord_cache_coverage "
+                "(guild_id, coverage_mode, freshness_state, active_threads_coverage, "
+                "active_thread_parent_ids, last_active_threads_sync_at) VALUES "
+                "(:guild_id, :coverage_mode, 'FRESH', :state, :parent_ids, :seen_at) "
+                "ON CONFLICT (guild_id) DO UPDATE SET coverage_mode=CASE WHEN "
+                ":coverage_mode='FULL' AND discord_cache_coverage.gateway_continuity NOT IN "
+                "('GAP_DETECTED','NON_RESUMED','DISCONNECTED') THEN 'FULL' ELSE "
+                "discord_cache_coverage.coverage_mode END, active_threads_coverage=CASE "
+                "WHEN EXCLUDED.active_threads_coverage='ACTIVE_VISIBLE_THREADS_FULL' THEN "
+                "EXCLUDED.active_threads_coverage WHEN discord_cache_coverage."
+                "active_threads_coverage='ACTIVE_VISIBLE_THREADS_FULL' AND "
+                "discord_cache_coverage.gateway_continuity NOT IN "
+                "('GAP_DETECTED','NON_RESUMED','DISCONNECTED') THEN "
+                "discord_cache_coverage.active_threads_coverage ELSE 'PARTIAL' END, "
+                "active_thread_parent_ids=EXCLUDED.active_thread_parent_ids, "
+                "last_active_threads_sync_at=EXCLUDED.last_active_threads_sync_at, "
+                "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
+            ).bindparams(bindparam("parent_ids")),
+            {
+                "guild_id": envelope.guild_id,
+                "coverage_mode": coverage_mode,
+                "state": state,
+                "parent_ids": list(parent_ids or []),
+                "seen_at": envelope.received_at,
+            },
+        )
 
     def _channel_parameters(
         self, envelope: EventEnvelope, payload: dict[str, Any]
@@ -1130,6 +1377,7 @@ class RuntimeRepository:
                     "(:guild_id, 'DEGRADED', 'STALE', :continuity) "
                     "ON CONFLICT (guild_id) DO UPDATE SET coverage_mode='DEGRADED', "
                     "freshness_state='STALE', gateway_continuity=EXCLUDED.gateway_continuity, "
+                    "active_threads_coverage='DEGRADED', "
                     "state_version=discord_cache_coverage.state_version+1, updated_at=now()"
                 ),
                 {"guild_id": guild_id, "continuity": continuity},

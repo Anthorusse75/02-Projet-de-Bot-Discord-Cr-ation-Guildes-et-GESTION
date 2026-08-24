@@ -16,6 +16,7 @@ from did.api.me import router as me_router
 from did.api.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
 from did.api.runtime_cache import guild_events_socket
 from did.api.runtime_cache import router as runtime_cache_router
+from did.api.stage04 import router as stage04_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
@@ -27,8 +28,9 @@ from did.infrastructure.database import (
 )
 from did.infrastructure.logging import configure_logging
 from did.infrastructure.redis import create_redis_client, redis_is_ready
-from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
+from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
 from did.oauth.crypto import TokenCipher, decode_encryption_key
 from did.oauth.discord import (
     DiscordMemberClient,
@@ -91,8 +93,9 @@ def create_app(
                 selected_member = owned_member
             assert configured.session_secret is not None
             assert configured.oauth_token_encryption_key is not None
-            repository = AuthRepository(create_session_factory(engine))
-            runtime_repository = RuntimeRepository(create_session_factory(engine))
+            session_factory = create_session_factory(engine)
+            repository = AuthRepository(session_factory)
+            runtime_repository = RuntimeRepository(session_factory)
             sessions = RedisSessionStore(
                 redis_client,
                 session_secret=configured.session_secret.get_secret_value(),
@@ -124,6 +127,8 @@ def create_app(
                 ),
                 member_client=selected_member,
                 freshness_seconds=configured.authorization_freshness_seconds,
+                membership_singleflight=RedisSingleFlight(redis_client),
+                metrics=runtime_repository.metrics,
             )
             installations = InstallationService(authorization=authorization, repository=repository)
             application.state.services = ServiceContainer(
@@ -136,6 +141,7 @@ def create_app(
                 runtime_repository=runtime_repository,
                 hot_cache=RedisHotCache(redis_client, metrics=runtime_repository.metrics),
                 pubsub=TenantPubSub(redis_client),
+                stage04_repository=Stage04Repository(session_factory),
             )
         try:
             yield
@@ -167,6 +173,7 @@ def create_app(
     application.include_router(me_router)
     application.include_router(guilds_router)
     application.include_router(runtime_cache_router)
+    application.include_router(stage04_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -178,6 +185,16 @@ def create_app(
         request: Request, exc: AuthorizationDenied
     ) -> JSONResponse:
         problem = authorization_problem(exc)
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(Stage04NotFound)
+    async def handle_stage04_not_found(request: Request, exc: Stage04NotFound) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="RESOURCE_NOT_FOUND",
+            message_key="errors.resource.notFound",
+        )
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 
     return application
