@@ -408,6 +408,10 @@ return redis.call('zcard', KEYS[1])
         self._guild_limit = per_guild_concurrency
         self._ttl_seconds = permit_ttl_seconds
         self._ttl_ms = int(permit_ttl_seconds * 1000)
+        # A live owner gets a small scheduler-jitter floor on renewal.  The
+        # initial acquisition keeps the configured TTL, so a crashed owner that
+        # never heartbeats is still recovered at the requested boundary.
+        self._active_ttl_ms = max(500, self._ttl_ms)
         self._invalid_warning = invalid_request_warning
         self._global_key = "did:runtime:discord:permits:global"
         self._invalid_key = "did:runtime:discord:invalid-requests"
@@ -459,7 +463,7 @@ return redis.call('zcard', KEYS[1])
                 self._guild_key(permit.guild_id),
                 permit.token,
                 int(datetime.now().timestamp() * 1000),
-                self._ttl_ms,
+                self._active_ttl_ms,
             )
         )
 

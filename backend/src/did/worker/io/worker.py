@@ -193,7 +193,7 @@ class DurableDiscordIOWorker:
                         job_id,
                         lease_owner=self._worker_id,
                         lease_token=lease_token,
-                        lease_seconds=self._lease_seconds,
+                        lease_seconds=max(0.5, self._lease_seconds),
                     )
                 except Exception:
                     renewed = False
