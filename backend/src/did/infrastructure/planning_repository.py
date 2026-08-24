@@ -295,6 +295,32 @@ class PlanningRepository:
             raise PlanNotFound("plan not found")
         return [dict(row) for row in rows]
 
+    async def verification_operations(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
+        """Return one batch with the exact payload transmitted by the successful attempt."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT operations.*, attempt.outcome_detail->'resolved_payload' "
+                            "AS resolved_payload FROM plan_operations AS operations LEFT JOIN "
+                            "LATERAL (SELECT outcome_detail FROM operation_attempts WHERE "
+                            "guild_id=operations.guild_id AND plan_id=operations.plan_id AND "
+                            "operation_id=operations.id AND status='SUCCEEDED' ORDER BY "
+                            "attempt_number DESC LIMIT 1) AS attempt ON true WHERE "
+                            "operations.guild_id=:guild_id AND operations.plan_id=:plan_id "
+                            "ORDER BY operations.display_order"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if not rows and not await self._exists(guild_id, plan_id):
+            raise PlanNotFound("plan not found")
+        return [dict(row) for row in rows]
+
     async def symbol_bindings(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             rows = (
