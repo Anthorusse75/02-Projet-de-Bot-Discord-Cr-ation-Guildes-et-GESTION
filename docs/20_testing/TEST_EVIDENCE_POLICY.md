@@ -68,3 +68,14 @@ Il porte `BLOCKED_CAPABILITY_CONFIGURATION` et invalide tout statut live `PASS`.
 exige le plan complet, le crash-window avec un seul CREATE, le binding symbolique récupéré, la
 vérification ciblée et le cleanup par plan sans fixture préfixée restante. Le JSON suivi ne contient
 ni token ni identifiant Discord; les données brutes restent dans les artifacts locaux ignorés.
+
+## Preuve live cross-Guild STAGE 06
+
+Le runner STAGE 06 utilise deux Guilds sandbox et un préfixe unique. Une preuve `PASS` exige une
+autorisation source et destination distincte, la création de toutes les fixtures et leur nettoyage
+par des plans STAGE 05, de nouveaux IDs destination, un hash source avant/après inchangé, zéro appel
+mutable A, un mapping B explicitement confirmé et une compilation depuis l'artifact stocké sans
+relecture A. `SKIPPED_NOT_VERIFIED` est le seul statut permis lorsque la configuration live manque.
+Le RECONCILE live reste facultatif s'il ne peut être borné sans risque ; il est alors déclaré non
+exécuté et sa portée de suppression exacte reste prouvée localement. La preuve suivie est expurgée de
+tout token, ciphertext, wrapped DEK et identifiant Discord.

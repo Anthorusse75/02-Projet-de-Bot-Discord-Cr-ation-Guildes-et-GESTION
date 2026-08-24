@@ -24,3 +24,9 @@ Créer deux Guilds dédiées A et B, sans membres réels non nécessaires. Insta
 Chaque scénario live référence la version officielle de l’endpoint/événement, l’intent, les permissions, le run ID, le commit et la preuve de nettoyage.
 
 Au 2026-08-24, le bot de la Guild sandbox B possède `MANAGE_CHANNELS` et `MANAGE_ROLES`, sans besoin d'`ADMINISTRATOR`. Le runner STAGE 05 est `PASS` sur create/update/move/reorder/overwrite/delete, crash/recovery effectively-once, restauration de l'ordre des rôles et cleanup audité. Un seul CREATE a été observé dans la fenêtre de crash, le symbol binding a été récupéré et aucune fixture `DID-STAGE05-TEST-` ne subsiste. La preuve expurgée est `docs/90_handoffs/STAGE_05_LIVE_EVIDENCE.json`.
+
+Pour STAGE 06, le runner `validate_discord_live_stage06.py` réutilise exclusivement le Plan Engine
+pour créer et nettoyer les fixtures `DID-STAGE06-TEST-`. Il vérifie COPY_AS_NEW A→B, IDs nouveaux,
+source inchangée, zéro mutation A, mapping explicite et artifact stocké sans relecture source. Son
+statut et son run représentatif sont consignés dans le handoff et la preuve live STAGE 06 ; aucune
+revocation de permission humaine ni fixture bot/webhook risquée n'est provoquée.
