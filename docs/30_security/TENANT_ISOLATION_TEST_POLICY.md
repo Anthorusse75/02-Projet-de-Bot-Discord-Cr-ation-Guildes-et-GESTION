@@ -19,3 +19,7 @@ Fixtures minimales : Guild A, Guild B, User A (A seulement), User B (B seulement
 | export/clone | export A et import B indépendants ; artifact ne confère aucun accès futur |
 
 Toute nouvelle feature tenant-scopée ajoute ces cas. Un refus doit survenir avant accès repository lorsque cet accès pourrait révéler l’existence. Les tests instrumentent les repositories/adapters afin de prouver zéro appel interdit, pas seulement le statut HTTP.
+
+## Extension STAGE 05
+
+Les tables plan/snapshot/opération/dépendance/symbole/attempt/confirmation/progression/expected-mutation portent toutes `guild_id`, des clés étrangères composites et `ENABLE/FORCE ROW LEVEL SECURITY`. Les routes autorisent avant la lecture du plan et interdisent les IDs numériques JSON. Les jobs `APPLY_PLAN`, locks Redis, audit, progress et corrélations Gateway sont Guild-scopés. Le worker ne résout aucun symbole ni résultat depuis une autre Guild, et les tests A/B vérifient l'absence de divulgation via RLS.

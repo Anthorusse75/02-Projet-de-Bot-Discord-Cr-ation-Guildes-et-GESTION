@@ -619,6 +619,12 @@ class PermissionEvaluator:
             ChannelType.GUILD_ANNOUNCEMENT,
             ChannelType.GUILD_FORUM,
             ChannelType.GUILD_MEDIA,
+            # Category overwrites are the permission template inherited by
+            # synchronized children. Treat them as the text/common channel
+            # surface so VIEW_CHANNEL, MANAGE_CHANNELS and MANAGE_ROLES remain
+            # decidable; category-specific send/connect actions are never
+            # requested by the planning preflight.
+            ChannelType.GUILD_CATEGORY,
             ChannelType.ANNOUNCEMENT_THREAD,
             ChannelType.PUBLIC_THREAD,
             ChannelType.PRIVATE_THREAD,

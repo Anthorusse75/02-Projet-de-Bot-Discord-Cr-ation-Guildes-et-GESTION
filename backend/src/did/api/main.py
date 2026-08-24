@@ -17,9 +17,12 @@ from did.api.middleware import CorrelationIdMiddleware, SecurityHeadersMiddlewar
 from did.api.runtime_cache import guild_events_socket
 from did.api.runtime_cache import router as runtime_cache_router
 from did.api.stage04 import router as stage04_router
+from did.api.stage05 import invalid_planning_input
+from did.api.stage05 import router as stage05_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
+from did.application.planning import PlanningService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import (
     create_database_engine,
@@ -27,6 +30,12 @@ from did.infrastructure.database import (
     database_is_ready,
 )
 from did.infrastructure.logging import configure_logging
+from did.infrastructure.planning_repository import (
+    ConfirmationInvalid,
+    PlanConflict,
+    PlanningRepository,
+    PlanNotFound,
+)
 from did.infrastructure.redis import create_redis_client, redis_is_ready
 from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
@@ -131,6 +140,8 @@ def create_app(
                 metrics=runtime_repository.metrics,
             )
             installations = InstallationService(authorization=authorization, repository=repository)
+            planning_repository = PlanningRepository(session_factory)
+            stage04_repository = Stage04Repository(session_factory)
             application.state.services = ServiceContainer(
                 settings=configured,
                 repository=repository,
@@ -141,7 +152,9 @@ def create_app(
                 runtime_repository=runtime_repository,
                 hot_cache=RedisHotCache(redis_client, metrics=runtime_repository.metrics),
                 pubsub=TenantPubSub(redis_client),
-                stage04_repository=Stage04Repository(session_factory),
+                stage04_repository=stage04_repository,
+                planning_repository=planning_repository,
+                planning=PlanningService(planning_repository, stage04_repository),
             )
         try:
             yield
@@ -164,7 +177,12 @@ def create_app(
         allow_origins=list(configured.cors_allowed_origins),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
-        allow_headers=["Content-Type", "X-CSRF-Token", "X-Correlation-ID"],
+        allow_headers=[
+            "Content-Type",
+            "X-CSRF-Token",
+            "X-Correlation-ID",
+            "Idempotency-Key",
+        ],
     )
     application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(CorrelationIdMiddleware)
@@ -174,6 +192,7 @@ def create_app(
     application.include_router(guilds_router)
     application.include_router(runtime_cache_router)
     application.include_router(stage04_router)
+    application.include_router(stage05_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -195,6 +214,32 @@ def create_app(
             code="RESOURCE_NOT_FOUND",
             message_key="errors.resource.notFound",
         )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PlanNotFound)
+    async def handle_plan_not_found(request: Request, exc: PlanNotFound) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="PLAN_NOT_FOUND",
+            message_key="errors.plans.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PlanConflict)
+    @application.exception_handler(ConfirmationInvalid)
+    async def handle_plan_conflict(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=409,
+            code="PLAN_CONFLICT",
+            message_key="errors.plans.conflict",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(ValueError)
+    async def handle_planning_value_error(request: Request, exc: ValueError) -> JSONResponse:
+        problem = invalid_planning_input(exc)
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 
     return application

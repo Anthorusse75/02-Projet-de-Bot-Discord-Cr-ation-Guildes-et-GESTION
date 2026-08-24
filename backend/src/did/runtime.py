@@ -7,16 +7,21 @@ from uuid import uuid4
 
 import discord
 
+from did.application.auth import AuthorizationService
 from did.application.lifecycle import run_until_stopped
+from did.application.planning import ApplyActorAuthorizer, PlanningService
 from did.application.reconciliation import (
     AdaptiveReconcilePolicy,
     DiscordSyncService,
     ReconcileScheduler,
 )
 from did.bot.gateway import DiscordGatewayClient
+from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import create_database_engine, create_session_factory
-from did.infrastructure.discord import DiscordPyStructureAdapter
+from did.infrastructure.discord import DiscordPyMutableAdapter, DiscordPyStructureAdapter
 from did.infrastructure.logging import EventId, configure_logging, emit_event
+from did.infrastructure.planning_lock import RedisGuildMutationLock
+from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import (
     OutboxPublisher,
@@ -27,8 +32,18 @@ from did.infrastructure.runtime_redis import (
     TenantPubSub,
 )
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04Repository
+from did.oauth.discord import HttpDiscordMemberClient
+from did.oauth.stores import (
+    RedisActorMembershipStore,
+)
 from did.settings import Settings
-from did.worker.io import DiscordWorkerRuntime, DiscordWorkloadGovernor, DurableDiscordIOWorker
+from did.worker.io import (
+    ApplyPlanExecutor,
+    DiscordWorkerRuntime,
+    DiscordWorkloadGovernor,
+    DurableDiscordIOWorker,
+)
 
 
 async def run_process(
@@ -93,9 +108,26 @@ async def run_process(
             engine = create_database_engine(settings.database_url.get_secret_value())
             redis = create_redis_client(settings.redis_url.get_secret_value())
             rest_client = discord.Client(intents=discord.Intents.none())
+            worker_member: HttpDiscordMemberClient | None = None
             try:
                 await rest_client.login(settings.discord_bot_token.get_secret_value())
-                repository = RuntimeRepository(create_session_factory(engine))
+                session_factory = create_session_factory(engine)
+                repository = RuntimeRepository(session_factory)
+                auth_repository = AuthRepository(session_factory)
+                worker_member = HttpDiscordMemberClient(
+                    bot_token=settings.discord_bot_token.get_secret_value()
+                )
+                worker_authorization = AuthorizationService(
+                    auth=None,
+                    repository=auth_repository,
+                    membership_store=RedisActorMembershipStore(
+                        redis, ttl_seconds=settings.authorization_freshness_seconds
+                    ),
+                    member_client=worker_member,
+                    freshness_seconds=settings.authorization_freshness_seconds,
+                    membership_singleflight=RedisSingleFlight(redis),
+                    metrics=repository.metrics,
+                )
                 hot_cache = RedisHotCache(redis, metrics=repository.metrics)
                 worker_id = f"worker-{uuid4().hex}"
                 wakeup = RedisRuntimeWakeup(redis, reporter_id=worker_id)
@@ -116,11 +148,27 @@ async def run_process(
                     repository=repository,
                     singleflight=RedisSingleFlight(redis),
                 )
+                planning_repository = PlanningRepository(session_factory)
+                planning_service = PlanningService(
+                    planning_repository,
+                    Stage04Repository(session_factory),
+                )
                 worker = DurableDiscordIOWorker(
                     repository,
                     sync,
                     worker_id=worker_id,
                     lease_seconds=settings.discord_job_lease_seconds,
+                    plan_executor=ApplyPlanExecutor(
+                        planning_repository,
+                        DiscordPyMutableAdapter(rest_client),
+                        RedisGuildMutationLock(
+                            redis,
+                            ttl_seconds=settings.discord_job_lease_seconds,
+                        ),
+                        worker_id=worker_id,
+                        authorization=ApplyActorAuthorizer(worker_authorization),
+                        preflight=planning_service,
+                    ),
                 )
                 runtime = DiscordWorkerRuntime(
                     repository=repository,
@@ -146,6 +194,8 @@ async def run_process(
                 background_task.add_done_callback(lambda _: stop_event.set())
             except Exception:
                 await rest_client.close()
+                if worker_member is not None:
+                    await worker_member.aclose()
                 await redis.aclose()
                 await engine.dispose()
                 raise
@@ -154,6 +204,8 @@ async def run_process(
                 stop_event.set()
                 failure = await background_failure()
                 await rest_client.close()
+                if worker_member is not None:
+                    await worker_member.aclose()
                 await redis.aclose()
                 await engine.dispose()
                 if failure is not None:

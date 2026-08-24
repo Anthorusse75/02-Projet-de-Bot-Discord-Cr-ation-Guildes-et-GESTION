@@ -1,0 +1,45 @@
+{
+  "stage": "05",
+  "date": "2026-08-24",
+  "status": "PASS",
+  "profile": "discord-live-plan-engine-safe-mutations",
+  "checks": [
+    "persisted plans, sensitive worker authorization and final preflight",
+    "all Discord REST reads and mutations passed the workload governor",
+    "CREATE category, channel and role fixtures",
+    "UPDATE role, category and channel",
+    "MOVE channel parent and REORDER roles",
+    "UPSERT and DELETE overwrite",
+    "controlled crash after CREATE_ROLE Discord response",
+    "UNKNOWN_OUTCOME recovery without duplicate CREATE",
+    "recovered durable symbol binding",
+    "targeted REST verification after each plan",
+    "persisted destructive cleanup plan",
+    "all prefixed fixtures absent after cleanup"
+  ],
+  "counts": {
+    "plans_succeeded": 6,
+    "create_operations": 4,
+    "create_calls_at_crash_recovery": 1,
+    "create_calls_total": 4,
+    "update_operations_verified": 3,
+    "move_or_reorder_operations_verified": 3,
+    "overwrite_upserts": 1,
+    "overwrite_deletes": 1,
+    "cleanup_operations": 4,
+    "role_order_restore_operations": 1,
+    "symbol_bindings_recovered": 1,
+    "controlled_failure_hooks": 1,
+    "abandoned_fixture_jobs_resumed": 0,
+    "terminal_fixture_jobs_acknowledged": 0,
+    "preexisting_fixtures_cleaned": 0
+  },
+  "skipped_not_verified": [
+    "429 behavior is contract-tested, not forced against Discord",
+    "ambiguous duplicate CREATE requires manual sandbox fixture and is not forced"
+  ],
+  "resource_prefix": "DID-STAGE05-TEST-",
+  "cleanup": "COMPLETE_NO_PREFIXED_FIXTURES",
+  "secrets_recorded": false,
+  "discord_identifiers_recorded": false
+}

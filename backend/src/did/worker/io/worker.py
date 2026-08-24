@@ -7,6 +7,7 @@ from uuid import UUID
 
 from did.domain.discord_runtime import WorkloadJob, WorkloadPriority
 from did.infrastructure.discord import DiscordAdapterError
+from did.infrastructure.planning_lock import GuildMutationLockUnavailable
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.worker.io.governor import DiscordWorkloadGovernor, WorkloadHaltedError
 
@@ -15,6 +16,15 @@ class DiscordSyncPort(Protocol):
     async def refresh_channels(self, guild_id: int) -> dict[str, int]: ...
 
     async def initial_sync(self, guild_id: int) -> dict[str, int]: ...
+
+
+class ApplyPlanPort(Protocol):
+    async def execute_leased(
+        self,
+        guild_id: int,
+        leased: dict[str, Any],
+        governor: DiscordWorkloadGovernor | None,
+    ) -> None: ...
 
 
 class UnsupportedWorkloadError(RuntimeError):
@@ -35,15 +45,23 @@ class DurableDiscordIOWorker:
         *,
         worker_id: str,
         lease_seconds: float = 30.0,
+        plan_executor: ApplyPlanPort | None = None,
     ) -> None:
         if not worker_id or len(worker_id) > 128:
             raise ValueError("worker_id must be present and bounded")
         self._repository = repository
         self._sync = sync
         self._worker_id = worker_id
+        self._plan_executor = plan_executor
         if lease_seconds < 0.05:
             raise ValueError("lease_seconds must be at least 50ms")
         self._lease_seconds = lease_seconds
+        # A dispatched job is claimed before it enters the local Governor queue.
+        # Keep an active-owner jitter floor from that first claim onward; otherwise
+        # a subsecond lease can expire in the queue before its heartbeat coroutine
+        # has even started. Direct repository claims retain their requested TTL,
+        # which preserves prompt recovery of an owner that never became active.
+        self._active_lease_seconds = max(0.5, lease_seconds)
 
     async def run_guild_once(self, guild_id: int) -> bool:
         leased = await self._repository.lease_next_job(
@@ -58,7 +76,9 @@ class DurableDiscordIOWorker:
         self, guild_id: int, governor: DiscordWorkloadGovernor
     ) -> asyncio.Future[Any] | None:
         leased = await self._repository.lease_next_job(
-            guild_id, lease_owner=self._worker_id, lease_seconds=self._lease_seconds
+            guild_id,
+            lease_owner=self._worker_id,
+            lease_seconds=self._active_lease_seconds,
         )
         if leased is None:
             return None
@@ -123,6 +143,16 @@ class DurableDiscordIOWorker:
                 terminal=False,
             )
             raise
+        except GuildMutationLockUnavailable:
+            await self._repository.retry_job(
+                guild_id,
+                job_id,
+                lease_owner=self._worker_id,
+                lease_token=lease_token,
+                retry_after_seconds=1.0,
+                terminal=False,
+            )
+            raise
         except JobLeaseLostError:
             # Fencing deliberately leaves acknowledgement/retry to the current owner.
             raise
@@ -171,7 +201,7 @@ class DurableDiscordIOWorker:
                         job_id,
                         lease_owner=self._worker_id,
                         lease_token=lease_token,
-                        lease_seconds=self._lease_seconds,
+                        lease_seconds=self._active_lease_seconds,
                     )
                 except Exception:
                     renewed = False
@@ -185,11 +215,15 @@ class DurableDiscordIOWorker:
                 await self._sync.refresh_channels(guild_id)
             elif workload_type in {"INITIAL_SYNC", "RECONCILE_STRUCTURE"}:
                 await self._sync.initial_sync(guild_id)
+            elif workload_type == "APPLY_PLAN" and self._plan_executor is not None:
+                await self._plan_executor.execute_leased(guild_id, leased, governor)
             else:
                 raise UnsupportedWorkloadError(workload_type)
 
         async def operation() -> None:
-            if governor is None:
+            if str(leased["workload_type"]) == "APPLY_PLAN":
+                await discord_operation()
+            elif governor is None:
                 await discord_operation()
             else:
                 await governor.run_distributed(guild_id, discord_operation)

@@ -384,6 +384,50 @@ STAGE04_REQUIREMENT_PROGRESS = {
 
 REQUIREMENT_PROGRESS.update(STAGE04_REQUIREMENT_PROGRESS)
 
+STAGE05_REQUIREMENT_PROGRESS = {
+    **{
+        f"REQ-PLAN-{index:03d}": (
+            "IMPLEMENTED",
+            "STAGE 05 immutable DSG/plan snapshot, explicit persisted DAG and symbols, final preflight, fenced worker attempts, UNKNOWN_OUTCOME reconciliation, targeted verification and failure-injection integration evidence",
+        )
+        for index in range(1, 17)
+    },
+    "REQ-STR-004": (
+        "IMPLEMENTED",
+        "STAGE 05 deterministic channel move/reorder compilation and mutable-adapter contract; bulk requests contain at most one parent_id change",
+    ),
+    "REQ-STR-005": (
+        "IMPLEMENTED",
+        "STAGE 05 explicit category-child effects and dependency/preflight checks prevent implicit destructive topology changes",
+    ),
+    "REQ-GW-006": (
+        "IMPLEMENTED",
+        "STAGE 05 Gateway drift classification marks pre-apply plans STALE and active plans intervention-required unless an expected own mutation is proven",
+    ),
+    "REQ-CACHE-004": (
+        "IMPLEMENTED",
+        "STAGE 05 persists successful operation results, symbol bindings, expected events and structural write-through atomically",
+    ),
+    "REQ-RATE-005": (
+        "IMPLEMENTED",
+        "STAGE 05 compiler selects closed mutation operations and splits channel parent changes to respect the official bulk endpoint constraint",
+    ),
+    "REQ-AUD-001": (
+        "IMPLEMENTED",
+        "STAGE 05 plan lifecycle audit records preserve the authenticated actor for create, validate, confirm, apply and cancel",
+    ),
+    "REQ-AUD-002": (
+        "IMPLEMENTED",
+        "STAGE 05 durable plan/operation/attempt/progress records correlate guild, plan, operation, job and request without exposing secrets",
+    ),
+    "REQ-AUD-003": (
+        "IMPLEMENTED",
+        "STAGE 05 mutation adapter emits bounded stable Discord audit reasons with plan/operation correlation and no user-provided text",
+    ),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE05_REQUIREMENT_PROGRESS)
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()

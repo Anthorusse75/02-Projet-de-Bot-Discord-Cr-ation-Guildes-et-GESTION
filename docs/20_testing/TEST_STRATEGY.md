@@ -56,3 +56,12 @@ Le parser et protector reçoivent property-based tests/fuzzing. Toute modificati
 - étapes live : preuve sandbox signée/date/commit, sans secret ;
 - STAGE 10 : E2E complet, pannes, charge, deux Guilds, traceability sans `PLANNED/IMPLEMENTED` obligatoire restant ;
 - STAGE 11 : smoke production, backup/restore et rollback réellement exercés.
+
+## Preuves STAGE 05
+
+- Le profil par defaut rejoue les migrations depuis `base`, `0001` a `0007` vers la tete unique `0009_stage_05`, puis exerce `head -> 0007 -> head`.
+- Le profil `failure-injection` exerce les fenetres A-I sur PostgreSQL/Redis reels. Il ajoute le fence exact owner/token/generation et verifie qu'un callback tardif de l'ancien worker ne touche pas le nouvel attempt.
+- La recovery est operation-specific. L'absence d'un channel dans une liste reste ambigue pour create/delete; la liste complete des roles fournit une preuve plus forte. Aucun CREATE ambigu n'est retry.
+- Les tests d'integration couvrent l'autorisation acteur au worker, la confirmation actor-bound, les preconditions juste-a-temps, les matchers Gateway bulk/overwrite, l'index des plans concernes, l'Impact Engine et la progression concurrente.
+- Le profil load compile et ordonne un DSG de 500 noeuds avec resultat deterministe et rapport JSON borne.
+- Le live n'est PASS que si le plan complet effectue des mutations reelles, le crash-window conserve un seul CREATE, le symbol binding est recupere et le cleanup par plan ne laisse aucune fixture prefixee. Un refus de capability est `BLOCKED_CAPABILITY_CONFIGURATION`, jamais `PASS_WITH_APPROVED_LIMITATION`.

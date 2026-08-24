@@ -124,6 +124,15 @@ class RuntimeRepository:
                 return False
             self.metrics.gateway_signal("dispatch")
             applied = await self._project(session, envelope)
+            if applied and envelope.event_type in {
+                "CHANNEL_CREATE",
+                "CHANNEL_UPDATE",
+                "CHANNEL_DELETE",
+                "GUILD_ROLE_CREATE",
+                "GUILD_ROLE_UPDATE",
+                "GUILD_ROLE_DELETE",
+            }:
+                await self._classify_plan_gateway_event(session, envelope)
             await session.execute(
                 text(
                     "UPDATE discord_gateway_inbox SET status='PROJECTED', projected_at=now() "
@@ -146,6 +155,275 @@ class RuntimeRepository:
                 )
                 await self._refresh_coverage(session, envelope.guild_id, envelope.received_at)
             return True
+
+    async def _classify_plan_gateway_event(
+        self, session: AsyncSession, envelope: EventEnvelope
+    ) -> None:
+        """Match inferred own events conservatively; never claim native plan correlation."""
+        resource_id = int(
+            envelope.payload.get("channel_id") or envelope.payload.get("role_id") or 0
+        )
+        if resource_id <= 0:
+            return
+        observed = self._plan_event_payload(envelope, resource_id)
+        candidates = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT expected.*,operations.operation_type FROM "
+                        "plan_expected_mutations expected JOIN plan_operations operations ON "
+                        "operations.guild_id=expected.guild_id AND operations.plan_id="
+                        "expected.plan_id AND operations.id=expected.operation_id WHERE "
+                        "expected.guild_id=:guild_id "
+                        "AND expected.event_type=:event_type AND expected.discord_resource_id="
+                        ":resource_id AND expected.status='EXPECTED' AND expected.expires_at>"
+                        "now() ORDER BY expected.expires_at"
+                    ),
+                    {
+                        "guild_id": envelope.guild_id,
+                        "event_type": envelope.event_type,
+                        "resource_id": resource_id,
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+        exact = [
+            row
+            for row in candidates
+            if self._matches_expected_gateway(
+                str(row["operation_type"]),
+                envelope.event_type,
+                dict(row["expected_payload"]),
+                observed,
+            )
+        ]
+        if len(exact) == 1:
+            await session.execute(
+                text(
+                    "UPDATE plan_expected_mutations SET status='OBSERVED',observed_at=now() "
+                    "WHERE guild_id=:guild_id AND id=:id AND status='EXPECTED'"
+                ),
+                {"guild_id": envelope.guild_id, "id": exact[0]["id"]},
+            )
+            return
+
+        # Gateway may beat the REST response/DB commit for a CREATE.  A unique
+        # in-flight operation with a matching desired subset is inferred as own,
+        # without manufacturing a Discord-native correlation identifier.
+        inflight = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT operations.operation_type,COALESCE(attempts.outcome_detail->"
+                        "'resolved_payload',operations.desired_payload) AS desired_payload FROM "
+                        "plan_operations operations LEFT JOIN operation_attempts attempts ON "
+                        "attempts.guild_id=operations.guild_id AND attempts.plan_id="
+                        "operations.plan_id AND attempts.operation_id=operations.id AND "
+                        "attempts.attempt_number=operations.attempt_count "
+                        "JOIN plans ON plans.guild_id=operations.guild_id "
+                        "AND plans.id=operations.plan_id WHERE operations.guild_id=:guild_id "
+                        "AND plans.status='APPLYING' AND operations.status IN "
+                        "('IN_FLIGHT','SUCCEEDED') "
+                        "AND :event_type=ANY(operations.expected_gateway_events)"
+                    ),
+                    {"guild_id": envelope.guild_id, "event_type": envelope.event_type},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        inferred = [
+            row
+            for row in inflight
+            if self._matches_expected_gateway(
+                str(row["operation_type"]),
+                envelope.event_type,
+                dict(row["desired_payload"]),
+                observed,
+            )
+        ]
+        if len(inferred) == 1:
+            return
+
+        stale = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE plans SET status='STALE',drift_detected_at=now(),"
+                        "error_code='STRUCTURE_DRIFT',state_version=state_version+1,"
+                        "updated_at=now() WHERE guild_id=:guild_id AND status IN "
+                        "('DRAFT','VALIDATED','CONFIRMED') AND EXISTS (SELECT 1 FROM "
+                        "plan_resource_dependencies dependencies WHERE dependencies.guild_id="
+                        "plans.guild_id AND dependencies.plan_id=plans.id AND dependencies."
+                        "resource_type=:resource_type AND dependencies.discord_resource_id="
+                        ":resource_id) RETURNING id"
+                    ),
+                    {
+                        "guild_id": envelope.guild_id,
+                        "resource_type": self._gateway_resource_type(envelope.event_type),
+                        "resource_id": resource_id,
+                    },
+                )
+            )
+            .scalars()
+            .all()
+        )
+        interrupted = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE plans SET status='INTERVENTION_REQUIRED',"
+                        "drift_detected_at=now(),completed_at=now(),"
+                        "error_code='DRIFT_DURING_APPLY',state_version=state_version+1,"
+                        "updated_at=now() WHERE guild_id=:guild_id AND status IN "
+                        "('APPLYING','CANCEL_REQUESTED') AND EXISTS (SELECT 1 FROM "
+                        "plan_resource_dependencies dependencies WHERE dependencies.guild_id="
+                        "plans.guild_id AND dependencies.plan_id=plans.id AND dependencies."
+                        "resource_type=:resource_type AND dependencies.discord_resource_id="
+                        ":resource_id) RETURNING id"
+                    ),
+                    {
+                        "guild_id": envelope.guild_id,
+                        "resource_type": self._gateway_resource_type(envelope.event_type),
+                        "resource_id": resource_id,
+                    },
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if stale or interrupted:
+            await self._append_audit(
+                session,
+                envelope,
+                event_type="PLAN_STRUCTURE_DRIFT_DETECTED",
+                target_type="DISCORD_RESOURCE",
+                target_id=resource_id,
+                result_state="INTERVENTION_REQUIRED" if interrupted else "STALE",
+            )
+
+    @staticmethod
+    def _plan_event_payload(envelope: EventEnvelope, resource_id: int) -> dict[str, Any]:
+        payload = dict(envelope.payload)
+        payload["id"] = resource_id
+        if envelope.event_type.endswith("_DELETE"):
+            payload["deleted"] = True
+        return payload
+
+    @staticmethod
+    def _matches_expected_gateway(
+        operation_type: str,
+        event_type: str,
+        expected: dict[str, Any],
+        observed: dict[str, Any],
+    ) -> bool:
+        if operation_type in {"UPSERT_OVERWRITE", "DELETE_OVERWRITE"}:
+            expected_channel_id = expected.get("channel_id")
+            if expected_channel_id is None or str(observed.get("channel_id")) != str(
+                expected_channel_id
+            ):
+                return False
+            specification = expected.get("overwrite")
+            overwrites = observed.get("permission_overwrites")
+            if not isinstance(specification, dict) or not isinstance(overwrites, list):
+                return False
+            expected_full = expected.get("full_overwrites")
+            if isinstance(expected_full, list):
+                normalized_expected = sorted(
+                    (
+                        int(item.get("type", 0)),
+                        int(item.get("id", 0)),
+                        int(item.get("allow", 0)),
+                        int(item.get("deny", 0)),
+                    )
+                    for item in expected_full
+                    if isinstance(item, dict)
+                )
+                normalized_observed = sorted(
+                    (
+                        int(item.get("type", 0)),
+                        int(item.get("id", 0)),
+                        int(item.get("allow", 0)),
+                        int(item.get("deny", 0)),
+                    )
+                    for item in overwrites
+                    if isinstance(item, dict)
+                )
+                if normalized_expected != normalized_observed:
+                    return False
+            target_id = specification.get("target_id")
+            target_type = specification.get("target_type")
+            if target_id is None or target_type is None:
+                return False
+            current = next(
+                (
+                    item
+                    for item in overwrites
+                    if isinstance(item, dict)
+                    and str(item.get("id")) == str(target_id)
+                    and str(item.get("type")) == str(target_type)
+                ),
+                None,
+            )
+            if bool(specification.get("present")):
+                return current is not None and all(
+                    key in current and str(current[key]) == str(specification[key])
+                    for key in ("allow", "deny")
+                    if key in specification
+                )
+            return current is None
+
+        ignored = {
+            "resource_ref",
+            "parent_symbol",
+            "channel_symbol",
+            "subject_symbol",
+            "lock_permissions",
+            "items",
+        }
+        aliases = {
+            "id": ("id", "channel_id", "role_id"),
+            "target_id": ("target_id", "id"),
+            "target_type": ("target_type", "type"),
+        }
+        comparable = {key: value for key, value in expected.items() if key not in ignored}
+        if operation_type in {"REORDER_ROLES", "MOVE_OR_REORDER_CHANNELS"}:
+            raw_items = expected.get("items")
+            if isinstance(raw_items, list):
+                observed_id = (
+                    observed.get("id") or observed.get("role_id") or observed.get("channel_id")
+                )
+                expected = next(
+                    (
+                        item
+                        for item in raw_items
+                        if isinstance(item, dict) and str(item.get("id")) == str(observed_id)
+                    ),
+                    {},
+                )
+            comparable = {
+                key: value
+                for key, value in expected.items()
+                if key in {"id", "position", "parent_id"}
+            }
+        if event_type.endswith("_DELETE"):
+            comparable["deleted"] = True
+        if not comparable:
+            return False
+        for key, value in comparable.items():
+            observed_keys = aliases.get(key, (key,))
+            present = next(
+                (candidate for candidate in observed_keys if candidate in observed), None
+            )
+            if present is None or str(observed[present]) != str(value):
+                return False
+        return True
+
+    @staticmethod
+    def _gateway_resource_type(event_type: str) -> str:
+        return "ROLE" if event_type.startswith("GUILD_ROLE_") else "CHANNEL"
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
         event_type = envelope.event_type
@@ -1628,7 +1906,8 @@ class RuntimeRepository:
                             "attempt_count=attempt_count+1, updated_at=now() FROM candidate "
                             "WHERE jobs.job_id=candidate.job_id RETURNING jobs.job_id, "
                             "jobs.guild_id, jobs.workload_type, jobs.logical_key, jobs.priority, "
-                            "jobs.payload, jobs.correlation_id, jobs.attempt_count, "
+                            "jobs.payload, jobs.requested_by, jobs.correlation_id, "
+                            "jobs.attempt_count, "
                             "jobs.created_at, jobs.lease_token, jobs.lease_generation, "
                             "jobs.leased_until"
                         ),

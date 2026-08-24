@@ -151,6 +151,9 @@ class Stage04Repository:
                     last_gateway_seen_at=row["last_gateway_seen_at"],
                     last_rest_seen_at=row["last_rest_seen_at"],
                 ),
+                color=int(row["color"]),
+                hoist=bool(row["hoist"]),
+                mentionable=bool(row["mentionable"]),
             )
             for row in role_rows
         )
@@ -204,6 +207,15 @@ class Stage04Repository:
                         if row["thread_active_state"] is not None
                         else None
                     ),
+                    topic=(
+                        str(full_payload["topic"])
+                        if full_payload.get("topic") is not None
+                        else None
+                    ),
+                    nsfw=(
+                        bool(full_payload["nsfw"]) if full_payload.get("nsfw") is not None else None
+                    ),
+                    flags=int(row["flags"]),
                 )
             )
         member = self._member(guild_id, member_id, member_row, membership_rows)
@@ -275,6 +287,23 @@ class Stage04Repository:
             )
             for member_id in member_ids
         )
+
+    async def cached_member_snapshots(self, guild_id: int) -> tuple[MemberSnapshot, ...]:
+        """Return only locally known subjects; this never invokes Discord member listing."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            member_ids = tuple(
+                int(value)
+                for value in (
+                    await session.execute(
+                        text(
+                            "SELECT discord_user_id FROM discord_member_authorization_cache "
+                            "WHERE guild_id=:guild_id ORDER BY discord_user_id"
+                        ),
+                        {"guild_id": guild_id},
+                    )
+                ).scalars()
+            )
+        return await self.member_snapshots(guild_id, member_ids)
 
     async def bot_identity(self, guild_id: int) -> tuple[int | None, str | None]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:

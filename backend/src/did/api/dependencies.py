@@ -1,6 +1,6 @@
 import hmac
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
@@ -34,6 +34,8 @@ class ServiceContainer:
     hot_cache: RedisHotCache
     pubsub: TenantPubSub
     stage04_repository: Stage04Repository
+    planning_repository: Any = None
+    planning: Any = None
 
 
 def services(request: Request) -> ServiceContainer:
