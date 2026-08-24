@@ -146,8 +146,18 @@ class PermissionEvaluator:
             incomplete.append("permissions.channel_type_unknown")
             unknown_status = True
         if resource is not None and resource.is_thread:
-            if not guild.coverage.threads_complete:
-                incomplete.append("coverage.threads_incomplete")
+            if resource.observability in {
+                ObservabilityState.OBFUSCATED,
+                ObservabilityState.ACCESS_LOST,
+                ObservabilityState.UNKNOWN,
+                ObservabilityState.DELETED_CONFIRMED,
+            }:
+                incomplete.append("permissions.thread_not_currently_observable")
+            if resource.freshness.state in {
+                FreshnessState.STALE,
+                FreshnessState.UNKNOWN,
+            }:
+                incomplete.append("permissions.thread_stale")
             if parent is None or resource.parent_id != parent.channel_id:
                 incomplete.append("permissions.thread_parent_missing")
                 unknown_status = True
@@ -172,6 +182,7 @@ class PermissionEvaluator:
                 ObservabilityState.OBFUSCATED,
                 ObservabilityState.ACCESS_LOST,
                 ObservabilityState.UNKNOWN,
+                ObservabilityState.DELETED_CONFIRMED,
             }:
                 incomplete.append("permissions.resource_not_currently_observable")
             if permission_resource.freshness.state in {
@@ -233,6 +244,14 @@ class PermissionEvaluator:
             and (
                 resource.observability is not ObservabilityState.VISIBLE
                 or resource.freshness.state is not FreshnessState.FRESH
+                or (
+                    resource.is_thread
+                    and parent is not None
+                    and (
+                        parent.observability is not ObservabilityState.VISIBLE
+                        or parent.freshness.state is not FreshnessState.FRESH
+                    )
+                )
             )
             else "CURRENT_CONFIRMED"
         )
@@ -247,7 +266,16 @@ class PermissionEvaluator:
             requested_permission=requested_permission,
             outcome=outcome,
             coverage=guild.coverage.mode,
-            freshness=(resource.freshness.state if resource else guild.coverage.freshness),
+            freshness=(
+                parent.freshness.state
+                if resource is not None
+                and resource.is_thread
+                and parent is not None
+                and parent.freshness.state is not FreshnessState.FRESH
+                else resource.freshness.state
+                if resource
+                else guild.coverage.freshness
+            ),
             incomplete_reasons=tuple(dict.fromkeys(incomplete)),
             trace=tuple(trace),
             implicit_denials=tuple(implicit_denials),
@@ -451,7 +479,11 @@ class PermissionEvaluator:
             if resource.channel_type is ChannelType.PRIVATE_THREAD and not (
                 effective & manage_threads
             ):
-                if not member.private_thread_memberships_complete:
+                membership_known = (
+                    member.private_thread_memberships_complete
+                    or resource.channel_id in member.private_thread_membership_known
+                )
+                if not membership_known:
                     incomplete.append("permissions.private_thread_membership_unknown")
                 elif resource.channel_id not in member.private_thread_memberships:
                     before = effective
@@ -468,6 +500,8 @@ class PermissionEvaluator:
                         self._implicit_trace(resource.channel_id, before, effective, denied)
                     )
                     return effective, denials
+            if resource.locked is None and not effective & manage_threads:
+                incomplete.append("permissions.thread_lock_state_unknown")
             send_in_threads = self.registry.value("SEND_MESSAGES_IN_THREADS")
             if not effective & send_in_threads:
                 effective, denial = self._remove_send_dependents(
@@ -491,6 +525,12 @@ class PermissionEvaluator:
                 before = effective
                 denied = effective & send_in_threads
                 effective &= ~send_in_threads
+                effective, dependent_denial = self._remove_send_dependents(
+                    effective,
+                    missing="MANAGE_THREADS",
+                    reason="permissions.implicit.lockedThread",
+                )
+                denied |= dependent_denial.denied_bits
                 warnings.append("permissions.thread.locked_without_manage_threads")
                 if denied:
                     denials.append(

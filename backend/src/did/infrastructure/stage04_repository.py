@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.read_model import (
+    ActiveThreadCoverageState,
     ChannelSnapshot,
     CoverageSnapshot,
     FreshnessSnapshot,
@@ -19,6 +20,7 @@ from did.domain.read_model import (
     MemberSnapshot,
     OverwriteSnapshot,
     RoleSnapshot,
+    ThreadActiveState,
 )
 from did.domain.read_model.models import ChannelType
 from did.domain.scopes import MembershipRuleType, ScopeMembershipRule, ScopeType, VisibilityScope
@@ -117,6 +119,20 @@ class Stage04Repository:
                 .mappings()
                 .one_or_none()
             )
+            membership_rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT thread_id, membership_state FROM "
+                            "discord_current_thread_memberships WHERE guild_id=:guild_id "
+                            "AND discord_user_id=:member_id"
+                        ),
+                        {"guild_id": guild_id, "member_id": member_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
         coverage = self._coverage(guild_id, coverage_row)
         role_freshness = coverage.freshness
         roles = tuple(
@@ -183,9 +199,14 @@ class Stage04Repository:
                     ),
                     archived=full_payload.get("archived"),
                     locked=full_payload.get("locked"),
+                    thread_active_state=(
+                        ThreadActiveState(str(row["thread_active_state"]))
+                        if row["thread_active_state"] is not None
+                        else None
+                    ),
                 )
             )
-        member = self._member(guild_id, member_id, member_row)
+        member = self._member(guild_id, member_id, member_row, membership_rows)
         guild_freshness = FreshnessSnapshot(
             coverage.freshness,
             "LOCAL_CACHE",
@@ -227,9 +248,32 @@ class Stage04Repository:
                 .mappings()
                 .all()
             )
+            membership_rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT thread_id, discord_user_id, membership_state FROM "
+                            "discord_current_thread_memberships WHERE guild_id=:guild_id "
+                            "AND discord_user_id = ANY(:member_ids)"
+                        ),
+                        {"guild_id": guild_id, "member_ids": list(member_ids)},
+                    )
+                )
+                .mappings()
+                .all()
+            )
         by_id = {int(row["discord_user_id"]): row for row in rows}
+        memberships_by_member: dict[int, list[Any]] = defaultdict(list)
+        for membership in membership_rows:
+            memberships_by_member[int(membership["discord_user_id"])].append(membership)
         return tuple(
-            self._member(guild_id, member_id, by_id.get(member_id)) for member_id in member_ids
+            self._member(
+                guild_id,
+                member_id,
+                by_id.get(member_id),
+                memberships_by_member.get(member_id, []),
+            )
+            for member_id in member_ids
         )
 
     async def bot_identity(self, guild_id: int) -> tuple[int | None, str | None]:
@@ -763,10 +807,21 @@ class Stage04Repository:
             overwrites_complete=str(row["coverage_mode"]) == "FULL",
             threads_complete=False,
             gateway_continuity=str(row["gateway_continuity"]),
+            active_threads_coverage=ActiveThreadCoverageState(
+                str(row.get("active_threads_coverage", "UNKNOWN"))
+            ),
         )
 
     @staticmethod
-    def _member(guild_id: int, member_id: int, row: Any) -> MemberSnapshot:
+    def _member(
+        guild_id: int, member_id: int, row: Any, membership_rows: Any = ()
+    ) -> MemberSnapshot:
+        known = frozenset(int(value["thread_id"]) for value in membership_rows)
+        memberships = frozenset(
+            int(value["thread_id"])
+            for value in membership_rows
+            if str(value["membership_state"]) == "MEMBER"
+        )
         if row is None:
             return MemberSnapshot(
                 guild_id,
@@ -774,6 +829,8 @@ class Stage04Repository:
                 (),
                 False,
                 FreshnessSnapshot(FreshnessState.UNKNOWN, "LOCAL_CACHE", 1, None),
+                private_thread_memberships=memberships,
+                private_thread_membership_known=known,
             )
         validity = str(row["validity"])
         freshness = (
@@ -789,6 +846,8 @@ class Stage04Repository:
             tuple(int(role_id) for role_id in row["role_ids"]),
             validity in {"FRESH", "STALE"},
             FreshnessSnapshot(freshness, str(row["source"]), 1, row["cache_updated_at"]),
+            private_thread_memberships=memberships,
+            private_thread_membership_known=known,
         )
 
     @staticmethod

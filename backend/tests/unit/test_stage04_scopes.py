@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -38,6 +38,20 @@ def member(
 
 def scope() -> VisibilityScope:
     return VisibilityScope(SCOPE_ID, GUILD, ScopeType.PROJECT, "alpha", "Alpha", version=3)
+
+
+def test_visibility_scope_domain_requires_exact_logical_group_coupling() -> None:
+    with pytest.raises(ValueError, match="logical_group_id"):
+        VisibilityScope(SCOPE_ID, GUILD, ScopeType.LOGICAL_GROUP, "group", "Group")
+    with pytest.raises(ValueError, match="logical_group_id"):
+        VisibilityScope(
+            SCOPE_ID,
+            GUILD,
+            ScopeType.PROJECT,
+            "project",
+            "Project",
+            logical_group_id=uuid4(),
+        )
 
 
 def rule(

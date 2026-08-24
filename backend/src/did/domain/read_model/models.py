@@ -12,6 +12,20 @@ class ResourceKind(StrEnum):
     DID_LOGICAL_RESOURCE = "DID_LOGICAL_RESOURCE"
 
 
+class ActiveThreadCoverageState(StrEnum):
+    ACTIVE_VISIBLE_THREADS_FULL = "ACTIVE_VISIBLE_THREADS_FULL"
+    PARTIAL = "PARTIAL"
+    DEGRADED = "DEGRADED"
+    UNKNOWN = "UNKNOWN"
+
+
+class ThreadActiveState(StrEnum):
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+    NOT_IN_ACTIVE_SYNC = "NOT_IN_ACTIVE_SYNC"
+    UNKNOWN = "UNKNOWN"
+
+
 class ChannelType(IntEnum):
     GUILD_TEXT = 0
     GUILD_VOICE = 2
@@ -72,6 +86,7 @@ class CoverageSnapshot:
     overwrites_complete: bool = False
     threads_complete: bool = False
     gateway_continuity: str = "UNKNOWN"
+    active_threads_coverage: ActiveThreadCoverageState = ActiveThreadCoverageState.UNKNOWN
 
     def __post_init__(self) -> None:
         if self.guild_id <= 0 or self.state_version <= 0:
@@ -136,6 +151,7 @@ class MemberSnapshot:
     is_bot: bool = False
     private_thread_memberships: frozenset[int] = frozenset()
     private_thread_memberships_complete: bool = False
+    private_thread_membership_known: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         if min(self.guild_id, self.user_id) <= 0:
@@ -144,6 +160,8 @@ class MemberSnapshot:
             role <= 0 for role in self.role_ids
         ):
             raise ValueError("member role_ids must be unique positive Snowflakes")
+        if any(value <= 0 for value in self.private_thread_membership_known):
+            raise ValueError("known private thread memberships must be positive Snowflakes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +179,7 @@ class ChannelSnapshot:
     resource_kind: ResourceKind = ResourceKind.DISCORD_RESOURCE
     archived: bool | None = None
     locked: bool | None = None
+    thread_active_state: ThreadActiveState | None = None
 
     def __post_init__(self) -> None:
         if min(self.guild_id, self.channel_id) <= 0:

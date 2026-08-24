@@ -130,6 +130,17 @@ class BotCapabilityChecker:
         causes: list[str] = []
         remediations: list[str] = []
         hierarchy: HierarchyDiagnostic | None = None
+        channel_operations = {
+            BotOperation.MANAGE_CHANNEL,
+            BotOperation.MANAGE_OVERWRITES,
+            BotOperation.SEND_MESSAGE,
+            BotOperation.MANAGE_THREAD,
+        }
+        role_operations = {BotOperation.MANAGE_ROLE, BotOperation.ASSIGN_ROLE}
+        if operation in channel_operations and channel is None:
+            causes.append("capability.channel_required")
+        if operation in role_operations and target_role is None:
+            causes.append("capability.target_role_required")
         if not installation_active:
             causes.append("capability.installation_not_active")
         if not required_intents_available:
@@ -154,7 +165,12 @@ class BotCapabilityChecker:
             )
         ):
             outcome = CapabilityOutcome.CANNOT
-        elif decision.status is not DecisionStatus.COMPLETE or not required_intents_available:
+        elif (
+            decision.status is not DecisionStatus.COMPLETE
+            or not required_intents_available
+            or "capability.channel_required" in causes
+            or "capability.target_role_required" in causes
+        ):
             outcome = CapabilityOutcome.UNKNOWN
         else:
             outcome = CapabilityOutcome.CAN

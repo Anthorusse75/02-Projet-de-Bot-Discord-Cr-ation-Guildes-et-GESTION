@@ -319,6 +319,69 @@ def test_thread_inherits_parent_and_requires_thread_send_permission() -> None:
     assert TraceStep.THREAD_INHERITANCE in {entry.step for entry in decision.trace}
 
 
+def test_thread_and_parent_freshness_are_independently_required() -> None:
+    parent = channel(state=FreshnessState.FRESH)
+    thread = channel(
+        channel_id=THREAD,
+        channel_type=ChannelType.PUBLIC_THREAD,
+        parent_id=CHANNEL,
+        state=FreshnessState.FRESH,
+        archived=False,
+        locked=False,
+    )
+    snapshot = guild(bits("VIEW_CHANNEL"), channels=(parent, thread))
+
+    current = evaluate(snapshot, member(), thread, parent=parent)
+    stale_thread = evaluate(
+        snapshot,
+        member(),
+        replace(thread, freshness=freshness(FreshnessState.STALE)),
+        parent=parent,
+    )
+    stale_parent = evaluate(
+        snapshot,
+        member(),
+        thread,
+        parent=replace(parent, freshness=freshness(FreshnessState.STALE)),
+    )
+
+    assert current.status is DecisionStatus.COMPLETE
+    assert "permissions.thread_stale" in stale_thread.incomplete_reasons
+    assert "permissions.resource_stale" in stale_parent.incomplete_reasons
+    assert stale_parent.data_assertion == "LAST_KNOWN"
+
+
+def test_locked_thread_removes_send_permission_and_its_dependents() -> None:
+    parent = channel()
+    thread = channel(
+        channel_id=THREAD,
+        channel_type=ChannelType.PUBLIC_THREAD,
+        parent_id=CHANNEL,
+        archived=True,
+        locked=True,
+    )
+    granted = bits(
+        "VIEW_CHANNEL",
+        "SEND_MESSAGES_IN_THREADS",
+        "MENTION_EVERYONE",
+        "SEND_TTS_MESSAGES",
+        "ATTACH_FILES",
+        "EMBED_LINKS",
+    )
+    decision = evaluate(guild(granted, channels=(parent, thread)), member(), thread, parent=parent)
+
+    assert decision.calculated_bits & bits("SEND_MESSAGES_IN_THREADS", "ATTACH_FILES")
+    assert not decision.effective_bits & bits(
+        "SEND_MESSAGES_IN_THREADS",
+        "MENTION_EVERYONE",
+        "SEND_TTS_MESSAGES",
+        "ATTACH_FILES",
+        "EMBED_LINKS",
+    )
+    assert "permissions.thread.archived" in decision.warnings
+    assert "permissions.thread.locked_without_manage_threads" in decision.warnings
+
+
 def test_private_thread_membership_is_fail_safe_and_manage_threads_bypasses_membership() -> None:
     parent = channel()
     thread = channel(
@@ -343,6 +406,15 @@ def test_private_thread_membership_is_fail_safe_and_manage_threads_bypasses_memb
         thread,
         parent=parent,
     )
+    excluded_with_thread_proof = evaluate(
+        snapshot,
+        replace(
+            member(private_complete=False),
+            private_thread_membership_known=frozenset({THREAD}),
+        ),
+        thread,
+        parent=parent,
+    )
 
     assert unknown.status is DecisionStatus.INCOMPLETE
     assert unknown.outcome is PermissionOutcome.UNKNOWN
@@ -350,6 +422,8 @@ def test_private_thread_membership_is_fail_safe_and_manage_threads_bypasses_memb
     assert excluded.effective_bits == 0
     assert included.effective_bits & bits("VIEW_CHANNEL")
     assert moderator.status is DecisionStatus.COMPLETE
+    assert excluded_with_thread_proof.status is DecisionStatus.COMPLETE
+    assert excluded_with_thread_proof.effective_bits == 0
 
 
 @pytest.mark.parametrize(
@@ -412,10 +486,12 @@ def test_category_sync_compares_observed_overwrites_without_inventing_inheritanc
     synced = channel(replace(common, channel_id=CHANNEL), parent_id=400)
     desynced = replace(synced, overwrites=())
     incomplete_category = replace(category, overwrites_complete=False)
+    stale_category = replace(category, freshness=freshness(FreshnessState.STALE))
 
     assert category_sync_state(synced, category) is CategorySyncState.SYNCED
     assert category_sync_state(desynced, category) is CategorySyncState.DESYNCED
     assert category_sync_state(synced, incomplete_category) is CategorySyncState.UNKNOWN
+    assert category_sync_state(synced, stale_category) is CategorySyncState.UNKNOWN
 
 
 def test_unknown_future_bits_survive_engine_and_decimal_api_above_js_safe_integer() -> None:

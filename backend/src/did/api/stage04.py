@@ -140,6 +140,12 @@ class VisibilityScopeCreate(BaseModel):
     rules: list[ScopeRuleInput] = Field(default_factory=list, max_length=100)
     explicit_member_ids: list[str] = Field(default_factory=list, max_length=1000)
 
+    @model_validator(mode="after")
+    def validate_logical_group_coupling(self) -> VisibilityScopeCreate:
+        if (self.scope_type is ScopeType.LOGICAL_GROUP) != (self.logical_group_id is not None):
+            raise ValueError("logical_group_id is required only when scope_type is LOGICAL_GROUP")
+        return self
+
 
 class VisibilityScopePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -177,6 +183,11 @@ def _channel_response(channel: ChannelSnapshot) -> dict[str, Any]:
             "CURRENT_CONFIRMED"
             if channel.observability.value == "VISIBLE" and channel.freshness.state.value == "FRESH"
             else "LAST_KNOWN"
+        ),
+        "archived": channel.archived,
+        "locked": channel.locked,
+        "thread_active_state": (
+            channel.thread_active_state.value if channel.thread_active_state is not None else None
         ),
     }
 
@@ -231,7 +242,16 @@ async def _permission_context(
     if body.view_as == "VIEW_AS_MEMBER":
         member = view_as_member(cached_member).member
     elif body.view_as == "VIEW_AS_ROLE":
-        member = view_as_role(guild, _id(body.role_id, "role_id"), freshness=guild.freshness).member
+        try:
+            member = view_as_role(
+                guild, _id(body.role_id, "role_id"), freshness=guild.freshness
+            ).member
+        except ValueError as exc:
+            raise ApiProblem(
+                status_code=404,
+                code="ROLE_NOT_FOUND",
+                message_key="errors.role.notFound",
+            ) from exc
     else:
         member = view_as_newcomer(guild, freshness=guild.freshness).member
     resource = guild.channel(parse_snowflake(body.resource_id)) if body.resource_id else None
@@ -372,6 +392,15 @@ async def evaluate_permission(
         capability=Capability.PERMISSIONS_READ,
         scope=AuthorizationScope.guild(),
     )
+    if body.requested_permission is not None:
+        try:
+            DEFAULT_PERMISSION_REGISTRY.value(body.requested_permission)
+        except ValueError as exc:
+            raise ApiProblem(
+                status_code=422,
+                code="UNKNOWN_PERMISSION",
+                message_key="errors.permissions.unknownPermission",
+            ) from exc
     guild, member, resource, parent = await _permission_context(parsed, body, container)
     started = perf_counter()
     decision = PermissionEvaluator().evaluate(
@@ -485,6 +514,22 @@ async def simulate_permission(
             message_key="errors.permissions.duplicateOverwriteTarget",
         )
     subjects = await container.stage04_repository.member_snapshots(parsed, subject_ids)
+    by_subject = {subject.user_id: subject for subject in subjects}
+    for overwrite_value in proposed:
+        if overwrite_value.target_type == 0 and guild.role(overwrite_value.target_id) is None:
+            raise ApiProblem(
+                status_code=422,
+                code="OVERWRITE_ROLE_UNRESOLVED",
+                message_key="errors.permissions.overwriteRoleUnresolved",
+            )
+        if overwrite_value.target_type == 1:
+            subject = by_subject.get(overwrite_value.target_id)
+            if subject is None or not subject.roles_complete:
+                raise ApiProblem(
+                    status_code=422,
+                    code="OVERWRITE_MEMBER_UNRESOLVED",
+                    message_key="errors.permissions.overwriteMemberUnresolved",
+                )
     impact = simulate_overwrites(
         evaluator=PermissionEvaluator(),
         guild=guild,
@@ -529,6 +574,25 @@ async def capabilities(
         scope=AuthorizationScope.guild(),
         sensitive=True,
     )
+    channel_operations = {
+        BotOperation.MANAGE_CHANNEL,
+        BotOperation.MANAGE_OVERWRITES,
+        BotOperation.SEND_MESSAGE,
+        BotOperation.MANAGE_THREAD,
+    }
+    role_operations = {BotOperation.MANAGE_ROLE, BotOperation.ASSIGN_ROLE}
+    if operation in channel_operations and channel_id is None:
+        raise ApiProblem(
+            status_code=422,
+            code="CHANNEL_REQUIRED",
+            message_key="errors.capability.channelRequired",
+        )
+    if operation in role_operations and target_role_id is None:
+        raise ApiProblem(
+            status_code=422,
+            code="TARGET_ROLE_REQUIRED",
+            message_key="errors.capability.targetRoleRequired",
+        )
     bot_id, installation_status = await container.stage04_repository.bot_identity(parsed)
     if bot_id is None:
         container.runtime_repository.metrics.capability_check(CapabilityOutcome.UNKNOWN.value)
@@ -542,6 +606,12 @@ async def capabilities(
     guild, bot = await container.stage04_repository.guild_snapshot(parsed, bot_id)
     channel = guild.channel(parse_snowflake(channel_id)) if channel_id else None
     target = guild.role(parse_snowflake(target_role_id)) if target_role_id else None
+    if channel_id is not None and channel is None:
+        raise ApiProblem(
+            status_code=404, code="RESOURCE_NOT_FOUND", message_key="errors.resource.notFound"
+        )
+    if target_role_id is not None and target is None:
+        raise ApiProblem(status_code=404, code="ROLE_NOT_FOUND", message_key="errors.role.notFound")
     decision = BotCapabilityChecker().check(
         operation=operation,
         guild=guild,

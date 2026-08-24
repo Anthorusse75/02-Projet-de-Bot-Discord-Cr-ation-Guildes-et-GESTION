@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from did.domain.discord_runtime import FreshnessState
 from did.domain.read_model import (
     ChannelSnapshot,
     FreshnessSnapshot,
@@ -85,6 +86,11 @@ def category_sync_state(
     if not channel.overwrites_complete or not category.overwrites_complete:
         return CategorySyncState.UNKNOWN
     if channel.observability.value != "VISIBLE" or category.observability.value != "VISIBLE":
+        return CategorySyncState.UNKNOWN
+    if (
+        channel.freshness.state is not FreshnessState.FRESH
+        or category.freshness.state is not FreshnessState.FRESH
+    ):
         return CategorySyncState.UNKNOWN
 
     def canonical(values: tuple[OverwriteSnapshot, ...]) -> list[tuple[int, int, int, int]]:

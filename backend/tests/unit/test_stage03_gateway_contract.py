@@ -253,6 +253,69 @@ def test_thread_metadata_and_initial_threads_are_normalized() -> None:
     assert initial.payload["threads"] == [direct.payload]
 
 
+def test_thread_sync_and_current_user_membership_signals_are_normalized() -> None:
+    thread_id = 333333333333333333
+    parent_id = 222222222222222222
+    user_id = 555555555555555555
+    thread = {
+        "id": str(thread_id),
+        "type": 12,
+        "parent_id": str(parent_id),
+        "name": "private-thread",
+        "thread_metadata": {"archived": False, "locked": False},
+        "member": {"id": str(thread_id)},
+    }
+    sync = normalize_gateway_dispatch(
+        dispatch(
+            "THREAD_LIST_SYNC",
+            {
+                "guild_id": str(GUILD),
+                "channel_ids": [str(parent_id)],
+                "threads": [thread],
+                "members": [{"id": str(thread_id), "user_id": str(user_id)}],
+            },
+        ),
+        discord_session_id=SESSION,
+    )
+    whole_guild_sync = normalize_gateway_dispatch(
+        dispatch(
+            "THREAD_LIST_SYNC",
+            {"guild_id": str(GUILD), "threads": [], "members": []},
+        ),
+        discord_session_id=SESSION,
+    )
+    current_member = normalize_gateway_dispatch(
+        dispatch(
+            "THREAD_MEMBER_UPDATE",
+            {"guild_id": str(GUILD), "id": str(thread_id), "user_id": str(user_id)},
+        ),
+        discord_session_id=SESSION,
+    )
+    members_changed = normalize_gateway_dispatch(
+        dispatch(
+            "THREAD_MEMBERS_UPDATE",
+            {
+                "guild_id": str(GUILD),
+                "id": str(thread_id),
+                "added_members": [{"user_id": str(user_id)}],
+                "removed_member_ids": ["666666666666666666"],
+            },
+        ),
+        discord_session_id=SESSION,
+    )
+
+    assert sync is not None
+    assert sync.payload["channel_ids"] == [parent_id]
+    assert sync.payload["threads"][0]["current_user_member"] is True
+    assert sync.payload["members"] == [{"thread_id": thread_id, "discord_user_id": user_id}]
+    assert whole_guild_sync is not None
+    assert whole_guild_sync.payload["channel_ids"] is None
+    assert current_member is not None
+    assert current_member.payload["membership_state"] == "MEMBER"
+    assert members_changed is not None
+    assert members_changed.payload["added_user_ids"] == [user_id]
+
+
 @pytest.mark.parametrize(
     "packet",
     [

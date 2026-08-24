@@ -6,13 +6,19 @@ from typing import Any
 
 import pytest
 
+from did.api.dependencies import ApiProblem
 from did.api.stage04 import (
+    OverwriteInput,
     PermissionRequest,
     ScopeRuleInput,
+    SimulationRequest,
+    VisibilityScopeCreate,
     _json_ids,
+    capabilities,
     coverage,
     evaluate_permission,
     roles,
+    simulate_permission,
     structure,
 )
 from did.application.auth.service import AuthorizationDenied
@@ -94,9 +100,30 @@ class InstrumentedRepository:
         self.guild, self.member = snapshots()
 
     async def guild_snapshot(self, guild_id: int, member_id: int):
-        assert (guild_id, member_id) == (GUILD, ACTOR)
+        assert guild_id == GUILD
         self.events.append("postgres_projection")
         return self.guild, self.member
+
+    async def bot_identity(self, guild_id: int) -> tuple[int, str]:
+        assert guild_id == GUILD
+        return ACTOR, "ACTIVE"
+
+    async def member_snapshots(
+        self, guild_id: int, member_ids: tuple[int, ...]
+    ) -> tuple[MemberSnapshot, ...]:
+        assert guild_id == GUILD
+        return tuple(
+            self.member
+            if member_id == ACTOR
+            else MemberSnapshot(
+                GUILD,
+                member_id,
+                (),
+                False,
+                FreshnessSnapshot(FreshnessState.UNKNOWN, "LOCAL_CACHE", 1, None),
+            )
+            for member_id in member_ids
+        )
 
     async def structure(self, guild_id: int):
         assert guild_id == GUILD
@@ -187,3 +214,96 @@ def test_single_role_scope_rule_rejects_invalid_or_ambiguous_configs(
 ) -> None:
     with pytest.raises(ValueError):
         ScopeRuleInput(rule_type="DISCORD_ROLE", config=config, priority=1)
+
+
+async def test_unknown_permission_and_missing_view_as_role_have_stable_api_codes() -> None:
+    services = container([])
+    with pytest.raises(ApiProblem) as unknown:
+        await evaluate_permission(
+            str(GUILD),
+            PermissionRequest(
+                view_as="VIEW_AS_MEMBER",
+                subject_id=str(ACTOR),
+                requested_permission="FUTURE_PERMISSION",
+            ),
+            session(),
+            services,
+        )
+    assert (unknown.value.status_code, unknown.value.code) == (422, "UNKNOWN_PERMISSION")
+
+    with pytest.raises(ApiProblem) as missing_role:
+        await evaluate_permission(
+            str(GUILD),
+            PermissionRequest(
+                view_as="VIEW_AS_ROLE",
+                role_id="630303030303039999",
+                requested_permission="VIEW_CHANNEL",
+            ),
+            session(),
+            services,
+        )
+    assert (missing_role.value.status_code, missing_role.value.code) == (404, "ROLE_NOT_FOUND")
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_code"),
+    [
+        ("MANAGE_CHANNEL", "CHANNEL_REQUIRED"),
+        ("MANAGE_OVERWRITES", "CHANNEL_REQUIRED"),
+        ("SEND_MESSAGE", "CHANNEL_REQUIRED"),
+        ("MANAGE_THREAD", "CHANNEL_REQUIRED"),
+        ("MANAGE_ROLE", "TARGET_ROLE_REQUIRED"),
+        ("ASSIGN_ROLE", "TARGET_ROLE_REQUIRED"),
+    ],
+)
+async def test_capability_operations_require_their_target(
+    operation: str, expected_code: str
+) -> None:
+    from did.permissions.capabilities import BotOperation
+
+    with pytest.raises(ApiProblem) as problem:
+        await capabilities(
+            str(GUILD),
+            session(),
+            container([]),
+            BotOperation(operation),
+            None,
+            None,
+        )
+    assert (problem.value.status_code, problem.value.code) == (422, expected_code)
+
+
+def test_visibility_scope_type_and_logical_group_are_coupled_at_api_boundary() -> None:
+    from uuid import uuid4
+
+    with pytest.raises(ValueError):
+        VisibilityScopeCreate(scope_type="LOGICAL_GROUP", scope_key="group", name="Group")
+    with pytest.raises(ValueError):
+        VisibilityScopeCreate(
+            scope_type="GLOBAL",
+            scope_key="global",
+            name="Global",
+            logical_group_id=uuid4(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("target_type", "code"),
+    [(0, "OVERWRITE_ROLE_UNRESOLVED"), (1, "OVERWRITE_MEMBER_UNRESOLVED")],
+)
+async def test_simulation_rejects_unresolved_overwrite_targets(target_type: int, code: str) -> None:
+    body = SimulationRequest(
+        resource_id=str(CHANNEL),
+        subject_ids=[str(ACTOR)],
+        proposed_overwrites=[
+            OverwriteInput(
+                target_id="630303030303039999",
+                target_type=target_type,
+                allow="0",
+                deny="0",
+            )
+        ],
+    )
+    with pytest.raises(ApiProblem) as problem:
+        await simulate_permission(str(GUILD), body, session(), container([]))
+    assert (problem.value.status_code, problem.value.code) == (422, code)

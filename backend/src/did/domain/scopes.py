@@ -47,6 +47,10 @@ class VisibilityScope:
             raise ValueError("scope guild and version must be positive")
         if not self.scope_key or len(self.scope_key) > 128:
             raise ValueError("scope_key must be present and bounded")
+        if (self.scope_type is ScopeType.LOGICAL_GROUP) != (self.logical_group_id is not None):
+            raise ValueError(
+                "logical_group_id is required only for LOGICAL_GROUP visibility scopes"
+            )
 
 
 @dataclass(frozen=True, slots=True)

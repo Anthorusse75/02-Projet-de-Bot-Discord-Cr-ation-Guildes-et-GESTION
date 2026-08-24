@@ -1,4 +1,5 @@
 from did.domain.read_model.models import (
+    ActiveThreadCoverageState,
     ChannelSnapshot,
     CoverageSnapshot,
     FreshnessSnapshot,
@@ -7,9 +8,11 @@ from did.domain.read_model.models import (
     OverwriteSnapshot,
     ResourceKind,
     RoleSnapshot,
+    ThreadActiveState,
 )
 
 __all__ = [
+    "ActiveThreadCoverageState",
     "ChannelSnapshot",
     "CoverageSnapshot",
     "FreshnessSnapshot",
@@ -18,4 +21,5 @@ __all__ = [
     "OverwriteSnapshot",
     "ResourceKind",
     "RoleSnapshot",
+    "ThreadActiveState",
 ]
