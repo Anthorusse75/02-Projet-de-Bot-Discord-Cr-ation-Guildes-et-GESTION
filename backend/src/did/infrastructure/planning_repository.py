@@ -912,7 +912,8 @@ class PlanningRepository:
                 await session.execute(
                     text(
                         "UPDATE operation_attempts SET status='FAILED',completed_at=:now,"
-                        "outcome_detail=CAST(:detail AS jsonb) "
+                        "outcome_detail=COALESCE(outcome_detail,'{}'::jsonb) || "
+                        "CAST(:detail AS jsonb) "
                         "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=ANY(:ids)"
                     ),
                     {
@@ -1136,7 +1137,8 @@ class PlanningRepository:
             attempt = await session.scalar(
                 text(
                     "UPDATE operation_attempts SET status='FAILED',completed_at=now(),"
-                    "error_classification=:code,outcome_detail=CAST(:detail AS jsonb) "
+                    "error_classification=:code,outcome_detail="
+                    "COALESCE(outcome_detail,'{}'::jsonb) || CAST(:detail AS jsonb) "
                     "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=:attempt_id "
                     "AND operation_id=:operation_id AND status='PREPARED' AND "
                     "lease_owner=:owner AND lease_token=:token AND lease_generation="
@@ -1262,7 +1264,8 @@ class PlanningRepository:
                 text(
                     "UPDATE operation_attempts SET status='SUCCEEDED',completed_at=:now,"
                     "discord_status=:discord_status,result_fingerprint=:fingerprint,"
-                    "outcome_detail=CAST(:detail AS jsonb) WHERE guild_id=:guild_id AND "
+                    "outcome_detail=COALESCE(outcome_detail,'{}'::jsonb) || "
+                    "CAST(:detail AS jsonb) WHERE guild_id=:guild_id AND "
                     "plan_id=:plan_id AND operation_id=:operation_id AND id=:attempt_id "
                     "AND status='IN_FLIGHT' AND lease_owner=:owner AND lease_token=:token "
                     "AND lease_generation=:generation RETURNING id"
