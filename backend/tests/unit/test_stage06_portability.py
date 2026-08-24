@@ -497,6 +497,27 @@ def test_live_builder_closes_category_roles_and_overwrites_without_operational_i
         )
 
 
+def test_live_builder_ignores_unrelated_obfuscated_channels_outside_the_closed_selection() -> None:
+    source = live_snapshot()
+    unrelated = replace(
+        source.channels[1],
+        channel_id=623456789012345678,
+        name="unrelated-hidden",
+        parent_id=None,
+        overwrites=(),
+        observability=ObservabilityState.OBFUSCATED,
+    )
+    source = replace(source, channels=(*source.channels, unrelated))
+    value = PortableArtifactBuilder().build_live(
+        source,
+        ArtifactSelection(
+            ArtifactType.CATEGORY,
+            category_ids=(323456789012345678,),
+        ),
+    )
+    assert "unrelated-hidden" not in artifact_to_bytes(value).decode("utf-8")
+
+
 def test_compiler_targets_only_destination_and_reconcile_deletes_need_explicit_scope() -> None:
     value = artifact(role_resource())
     resolutions = MappingResolver().resolve(

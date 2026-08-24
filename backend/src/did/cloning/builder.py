@@ -36,7 +36,7 @@ class PortableArtifactBuilder:
     """Build a closed immutable snapshot while the source read context is active."""
 
     def build_live(self, guild: GuildSnapshot, selection: ArtifactSelection) -> PortableArtifact:
-        self._assert_live_source(guild)
+        self._assert_live_source_coverage(guild)
         channels = {channel.channel_id: channel for channel in guild.channels}
         roles = {role.role_id: role for role in guild.roles}
         selected_channels = set(selection.channel_ids)
@@ -70,6 +70,7 @@ class PortableArtifactBuilder:
                     selected_roles.add(overwrite.target_id)
         if not selected_channels and not selected_roles:
             raise ValueError("portable selection is empty")
+        self._assert_selected_observable(guild, selected_channels, selected_roles)
 
         channel_keys = self._keys(
             "category",
@@ -245,7 +246,7 @@ class PortableArtifactBuilder:
         )
 
     @staticmethod
-    def _assert_live_source(guild: GuildSnapshot) -> None:
+    def _assert_live_source_coverage(guild: GuildSnapshot) -> None:
         if (
             guild.coverage.mode is not CoverageMode.FULL
             or guild.coverage.freshness is not FreshnessState.FRESH
@@ -255,10 +256,24 @@ class PortableArtifactBuilder:
             or not guild.coverage.overwrites_complete
         ):
             raise SourceNotObservable("live clone source coverage is insufficient")
+
+    @staticmethod
+    def _assert_selected_observable(
+        guild: GuildSnapshot,
+        channel_ids: set[int],
+        role_ids: set[int],
+    ) -> None:
+        channels = {channel.channel_id: channel for channel in guild.channels}
+        roles = {role.role_id: role for role in guild.roles}
         if any(
-            channel.observability is not ObservabilityState.VISIBLE
-            or channel.freshness.state is not FreshnessState.FRESH
-            for channel in guild.channels
+            channel_id not in channels
+            or channels[channel_id].observability is not ObservabilityState.VISIBLE
+            or channels[channel_id].freshness.state is not FreshnessState.FRESH
+            or not channels[channel_id].overwrites_complete
+            for channel_id in channel_ids
+        ) or any(
+            role_id not in roles or roles[role_id].freshness.state is not FreshnessState.FRESH
+            for role_id in role_ids
         ):
             raise SourceNotObservable("live clone source is stale, hidden or inaccessible")
 
