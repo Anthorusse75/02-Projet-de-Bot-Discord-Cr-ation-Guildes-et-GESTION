@@ -124,6 +124,15 @@ class RuntimeRepository:
                 return False
             self.metrics.gateway_signal("dispatch")
             applied = await self._project(session, envelope)
+            if applied and envelope.event_type in {
+                "CHANNEL_CREATE",
+                "CHANNEL_UPDATE",
+                "CHANNEL_DELETE",
+                "GUILD_ROLE_CREATE",
+                "GUILD_ROLE_UPDATE",
+                "GUILD_ROLE_DELETE",
+            }:
+                await self._classify_plan_gateway_event(session, envelope)
             await session.execute(
                 text(
                     "UPDATE discord_gateway_inbox SET status='PROJECTED', projected_at=now() "
@@ -146,6 +155,139 @@ class RuntimeRepository:
                 )
                 await self._refresh_coverage(session, envelope.guild_id, envelope.received_at)
             return True
+
+    async def _classify_plan_gateway_event(
+        self, session: AsyncSession, envelope: EventEnvelope
+    ) -> None:
+        """Match inferred own events conservatively; never claim native plan correlation."""
+        resource_id = int(
+            envelope.payload.get("channel_id") or envelope.payload.get("role_id") or 0
+        )
+        if resource_id <= 0:
+            return
+        observed = self._plan_event_payload(envelope, resource_id)
+        candidates = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT * FROM plan_expected_mutations WHERE guild_id=:guild_id "
+                        "AND event_type=:event_type AND discord_resource_id=:resource_id "
+                        "AND status='EXPECTED' AND expires_at>now() ORDER BY expires_at"
+                    ),
+                    {
+                        "guild_id": envelope.guild_id,
+                        "event_type": envelope.event_type,
+                        "resource_id": resource_id,
+                    },
+                )
+            )
+            .mappings()
+            .all()
+        )
+        exact = [
+            row
+            for row in candidates
+            if self._expected_subset(dict(row["expected_payload"]), observed)
+        ]
+        if len(exact) == 1:
+            await session.execute(
+                text(
+                    "UPDATE plan_expected_mutations SET status='OBSERVED',observed_at=now() "
+                    "WHERE guild_id=:guild_id AND id=:id AND status='EXPECTED'"
+                ),
+                {"guild_id": envelope.guild_id, "id": exact[0]["id"]},
+            )
+            return
+
+        # Gateway may beat the REST response/DB commit for a CREATE.  A unique
+        # in-flight operation with a matching desired subset is inferred as own,
+        # without manufacturing a Discord-native correlation identifier.
+        inflight = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT operations.desired_payload FROM plan_operations operations "
+                        "JOIN plans ON plans.guild_id=operations.guild_id "
+                        "AND plans.id=operations.plan_id WHERE operations.guild_id=:guild_id "
+                        "AND plans.status='APPLYING' AND operations.status='IN_FLIGHT' "
+                        "AND :event_type=ANY(operations.expected_gateway_events)"
+                    ),
+                    {"guild_id": envelope.guild_id, "event_type": envelope.event_type},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        inferred = [
+            row for row in inflight if self._expected_subset(dict(row["desired_payload"]), observed)
+        ]
+        if len(inferred) == 1:
+            return
+
+        stale = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE plans SET status='STALE',drift_detected_at=now(),"
+                        "error_code='STRUCTURE_DRIFT',state_version=state_version+1,"
+                        "updated_at=now() WHERE guild_id=:guild_id AND status IN "
+                        "('DRAFT','VALIDATED','CONFIRMED') RETURNING id"
+                    ),
+                    {"guild_id": envelope.guild_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        interrupted = (
+            (
+                await session.execute(
+                    text(
+                        "UPDATE plans SET status='INTERVENTION_REQUIRED',"
+                        "drift_detected_at=now(),completed_at=now(),"
+                        "error_code='DRIFT_DURING_APPLY',state_version=state_version+1,"
+                        "updated_at=now() WHERE guild_id=:guild_id AND status IN "
+                        "('APPLYING','CANCEL_REQUESTED') RETURNING id"
+                    ),
+                    {"guild_id": envelope.guild_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if stale or interrupted:
+            await self._append_audit(
+                session,
+                envelope,
+                event_type="PLAN_STRUCTURE_DRIFT_DETECTED",
+                target_type="DISCORD_RESOURCE",
+                target_id=resource_id,
+                result_state="INTERVENTION_REQUIRED" if interrupted else "STALE",
+            )
+
+    @staticmethod
+    def _plan_event_payload(envelope: EventEnvelope, resource_id: int) -> dict[str, Any]:
+        payload = dict(envelope.payload)
+        payload["id"] = resource_id
+        if envelope.event_type.endswith("_DELETE"):
+            payload["deleted"] = True
+        return payload
+
+    @staticmethod
+    def _expected_subset(expected: dict[str, Any], observed: dict[str, Any]) -> bool:
+        ignored = {
+            "resource_ref",
+            "parent_symbol",
+            "channel_symbol",
+            "subject_symbol",
+            "lock_permissions",
+        }
+        comparable = {
+            key: value for key, value in expected.items() if key not in ignored and key in observed
+        }
+        if not comparable:
+            return False
+        return all(str(observed[key]) == str(value) for key, value in comparable.items())
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
         event_type = envelope.event_type

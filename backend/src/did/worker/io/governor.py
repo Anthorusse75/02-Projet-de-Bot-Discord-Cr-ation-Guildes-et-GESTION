@@ -360,11 +360,7 @@ class DiscordWorkloadGovernor:
         now = occurred_at or datetime.now(UTC)
         if failure.kind is DiscordErrorKind.UNAUTHORIZED:
             self._halted = True
-        if failure.kind in {
-            DiscordErrorKind.UNAUTHORIZED,
-            DiscordErrorKind.FORBIDDEN,
-            DiscordErrorKind.RATE_LIMITED,
-        }:
+        if failure.counts_toward_invalid_request_limit:
             self._invalid_requests.append(now)
         if failure.kind is DiscordErrorKind.RATE_LIMITED:
             self.metrics.rate_limited += 1

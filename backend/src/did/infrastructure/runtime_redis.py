@@ -480,11 +480,7 @@ return redis.call('zcard', KEYS[1])
             await self._redis.set(self._halt_key, "invalid", nx=True)
         if failure.kind is DiscordErrorKind.RATE_LIMITED:
             await self._redis.set(self._rate_pressure_key, "1", ex=30)
-        if failure.kind not in {
-            DiscordErrorKind.UNAUTHORIZED,
-            DiscordErrorKind.FORBIDDEN,
-            DiscordErrorKind.RATE_LIMITED,
-        }:
+        if not failure.counts_toward_invalid_request_limit:
             return await self.invalid_request_count()
         now_ms = int(datetime.now().timestamp() * 1000)
         return int(

@@ -146,6 +146,7 @@ class DiscordPyStructureAdapter:
                     if headers
                     else False,
                     error_code=getattr(exc, "code", None),
+                    rate_limit_scope=headers.get("X-RateLimit-Scope") if headers else None,
                 )
             )
         return DiscordAdapterError(DiscordFailure(DiscordErrorKind.TRANSIENT, None))

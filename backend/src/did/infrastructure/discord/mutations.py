@@ -1,0 +1,456 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any, Protocol, cast
+from uuid import UUID
+
+import aiohttp
+import discord
+
+from did.domain.discord_runtime import DiscordErrorKind, DiscordFailure
+from did.infrastructure.discord.adapter import DiscordAdapterError, DiscordPyStructureAdapter
+from did.planning.canonical import canonical_hash
+from did.planning.models import OperationType
+
+
+class RecoveryOutcome(StrEnum):
+    PROVED_CREATED = "PROVED_CREATED"
+    PROVED_APPLIED = "PROVED_APPLIED"
+    PROVED_ABSENT = "PROVED_ABSENT"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
+@dataclass(frozen=True, slots=True)
+class MutationResult:
+    discord_status: int
+    payload: dict[str, Any]
+    audit_reason_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryResult:
+    outcome: RecoveryOutcome
+    payload: dict[str, Any] | None = None
+
+
+class MutableDiscordError(DiscordAdapterError):
+    def __init__(self, failure: DiscordFailure, *, outcome_unknown: bool) -> None:
+        self.outcome_unknown = outcome_unknown
+        super().__init__(failure)
+
+
+class MutableDiscordPort(Protocol):
+    async def execute(
+        self,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        operation_id: UUID,
+        correlation_id: UUID,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+    ) -> MutationResult: ...
+
+    async def recover(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        before_payload: dict[str, Any],
+    ) -> RecoveryResult: ...
+
+    async def verify(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        result_payload: dict[str, Any] | None,
+    ) -> bool: ...
+
+
+def audit_reason(plan_id: UUID, operation_id: UUID, correlation_id: UUID) -> tuple[str, str]:
+    reason = f"DID plan={plan_id} op={operation_id} corr={correlation_id}"
+    encoded_length = len(reason.encode("utf-8"))
+    if encoded_length > 512:
+        raise ValueError("Discord audit reason exceeds 512 UTF-8 bytes")
+    return reason, hashlib.sha256(reason.encode()).hexdigest()
+
+
+class DiscordPyMutableAdapter:
+    """Closed structural mutation adapter; discord.py owns route buckets and 429s."""
+
+    def __init__(self, client: discord.Client) -> None:
+        self._client = client
+        self._reads = DiscordPyStructureAdapter(client)
+
+    async def execute(
+        self,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        operation_id: UUID,
+        correlation_id: UUID,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+    ) -> MutationResult:
+        reason, reason_fingerprint = audit_reason(plan_id, operation_id, correlation_id)
+        http = self._client.http
+        try:
+            result, status_code = await self._dispatch(
+                http, guild_id, operation_type, dict(payload), reason
+            )
+        except Exception as exc:
+            raise self._translate_mutation(exc) from exc
+        return MutationResult(status_code, result, reason_fingerprint)
+
+    async def _dispatch(
+        self,
+        http: discord.http.HTTPClient,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        reason: str,
+    ) -> tuple[dict[str, Any], int]:
+        if operation_type is OperationType.CREATE_ROLE:
+            fields = self._only(payload, {"name", "permissions", "color", "hoist", "mentionable"})
+            if "permissions" in fields:
+                fields["permissions"] = str(fields["permissions"])
+            role_result = await http.create_role(guild_id, reason=reason, **fields)
+            return self._normalise(role_result), 201
+        if operation_type is OperationType.UPDATE_ROLE:
+            role_id = self._required_id(payload, "id")
+            fields = self._only(payload, {"name", "permissions", "color", "hoist", "mentionable"})
+            if "permissions" in fields:
+                fields["permissions"] = str(fields["permissions"])
+            role_result = await http.edit_role(guild_id, role_id, reason=reason, **fields)
+            return self._normalise(role_result), 200
+        if operation_type is OperationType.DELETE_ROLE:
+            await http.delete_role(guild_id, self._required_id(payload, "id"), reason=reason)
+            return {"id": self._required_id(payload, "id"), "deleted": True}, 204
+        if operation_type is OperationType.REORDER_ROLES:
+            positions = [
+                {"id": self._required_id(item, "id"), "position": int(item["position"])}
+                for item in self._items(payload)
+            ]
+            role_results = await http.move_role_position(
+                guild_id, cast(Any, positions), reason=reason
+            )
+            return {"items": [self._normalise(item) for item in role_results]}, 200
+        if operation_type is OperationType.CREATE_CHANNEL:
+            channel_type = int(payload.get("type", 0))
+            fields = self._only(
+                payload,
+                {
+                    "name",
+                    "topic",
+                    "parent_id",
+                    "position",
+                    "nsfw",
+                    "bitrate",
+                    "user_limit",
+                    "rate_limit_per_user",
+                },
+            )
+            channel_result = await http.create_channel(
+                guild_id, cast(Any, channel_type), reason=reason, **fields
+            )
+            return self._normalise(channel_result), 201
+        if operation_type is OperationType.UPDATE_CHANNEL:
+            channel_id = self._required_id(payload, "id")
+            fields = self._only(
+                payload,
+                {
+                    "name",
+                    "topic",
+                    "nsfw",
+                    "bitrate",
+                    "user_limit",
+                    "rate_limit_per_user",
+                    "flags",
+                },
+            )
+            edited_channel_result = await http.edit_channel(channel_id, reason=reason, **fields)
+            return self._normalise(edited_channel_result), 200
+        if operation_type is OperationType.MOVE_OR_REORDER_CHANNELS:
+            items = []
+            parent_changes = 0
+            for item in self._items(payload):
+                clean = self._only(item, {"id", "position", "parent_id", "lock_permissions"})
+                clean["id"] = self._required_id(item, "id")
+                if "parent_id" in clean:
+                    parent_changes += 1
+                items.append(clean)
+            if parent_changes > 1:
+                raise ValueError("Discord permits one channel parent change per request")
+            await http.bulk_channel_update(guild_id, cast(Any, items), reason=reason)
+            return {"items": items}, 204
+        if operation_type is OperationType.DELETE_CHANNEL:
+            channel_id = self._required_id(payload, "id")
+            await http.delete_channel(channel_id, reason=reason)
+            return {"id": channel_id, "deleted": True}, 204
+        if operation_type is OperationType.UPSERT_OVERWRITE:
+            channel_id = self._required_id(payload, "channel_id")
+            target_id = self._required_id(payload, "subject_id", fallback="target_id")
+            await http.edit_channel_permissions(
+                channel_id,
+                target_id,
+                str(payload.get("allow", 0)),
+                str(payload.get("deny", 0)),
+                cast(Any, int(payload.get("target_type", 0))),
+                reason=reason,
+            )
+            return {
+                "channel_id": channel_id,
+                "target_id": target_id,
+                "target_type": int(payload.get("target_type", 0)),
+                "allow": int(payload.get("allow", 0)),
+                "deny": int(payload.get("deny", 0)),
+            }, 204
+        if operation_type is OperationType.DELETE_OVERWRITE:
+            channel_id = self._required_id(payload, "channel_id")
+            target_id = self._required_id(payload, "subject_id", fallback="target_id")
+            await http.delete_channel_permissions(channel_id, target_id, reason=reason)
+            return {"channel_id": channel_id, "target_id": target_id, "deleted": True}, 204
+        raise ValueError(f"unsupported structural operation: {operation_type.value}")
+
+    async def recover(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        before_payload: dict[str, Any],
+    ) -> RecoveryResult:
+        if operation_type in {
+            OperationType.UPSERT_OVERWRITE,
+            OperationType.DELETE_OVERWRITE,
+        }:
+            channels = await self._reads.fetch_channels(guild_id)
+            return self._recover_overwrite(operation_type, channels, payload, before_payload)
+        resources = (
+            await self._reads.fetch_roles(guild_id)
+            if operation_type
+            in {
+                OperationType.CREATE_ROLE,
+                OperationType.UPDATE_ROLE,
+                OperationType.DELETE_ROLE,
+                OperationType.REORDER_ROLES,
+            }
+            else await self._reads.fetch_channels(guild_id)
+        )
+        creates = {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}
+        deletes = {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL}
+        if operation_type in {
+            OperationType.REORDER_ROLES,
+            OperationType.MOVE_OR_REORDER_CHANNELS,
+        }:
+            items = payload.get("items", [])
+            if not isinstance(items, list):
+                return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+            by_id = {
+                int(item.get("id", item.get("role_id", item.get("channel_id", 0)))): item
+                for item in resources
+            }
+            if all(
+                int(item.get("id", 0)) in by_id and self._matches(by_id[int(item["id"])], item)
+                for item in items
+                if isinstance(item, dict)
+            ):
+                return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, {"items": items})
+            return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+        if operation_type in creates:
+            candidates = [
+                item for item in resources if self._matches(item, payload, ignore={"position"})
+            ]
+            if len(candidates) == 1:
+                return RecoveryResult(RecoveryOutcome.PROVED_CREATED, candidates[0])
+            if not candidates:
+                return RecoveryResult(RecoveryOutcome.PROVED_ABSENT)
+            return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+        resource_id = payload.get("id")
+        current = next(
+            (
+                item
+                for item in resources
+                if int(item.get("id", item.get("role_id", item.get("channel_id", 0))))
+                == int(resource_id or 0)
+            ),
+            None,
+        )
+        if operation_type in deletes:
+            return RecoveryResult(
+                RecoveryOutcome.PROVED_APPLIED
+                if current is None
+                else RecoveryOutcome.PROVED_ABSENT,
+                current,
+            )
+        if current is not None and self._matches(current, payload):
+            return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, current)
+        if current is not None and self._matches(current, before_payload):
+            return RecoveryResult(RecoveryOutcome.PROVED_ABSENT, current)
+        return RecoveryResult(RecoveryOutcome.AMBIGUOUS, current)
+
+    @classmethod
+    def _recover_overwrite(
+        cls,
+        operation_type: OperationType,
+        channels: list[dict[str, Any]],
+        payload: dict[str, Any],
+        before_payload: dict[str, Any],
+    ) -> RecoveryResult:
+        try:
+            channel_id = cls._required_id(payload, "channel_id")
+            target_id = cls._required_id(payload, "subject_id", fallback="target_id")
+        except ValueError:
+            return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+        channel = next(
+            (item for item in channels if int(item.get("channel_id", 0)) == channel_id), None
+        )
+        if channel is None:
+            return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+        target_type = int(payload.get("target_type", 0))
+        current = next(
+            (
+                item
+                for item in channel.get("permission_overwrites", [])
+                if int(item.get("id", 0)) == target_id and int(item.get("type", 0)) == target_type
+            ),
+            None,
+        )
+        if operation_type is OperationType.DELETE_OVERWRITE:
+            return RecoveryResult(
+                RecoveryOutcome.PROVED_APPLIED
+                if current is None
+                else RecoveryOutcome.PROVED_ABSENT,
+                current,
+            )
+        desired = {
+            "allow": int(payload.get("allow", 0)),
+            "deny": int(payload.get("deny", 0)),
+        }
+        if current is not None and all(
+            int(current[key]) == value for key, value in desired.items()
+        ):
+            return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, current)
+        if current is None and not before_payload:
+            return RecoveryResult(RecoveryOutcome.PROVED_ABSENT)
+        if current is not None and before_payload and cls._matches(current, before_payload):
+            return RecoveryResult(RecoveryOutcome.PROVED_ABSENT, current)
+        return RecoveryResult(RecoveryOutcome.AMBIGUOUS, current)
+
+    async def verify(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        result_payload: dict[str, Any] | None,
+    ) -> bool:
+        recovery = await self.recover(
+            guild_id=guild_id,
+            operation_type=operation_type,
+            payload=result_payload or payload,
+            before_payload={},
+        )
+        if operation_type in {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL}:
+            return recovery.outcome is RecoveryOutcome.PROVED_APPLIED
+        return recovery.outcome in {
+            RecoveryOutcome.PROVED_APPLIED,
+            RecoveryOutcome.PROVED_CREATED,
+        }
+
+    @staticmethod
+    def _translate_mutation(exc: Exception) -> MutableDiscordError:
+        if isinstance(exc, MutableDiscordError):
+            return exc
+        if isinstance(exc, asyncio.TimeoutError | aiohttp.ClientConnectionError):
+            return MutableDiscordError(
+                DiscordFailure(DiscordErrorKind.TRANSIENT, None), outcome_unknown=True
+            )
+        translated = DiscordPyStructureAdapter._translate(exc)
+        return MutableDiscordError(
+            translated.failure,
+            outcome_unknown=translated.failure.kind is DiscordErrorKind.TRANSIENT,
+        )
+
+    @staticmethod
+    def _normalise(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            result = dict(value)
+        else:
+            result = {"id": int(value.id)}
+            for key in (
+                "name",
+                "position",
+                "permissions",
+                "managed",
+                "color",
+                "hoist",
+                "mentionable",
+                "type",
+                "topic",
+                "parent_id",
+                "nsfw",
+                "flags",
+            ):
+                if hasattr(value, key):
+                    result[key] = getattr(value, key)
+        for key in ("id", "guild_id", "parent_id"):
+            if result.get(key) is not None:
+                result[key] = int(result[key])
+        for key in ("permissions", "color", "flags", "type"):
+            item = result.get(key)
+            raw_value = getattr(item, "value", None)
+            if raw_value is not None:
+                result[key] = int(raw_value)
+            elif isinstance(item, str) and item.isdecimal():
+                result[key] = int(item)
+        return result
+
+    @staticmethod
+    def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        items = payload.get("items")
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise ValueError("bulk operation requires an items array")
+        return items
+
+    @staticmethod
+    def _required_id(payload: dict[str, Any], key: str, *, fallback: str | None = None) -> int:
+        value = payload.get(key)
+        if value is None and fallback is not None:
+            value = payload.get(fallback)
+        if value is None or not str(value).isdecimal() or int(value) <= 0:
+            raise ValueError(f"{key} must be a positive Discord snowflake")
+        return int(value)
+
+    @staticmethod
+    def _only(payload: dict[str, Any], allowed: set[str]) -> dict[str, Any]:
+        return {key: value for key, value in payload.items() if key in allowed}
+
+    @staticmethod
+    def _matches(
+        observed: dict[str, Any], desired: dict[str, Any], *, ignore: set[str] | None = None
+    ) -> bool:
+        skipped = (ignore or set()) | {
+            "id",
+            "resource_ref",
+            "parent_symbol",
+            "channel_symbol",
+            "subject_symbol",
+            "lock_permissions",
+        }
+        comparable = {key: value for key, value in desired.items() if key not in skipped}
+        return all(
+            str(observed.get(key)) == str(value)
+            for key, value in comparable.items()
+            if key in observed
+        )
+
+
+def request_fingerprint(operation_type: OperationType, payload: dict[str, Any]) -> str:
+    return canonical_hash({"operation_type": operation_type.value, "payload": payload})

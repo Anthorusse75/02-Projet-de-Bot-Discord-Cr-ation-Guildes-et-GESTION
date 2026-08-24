@@ -198,10 +198,17 @@ class DiscordFailure:
     retry_after_seconds: float | None = None
     global_rate_limit: bool = False
     error_code: int | None = None
+    rate_limit_scope: str | None = None
 
     @property
     def retryable(self) -> bool:
         return self.kind in {DiscordErrorKind.RATE_LIMITED, DiscordErrorKind.TRANSIENT}
+
+    @property
+    def counts_toward_invalid_request_limit(self) -> bool:
+        return self.kind in {DiscordErrorKind.UNAUTHORIZED, DiscordErrorKind.FORBIDDEN} or (
+            self.kind is DiscordErrorKind.RATE_LIMITED and self.rate_limit_scope != "shared"
+        )
 
 
 DEFAULT_FRESHNESS_POLICIES: dict[str, FreshnessPolicy] = {
