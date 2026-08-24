@@ -388,11 +388,6 @@ async def run_live() -> dict[str, int]:
                         resource_type=ResourceType.CHANNEL,
                         symbol=f"stage06.source.channel.{index}.symbol",
                         properties={"name": name, "type": 0},
-                        relations={
-                            "parent": ResourceReference(
-                                ReferenceKind.LOGICAL, "stage06.source.category"
-                            )
-                        },
                     )
                     for index, name in enumerate(channel_names)
                 ),
