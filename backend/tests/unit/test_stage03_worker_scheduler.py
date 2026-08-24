@@ -10,7 +10,11 @@ from did.application.reconciliation import (
 )
 from did.domain.discord_runtime import DiscordErrorKind, DiscordFailure
 from did.infrastructure.discord import DiscordAdapterError
-from did.worker.io import DurableDiscordIOWorker, UnsupportedWorkloadError
+from did.worker.io import (
+    DiscordWorkloadGovernor,
+    DurableDiscordIOWorker,
+    UnsupportedWorkloadError,
+)
 
 GUILD = 630303030303030301
 
@@ -19,13 +23,19 @@ class WorkerRepositoryProbe:
     def __init__(self, workload_type: str = "REFRESH_CHANNELS") -> None:
         self.workload_type = workload_type
         self.calls: list[str] = []
+        self.lease_durations: list[float] = []
 
-    async def lease_next_job(self, guild_id: int, **_: object):
+    async def lease_next_job(self, guild_id: int, **values: object):
         self.calls.append("lease-committed")
+        self.lease_durations.append(float(values["lease_seconds"]))
         return {
             "job_id": uuid4(),
             "lease_token": uuid4(),
             "workload_type": self.workload_type,
+            "logical_key": "worker-probe",
+            "priority": 3,
+            "created_at": datetime.now(UTC),
+            "payload": {},
         }
 
     async def renew_job_lease(self, guild_id: int, job_id, **_: object) -> bool:
@@ -70,6 +80,24 @@ async def test_worker_transaction_network_transaction_order_is_short() -> None:
         "discord-network-outside-transaction",
         "ack-transaction",
     ]
+
+
+async def test_dispatched_subsecond_lease_is_protected_while_queued() -> None:
+    repository = WorkerRepositoryProbe()
+    worker = DurableDiscordIOWorker(
+        repository,
+        SyncProbe(repository),
+        worker_id="stage03-subsecond-worker",  # type: ignore[arg-type]
+        lease_seconds=0.15,
+    )
+    governor = DiscordWorkloadGovernor(global_concurrency=1, per_guild_concurrency=1)
+
+    future = await worker.dispatch_guild_once(GUILD, governor)
+
+    assert future is not None
+    assert repository.lease_durations == [0.5]
+    await governor.drain()
+    assert future.done()
 
 
 async def test_worker_does_not_retry_403_or_unknown_workload_blindly() -> None:

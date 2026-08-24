@@ -56,6 +56,12 @@ class DurableDiscordIOWorker:
         if lease_seconds < 0.05:
             raise ValueError("lease_seconds must be at least 50ms")
         self._lease_seconds = lease_seconds
+        # A dispatched job is claimed before it enters the local Governor queue.
+        # Keep an active-owner jitter floor from that first claim onward; otherwise
+        # a subsecond lease can expire in the queue before its heartbeat coroutine
+        # has even started. Direct repository claims retain their requested TTL,
+        # which preserves prompt recovery of an owner that never became active.
+        self._active_lease_seconds = max(0.5, lease_seconds)
 
     async def run_guild_once(self, guild_id: int) -> bool:
         leased = await self._repository.lease_next_job(
@@ -70,7 +76,9 @@ class DurableDiscordIOWorker:
         self, guild_id: int, governor: DiscordWorkloadGovernor
     ) -> asyncio.Future[Any] | None:
         leased = await self._repository.lease_next_job(
-            guild_id, lease_owner=self._worker_id, lease_seconds=self._lease_seconds
+            guild_id,
+            lease_owner=self._worker_id,
+            lease_seconds=self._active_lease_seconds,
         )
         if leased is None:
             return None
@@ -193,7 +201,7 @@ class DurableDiscordIOWorker:
                         job_id,
                         lease_owner=self._worker_id,
                         lease_token=lease_token,
-                        lease_seconds=max(0.5, self._lease_seconds),
+                        lease_seconds=self._active_lease_seconds,
                     )
                 except Exception:
                     renewed = False

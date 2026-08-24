@@ -292,6 +292,16 @@ class DiscordWorkloadGovernor:
             permit = await self._distributed.acquire(guild_id)
         except RuntimeError as exc:
             raise WorkloadHaltedError("Discord token is halted system-wide") from exc
+        # Acquisition intentionally uses the configured crash-recovery TTL. Extend
+        # it to the active-owner jitter floor before starting I/O so scheduler delay
+        # before the first heartbeat cannot expire a live permit.
+        if not await self._distributed.renew(permit):
+            from did.infrastructure.runtime_redis import DistributedPermitLostError
+
+            await self._distributed.release(permit)
+            raise DistributedPermitLostError(
+                "distributed Discord permit was lost during activation"
+            )
         self.metrics.peak_system_global_concurrency = max(
             self.metrics.peak_system_global_concurrency,
             permit.global_concurrency,
