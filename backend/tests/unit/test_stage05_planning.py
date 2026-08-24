@@ -291,7 +291,7 @@ def test_role_reorder_separates_rest_targets_from_expected_position_segment() ->
     payload = thaw_json_object(reorder.desired_payload)
 
     assert payload["items"] == [
-        {"id": 100, "position": 3, "resource_ref": "role.target"},
+        {"id": 100, "position": 4, "resource_ref": "role.target"},
     ]
     assert payload["expected_position_segment"] == [
         {"id": 200, "position": 1, "resource_ref": "discord.role.200"},
@@ -760,7 +760,7 @@ async def test_role_reorder_verifies_explicit_target_after_managed_normalization
         guild_id=GUILD,
         operation_type=OperationType.REORDER_ROLES,
         payload={
-            "items": [{"id": 20, "position": 11, "resource_ref": "role.target"}],
+            "items": [{"id": 20, "position": 12, "resource_ref": "role.target"}],
             "expected_position_segment": [
                 {"id": 10, "position": 1, "resource_ref": "discord.role.10"},
                 {"id": 20, "position": 11, "resource_ref": "role.target"},

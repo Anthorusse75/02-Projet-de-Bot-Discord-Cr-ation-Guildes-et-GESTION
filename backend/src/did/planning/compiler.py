@@ -308,11 +308,20 @@ class PlanCompiler:
             target = thaw_json_object(entry.node.properties).get("position")
             if role_id is None or target is None or role_id not in original:
                 continue
+            target_position = int(target)
+            # With a single explicit role in Discord's bulk endpoint, removing
+            # a role below its destination shifts the original coordinate down
+            # by one before insertion. Keep implicit roles out of the REST
+            # payload and compensate that coordinate here; verification still
+            # uses the desired final position segment below.
+            rest_position = (
+                target_position + 1 if original[role_id] < target_position else target_position
+            )
             requested_items.append(
                 {
                     "resource_ref": entry.node.logical_key,
                     "id": role_id,
-                    "position": int(target),
+                    "position": rest_position,
                 }
             )
             requested_before.append({"id": role_id, "position": original[role_id]})

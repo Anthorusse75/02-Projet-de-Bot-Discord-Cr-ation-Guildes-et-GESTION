@@ -487,9 +487,10 @@ class DiscordPyMutableAdapter:
                 return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
             verification_items = items
             if operation_type is OperationType.REORDER_ROLES:
+                expected_segment = payload.get("expected_position_segment")
                 explicit_items = [
                     item
-                    for item in items
+                    for item in (expected_segment if isinstance(expected_segment, list) else items)
                     if isinstance(item, dict)
                     and not str(item.get("resource_ref", "")).startswith("discord.role.")
                 ]
