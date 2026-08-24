@@ -151,6 +151,9 @@ class Stage04Repository:
                     last_gateway_seen_at=row["last_gateway_seen_at"],
                     last_rest_seen_at=row["last_rest_seen_at"],
                 ),
+                color=int(row["color"]),
+                hoist=bool(row["hoist"]),
+                mentionable=bool(row["mentionable"]),
             )
             for row in role_rows
         )
@@ -204,6 +207,15 @@ class Stage04Repository:
                         if row["thread_active_state"] is not None
                         else None
                     ),
+                    topic=(
+                        str(full_payload["topic"])
+                        if full_payload.get("topic") is not None
+                        else None
+                    ),
+                    nsfw=(
+                        bool(full_payload["nsfw"]) if full_payload.get("nsfw") is not None else None
+                    ),
+                    flags=int(row["flags"]),
                 )
             )
         member = self._member(guild_id, member_id, member_row, membership_rows)

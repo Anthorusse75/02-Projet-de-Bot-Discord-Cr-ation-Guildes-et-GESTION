@@ -16,10 +16,13 @@ class CapabilityOutcome(StrEnum):
 
 
 class BotOperation(StrEnum):
+    CREATE_CHANNEL = "CREATE_CHANNEL"
     MANAGE_CHANNEL = "MANAGE_CHANNEL"
+    REORDER_CHANNELS = "REORDER_CHANNELS"
     MANAGE_OVERWRITES = "MANAGE_OVERWRITES"
     CREATE_ROLE = "CREATE_ROLE"
     MANAGE_ROLE = "MANAGE_ROLE"
+    REORDER_ROLES = "REORDER_ROLES"
     ASSIGN_ROLE = "ASSIGN_ROLE"
     SEND_MESSAGE = "SEND_MESSAGE"
     MANAGE_THREAD = "MANAGE_THREAD"
@@ -115,10 +118,13 @@ class BotCapabilityChecker:
         required_intents_available: bool = True,
     ) -> CapabilityDecision:
         permission_map = {
+            BotOperation.CREATE_CHANNEL: ("MANAGE_CHANNELS",),
             BotOperation.MANAGE_CHANNEL: ("MANAGE_CHANNELS",),
+            BotOperation.REORDER_CHANNELS: ("MANAGE_CHANNELS",),
             BotOperation.MANAGE_OVERWRITES: ("MANAGE_ROLES",),
             BotOperation.CREATE_ROLE: ("MANAGE_ROLES",),
             BotOperation.MANAGE_ROLE: ("MANAGE_ROLES",),
+            BotOperation.REORDER_ROLES: ("MANAGE_ROLES",),
             BotOperation.ASSIGN_ROLE: ("MANAGE_ROLES",),
             BotOperation.SEND_MESSAGE: (
                 "VIEW_CHANNEL",

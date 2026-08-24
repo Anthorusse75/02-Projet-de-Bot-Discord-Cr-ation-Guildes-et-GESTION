@@ -133,11 +133,14 @@ class RoleSnapshot:
     permissions: int
     managed: bool
     freshness: FreshnessSnapshot
+    color: int = 0
+    hoist: bool = False
+    mentionable: bool = False
 
     def __post_init__(self) -> None:
         if min(self.guild_id, self.role_id) <= 0:
             raise ValueError("Discord identifiers must be positive")
-        if self.position < 0 or self.permissions < 0:
+        if self.position < 0 or self.permissions < 0 or self.color < 0:
             raise ValueError("role position and permissions cannot be negative")
 
 
@@ -180,13 +183,16 @@ class ChannelSnapshot:
     archived: bool | None = None
     locked: bool | None = None
     thread_active_state: ThreadActiveState | None = None
+    topic: str | None = None
+    nsfw: bool | None = None
+    flags: int = 0
 
     def __post_init__(self) -> None:
         if min(self.guild_id, self.channel_id) <= 0:
             raise ValueError("Discord identifiers must be positive")
         if self.parent_id is not None and self.parent_id <= 0:
             raise ValueError("parent_id must be a positive Snowflake")
-        if self.position < 0:
+        if self.position < 0 or self.flags < 0:
             raise ValueError("channel position cannot be negative")
         if self.channel_type == ChannelType.GUILD_CATEGORY and self.parent_id is not None:
             raise ValueError("Discord categories cannot have a parent category")
