@@ -1,0 +1,26 @@
+{
+  "stage": "05",
+  "date": "2026-08-24",
+  "status": "PASS_WITH_APPROVED_LIMITATION",
+  "profile": "discord-live-plan-engine-safe-mutations",
+  "checks": [
+    "live cache snapshot acquired",
+    "persisted Plan compiled",
+    "preflight correctly denied missing bot capabilities",
+    "zero Discord mutations after fail-closed preflight"
+  ],
+  "counts": {
+    "plans_compiled": 1,
+    "discord_mutations": 0
+  },
+  "skipped_not_verified": [
+    "safe create/recovery/cleanup: sandbox bot lacks MANAGE_CHANNELS",
+    "safe create/recovery/cleanup: sandbox bot lacks MANAGE_ROLES",
+    "live crash window: no mutable operation passed preflight",
+    "429 behavior: contract-tested and not forced against Discord",
+    "ambiguous duplicate CREATE: deterministic fake-adapter evidence only"
+  ],
+  "cleanup": "NOT_REQUIRED_ZERO_MUTATIONS",
+  "secrets_recorded": false,
+  "discord_identifiers_recorded": false
+}

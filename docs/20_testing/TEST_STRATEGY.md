@@ -56,3 +56,11 @@ Le parser et protector reçoivent property-based tests/fuzzing. Toute modificati
 - étapes live : preuve sandbox signée/date/commit, sans secret ;
 - STAGE 10 : E2E complet, pannes, charge, deux Guilds, traceability sans `PLANNED/IMPLEMENTED` obligatoire restant ;
 - STAGE 11 : smoke production, backup/restore et rollback réellement exercés.
+
+## Preuves STAGE 05
+
+- Le profil par défaut rejoue les migrations depuis `base`, `0001` à `0007` vers `0008_stage_05`, puis effectue `0008 → 0007 → 0008`.
+- Le profil `failure-injection` exerce les fenêtres A–I sur PostgreSQL/Redis réels : avant `PREPARED`, entre `PREPARED` et `IN_FLIGHT`, avant réseau, timeout, succès avant commit, succès committé avant ack, vérification, Redis indisponible et lock/lease repris.
+- Les tests CREATE rôle et salon imposent `create_call_count == 1` après reprise. Les outcomes ambigus terminent en intervention ; aucun retry aveugle n'est autorisé.
+- Le profil load compile et ordonne un DSG de 500 nœuds avec résultat déterministe et rapport JSON borné.
+- La preuve live STAGE 05 ne vaut pas preuve de mutation lorsque le preflight refuse les capacités du bot ; les checks simulés et les skips live restent distingués.
