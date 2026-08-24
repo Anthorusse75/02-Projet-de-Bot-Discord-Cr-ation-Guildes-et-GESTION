@@ -37,6 +37,7 @@ from did.infrastructure.discord.mutations import (
     RecoveryResult,
     audit_reason,
 )
+from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
 from did.planning.canonical import canonical_hash, canonical_json
@@ -396,6 +397,23 @@ def test_preflight_accepts_overwrite_on_channel_created_by_the_same_symbolic_pla
 
     assert result.allowed
     assert "capability.channel_required" not in result.errors
+
+
+def test_consumed_overwrite_channel_id_is_not_persisted_as_operation_identity() -> None:
+    assert (
+        PlanningRepository._persisted_result_resource_id(
+            {"operation_type": OperationType.UPSERT_OVERWRITE.value},
+            223456789012345678,
+        )
+        is None
+    )
+    assert (
+        PlanningRepository._persisted_result_resource_id(
+            {"operation_type": OperationType.CREATE_CHANNEL.value},
+            223456789012345678,
+        )
+        == 223456789012345678
+    )
 
 
 @pytest.mark.parametrize(

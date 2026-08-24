@@ -1261,6 +1261,7 @@ class PlanningRepository:
             if attempt_updated is None:
                 raise PlanFencingError("attempt fencing token is no longer current")
             resource_id = self._result_resource_id(operation, result_payload)
+            persisted_resource_id = self._persisted_result_resource_id(operation, resource_id)
             await session.execute(
                 text(
                     "UPDATE plan_operations SET status='SUCCEEDED',result_payload="
@@ -1272,7 +1273,7 @@ class PlanningRepository:
                 {
                     "result": json.dumps(result_payload, separators=(",", ":")),
                     "fingerprint": result_fingerprint,
-                    "resource_id": resource_id,
+                    "resource_id": persisted_resource_id,
                     "now": now,
                     "guild_id": guild_id,
                     "plan_id": plan_id,
@@ -1543,6 +1544,7 @@ class PlanningRepository:
                         "deleted": True,
                     }
                 resource_id = self._result_resource_id(operation, resource_payload)
+                persisted_resource_id = self._persisted_result_resource_id(operation, resource_id)
                 fingerprint = canonical_hash(resource_payload)
                 await session.execute(
                     text(
@@ -1555,7 +1557,7 @@ class PlanningRepository:
                     {
                         "payload": json.dumps(resource_payload, separators=(",", ":")),
                         "fingerprint": fingerprint,
-                        "resource_id": resource_id,
+                        "resource_id": persisted_resource_id,
                         "guild_id": guild_id,
                         "plan_id": plan_id,
                         "operation_id": operation_id,
@@ -2001,6 +2003,13 @@ class PlanningRepository:
         if operation_type in {OperationType.UPSERT_OVERWRITE, OperationType.DELETE_OVERWRITE}:
             value = result_payload.get("channel_id") or value
         return int(value) if value is not None else None
+
+    @staticmethod
+    def _persisted_result_resource_id(operation: Any, resource_id: int | None) -> int | None:
+        operation_type = OperationType(str(operation["operation_type"]))
+        if operation_type not in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}:
+            return None
+        return resource_id
 
     @staticmethod
     async def _write_through(
