@@ -5,8 +5,11 @@
 | Date | `2026-08-24` |
 | Base main | `f64c8253e6b7ec648d7161531344a2999b78ffe7` |
 | Branche | `stage/05-plan-engine` |
-| PR | Draft PR #5 vers `main`, non mergee |
-| Statut | `CORRECTIVE_REVIEW_COMPLETE_PR_OPEN` |
+| PR | PR #5 mergee vers `main` le `2026-08-24T18:31:24Z` |
+| HEAD approuve | `8d000b578f95793b42a84fb8e8a3aa01c296590a` |
+| Merge commit | `c0ef8abe696e2f6caeb51840499751ef2fb36c83` |
+| Completion tag | `stage-05-complete` cible `c0ef8abe696e2f6caeb51840499751ef2fb36c83` |
+| Statut | `MERGED_POST_MERGE_VALIDATED` |
 | Migration | `0009_stage_05` apres `0008_stage_05` ; une seule tete Alembic |
 
 ## Contrats Discord revalides
@@ -158,6 +161,28 @@ ni identifiant tenant.
   representatifs complets ont repasse sans modification. Un premier acces live a
   aussi recu un Discord 503 avant toute mutation; le replay exact suivant est PASS.
 
+## Validation post-merge
+
+Le merge commit `c0ef8abe696e2f6caeb51840499751ef2fb36c83` a ete valide sans
+modification produit. Ses parents sont la base attendue
+`f64c8253e6b7ec648d7161531344a2999b78ffe7` et le HEAD approuve
+`8d000b578f95793b42a84fb8e8a3aa01c296590a`.
+
+- Stage 01 : `20260824T183204169014Z-c0ef8abe696e-local-docker`.
+- Stage 02 : `20260824T183312135095Z-c0ef8abe696e-local-docker`.
+- Stage 03 : `20260824T183433777812Z-c0ef8abe696e-local-docker`; load :
+  `20260824T183555617865Z-c0ef8abe696e-local-docker`.
+- Stage 04 : `20260824T183623059349Z-c0ef8abe696e-local-docker`.
+- Stage 05 : `20260824T183756694877Z-c0ef8abe696e-local-docker`;
+  failure-injection : `20260824T183946011571Z-c0ef8abe696e-local-docker`;
+  load : `20260824T184002356291Z-c0ef8abe696e-local-docker`.
+- Live exact post-merge : `20260824T184103337452Z-c0ef8abe696e-local-docker`.
+
+Les profils confirment 204 unitaires, 72 integrations, 24 failure-injection,
+4 tests frontend, lint, typecheck, build, migrations et RLS. Alembic `current` et
+`heads` valent `0009_stage_05`. Documentation, secrets et diff sont PASS. Aucune
+regression STAGE 01-04 n'est observee.
+
 ## Live sandbox et cleanup
 
 Statut actuel : `PASS`. Le bot de la Guild sandbox B dispose de `MANAGE_CHANNELS` et
@@ -183,13 +208,15 @@ forces contre Discord sont un 429 volontaire et un doublon CREATE ambigu; les de
 restent couverts par contrats/failure injection locaux.
 
 La commande exacte `python scripts/validate_stage.py 05 --include-discord-live` est
-PASS sur `2646480eb172`; son gate live a dure 142,265 secondes.
+PASS post-merge sur `c0ef8abe696e`; son gate live a dure 139,966 secondes. Six plans
+ont reussi, le crash-window CREATE_ROLE a effectue exactement un appel CREATE et le
+cleanup final ne laisse aucune fixture prefixee.
 
 ## Tracabilite et limite de livraison
 
 `REQ-PLAN-001..016`, `REQ-GW-006`, `REQ-AUD-002/003`, `REQ-STR-004/005` et
 `REQ-RATE-005` sont audites ligne par ligne dans la matrice. `REQ-UX-006/007` restent
-`PLANNED`. La revue corrective STAGE 05 est complete; la decision de merge reste une
-revue humaine distincte.
+`PLANNED`. La revue corrective et la validation post-merge STAGE 05 sont completes.
 
-PR #5 reste Draft et non mergee. STAGE 06 n'a pas ete commencee et reste interdite.
+PR #5 est mergee par merge commit normal. STAGE 05 est cloturee; STAGE 06 est
+`READY_NOT_STARTED`, autorisee mais non commencee.
