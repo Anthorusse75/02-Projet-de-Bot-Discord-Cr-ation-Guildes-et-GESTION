@@ -34,6 +34,7 @@ from did.infrastructure.discord.mutations import (
     MutableDiscordError,
     PreconditionOutcome,
     RecoveryOutcome,
+    RecoveryResult,
     audit_reason,
 )
 from did.infrastructure.runtime_repository import RuntimeRepository
@@ -57,6 +58,7 @@ from did.planning.models import (
     RiskLevel,
     VerificationStrategy,
     freeze_json_object,
+    thaw_json_object,
 )
 from did.planning.risk import ImpactSummary, RiskEngine
 from did.worker.io.governor import DiscordWorkloadGovernor
@@ -263,6 +265,37 @@ def test_channel_parent_moves_are_split_to_one_per_discord_request() -> None:
     assert all(len(item.desired_payload.items) == 1 for item in moves)
 
 
+def test_role_reorder_expands_complete_discord_position_segment() -> None:
+    base = current_guild()
+    target = RoleSnapshot(GUILD, 100, "target", 1, 0, False, base.freshness)
+    middle = RoleSnapshot(GUILD, 200, "middle", 2, 0, False, base.freshness)
+    top = RoleSnapshot(GUILD, 300, "top", 3, 0, False, base.freshness)
+    observed = replace(base, roles=(*base.roles, target, middle, top))
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.target",
+                resource_type=ResourceType.ROLE,
+                discord_id=target.role_id,
+                properties={"name": target.name, "permissions": "0", "position": 3},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+
+    assert payload["items"] == [
+        {"id": 200, "position": 1, "resource_ref": "discord.role.200"},
+        {"id": 300, "position": 2, "resource_ref": "discord.role.300"},
+        {"id": 100, "position": 3, "resource_ref": "role.target"},
+    ]
+
+
 def test_dag_cycle_and_destructive_risk_fail_safe() -> None:
     graph = DesiredStateGraph(
         GUILD,
@@ -278,6 +311,29 @@ def test_dag_cycle_and_destructive_risk_fail_safe() -> None:
     operation = PlanCompiler().compile(current_guild(), graph, plan_id=uuid4())[0]
     assessment = RiskEngine().assess((operation,), ImpactSummary(1))
     assert assessment.level is RiskLevel.HIGH
+    unknown = RiskEngine().assess((operation,), ImpactSummary(1, incomplete_or_unknown=True))
+    assert unknown.level is RiskLevel.HIGH
+    assert unknown.reinforced_confirmation_required
+    assert "risk.impact_unknown" in unknown.reasons
+
+    create_graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.new",
+                resource_type=ResourceType.ROLE,
+                symbol="role.new",
+                properties={"name": "new", "permissions": "0"},
+            ),
+        ),
+    )
+    create_operation = PlanCompiler().compile(current_guild(), create_graph, plan_id=uuid4())[0]
+    uncertain_create = RiskEngine().assess(
+        (create_operation, create_operation, create_operation),
+        ImpactSummary(3, incomplete_or_unknown=True),
+    )
+    assert uncertain_create.level is RiskLevel.HIGH
+    assert uncertain_create.reinforced_confirmation_required
     with pytest.raises((ValueError, DagValidationError)):
         PlanOperation(
             operation.operation_id,
@@ -495,6 +551,114 @@ async def test_role_listing_absence_has_operation_specific_strong_recovery_seman
     )
     assert create.outcome is RecoveryOutcome.PROVED_ABSENT
     assert delete.outcome is RecoveryOutcome.PROVED_APPLIED
+
+
+@pytest.mark.asyncio
+async def test_role_create_recovery_normalizes_structure_role_id_for_symbol_binding() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    adapter._reads = SimpleNamespace(  # type: ignore[attr-defined]
+        fetch_channels=AsyncMock(return_value=[]),
+        fetch_roles=AsyncMock(
+            return_value=[
+                {
+                    "role_id": 42,
+                    "name": "DID recovered",
+                    "permissions": 0,
+                    "position": 1,
+                }
+            ]
+        ),
+    )
+    recovered = await adapter.recover(
+        guild_id=GUILD,
+        operation_type=OperationType.CREATE_ROLE,
+        payload={"name": "DID recovered", "permissions": "0"},
+        before_payload={},
+    )
+    assert recovered.outcome is RecoveryOutcome.PROVED_CREATED
+    assert recovered.payload is not None and recovered.payload["id"] == 42
+
+
+def test_mutation_matcher_distinguishes_nullable_fields_from_missing_fields() -> None:
+    observed = {"channel_id": 123, "topic": None, "parent_id": None, "name": "general"}
+
+    assert DiscordPyMutableAdapter._matches(
+        observed, {"id": 123, "topic": None, "parent_id": None, "name": "general"}
+    )
+    assert not DiscordPyMutableAdapter._matches(observed, {"nsfw": None})
+
+
+@pytest.mark.asyncio
+async def test_role_reorder_verifies_explicit_target_after_managed_normalization() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    adapter._reads = SimpleNamespace(  # type: ignore[assignment]
+        fetch_roles=AsyncMock(
+            return_value=[
+                {"role_id": 10, "position": 2},
+                {"role_id": 20, "position": 11},
+            ]
+        ),
+        fetch_channels=AsyncMock(return_value=[]),
+    )
+
+    recovered = await adapter.recover(
+        guild_id=GUILD,
+        operation_type=OperationType.REORDER_ROLES,
+        payload={
+            "items": [
+                {"id": 10, "position": 1, "resource_ref": "discord.role.10"},
+                {"id": 20, "position": 11, "resource_ref": "role.target"},
+            ]
+        },
+        before_payload={},
+    )
+
+    assert recovered.outcome is RecoveryOutcome.PROVED_APPLIED
+
+
+def test_overwrite_precondition_treats_channel_id_as_selected_context() -> None:
+    outcome = DiscordPyMutableAdapter._overwrite_precondition(
+        [
+            {
+                "channel_id": 42,
+                "permission_overwrites": [{"id": 99, "type": 0, "allow": 1024, "deny": 0}],
+            }
+        ],
+        {"channel_id": 42, "subject_id": 99, "target_type": 0},
+        {
+            "before": {
+                "channel_id": 42,
+                "target_id": 99,
+                "target_type": 0,
+                "allow": 1024,
+                "deny": 0,
+            }
+        },
+    )
+
+    assert outcome is PreconditionOutcome.SATISFIED
+
+
+@pytest.mark.asyncio
+async def test_final_verification_uses_desired_state_not_intermediate_result() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    recover = AsyncMock(return_value=RecoveryResult(RecoveryOutcome.PROVED_APPLIED))
+    adapter.recover = recover  # type: ignore[method-assign]
+
+    verified = await adapter.verify(
+        guild_id=GUILD,
+        operation_type=OperationType.UPDATE_CHANNEL,
+        payload={"id": 42, "topic": "final", "parent_id": 99},
+        result_payload={"id": 42, "topic": "final", "parent_id": None},
+    )
+
+    assert verified
+    assert recover.await_args is not None
+    assert recover.await_args.kwargs["payload"] == {
+        "id": 42,
+        "topic": "final",
+        "parent_id": 99,
+    }
 
 
 @pytest.mark.asyncio

@@ -494,6 +494,20 @@ def test_category_sync_compares_observed_overwrites_without_inventing_inheritanc
     assert category_sync_state(synced, stale_category) is CategorySyncState.UNKNOWN
 
 
+def test_category_permissions_are_decidable_for_management_preflight() -> None:
+    category = channel(channel_type=ChannelType.GUILD_CATEGORY)
+    decision = evaluate(
+        guild(bits("VIEW_CHANNEL", "MANAGE_CHANNELS", "MANAGE_ROLES")),
+        member(),
+        category,
+        requested="MANAGE_CHANNELS",
+    )
+
+    assert decision.status is DecisionStatus.COMPLETE
+    assert decision.outcome is PermissionOutcome.ALLOWED
+    assert "permissions.channel_type_unknown" not in decision.incomplete_reasons
+
+
 def test_unknown_future_bits_survive_engine_and_decimal_api_above_js_safe_integer() -> None:
     unknown = 1 << 80
     snapshot = guild(bits("VIEW_CHANNEL") | unknown)

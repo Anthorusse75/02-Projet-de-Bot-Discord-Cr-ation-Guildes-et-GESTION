@@ -96,10 +96,11 @@ class RiskEngine:
             operation.operation_type in {OperationType.DELETE_CHANNEL, OperationType.DELETE_ROLE}
             for operation in operations
         )
+        confirmation_sensitive = destructive or impact.incomplete_or_unknown
         return RiskAssessment(
             level,
             score,
             tuple(sorted(set(reasons))),
             impact,
-            destructive and level in {RiskLevel.HIGH, RiskLevel.CRITICAL},
+            confirmation_sensitive and level in {RiskLevel.HIGH, RiskLevel.CRITICAL},
         )

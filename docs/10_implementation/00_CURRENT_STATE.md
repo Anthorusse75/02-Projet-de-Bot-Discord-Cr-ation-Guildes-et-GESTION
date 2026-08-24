@@ -2,7 +2,7 @@
 
 | Champ | Valeur |
 |---|---|
-| Current stage | `STAGE_05_CORRECTIVE_REVIEW_LIVE_BLOCKED` |
+| Current stage | `STAGE_05_CORRECTIVE_REVIEW_COMPLETE_PR_OPEN` |
 | Last completed stage | `STAGE_04_READ_PERMISSIONS` |
 | Documentation baseline commit | `c285ac81afb0ec7a3c3197085ceff821a5d1c446` |
 | STAGE 01 merge commit | `28774bf26f2fe590562021f567f0e67f623ff7f5` |
@@ -15,13 +15,13 @@
 | STAGE 05 reviewed head | Revue corrective en cours depuis `f162a708f0e17f0fcf17f776db16a903a891cd10` |
 | Last migration | `0009_stage_05` ; parent `0008_stage_05` ; une seule tete |
 | Corrective implementation | Autorisation sensible API et worker avec targeted member refresh; confirmation liee a l'acteur; idempotence actor-scoped; operation PK plan-scoped; immutabilite SQL INSERT/UPDATE/DELETE et snapshot append-only; hash relu avant validation; preconditions par operation; recovery channel/role distinct; expected Gateway bulk/overwrite strict; index des plans concernes; Impact Engine STAGE 04; sequence atomique; lease-loss fence exact |
-| Tests status | PASS hors live mutatif : validate_stage 01, 02, 03, 03-load, 04, 05, 05-failure-injection et 05-load. Le profil complet compte 183 unit, 72 integration, 24 scenarios STAGE 05/failure-injection, 4 frontend et le DSG 500 noeuds. Ruff, format, mypy, migrations base/0001..0007 -> 0009 puis head -> 0007 -> head, RLS, docs et secrets PASS. |
-| Discord live status | `BLOCKED_CAPABILITY_CONFIGURATION`: le preflight live sandbox B confirme l'absence de `MANAGE_CHANNELS` et `MANAGE_ROLES`; zero mutation. Le plan complet, crash window et cleanup ne sont pas verifies et ne sont pas PASS. |
-| Required external configuration | Dans la seule Guild sandbox B, accorder au role bot `MANAGE_CHANNELS` + `MANAGE_ROLES`, sans `ADMINISTRATOR`, et placer le role bot au-dessus des fixtures. Invite minimale si reinstall: permissions `268435472`. |
-| Known failures | Le live mutatif exact `validate_stage.py 05 --include-discord-live` echoue avec `BLOCKED_CAPABILITY_CONFIGURATION`; tous ses gates precedents sont verts. Le premier run Stage 01 avait revele une dependance OAuth indue au demarrage worker; elle est corrigee et le rerun complet est PASS. |
+| Tests status | PASS : validate_stage 01, 02, 03, 03-load, 04, 05, 05-failure-injection et 05-load, plus le scenario Discord live mutatif complet. Ruff, format, mypy, migrations base/0001..0007 -> 0009 puis head -> 0007 -> head, RLS, docs et secrets PASS. Les compteurs et nouveaux run IDs du HEAD correctif final sont consignes dans le handoff. |
+| Discord live status | `PASS`: six plans reussis; CREATE/UPDATE/MOVE/REORDER/UPSERT/DELETE reels; crash apres reponse CREATE_ROLE recupere avec un seul appel CREATE et symbol binding durable; ordre des roles restaure; cleanup audite complet; aucune fixture prefixee restante. |
+| Required external configuration | Satisfaite dans la Guild sandbox B : `MANAGE_CHANNELS` et `MANAGE_ROLES` sont presents, `ADMINISTRATOR` n'est pas requis. Aucune action restante. |
+| Known failures | Aucune sur le perimetre STAGE 05 correctif. Les limites volontaires sont la non-provocation d'un 429 live et d'un doublon CREATE ambigu; leurs contrats fail-safe sont testes localement. |
 | Documentation status | PASS - 11 stages, 246/246 REQ et 35 ADR. Handoff, strategie, matrice sandbox, evidence live, decisions et tracabilite sont corriges; `REQ-UX-006/007` restent `PLANNED`. |
-| GitHub publication | Draft PR #5 vers `main`, explicitement non mergee. Aucun push correctif tant que les validations et preuves requises ne sont pas terminees. |
-| Evidence storage | Run Stage 05 complet hors live : `artifacts/test-evidence/stage-05/20260824T140603689891Z-f162a708f0e1-local-docker/`; failure-injection : `20260824T140812036729Z-f162a708f0e1-local-docker/`; load : `20260824T140832071303Z-f162a708f0e1-local-docker/`; live bloque : `20260824T140842339297Z-f162a708f0e1-local-docker/`. Preuve expurgee suivie dans `STAGE_05_LIVE_EVIDENCE.json`. |
+| GitHub publication | Draft PR #5 vers `main`, explicitement non mergee. Corrections publiees sur `stage/05-plan-engine`; tous les checks du nouveau HEAD doivent rester verts avant revue humaine. |
+| Evidence storage | Les runs initiaux hors live restent sous `artifacts/test-evidence/stage-05/`. La preuve live expurgee PASS est suivie dans `docs/90_handoffs/STAGE_05_LIVE_EVIDENCE.json`; le run exact final `--include-discord-live` est reference dans le handoff. |
 | Next stage | `STAGE_06_FORBIDDEN_BEFORE_STAGE_05_MERGE` |
 
 Le detail est dans [`STAGE_05_HANDOFF.md`](../90_handoffs/STAGE_05_HANDOFF.md). PR #5 reste Draft et non mergee. STAGE 06 n'a pas ete commencee.

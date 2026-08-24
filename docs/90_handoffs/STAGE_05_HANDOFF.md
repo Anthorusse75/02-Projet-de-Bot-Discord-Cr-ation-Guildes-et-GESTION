@@ -6,7 +6,7 @@
 | Base main | `f64c8253e6b7ec648d7161531344a2999b78ffe7` |
 | Branche | `stage/05-plan-engine` |
 | PR | Draft PR #5 vers `main`, non mergee |
-| Statut | `CORRECTIVE_REVIEW_LIVE_BLOCKED` |
+| Statut | `CORRECTIVE_REVIEW_COMPLETE_PR_OPEN` |
 | Migration | `0009_stage_05` apres `0008_stage_05` ; une seule tete Alembic |
 
 ## Contrats Discord revalides
@@ -73,8 +73,9 @@ Le resume d'impact simule les permissions effectives avant/apres avec le
 `PermissionEvaluator` STAGE 04 et les membres deja en cache. Il calcule sujets
 affectes, bits ajoutes/retires, pertes `VIEW_CHANNEL` et grants `ADMINISTRATOR`.
 Categories et enfants augmentent le blast radius. Une couverture membres incomplete
-reste `incomplete_or_unknown=true`; elle n'est jamais transformee en zero et bloque
-les destructions lorsque le contrat fail-safe l'exige.
+reste `incomplete_or_unknown=true`; elle n'est jamais transformee en zero. Elle ajoute
+30 points de risque et tout plan `HIGH`/`CRITICAL` incertain exige une confirmation
+renforcee liee au hash avant que le preflight ne l'autorise avec un warning explicite.
 
 ## Worker, progression et fencing
 
@@ -144,32 +145,29 @@ ni identifiant tenant.
 
 ## Live sandbox et cleanup
 
-Statut actuel : `BLOCKED_CAPABILITY_CONFIGURATION`. Le runner opt-in a acquis le
-snapshot live, compile un plan et le preflight a refuse le bot de la Guild sandbox B,
-qui ne possede toujours ni `MANAGE_CHANNELS` ni `MANAGE_ROLES`. Mutations reelles :
-0. Crash window, plan complet et cleanup restent `SKIPPED_NOT_VERIFIED`; ce statut
-n'est ni PASS ni limitation approuvee.
+Statut actuel : `PASS`. Le bot de la Guild sandbox B dispose de `MANAGE_CHANNELS` et
+`MANAGE_ROLES`; aucune elevation `ADMINISTRATOR` n'a ete necessaire. Le runner opt-in
+a execute six plans reussis : CREATE_ROLE avec crash apres reponse puis recovery et
+symbol binding, creation categorie/channel/role d'ancrage, updates + move parent +
+reorder + upsert overwrite, delete overwrite, restauration auditee de l'ordre des
+roles, puis suppression auditee de toutes les fixtures `DID-STAGE05-TEST-`.
 
-La commande exacte `python scripts/validate_stage.py 05 --include-discord-live` a
-echoue uniquement sur ce gate apres tous les gates locaux verts. Artifact :
-`artifacts/test-evidence/stage-05/20260824T140842339297Z-f162a708f0e1-local-docker/`.
+La fenetre de crash prouve un seul appel CREATE et aucune duplication. Les mutations
+passent toutes par API/plan, preflight, worker, Governor et adapter. La verification
+REST ciblee relit l'intention finale, y compris apres une reponse intermediaire de
+channel move. Les segments role bulk incluent les items Discord intermediaires tout
+en verifiant les cibles explicites du DSG apres normalisation des roles managed.
 
-Le runner est pret a executer cinq plans : CREATE_ROLE avec crash apres reponse puis
-recovery/symbol binding, creation categorie/channel/role d'ancrage, updates + move
-parent + reorder + upsert overwrite, delete overwrite, puis suppression auditee de
-toutes les fixtures `DID-STAGE05-TEST-`. Il refusera PASS si un prefixe subsiste.
-
-Action humaine requise uniquement dans la Guild sandbox B : accorder au role bot
-`MANAGE_CHANNELS` et `MANAGE_ROLES`, laisser `ADMINISTRATOR` desactive et placer ce
-role au-dessus des roles fixtures. Si une reinstallation est necessaire, generer une
-invite bot avec le bitfield minimal `268435472`, sans Administrator. Relancer ensuite
-`python scripts/validate_stage.py 05 --include-discord-live`.
+Le cleanup est `COMPLETE_NO_PREFIXED_FIXTURES`; aucun identifiant Discord ni secret
+n'est conserve dans la preuve suivie `STAGE_05_LIVE_EVIDENCE.json`. Les seuls cas non
+forces contre Discord sont un 429 volontaire et un doublon CREATE ambigu; les deux
+restent couverts par contrats/failure injection locaux.
 
 ## Tracabilite et limite de livraison
 
 `REQ-PLAN-001..016`, `REQ-GW-006`, `REQ-AUD-002/003`, `REQ-STR-004/005` et
 `REQ-RATE-005` sont audites ligne par ligne dans la matrice. `REQ-UX-006/007` restent
-`PLANNED`. Tant que le live mutatif est bloque, STAGE 05 n'est pas declaree complete
-pour merge.
+`PLANNED`. La revue corrective STAGE 05 est complete; la decision de merge reste une
+revue humaine distincte.
 
 PR #5 reste Draft et non mergee. STAGE 06 n'a pas ete commencee et reste interdite.

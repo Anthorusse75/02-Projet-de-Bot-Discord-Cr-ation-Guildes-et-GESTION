@@ -203,8 +203,8 @@ class PlanCompiler:
         operation_type = (
             OperationType.REORDER_ROLES if roles else OperationType.MOVE_OR_REORDER_CHANNELS
         )
-        items = []
-        before_items = []
+        items: list[dict[str, object]] = []
+        before_items: list[dict[str, object]] = []
         consumed: set[str] = set()
         for entry in sorted(entries, key=lambda item: item.node.logical_key):
             payload = self._payload(desired, entry.node)
@@ -222,6 +222,8 @@ class PlanCompiler:
             before_items.append(
                 {key: before[key] for key in ("id", "position", "parent_id") if key in before}
             )
+        if roles:
+            items, before_items = self._expand_role_reorder(observed, entries)
         key = "bulk:roles" if roles else f"bulk:channels:{key_suffix or '0'}"
         return PlanOperation(
             self._operation_id(plan_id, graph_hash, key, operation_type.value),
@@ -250,6 +252,52 @@ class PlanCompiler:
             ),
             consumes_symbols=tuple(sorted(consumed)),
         )
+
+    def _expand_role_reorder(
+        self,
+        observed: GuildSnapshot,
+        entries: list[DiffEntry],
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        """Build Discord's complete position segment, including shifted roles."""
+        original = {role.role_id: role.position for role in observed.roles}
+        positions = dict(original)
+        requested_refs = {
+            entry.node.discord_id: entry.node.logical_key
+            for entry in entries
+            if entry.node.discord_id is not None
+        }
+        for entry in sorted(entries, key=lambda item: item.node.logical_key):
+            role_id = entry.node.discord_id
+            target = thaw_json_object(entry.node.properties).get("position")
+            if role_id is None or target is None or role_id not in positions:
+                continue
+            current = positions[role_id]
+            target_position = int(target)
+            for shifted_id, shifted_position in tuple(positions.items()):
+                if shifted_id == role_id:
+                    continue
+                if current < target_position and current < shifted_position <= target_position:
+                    positions[shifted_id] = shifted_position - 1
+                elif target_position < current and target_position <= shifted_position < current:
+                    positions[shifted_id] = shifted_position + 1
+            positions[role_id] = target_position
+
+        changed = sorted(
+            (role_id for role_id, position in positions.items() if position != original[role_id]),
+            key=lambda role_id: (positions[role_id], role_id),
+        )
+        items: list[dict[str, object]] = [
+            {
+                "resource_ref": requested_refs.get(role_id, f"discord.role.{role_id}"),
+                "id": role_id,
+                "position": positions[role_id],
+            }
+            for role_id in changed
+        ]
+        before_items: list[dict[str, object]] = [
+            {"id": role_id, "position": original[role_id]} for role_id in changed
+        ]
+        return items, before_items
 
     def _bind_symbol_dependencies(
         self, desired: DesiredStateGraph, operations: list[PlanOperation]

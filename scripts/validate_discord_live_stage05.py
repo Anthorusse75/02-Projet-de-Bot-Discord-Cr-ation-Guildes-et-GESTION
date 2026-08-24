@@ -302,7 +302,7 @@ async def apply_with_optional_crash(
         correlation_id=correlation,
     )
     first_worker = "stage05-live-first"
-    leased = await runtime.lease_next_job(guild_id, lease_owner=first_worker, lease_seconds=30)
+    leased = await runtime.lease_next_job(guild_id, lease_owner=first_worker, lease_seconds=300)
     if leased is None:
         raise RuntimeError("live apply job was not leasable")
     if inject_crash:
@@ -332,7 +332,7 @@ async def apply_with_optional_crash(
             )
         recovery_worker = "stage05-live-recovery"
         leased = await runtime.lease_next_job(
-            guild_id, lease_owner=recovery_worker, lease_seconds=30
+            guild_id, lease_owner=recovery_worker, lease_seconds=300
         )
         if leased is None:
             raise RuntimeError("live recovery job was not leasable")
@@ -441,6 +441,159 @@ async def run_live() -> dict[str, int]:
             guild_store=guild_store,
             admin_engine=admin_engine,
         )
+
+        # A previous live crash may have intentionally left an APPLY_PLAN lease
+        # and a prefixed resource behind. Resume only runner-owned plans, then
+        # remove every observed prefixed fixture through a new audited plan.
+        async with admin_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE discord_io_jobs SET leased_until=now()-interval '1 second' "
+                    "WHERE guild_id=:guild AND workload_type='APPLY_PLAN' "
+                    "AND requested_by=:actor AND status='LEASED'"
+                ),
+                {"guild": guild_id, "actor": actor},
+            )
+        resumed_jobs = 0
+        terminal_jobs_acknowledged = 0
+        while True:
+            resume_worker = f"stage05-live-resume-{resumed_jobs}"
+            abandoned = await runtime.lease_next_job(
+                guild_id, lease_owner=resume_worker, lease_seconds=300
+            )
+            if abandoned is None:
+                break
+            if str(abandoned["workload_type"]) != "APPLY_PLAN":
+                raise RuntimeError("sandbox contains an unrelated pending Discord job")
+            abandoned_plan_id = UUID(str(dict(abandoned["payload"])["plan_id"]))
+            abandoned_operations = await plans.operations(guild_id, abandoned_plan_id)
+            if not abandoned_operations or any(
+                not str(row["resource_ref"]).startswith("live.") for row in abandoned_operations
+            ):
+                raise RuntimeError("refusing to resume a non-fixture live plan")
+            abandoned_plan = await plans.get_plan(guild_id, abandoned_plan_id)
+            if str(abandoned_plan["status"]) == "SUCCEEDED":
+                if not await runtime.complete_job(
+                    guild_id,
+                    UUID(str(abandoned["job_id"])),
+                    lease_owner=resume_worker,
+                    lease_token=UUID(str(abandoned["lease_token"])),
+                ):
+                    raise RuntimeError("terminal fixture job acknowledgement was fenced")
+                terminal_jobs_acknowledged += 1
+                continue
+            if any(str(row["status"]) != "UNKNOWN_OUTCOME" for row in abandoned_operations):
+                raise RuntimeError("abandoned fixture plan is not recovery-only")
+            executor = ApplyPlanExecutor(
+                plans,
+                mutable,
+                lock,
+                worker_id=resume_worker,
+                authorization=authorization,
+            )
+            await executor.execute_leased(guild_id, abandoned, governor)
+            if not await runtime.complete_job(
+                guild_id,
+                UUID(str(abandoned["job_id"])),
+                lease_owner=resume_worker,
+                lease_token=UUID(str(abandoned["lease_token"])),
+            ):
+                raise RuntimeError("resumed fixture job acknowledgement was fenced")
+            resumed_plan = await plans.get_plan(guild_id, abandoned_plan_id)
+            if str(resumed_plan["status"]) != "SUCCEEDED":
+                raise RuntimeError("abandoned fixture plan did not recover successfully")
+            resumed_jobs += 1
+
+        await seed_snapshot(
+            guild_id=guild_id,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        existing_roles = [
+            item
+            for item in await structure.fetch_roles(guild_id)
+            if str(item["name"]).upper().startswith(PREFIX)
+        ]
+        existing_channels = [
+            item
+            for item in await structure.fetch_channels(guild_id)
+            if str(item["name"]).upper().startswith(PREFIX)
+        ]
+        if existing_roles or existing_channels:
+            category_keys = {
+                int(item["channel_id"]): f"live.preexisting.category.{index}"
+                for index, item in enumerate(existing_channels)
+                if int(item["type"]) == 4
+            }
+            cleanup_nodes = [
+                DesiredNode.build(
+                    logical_key=f"live.preexisting.role.{index}",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(item["role_id"]),
+                    presence=NodePresence.ABSENT,
+                )
+                for index, item in enumerate(existing_roles)
+            ]
+            for index, item in enumerate(existing_channels):
+                channel_id = int(item["channel_id"])
+                parent_id = item.get("parent_id")
+                cleanup_nodes.append(
+                    DesiredNode.build(
+                        logical_key=category_keys.get(
+                            channel_id, f"live.preexisting.channel.{index}"
+                        ),
+                        resource_type=(
+                            ResourceType.CATEGORY
+                            if int(item["type"]) == 4
+                            else ResourceType.CHANNEL
+                        ),
+                        discord_id=channel_id,
+                        presence=NodePresence.ABSENT,
+                        relations=(
+                            {
+                                "parent": ResourceReference(
+                                    ReferenceKind.LOGICAL, category_keys[int(parent_id)]
+                                )
+                            }
+                            if parent_id is not None and int(parent_id) in category_keys
+                            else None
+                        ),
+                    )
+                )
+            preexisting_cleanup = await create_validated_plan(
+                service,
+                graph=DesiredStateGraph(guild_id, tuple(cleanup_nodes)),
+                actor=actor,
+                key=f"stage05-preexisting-cleanup-{suffix}",
+                authorization=authorization,
+            )
+            await apply_with_optional_crash(
+                service=service,
+                plans=plans,
+                runtime=runtime,
+                adapter=mutable,
+                lock=lock,
+                authorization=authorization,
+                governor=governor,
+                admin_engine=admin_engine,
+                guild_id=guild_id,
+                actor=actor,
+                plan=preexisting_cleanup,
+                inject_crash=False,
+            )
+            await seed_snapshot(
+                guild_id=guild_id,
+                client=client,
+                structure=structure,
+                runtime=runtime,
+                auth_repository=auth_repository,
+                guild_store=guild_store,
+                admin_engine=admin_engine,
+            )
 
         # The crash window is isolated to CREATE_ROLE: Get Guild Roles is an
         # exhaustive recovery signal, unlike an omitted Get Guild Channels row.
@@ -582,8 +735,28 @@ async def run_live() -> dict[str, int]:
         channel = next((item for item in channels if item["name"] == channel_name), None)
         if role is None or anchor is None or category is None or channel is None:
             raise RuntimeError("live create plan resources were not all observed")
-        if int(role["position"]) == int(anchor["position"]):
-            raise RuntimeError("live role fixtures cannot demonstrate a deterministic reorder")
+        role_position = int(role["position"])
+        anchor_position = int(anchor["position"])
+        if role_position == anchor_position:
+            # Discord may assign equal positions to newly-created roles. Both
+            # fixtures sit immediately above @everyone and below the bot role,
+            # so keep one at 1 and place the other immediately below the bot's
+            # highest role. This avoids Discord normalizing the request around
+            # managed roles that may already occupy the lowest positions.
+            if client.user is None:
+                raise RuntimeError("Discord bot identity unavailable during role reorder")
+            bot_member = await structure.fetch_member(guild_id, client.user.id)
+            bot_role_ids = {int(item) for item in bot_member["role_ids"]}
+            bot_role_positions = [
+                int(item["position"]) for item in roles if int(item["role_id"]) in bot_role_ids
+            ]
+            if not bot_role_positions or max(bot_role_positions) <= 1:
+                raise RuntimeError("bot hierarchy cannot safely demonstrate role reorder")
+            target_role_position = 1
+            target_anchor_position = max(bot_role_positions) - 1
+        else:
+            target_role_position = anchor_position
+            target_anchor_position = role_position
 
         updated_role_name = f"{role_name}-UPDATED"
         updated_category_name = f"{category_name}-UPDATED"
@@ -597,7 +770,7 @@ async def run_live() -> dict[str, int]:
                     properties={
                         "name": updated_role_name,
                         "permissions": "0",
-                        "position": int(anchor["position"]),
+                        "position": target_role_position,
                     },
                 ),
                 DesiredNode.build(
@@ -607,7 +780,7 @@ async def run_live() -> dict[str, int]:
                     properties={
                         "name": anchor_role_name,
                         "permissions": "0",
-                        "position": int(role["position"]),
+                        "position": target_anchor_position,
                     },
                 ),
                 DesiredNode.build(
@@ -746,6 +919,57 @@ async def run_live() -> dict[str, int]:
             guild_store=guild_store,
             admin_engine=admin_engine,
         )
+        restore_role_order = await create_validated_plan(
+            service,
+            graph=DesiredStateGraph(
+                guild_id,
+                (
+                    DesiredNode.build(
+                        logical_key="live.anchor-role",
+                        resource_type=ResourceType.ROLE,
+                        discord_id=int(anchor["role_id"]),
+                        properties={
+                            "name": anchor_role_name,
+                            "permissions": "0",
+                            "position": 1,
+                        },
+                    ),
+                ),
+            ),
+            actor=actor,
+            key=f"stage05-role-order-restore-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=restore_role_order,
+            expected={OperationType.REORDER_ROLES: 1},
+        )
+        await apply_with_optional_crash(
+            service=service,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_id,
+            actor=actor,
+            plan=restore_role_order,
+            inject_crash=False,
+        )
+
+        await seed_snapshot(
+            guild_id=guild_id,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
         cleanup_graph = DesiredStateGraph(
             guild_id,
             (
@@ -812,17 +1036,21 @@ async def run_live() -> dict[str, int]:
         ):
             raise RuntimeError("live cleanup plan did not remove all test resources")
         return {
-            "plans_succeeded": 5,
+            "plans_succeeded": 6,
             "create_operations": 4,
             "create_calls_at_crash_recovery": 1,
             "create_calls_total": mutable.create_calls,
             "update_operations_verified": 3,
-            "move_or_reorder_operations_verified": 2,
+            "move_or_reorder_operations_verified": 3,
             "overwrite_upserts": 1,
             "overwrite_deletes": 1,
             "cleanup_operations": 4,
+            "role_order_restore_operations": 1,
             "symbol_bindings_recovered": bound_symbols,
             "controlled_failure_hooks": 1,
+            "abandoned_fixture_jobs_resumed": resumed_jobs,
+            "terminal_fixture_jobs_acknowledged": terminal_jobs_acknowledged,
+            "preexisting_fixtures_cleaned": len(existing_roles) + len(existing_channels),
         }
     finally:
         await client.close()

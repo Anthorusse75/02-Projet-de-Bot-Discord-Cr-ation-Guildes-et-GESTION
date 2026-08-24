@@ -110,7 +110,10 @@ class PreflightEngine:
             RiskLevel.HIGH,
             RiskLevel.CRITICAL,
         }:
-            errors.append("preflight.destructive_impact_unknown")
+            if risk.reinforced_confirmation_required:
+                warnings.append("preflight.impact_unknown_reinforced_confirmation")
+            else:
+                errors.append("preflight.destructive_impact_unknown")
         return PreflightResult(
             not errors,
             tuple(sorted(set(errors))),

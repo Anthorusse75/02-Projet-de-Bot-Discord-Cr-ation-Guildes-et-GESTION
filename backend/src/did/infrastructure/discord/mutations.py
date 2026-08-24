@@ -217,9 +217,12 @@ class DiscordPyMutableAdapter:
             return PreconditionOutcome.UNKNOWN
         if not before:
             return PreconditionOutcome.SATISFIED if current is None else PreconditionOutcome.CHANGED
+        comparable_before = {
+            key: value for key, value in before.items() if key not in {"channel_id", "subject_id"}
+        }
         return (
             PreconditionOutcome.SATISFIED
-            if current is not None and cls._matches(current, before)
+            if current is not None and cls._matches(current, comparable_before)
             else PreconditionOutcome.CHANGED
         )
 
@@ -387,23 +390,50 @@ class DiscordPyMutableAdapter:
             items = payload.get("items", [])
             if not isinstance(items, list):
                 return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+            verification_items = items
+            if operation_type is OperationType.REORDER_ROLES:
+                explicit_items = [
+                    item
+                    for item in items
+                    if isinstance(item, dict)
+                    and not str(item.get("resource_ref", "")).startswith("discord.role.")
+                ]
+                if explicit_items:
+                    verification_items = explicit_items
             by_id = {
                 int(item.get("id", item.get("role_id", item.get("channel_id", 0)))): item
                 for item in resources
             }
             if all(
                 int(item.get("id", 0)) in by_id and self._matches(by_id[int(item["id"])], item)
-                for item in items
+                for item in verification_items
                 if isinstance(item, dict)
             ):
-                return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, {"items": items})
+                return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, {"items": verification_items})
             return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
         if operation_type in creates:
             candidates = [
                 item for item in resources if self._matches(item, payload, ignore={"position"})
             ]
+            expected_id = payload.get("id")
+            if expected_id is not None:
+                candidates = [
+                    item
+                    for item in candidates
+                    if int(item.get("id", item.get("role_id", item.get("channel_id", 0))))
+                    == int(expected_id)
+                ]
             if len(candidates) == 1:
-                return RecoveryResult(RecoveryOutcome.PROVED_CREATED, candidates[0])
+                recovered = dict(candidates[0])
+                recovered["id"] = int(
+                    recovered.get(
+                        "id",
+                        recovered.get("role_id", recovered.get("channel_id", 0)),
+                    )
+                )
+                if recovered["id"] <= 0:
+                    return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+                return RecoveryResult(RecoveryOutcome.PROVED_CREATED, recovered)
             if not candidates:
                 return RecoveryResult(
                     RecoveryOutcome.PROVED_ABSENT
@@ -481,7 +511,12 @@ class DiscordPyMutableAdapter:
             return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, current)
         if current is None and not before_payload:
             return RecoveryResult(RecoveryOutcome.PROVED_ABSENT)
-        if current is not None and before_payload and cls._matches(current, before_payload):
+        comparable_before = {
+            key: value
+            for key, value in before_payload.items()
+            if key not in {"channel_id", "subject_id"}
+        }
+        if current is not None and comparable_before and cls._matches(current, comparable_before):
             return RecoveryResult(RecoveryOutcome.PROVED_ABSENT, current)
         return RecoveryResult(RecoveryOutcome.AMBIGUOUS, current)
 
@@ -498,14 +533,17 @@ class DiscordPyMutableAdapter:
                 result_payload.get("deleted")
             ):
                 return True
-            if operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL} and (
-                result_payload.get("id") is not None
-            ):
-                return True
+        verification_payload = dict(payload)
+        if (
+            operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}
+            and result_payload is not None
+            and result_payload.get("id") is not None
+        ):
+            verification_payload["id"] = result_payload["id"]
         recovery = await self.recover(
             guild_id=guild_id,
             operation_type=operation_type,
-            payload=result_payload or payload,
+            payload=verification_payload,
             before_payload={},
         )
         if operation_type in {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL}:
@@ -597,18 +635,29 @@ class DiscordPyMutableAdapter:
         }
         comparable = {key: value for key, value in desired.items() if key not in skipped}
 
+        missing = object()
+
         def observed_value(key: str) -> object:
             if key == "id":
-                return observed.get("id", observed.get("role_id", observed.get("channel_id")))
+                return observed.get(
+                    "id", observed.get("role_id", observed.get("channel_id", missing))
+                )
             if key == "target_id":
-                return observed.get("target_id", observed.get("id"))
+                return observed.get("target_id", observed.get("id", missing))
             if key == "target_type":
-                return observed.get("target_type", observed.get("type"))
-            return observed.get(key)
+                return observed.get("target_type", observed.get("type", missing))
+            return observed.get(key, missing)
+
+        def matches_value(key: str, value: object) -> bool:
+            current = observed_value(key)
+            if current is missing:
+                return False
+            if value is None:
+                return current is None
+            return current is not None and str(current) == str(value)
 
         return bool(comparable) and all(
-            observed_value(key) is not None and str(observed_value(key)) == str(value)
-            for key, value in comparable.items()
+            matches_value(key, value) for key, value in comparable.items()
         )
 
 
