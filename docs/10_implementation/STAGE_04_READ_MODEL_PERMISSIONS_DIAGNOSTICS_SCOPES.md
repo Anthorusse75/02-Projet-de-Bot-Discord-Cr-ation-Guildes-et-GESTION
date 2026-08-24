@@ -101,3 +101,11 @@ Implémente uniquement STAGE 04 de Discord Infrastructure Designer.
 Lis AGENTS.md, le contrat global, l’état courant et intégralement STAGE_04_READ_MODEL_PERMISSIONS_DIAGNOSTICS_SCOPES.md ; exécute le PRECHECK et vérifie les permissions Discord officielles.
 N’implémente aucune étape suivante. Termine code, migrations, tests/vecteurs/live, preuves, handoff, état/traçabilité, commit et PR.
 ```
+
+## P. Revue corrective du 2026-08-24
+
+La revue post-livraison conserve strictement le périmètre STAGE 04 et le caractère read-only vis-à-vis de Discord. La migration `0007_stage_04` ajoute la couverture des threads actifs, l’état `ACTIVE/ARCHIVED/NOT_IN_ACTIVE_SYNC/UNKNOWN`, les preuves d’adhésion du bot par thread et le check de couplage des Visibility Scopes.
+
+Le consumer normalise et projette désormais `THREAD_LIST_SYNC`, `THREAD_MEMBER_UPDATE` et `THREAD_MEMBERS_UPDATE`. Les synchronisations scoped et Guild entière ne transforment jamais une absence en suppression ; elles préservent le dernier payload et rendent l’observabilité inconnue. L’évaluateur contrôle séparément fraîcheur/observabilité du thread et du parent, utilise une preuve privée par thread, et applique le verrouillage à `SEND_MESSAGES_IN_THREADS` ainsi qu’à ses dépendances.
+
+Les frontières API rejettent explicitement permissions inconnues, rôles View As absents, cibles capability manquantes ou inexistantes, cibles d’overwrite non résolues et scopes incohérents. Une preuve PostgreSQL traverse le Gateway normalisé, le projecteur durable, le repository STAGE 04 et le Permission Evaluator. La décision normative complète est `IMP-011`.
