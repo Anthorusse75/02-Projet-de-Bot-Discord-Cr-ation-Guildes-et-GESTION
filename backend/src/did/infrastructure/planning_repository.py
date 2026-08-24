@@ -295,6 +295,26 @@ class PlanningRepository:
             raise PlanNotFound("plan not found")
         return [dict(row) for row in rows]
 
+    async def symbol_bindings(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT symbol,resource_type,discord_id,status FROM "
+                            "plan_symbol_bindings WHERE guild_id=:guild_id AND plan_id=:plan_id "
+                            "ORDER BY symbol"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if not rows and not await self._exists(guild_id, plan_id):
+            raise PlanNotFound("plan not found")
+        return [dict(row) for row in rows]
+
     async def integrity_bundle(self, guild_id: int, plan_id: UUID) -> dict[str, Any]:
         """Read every immutable hash input in one tenant transaction."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:

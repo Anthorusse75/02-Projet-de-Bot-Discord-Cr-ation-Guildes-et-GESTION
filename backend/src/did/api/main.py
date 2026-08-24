@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,10 +20,12 @@ from did.api.runtime_cache import router as runtime_cache_router
 from did.api.stage04 import router as stage04_router
 from did.api.stage05 import invalid_planning_input
 from did.api.stage05 import router as stage05_router
+from did.api.stage06 import router as stage06_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
 from did.application.planning import PlanningService
+from did.application.portability import PortabilityService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import (
     create_database_engine,
@@ -35,6 +38,13 @@ from did.infrastructure.planning_repository import (
     PlanConflict,
     PlanningRepository,
     PlanNotFound,
+)
+from did.infrastructure.portability_repository import (
+    PortabilityRepository,
+    PortableArtifactIntegrityError,
+    PortableArtifactNotFound,
+    PortableQuotaExceeded,
+    TransferNotFound,
 )
 from did.infrastructure.redis import create_redis_client, redis_is_ready
 from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
@@ -53,6 +63,7 @@ from did.oauth.stores import (
     RedisOAuthStateStore,
     RedisSessionStore,
 )
+from did.portability import ArtifactCipher, InMemoryKeyProvider, KeyUnavailable
 from did.settings import Settings
 
 
@@ -142,6 +153,39 @@ def create_app(
             installations = InstallationService(authorization=authorization, repository=repository)
             planning_repository = PlanningRepository(session_factory)
             stage04_repository = Stage04Repository(session_factory)
+            planning = PlanningService(planning_repository, stage04_repository)
+            portability_repository = None
+            portability = None
+            if configured.artifact_encryption_key is not None:
+                previous_keys: dict[int, str] = {}
+                if configured.artifact_previous_encryption_keys is not None:
+                    raw_previous = json.loads(
+                        configured.artifact_previous_encryption_keys.get_secret_value()
+                    )
+                    if not isinstance(raw_previous, dict):
+                        raise ValueError("artifact previous keyring must be a JSON object")
+                    previous_keys = {int(key): str(value) for key, value in raw_previous.items()}
+                provider = InMemoryKeyProvider.from_base64_keyring(
+                    configured.artifact_encryption_key.get_secret_value(),
+                    version=configured.artifact_encryption_key_version,
+                    previous=previous_keys,
+                )
+                portability_repository = PortabilityRepository(
+                    session_factory,
+                    ArtifactCipher(provider),
+                    max_artifacts_per_owner=configured.artifact_max_items_per_owner,
+                    max_total_bytes_per_owner=configured.artifact_max_bytes_per_owner,
+                    metrics=runtime_repository.metrics,
+                )
+                portability = PortabilityService(
+                    portability_repository,
+                    stage04_repository,
+                    planning,
+                    planning_repository,
+                    clipboard_ttl_seconds=configured.artifact_clipboard_ttl_seconds,
+                    export_ttl_seconds=configured.artifact_export_ttl_seconds,
+                    metrics=runtime_repository.metrics,
+                )
             application.state.services = ServiceContainer(
                 settings=configured,
                 repository=repository,
@@ -154,7 +198,9 @@ def create_app(
                 pubsub=TenantPubSub(redis_client),
                 stage04_repository=stage04_repository,
                 planning_repository=planning_repository,
-                planning=PlanningService(planning_repository, stage04_repository),
+                planning=planning,
+                portability_repository=portability_repository,
+                portability=portability,
             )
         try:
             yield
@@ -193,6 +239,7 @@ def create_app(
     application.include_router(runtime_cache_router)
     application.include_router(stage04_router)
     application.include_router(stage05_router)
+    application.include_router(stage06_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -234,6 +281,47 @@ def create_app(
             status_code=409,
             code="PLAN_CONFLICT",
             message_key="errors.plans.conflict",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PortableArtifactNotFound)
+    @application.exception_handler(TransferNotFound)
+    async def handle_portability_not_found(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="PORTABLE_RESOURCE_NOT_FOUND",
+            message_key="errors.portability.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PortableQuotaExceeded)
+    async def handle_portability_quota(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=409,
+            code="PORTABLE_QUOTA_EXCEEDED",
+            message_key="errors.portability.quotaExceeded",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(KeyUnavailable)
+    async def handle_portability_key(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=503,
+            code="PORTABLE_KEY_UNAVAILABLE",
+            message_key="errors.portability.keyUnavailable",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PortableArtifactIntegrityError)
+    async def handle_portability_integrity(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=422,
+            code="PORTABLE_ARTIFACT_INVALID",
+            message_key="errors.portability.invalid",
         )
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 

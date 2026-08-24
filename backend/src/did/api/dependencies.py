@@ -36,6 +36,8 @@ class ServiceContainer:
     stage04_repository: Stage04Repository
     planning_repository: Any = None
     planning: Any = None
+    portability_repository: Any = None
+    portability: Any = None
 
 
 def services(request: Request) -> ServiceContainer:

@@ -395,15 +395,17 @@ class Stage04Repository:
         description: str | None,
         metadata: dict[str, Any],
         resources: tuple[dict[str, Any], ...],
+        group_id: UUID | None = None,
     ) -> UUID:
-        group_id = uuid4()
+        group_id = group_id or uuid4()
         correlation_id = uuid4()
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            created = await session.scalar(
                 text(
                     "INSERT INTO logical_groups "
                     "(id,guild_id,name,slug,description,metadata_json) VALUES "
-                    "(:id,:guild_id,:name,:slug,:description,CAST(:metadata AS jsonb))"
+                    "(:id,:guild_id,:name,:slug,:description,CAST(:metadata AS jsonb)) "
+                    "ON CONFLICT (guild_id,id) DO NOTHING RETURNING id"
                 ),
                 {
                     "id": group_id,
@@ -414,17 +416,18 @@ class Stage04Repository:
                     "metadata": json.dumps(metadata, separators=(",", ":")),
                 },
             )
-            for resource in resources:
-                await self._insert_group_resource(session, guild_id, group_id, resource)
-            await self._audit(
-                session,
-                guild_id,
-                actor_id,
-                "LOGICAL_GROUP_CREATED",
-                "LOGICAL_GROUP",
-                group_id,
-                correlation_id,
-            )
+            if created is not None:
+                for resource in resources:
+                    await self._insert_group_resource(session, guild_id, group_id, resource)
+                await self._audit(
+                    session,
+                    guild_id,
+                    actor_id,
+                    "LOGICAL_GROUP_CREATED",
+                    "LOGICAL_GROUP",
+                    group_id,
+                    correlation_id,
+                )
         return group_id
 
     async def update_logical_group(
