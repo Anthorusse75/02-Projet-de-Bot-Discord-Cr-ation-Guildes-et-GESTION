@@ -573,7 +573,7 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
         target_role=lower,
     )
     cannot_equal = hierarchy_diagnostic(snapshot, bot, equal_above)
-    can_equal = hierarchy_diagnostic(snapshot, bot, equal_below)
+    cannot_equal_by_snowflake = hierarchy_diagnostic(snapshot, bot, equal_below)
     cannot_managed = hierarchy_diagnostic(snapshot, bot, managed)
     missing = checker.check(
         operation=BotOperation.MANAGE_CHANNEL,
@@ -583,10 +583,62 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
 
     assert can.outcome is CapabilityOutcome.CAN
     assert cannot_equal.outcome is CapabilityOutcome.CANNOT
-    assert can_equal.outcome is CapabilityOutcome.CAN
+    assert cannot_equal_by_snowflake.outcome is CapabilityOutcome.CANNOT
     assert cannot_managed.reasons == ("capability.hierarchy.target_managed",)
     assert missing.outcome is CapabilityOutcome.CANNOT
     assert all("administrator" not in value for value in missing.remediations)
+
+
+def test_reorder_roles_requires_every_explicit_target_strictly_below_bot() -> None:
+    bot_role = role(ROLE_A, bits("MANAGE_ROLES"), position=5)
+    lower = role(ROLE_B, 0, position=4)
+    equal = role(204, 0, position=5)
+    above = role(205, 0, position=6)
+    managed = role(206, 0, position=1, managed=True)
+    snapshot = guild(0, bot_role, lower, equal, above, managed)
+    bot = member(ROLE_A)
+    checker = BotCapabilityChecker()
+
+    decisions = {
+        "lower": checker.check(
+            operation=BotOperation.REORDER_ROLES,
+            guild=snapshot,
+            bot=bot,
+            target_role=lower,
+        ),
+        "equal": checker.check(
+            operation=BotOperation.REORDER_ROLES,
+            guild=snapshot,
+            bot=bot,
+            target_role=equal,
+        ),
+        "above": checker.check(
+            operation=BotOperation.REORDER_ROLES,
+            guild=snapshot,
+            bot=bot,
+            target_role=above,
+        ),
+        "managed": checker.check(
+            operation=BotOperation.REORDER_ROLES,
+            guild=snapshot,
+            bot=bot,
+            target_role=managed,
+        ),
+        "everyone": checker.check(
+            operation=BotOperation.REORDER_ROLES,
+            guild=snapshot,
+            bot=bot,
+            target_role=snapshot.role(GUILD),
+        ),
+    }
+
+    assert decisions["lower"].outcome is CapabilityOutcome.CAN
+    assert all(
+        decisions[key].outcome is CapabilityOutcome.CANNOT
+        for key in ("equal", "above", "managed", "everyone")
+    )
+    assert "capability.hierarchy.target_managed" in decisions["managed"].causes
+    assert "capability.hierarchy.default_role_reorder_forbidden" in decisions["everyone"].causes
 
 
 @pytest.mark.security

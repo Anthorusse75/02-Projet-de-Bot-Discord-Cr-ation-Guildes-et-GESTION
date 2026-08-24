@@ -48,6 +48,10 @@ class MutableDiscordError(DiscordAdapterError):
         super().__init__(failure)
 
 
+class UnsafeRoleMutation(ValueError):
+    """Adapter-level fence for a role target Discord never permits."""
+
+
 class MutableDiscordPort(Protocol):
     async def check_preconditions(
         self,
@@ -155,6 +159,13 @@ class DiscordPyMutableAdapter:
                     )
                 if not self._matches(current, item):
                     return PreconditionOutcome.CHANGED
+            if operation_type is OperationType.REORDER_ROLES:
+                return await self._role_hierarchy_precondition(
+                    guild_id=guild_id,
+                    operation_type=operation_type,
+                    payload=payload,
+                    roles=resources,
+                )
             return PreconditionOutcome.SATISFIED
         if operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}:
             identity = preconditions.get("identity")
@@ -180,11 +191,90 @@ class DiscordPyMutableAdapter:
                 if operation_type in {OperationType.UPDATE_ROLE, OperationType.DELETE_ROLE}
                 else PreconditionOutcome.UNKNOWN
             )
-        return (
-            PreconditionOutcome.SATISFIED
-            if self._matches(current, before)
-            else PreconditionOutcome.CHANGED
+        if not self._matches(current, before):
+            return PreconditionOutcome.CHANGED
+        if operation_type in {OperationType.UPDATE_ROLE, OperationType.DELETE_ROLE}:
+            return await self._role_hierarchy_precondition(
+                guild_id=guild_id,
+                operation_type=operation_type,
+                payload=payload,
+                roles=resources,
+            )
+        return PreconditionOutcome.SATISFIED
+
+    async def _role_hierarchy_precondition(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        roles: list[dict[str, Any]],
+    ) -> PreconditionOutcome:
+        if operation_type is OperationType.REORDER_ROLES:
+            raw_targets = payload.get("items")
+            if not isinstance(raw_targets, list) or not raw_targets:
+                return PreconditionOutcome.UNKNOWN
+        else:
+            raw_targets = [payload]
+
+        by_id = {
+            int(item.get("id", item.get("role_id", 0))): item
+            for item in roles
+            if int(item.get("id", item.get("role_id", 0))) > 0
+        }
+        targets: list[dict[str, Any]] = []
+        for raw_target in raw_targets:
+            if not isinstance(raw_target, dict) or raw_target.get("id") is None:
+                return PreconditionOutcome.UNKNOWN
+            target_id = int(raw_target["id"])
+            target = by_id.get(target_id)
+            if target is None:
+                return PreconditionOutcome.CHANGED
+            if bool(target.get("managed", False)):
+                return PreconditionOutcome.CHANGED
+            if target_id == guild_id:
+                if operation_type in {OperationType.DELETE_ROLE, OperationType.REORDER_ROLES}:
+                    return PreconditionOutcome.CHANGED
+                continue
+            targets.append(target)
+
+        bot_user = getattr(self._client, "user", None)
+        bot_user_id = getattr(bot_user, "id", None)
+        if bot_user_id is None:
+            return PreconditionOutcome.UNKNOWN
+        try:
+            member = await self._reads.fetch_member(guild_id, int(bot_user_id))
+        except Exception:
+            return PreconditionOutcome.UNKNOWN
+        role_ids = member.get("role_ids")
+        if not isinstance(role_ids, list) or not role_ids:
+            return PreconditionOutcome.UNKNOWN
+        bot_roles = [by_id.get(int(role_id)) for role_id in role_ids]
+        if any(role is None for role in bot_roles):
+            return PreconditionOutcome.UNKNOWN
+        highest = max(
+            (role for role in bot_roles if role is not None),
+            key=lambda role: int(role.get("position", -1)),
+            default=None,
         )
+        if highest is None:
+            return PreconditionOutcome.UNKNOWN
+        highest_id = int(highest.get("id", highest.get("role_id", 0)))
+        highest_position = int(highest.get("position", -1))
+        if highest_id <= 0 or highest_position < 0:
+            return PreconditionOutcome.UNKNOWN
+        if any(
+            int(target.get("id", target.get("role_id", 0))) == highest_id
+            or int(target.get("position", -1)) >= highest_position
+            for target in targets
+        ):
+            return PreconditionOutcome.CHANGED
+        if operation_type is OperationType.REORDER_ROLES and any(
+            raw_target.get("position") is None or int(raw_target["position"]) >= highest_position
+            for raw_target in raw_targets
+        ):
+            return PreconditionOutcome.CHANGED
+        return PreconditionOutcome.SATISFIED
 
     @classmethod
     def _overwrite_precondition(
@@ -268,13 +358,18 @@ class DiscordPyMutableAdapter:
             role_result = await http.edit_role(guild_id, role_id, reason=reason, **fields)
             return self._normalise(role_result), 200
         if operation_type is OperationType.DELETE_ROLE:
-            await http.delete_role(guild_id, self._required_id(payload, "id"), reason=reason)
-            return {"id": self._required_id(payload, "id"), "deleted": True}, 204
+            role_id = self._required_id(payload, "id")
+            if role_id == guild_id:
+                raise UnsafeRoleMutation("discord.guard.default_role_delete_forbidden")
+            await http.delete_role(guild_id, role_id, reason=reason)
+            return {"id": role_id, "deleted": True}, 204
         if operation_type is OperationType.REORDER_ROLES:
             positions = [
                 {"id": self._required_id(item, "id"), "position": int(item["position"])}
                 for item in self._items(payload)
             ]
+            if any(item["id"] == guild_id for item in positions):
+                raise UnsafeRoleMutation("discord.guard.default_role_reorder_forbidden")
             role_results = await http.move_role_position(
                 guild_id, cast(Any, positions), reason=reason
             )
@@ -557,6 +652,10 @@ class DiscordPyMutableAdapter:
     def _translate_mutation(exc: Exception) -> MutableDiscordError:
         if isinstance(exc, MutableDiscordError):
             return exc
+        if isinstance(exc, UnsafeRoleMutation):
+            return MutableDiscordError(
+                DiscordFailure(DiscordErrorKind.CONTRACT_ERROR, None), outcome_unknown=False
+            )
         if isinstance(exc, asyncio.TimeoutError | aiohttp.ClientConnectionError):
             return MutableDiscordError(
                 DiscordFailure(DiscordErrorKind.TRANSIENT, None), outcome_unknown=True

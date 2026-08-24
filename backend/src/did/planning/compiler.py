@@ -222,16 +222,30 @@ class PlanCompiler:
             before_items.append(
                 {key: before[key] for key in ("id", "position", "parent_id") if key in before}
             )
+        expected_position_segment: list[dict[str, object]] | None = None
+        expected_before_segment: list[dict[str, object]] | None = None
         if roles:
-            items, before_items = self._expand_role_reorder(observed, entries)
+            (
+                items,
+                before_items,
+                expected_position_segment,
+                expected_before_segment,
+            ) = self._expand_role_reorder(observed, entries)
         key = "bulk:roles" if roles else f"bulk:channels:{key_suffix or '0'}"
+        desired_payload: dict[str, object] = {"items": items}
+        before_payload: dict[str, object] = {"items": before_items}
+        precondition_items = before_items
+        if expected_position_segment is not None and expected_before_segment is not None:
+            desired_payload["expected_position_segment"] = expected_position_segment
+            before_payload["expected_position_segment"] = expected_before_segment
+            precondition_items = expected_before_segment
         return PlanOperation(
             self._operation_id(plan_id, graph_hash, key, operation_type.value),
             operation_type,
             ResourceType.ROLE if roles else ResourceType.CHANNEL,
             key,
-            freeze_json_object({"items": items}),
-            freeze_json_object({"items": before_items}),
+            freeze_json_object(desired_payload),
+            freeze_json_object(before_payload),
             ("MANAGE_ROLES" if roles else "MANAGE_CHANNELS",),
             CompensationClass.REVERSIBLE,
             RiskLevel.MEDIUM,
@@ -243,8 +257,8 @@ class PlanCompiler:
                     "schema_version": "did-operation-precondition-v1",
                     "mode": "MATCH_BEFORE",
                     "resource_type": "ROLE" if roles else "CHANNEL",
-                    "before": {"items": before_items},
-                    "before_fingerprint": canonical_hash({"items": before_items}),
+                    "before": {"items": precondition_items},
+                    "before_fingerprint": canonical_hash({"items": precondition_items}),
                     "coverage_complete": (
                         observed.roles_complete if roles else observed.channels_complete
                     ),
@@ -257,8 +271,13 @@ class PlanCompiler:
         self,
         observed: GuildSnapshot,
         entries: list[DiffEntry],
-    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-        """Build Discord's complete position segment, including shifted roles."""
+    ) -> tuple[
+        list[dict[str, object]],
+        list[dict[str, object]],
+        list[dict[str, object]],
+        list[dict[str, object]],
+    ]:
+        """Separate explicit REST targets from the predicted shifted segment."""
         original = {role.role_id: role.position for role in observed.roles}
         positions = dict(original)
         requested_refs = {
@@ -282,11 +301,27 @@ class PlanCompiler:
                     positions[shifted_id] = shifted_position + 1
             positions[role_id] = target_position
 
+        requested_items: list[dict[str, object]] = []
+        requested_before: list[dict[str, object]] = []
+        for entry in sorted(entries, key=lambda item: item.node.logical_key):
+            role_id = entry.node.discord_id
+            target = thaw_json_object(entry.node.properties).get("position")
+            if role_id is None or target is None or role_id not in original:
+                continue
+            requested_items.append(
+                {
+                    "resource_ref": entry.node.logical_key,
+                    "id": role_id,
+                    "position": int(target),
+                }
+            )
+            requested_before.append({"id": role_id, "position": original[role_id]})
+
         changed = sorted(
             (role_id for role_id, position in positions.items() if position != original[role_id]),
             key=lambda role_id: (positions[role_id], role_id),
         )
-        items: list[dict[str, object]] = [
+        expected_items: list[dict[str, object]] = [
             {
                 "resource_ref": requested_refs.get(role_id, f"discord.role.{role_id}"),
                 "id": role_id,
@@ -294,10 +329,10 @@ class PlanCompiler:
             }
             for role_id in changed
         ]
-        before_items: list[dict[str, object]] = [
+        expected_before: list[dict[str, object]] = [
             {"id": role_id, "position": original[role_id]} for role_id in changed
         ]
-        return items, before_items
+        return requested_items, requested_before, expected_items, expected_before
 
     def _bind_symbol_dependencies(
         self, desired: DesiredStateGraph, operations: list[PlanOperation]

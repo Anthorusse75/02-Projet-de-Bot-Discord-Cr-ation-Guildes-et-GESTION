@@ -273,6 +273,50 @@ class PreflightEngine:
             OperationType.REORDER_ROLES: BotOperation.REORDER_ROLES,
         }
         bot_operation = operation_map[operation.operation_type]
+        if operation.operation_type is OperationType.REORDER_ROLES:
+            items = payload.get("items")
+            if not isinstance(items, list) or not items:
+                errors.append("preflight.role_reorder_targets_required")
+                checked.add(bot_operation.value)
+                return
+            for item in items:
+                if not isinstance(item, dict) or item.get("id") is None:
+                    errors.append("preflight.role_reorder_target_invalid")
+                    continue
+                role_id = int(item["id"])
+                target = guild.role(role_id)
+                decision = self._checker.check(
+                    operation=bot_operation,
+                    guild=guild,
+                    bot=bot,
+                    target_role=target,
+                    installation_active=installation_active,
+                )
+                warnings.extend(decision.warnings)
+                if decision.outcome is not CapabilityOutcome.CAN:
+                    errors.extend(decision.causes or ("preflight.capability_unknown",))
+                desired_position = item.get("position")
+                highest_position = (
+                    decision.hierarchy.bot_highest_position
+                    if decision.hierarchy is not None
+                    else None
+                )
+                if (
+                    desired_position is not None
+                    and highest_position is not None
+                    and int(desired_position) >= highest_position
+                ):
+                    errors.append("preflight.role_reorder_destination_not_below_bot")
+                if target is None:
+                    errors.append("preflight.role_reorder_target_missing")
+                elif target.guild_id != guild.guild_id:
+                    errors.append("preflight.role_reorder_target_tenant_mismatch")
+                elif target.managed:
+                    errors.append("preflight.managed_role_forbidden")
+                if role_id == guild.guild_id:
+                    errors.append("preflight.default_role_reorder_forbidden")
+            checked.add(bot_operation.value)
+            return
         if operation.operation_type in {
             OperationType.UPSERT_OVERWRITE,
             OperationType.DELETE_OVERWRITE,
@@ -298,3 +342,9 @@ class PreflightEngine:
             errors.append("preflight.channel_not_current_visible")
         if target_role is not None and target_role.managed:
             errors.append("preflight.managed_role_forbidden")
+        if (
+            operation.operation_type is OperationType.DELETE_ROLE
+            and target_role is not None
+            and target_role.role_id == guild.guild_id
+        ):
+            errors.append("preflight.default_role_delete_forbidden")

@@ -82,10 +82,12 @@ def hierarchy_diagnostic(
             target.position,
             ("capability.hierarchy.target_managed",),
         )
+    # Discord's role hierarchy permits bots to edit/sort only roles at a
+    # strictly lower position.  Snowflake ordering is useful to render roles
+    # tied at one position, but it must not turn an equal-position target into
+    # a mutable role.
     can_manage = highest.role_id != target.role_id and (
-        target.role_id == guild.guild_id
-        or highest.position > target.position
-        or (highest.position == target.position and highest.role_id < target.role_id)
+        target.role_id == guild.guild_id or highest.position > target.position
     )
     return HierarchyDiagnostic(
         CapabilityOutcome.CAN if can_manage else CapabilityOutcome.CANNOT,
@@ -142,7 +144,11 @@ class BotCapabilityChecker:
             BotOperation.SEND_MESSAGE,
             BotOperation.MANAGE_THREAD,
         }
-        role_operations = {BotOperation.MANAGE_ROLE, BotOperation.ASSIGN_ROLE}
+        role_operations = {
+            BotOperation.MANAGE_ROLE,
+            BotOperation.REORDER_ROLES,
+            BotOperation.ASSIGN_ROLE,
+        }
         if operation in channel_operations and channel is None:
             causes.append("capability.channel_required")
         if operation in role_operations and target_role is None:
@@ -160,9 +166,27 @@ class BotCapabilityChecker:
                 if not decision.effective_bits & bit:
                     causes.append(f"capability.permission_missing.{name.lower()}")
                     remediations.append(f"capability.remediation.grant.{name.lower()}")
-        if operation in {BotOperation.MANAGE_ROLE, BotOperation.ASSIGN_ROLE}:
+        if operation in role_operations:
             hierarchy = hierarchy_diagnostic(guild, bot, target_role)
             causes.extend(hierarchy.reasons)
+            if operation is BotOperation.REORDER_ROLES and target_role is not None:
+                if target_role.role_id == guild.guild_id:
+                    causes.append("capability.hierarchy.default_role_reorder_forbidden")
+                    hierarchy = HierarchyDiagnostic(
+                        CapabilityOutcome.CANNOT,
+                        hierarchy.bot_highest_role_id,
+                        hierarchy.bot_highest_position,
+                        hierarchy.target_role_id,
+                        hierarchy.target_position,
+                        tuple(
+                            dict.fromkeys(
+                                (
+                                    *hierarchy.reasons,
+                                    "capability.hierarchy.default_role_reorder_forbidden",
+                                )
+                            )
+                        ),
+                    )
         if not installation_active or (
             decision.status is DecisionStatus.COMPLETE
             and (

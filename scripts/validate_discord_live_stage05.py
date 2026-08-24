@@ -750,10 +750,14 @@ async def run_live() -> dict[str, int]:
             bot_role_positions = [
                 int(item["position"]) for item in roles if int(item["role_id"]) in bot_role_ids
             ]
-            if not bot_role_positions or max(bot_role_positions) <= 1:
+            if not bot_role_positions or max(bot_role_positions) <= 2:
                 raise RuntimeError("bot hierarchy cannot safely demonstrate role reorder")
             target_role_position = 1
-            target_anchor_position = max(bot_role_positions) - 1
+            # Keep one free position below the bot's highest role. Discord can
+            # normalise a requested adjacent position around existing guild
+            # roles, while the lower destination remains stable and still
+            # proves a real, hierarchy-safe reorder.
+            target_anchor_position = max(bot_role_positions) - 2
         else:
             target_role_position = anchor_position
             target_anchor_position = role_position

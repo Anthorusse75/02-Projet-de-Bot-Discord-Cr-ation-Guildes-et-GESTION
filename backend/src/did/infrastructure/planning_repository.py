@@ -2172,7 +2172,10 @@ class PlanningRepository:
             OperationType.REORDER_ROLES,
             OperationType.MOVE_OR_REORDER_CHANNELS,
         }:
-            desired_items = dict(operation["desired_payload"]).get("items", [])
+            operation_payload = dict(operation["desired_payload"])
+            desired_items = operation_payload.get("items", [])
+            if operation_type is OperationType.REORDER_ROLES:
+                desired_items = operation_payload.get("expected_position_segment", desired_items)
             desired_ids = {
                 int(item["id"])
                 for item in desired_items

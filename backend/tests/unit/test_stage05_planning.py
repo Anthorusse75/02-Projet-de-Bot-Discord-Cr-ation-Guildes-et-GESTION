@@ -60,6 +60,7 @@ from did.planning.models import (
     freeze_json_object,
     thaw_json_object,
 )
+from did.planning.preflight import PreflightContext, PreflightEngine
 from did.planning.risk import ImpactSummary, RiskEngine
 from did.worker.io.governor import DiscordWorkloadGovernor
 from did.worker.io.plan_executor import ApplyPlanExecutor
@@ -265,10 +266,10 @@ def test_channel_parent_moves_are_split_to_one_per_discord_request() -> None:
     assert all(len(item.desired_payload.items) == 1 for item in moves)
 
 
-def test_role_reorder_expands_complete_discord_position_segment() -> None:
+def test_role_reorder_separates_rest_targets_from_expected_position_segment() -> None:
     base = current_guild()
     target = RoleSnapshot(GUILD, 100, "target", 1, 0, False, base.freshness)
-    middle = RoleSnapshot(GUILD, 200, "middle", 2, 0, False, base.freshness)
+    middle = RoleSnapshot(GUILD, 200, "managed", 2, 0, True, base.freshness)
     top = RoleSnapshot(GUILD, 300, "top", 3, 0, False, base.freshness)
     observed = replace(base, roles=(*base.roles, target, middle, top))
     graph = DesiredStateGraph(
@@ -290,10 +291,164 @@ def test_role_reorder_expands_complete_discord_position_segment() -> None:
     payload = thaw_json_object(reorder.desired_payload)
 
     assert payload["items"] == [
+        {"id": 100, "position": 3, "resource_ref": "role.target"},
+    ]
+    assert payload["expected_position_segment"] == [
         {"id": 200, "position": 1, "resource_ref": "discord.role.200"},
         {"id": 300, "position": 2, "resource_ref": "discord.role.300"},
         {"id": 100, "position": 3, "resource_ref": "role.target"},
     ]
+
+
+def test_delete_everyone_is_rejected_by_preflight() -> None:
+    base = current_guild()
+    manage_roles = DEFAULT_PERMISSION_REGISTRY.value("MANAGE_ROLES")
+    bot_role = RoleSnapshot(GUILD, 900, "bot", 10, manage_roles, False, base.freshness)
+    observed = replace(base, roles=(*base.roles, bot_role))
+    bot = MemberSnapshot(GUILD, 999, (GUILD, bot_role.role_id), True, base.freshness, True)
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.everyone",
+                resource_type=ResourceType.ROLE,
+                discord_id=GUILD,
+                presence=NodePresence.ABSENT,
+            ),
+        ),
+    )
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    risk = RiskEngine().assess(operations, ImpactSummary(1))
+
+    result = PreflightEngine().check(
+        graph=graph,
+        operations=operations,
+        context=PreflightContext(
+            guild=observed,
+            bot=bot,
+            installation_active=True,
+            actor_authorization_fresh=True,
+            base_structure_version="same",
+            current_structure_version="same",
+        ),
+        risk=risk,
+    )
+
+    assert not result.allowed
+    assert "preflight.default_role_delete_forbidden" in result.errors
+
+
+@pytest.mark.parametrize(
+    ("target_id", "target_position", "managed", "allowed", "expected_error"),
+    [
+        (901, 4, False, True, None),
+        (902, 5, False, False, "capability.hierarchy.bot_role_not_above_target"),
+        (903, 6, False, False, "capability.hierarchy.bot_role_not_above_target"),
+        (904, 1, True, False, "capability.hierarchy.target_managed"),
+        (GUILD, 0, False, False, "preflight.default_role_reorder_forbidden"),
+    ],
+)
+def test_reorder_roles_preflight_checks_each_explicit_target(
+    target_id: int,
+    target_position: int,
+    managed: bool,
+    allowed: bool,
+    expected_error: str | None,
+) -> None:
+    base = current_guild()
+    manage_roles = DEFAULT_PERMISSION_REGISTRY.value("MANAGE_ROLES")
+    bot_role = RoleSnapshot(GUILD, 900, "bot", 5, manage_roles, False, base.freshness)
+    target = (
+        base.roles[0]
+        if target_id == GUILD
+        else RoleSnapshot(
+            GUILD,
+            target_id,
+            "target",
+            target_position,
+            0,
+            managed,
+            base.freshness,
+        )
+    )
+    observed = replace(
+        base, roles=(*base.roles, bot_role, *((target,) if target_id != GUILD else ()))
+    )
+    bot = MemberSnapshot(GUILD, 999, (GUILD, bot_role.role_id), True, base.freshness, True)
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.REORDER_ROLES,
+        ResourceType.ROLE,
+        "bulk:roles",
+        freeze_json_object({"items": [{"id": target_id, "position": 2}]}),
+        freeze_json_object({"items": [{"id": target_id, "position": target_position}]}),
+        ("MANAGE_ROLES",),
+        CompensationClass.REVERSIBLE,
+        RiskLevel.MEDIUM,
+        VerificationStrategy.TARGETED_LIST_AND_MATCH,
+        RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED,
+        ("GUILD_ROLE_UPDATE",),
+    )
+    graph = DesiredStateGraph(GUILD, ())
+    risk = RiskEngine().assess((operation,), ImpactSummary(1))
+
+    result = PreflightEngine().check(
+        graph=graph,
+        operations=(operation,),
+        context=PreflightContext(
+            guild=observed,
+            bot=bot,
+            installation_active=True,
+            actor_authorization_fresh=True,
+            base_structure_version="same",
+            current_structure_version="same",
+        ),
+        risk=risk,
+    )
+
+    assert result.allowed is allowed
+    if expected_error is not None:
+        assert expected_error in result.errors
+
+
+def test_reorder_roles_preflight_rejects_destination_at_bot_level() -> None:
+    base = current_guild()
+    manage_roles = DEFAULT_PERMISSION_REGISTRY.value("MANAGE_ROLES")
+    bot_role = RoleSnapshot(GUILD, 900, "bot", 5, manage_roles, False, base.freshness)
+    target = RoleSnapshot(GUILD, 901, "target", 2, 0, False, base.freshness)
+    observed = replace(base, roles=(*base.roles, bot_role, target))
+    bot = MemberSnapshot(GUILD, 999, (GUILD, bot_role.role_id), True, base.freshness, True)
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.REORDER_ROLES,
+        ResourceType.ROLE,
+        "bulk:roles",
+        freeze_json_object({"items": [{"id": target.role_id, "position": 5}]}),
+        freeze_json_object({"items": [{"id": target.role_id, "position": 2}]}),
+        ("MANAGE_ROLES",),
+        CompensationClass.REVERSIBLE,
+        RiskLevel.MEDIUM,
+        VerificationStrategy.TARGETED_LIST_AND_MATCH,
+        RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED,
+        ("GUILD_ROLE_UPDATE",),
+    )
+
+    result = PreflightEngine().check(
+        graph=DesiredStateGraph(GUILD, ()),
+        operations=(operation,),
+        context=PreflightContext(
+            guild=observed,
+            bot=bot,
+            installation_active=True,
+            actor_authorization_fresh=True,
+            base_structure_version="same",
+            current_structure_version="same",
+        ),
+        risk=RiskEngine().assess((operation,), ImpactSummary(1)),
+    )
+
+    assert not result.allowed
+    assert "preflight.role_reorder_destination_not_below_bot" in result.errors
 
 
 def test_dag_cycle_and_destructive_risk_fail_safe() -> None:
@@ -605,15 +760,157 @@ async def test_role_reorder_verifies_explicit_target_after_managed_normalization
         guild_id=GUILD,
         operation_type=OperationType.REORDER_ROLES,
         payload={
-            "items": [
+            "items": [{"id": 20, "position": 11, "resource_ref": "role.target"}],
+            "expected_position_segment": [
                 {"id": 10, "position": 1, "resource_ref": "discord.role.10"},
                 {"id": 20, "position": 11, "resource_ref": "role.target"},
-            ]
+            ],
         },
         before_payload={},
     )
 
     assert recovered.outcome is RecoveryOutcome.PROVED_APPLIED
+
+
+@pytest.mark.asyncio
+async def test_role_reorder_jit_rechecks_current_bot_hierarchy() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    adapter._client = SimpleNamespace(user=SimpleNamespace(id=999))  # type: ignore[attr-defined]
+    adapter._reads = SimpleNamespace(  # type: ignore[attr-defined]
+        fetch_roles=AsyncMock(
+            return_value=[
+                {"role_id": GUILD, "position": 0, "managed": False},
+                {"role_id": 50, "position": 4, "managed": False},
+                {"role_id": 60, "position": 4, "managed": False},
+            ]
+        ),
+        fetch_member=AsyncMock(return_value={"role_ids": [GUILD, 60]}),
+    )
+
+    outcome = await adapter.check_preconditions(
+        guild_id=GUILD,
+        operation_type=OperationType.REORDER_ROLES,
+        payload={"items": [{"id": 50, "position": 2}]},
+        preconditions={
+            "schema_version": "did-operation-precondition-v1",
+            "before": {"items": [{"id": 50, "position": 4}]},
+        },
+    )
+
+    assert outcome is PreconditionOutcome.CHANGED
+    adapter._reads.fetch_member.assert_awaited_once_with(GUILD, 999)
+
+
+@pytest.mark.asyncio
+async def test_role_reorder_jit_allows_normal_target_strictly_below_bot() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    adapter._client = SimpleNamespace(user=SimpleNamespace(id=999))  # type: ignore[attr-defined]
+    adapter._reads = SimpleNamespace(  # type: ignore[attr-defined]
+        fetch_roles=AsyncMock(
+            return_value=[
+                {"role_id": GUILD, "position": 0, "managed": False},
+                {"role_id": 50, "position": 3, "managed": False},
+                {"role_id": 60, "position": 5, "managed": False},
+            ]
+        ),
+        fetch_member=AsyncMock(return_value={"role_ids": [GUILD, 60]}),
+    )
+
+    outcome = await adapter.check_preconditions(
+        guild_id=GUILD,
+        operation_type=OperationType.REORDER_ROLES,
+        payload={"items": [{"id": 50, "position": 2}]},
+        preconditions={
+            "schema_version": "did-operation-precondition-v1",
+            "before": {"items": [{"id": 50, "position": 3}]},
+        },
+    )
+
+    assert outcome is PreconditionOutcome.SATISFIED
+
+
+@pytest.mark.asyncio
+async def test_role_reorder_jit_rejects_destination_at_bot_level_without_rest() -> None:
+    adapter = object.__new__(DiscordPyMutableAdapter)
+    adapter._client = SimpleNamespace(user=SimpleNamespace(id=999))  # type: ignore[attr-defined]
+    adapter._reads = SimpleNamespace(  # type: ignore[attr-defined]
+        fetch_roles=AsyncMock(
+            return_value=[
+                {"role_id": GUILD, "position": 0, "managed": False},
+                {"role_id": 50, "position": 3, "managed": False},
+                {"role_id": 60, "position": 5, "managed": False},
+            ]
+        ),
+        fetch_member=AsyncMock(return_value={"role_ids": [GUILD, 60]}),
+    )
+
+    outcome = await adapter.check_preconditions(
+        guild_id=GUILD,
+        operation_type=OperationType.REORDER_ROLES,
+        payload={"items": [{"id": 50, "position": 5}]},
+        preconditions={
+            "schema_version": "did-operation-precondition-v1",
+            "before": {"items": [{"id": 50, "position": 3}]},
+        },
+    )
+
+    assert outcome is PreconditionOutcome.CHANGED
+
+
+@pytest.mark.asyncio
+async def test_role_reorder_rest_payload_contains_only_explicit_safe_targets() -> None:
+    http = SimpleNamespace(move_role_position=AsyncMock(return_value=[]))
+    adapter = DiscordPyMutableAdapter(  # type: ignore[arg-type]
+        SimpleNamespace(http=http, user=SimpleNamespace(id=999))
+    )
+    await adapter.execute(
+        guild_id=GUILD,
+        plan_id=uuid4(),
+        operation_id=uuid4(),
+        correlation_id=uuid4(),
+        operation_type=OperationType.REORDER_ROLES,
+        payload={
+            "items": [{"id": 50, "position": 2, "resource_ref": "role.target"}],
+            "expected_position_segment": [
+                {"id": 70, "position": 1, "resource_ref": "discord.role.70"},
+                {"id": 50, "position": 2, "resource_ref": "role.target"},
+            ],
+        },
+    )
+
+    assert http.move_role_position.await_args is not None
+    assert http.move_role_position.await_args.args[1] == [{"id": 50, "position": 2}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation_type", [OperationType.DELETE_ROLE, OperationType.REORDER_ROLES])
+async def test_mutable_adapter_fences_default_role_without_rest(
+    operation_type: OperationType,
+) -> None:
+    http = SimpleNamespace(delete_role=AsyncMock(), move_role_position=AsyncMock())
+    adapter = DiscordPyMutableAdapter(  # type: ignore[arg-type]
+        SimpleNamespace(http=http, user=SimpleNamespace(id=999))
+    )
+    payload = (
+        {"id": GUILD}
+        if operation_type is OperationType.DELETE_ROLE
+        else {"items": [{"id": GUILD, "position": 1}]}
+    )
+
+    with pytest.raises(MutableDiscordError) as caught:
+        await adapter.execute(
+            guild_id=GUILD,
+            plan_id=uuid4(),
+            operation_id=uuid4(),
+            correlation_id=uuid4(),
+            operation_type=operation_type,
+            payload=payload,
+        )
+
+    assert caught.value.failure.kind is DiscordErrorKind.CONTRACT_ERROR
+    assert not caught.value.outcome_unknown
+    http.delete_role.assert_not_awaited()
+    http.move_role_position.assert_not_awaited()
 
 
 def test_overwrite_precondition_treats_channel_id_as_selected_context() -> None:
