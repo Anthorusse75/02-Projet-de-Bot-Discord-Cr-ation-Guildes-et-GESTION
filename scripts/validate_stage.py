@@ -361,6 +361,150 @@ def stage_04(
     return tuple(base_steps)
 
 
+def stage_05(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    python = sys.executable
+    if profile == "load":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "STAGE 05 deterministic large DAG load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-s",
+                    "backend/tests/load/test_stage05_plan_load.py",
+                    f"--junitxml={relative_path(evidence_directory / 'stage05-load.xml')}",
+                ),
+                environment={
+                    **TEST_ENV,
+                    "DID_STAGE05_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage05-large-dag.json"
+                    ),
+                },
+            ),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step("documentation validation", (python, "scripts/validate_documentation.py")),
+        )
+    if profile == "failure-injection":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "migration STAGE 05 failure-injection head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "STAGE 05 crash matrix A-I and fencing",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "failure_injection",
+                    "backend/tests/integration/test_stage05_postgres.py",
+                    f"--junitxml={relative_path(evidence_directory / 'stage05-failures.xml')}",
+                ),
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step("documentation validation", (python, "scripts/validate_documentation.py")),
+        )
+    base_steps = [
+        step
+        for step in stage_04(evidence_directory, include_discord_live=False)
+        if not step.name.startswith("migration ")
+        and "Discord live" not in step.name
+        and "benchmark" not in step.name
+    ]
+    first_integration = next(
+        index
+        for index, step in enumerate(base_steps)
+        if step.name == "PostgreSQL RLS and Redis integration"
+    )
+    migrations: list[Step] = []
+    for revision, label in (
+        ("base", "empty base"),
+        ("0001_stage_01", "STAGE 01"),
+        ("0002_stage_02", "STAGE 02"),
+        ("0003_stage_03", "STAGE 03 schema"),
+        ("0004_stage_03", "STAGE 03 routing"),
+        ("0005_stage_03", "STAGE 03 final"),
+        ("0006_stage_04", "STAGE 04 schema"),
+        ("0007_stage_04", "STAGE 04 final"),
+    ):
+        migrations.extend(
+            (
+                Step(
+                    f"migration downgrade to {label}",
+                    (uv, "run", "alembic", "downgrade", revision),
+                    environment=TEST_ENV,
+                ),
+                Step(
+                    f"migration {label} to STAGE 05 head",
+                    (uv, "run", "alembic", "upgrade", "head"),
+                    environment=TEST_ENV,
+                ),
+            )
+        )
+    base_steps[first_integration:first_integration] = migrations
+    base_steps.append(
+        Step(
+            "STAGE 05 failure injection and fencing",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage05_postgres.py",
+                f"--junitxml={relative_path(evidence_directory / 'stage05-failures.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 05 deterministic large DAG load",
+            (
+                uv,
+                "run",
+                "pytest",
+                "-s",
+                "backend/tests/load/test_stage05_plan_load.py",
+                f"--junitxml={relative_path(evidence_directory / 'stage05-load.xml')}",
+            ),
+            environment={
+                **TEST_ENV,
+                "DID_STAGE05_LOAD_REPORT": relative_path(
+                    evidence_directory / "stage05-large-dag.json"
+                ),
+            },
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage05.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage05.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step("Discord live STAGE 05 safe Plan Engine mutations", tuple(live_arguments), 1200)
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -404,6 +548,20 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-BOT-{index:03d}" for index in range(3, 7)),
             "REQ-AUTH-013",
             "REQ-AUTH-014",
+        ),
+    ),
+    "05": StageDefinition(
+        steps=stage_05,
+        requirements=(
+            *(f"REQ-PLAN-{index:03d}" for index in range(1, 17)),
+            "REQ-STR-004",
+            "REQ-STR-005",
+            "REQ-GW-006",
+            "REQ-CACHE-004",
+            "REQ-RATE-005",
+            "REQ-AUD-001",
+            "REQ-AUD-002",
+            "REQ-AUD-003",
         ),
     ),
 }
@@ -552,7 +710,7 @@ def write_summary(
         "environment": environment,
         "commands": [
             "python scripts/validate_stage.py "
-            f"{stage}{' --profile load' if profile == 'load' else ''}"
+            f"{stage}{f' --profile {profile}' if profile != 'default' else ''}"
             f"{' --include-discord-live' if include_discord_live else ''}",
             *(gate.command for gate in results),
         ],
@@ -571,7 +729,9 @@ def main() -> int:
     parser = ArgumentParser(description="Validate one implementation stage")
     parser.add_argument("stage", choices=sorted(STAGES))
     parser.add_argument("--include-discord-live", action="store_true")
-    parser.add_argument("--profile", choices=("default", "load"), default="default")
+    parser.add_argument(
+        "--profile", choices=("default", "load", "failure-injection"), default="default"
+    )
     arguments = parser.parse_args()
     if arguments.stage not in STAGES:
         known = ", ".join(sorted(STAGES))
@@ -591,8 +751,11 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    if arguments.profile == "load" and stage != "03":
-        print("The load profile is defined only for STAGE 03")
+    if arguments.profile == "load" and stage not in {"03", "05"}:
+        print("The load profile is defined only for STAGE 03 and STAGE 05")
+        return 2
+    if arguments.profile == "failure-injection" and stage != "05":
+        print("The failure-injection profile is defined only for STAGE 05")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []
