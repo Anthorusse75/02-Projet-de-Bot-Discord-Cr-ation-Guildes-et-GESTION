@@ -5,7 +5,7 @@
 | Date | `2026-08-24` |
 | Base main | `f64c8253e6b7ec648d7161531344a2999b78ffe7` |
 | Branche | `stage/05-plan-engine` |
-| PR | Draft PR vers `main`, non mergée ; URL consignée dans l'état courant après publication |
+| PR | [Draft PR #5](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/5) vers `main`, non mergée |
 | Statut | `COMPLETE_PR_OPEN` |
 | Migration | `0008_stage_05` ; parent `0007_stage_04` ; une seule tête |
 
@@ -87,13 +87,13 @@ La preuve architecture scanne récursivement : `did.planning` n'importe ni FastA
 
 | Validation | Résultat |
 |---|---|
-| `python scripts/validate_stage.py 05` | PASS : 171 unit, 61 integration, 13 failure-injection, 4 frontend, migrations, lint/type/build/secrets/docs |
+| `python scripts/validate_stage.py 05 --include-discord-live` | PASS : 172 unit, 61 integration, 13 failure-injection, 4 frontend, migrations, lint/type/build/secrets/docs et garde live |
 | `python scripts/validate_stage.py 05 --profile failure-injection` | PASS : 13 scénarios A–I |
 | charge DSG 500 nœuds | PASS, déterministe, sous la borne 3 s |
 | docs | PASS : 246/246 REQ, 35 ADR |
 | secret scan et diff checks | PASS |
 
-Preuves locales : `artifacts/test-evidence/stage-05/20260824T095241934063Z-f64c8253e6b7-local-docker/` et `20260824T095225129977Z-f64c8253e6b7-local-docker/`. Les preuves de HEAD final CI sont les artifacts GitHub du workflow.
+Preuve locale propre sur le commit de code validé `a8e8bcc7b3b648eab23186c245415e2c9048a12c` : `artifacts/test-evidence/stage-05/20260824T101948193363Z-a8e8bcc7b3b6-local-docker/`. La matrice failure-injection dédiée est aussi conservée sous `artifacts/test-evidence/stage-05/20260824T101546797719Z-c8b66d3569c2-local-docker/`. Les preuves du HEAD final de la PR sont les artifacts GitHub du workflow.
 
 ## Live sandbox et cleanup
 
