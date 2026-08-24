@@ -60,3 +60,11 @@ Une preuve manuelle indique opérateur, scénario, état avant/après et nettoya
 Le résumé réel ajoute `gates`, une liste détaillée contenant pour chaque gate son nom, sa commande,
 son répertoire de travail relatif, sa durée, son code retour et son statut. Un environnement autre
 que les trois profils usuels est permis uniquement comme identifiant explicite non sensible.
+
+## Preuve live mutative STAGE 05
+
+Un preflight fail-closed à zéro mutation est une preuve de sécurité, pas une preuve du moteur mutatif.
+Il porte `BLOCKED_CAPABILITY_CONFIGURATION` et invalide tout statut live `PASS`. Le PASS live STAGE 05
+exige le plan complet, le crash-window avec un seul CREATE, le binding symbolique récupéré, la
+vérification ciblée et le cleanup par plan sans fixture préfixée restante. Le JSON suivi ne contient
+ni token ni identifiant Discord; les données brutes restent dans les artifacts locaux ignorés.

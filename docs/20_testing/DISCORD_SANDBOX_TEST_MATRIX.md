@@ -23,4 +23,4 @@ Créer deux Guilds dédiées A et B, sans membres réels non nécessaires. Insta
 
 Chaque scénario live référence la version officielle de l’endpoint/événement, l’intent, les permissions, le run ID, le commit et la preuve de nettoyage.
 
-Au 2026-08-24, le bot des deux Guilds sandbox ne possède pas les capacités de mutation requises. Le runner STAGE 05 a donc produit `PASS_WITH_APPROVED_LIMITATION` après un refus preflight et zéro appel mutable. Les scénarios create/crash/recovery/cleanup restent `SKIPPED_NOT_VERIFIED` jusqu'à attribution volontaire de ces permissions minimales.
+Au 2026-08-24, le bot de la Guild sandbox B ne possède pas les capacités de mutation requises. Le runner STAGE 05 produit donc `BLOCKED_CAPABILITY_CONFIGURATION` après un refus preflight et zéro appel mutable. Ce résultat n'est pas un PASS. Les scénarios create/update/move/reorder/overwrite/delete, crash/recovery et cleanup restent `SKIPPED_NOT_VERIFIED` jusqu'à attribution de `MANAGE_CHANNELS` et `MANAGE_ROLES` au rôle bot, sans `ADMINISTRATOR`, avec le rôle bot placé au-dessus des fixtures. Si une réinstallation est nécessaire, le bitfield bot minimal est `268435472`.

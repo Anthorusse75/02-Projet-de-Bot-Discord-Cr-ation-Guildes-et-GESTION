@@ -1,7 +1,7 @@
 {
   "stage": "05",
   "date": "2026-08-24",
-  "status": "PASS_WITH_APPROVED_LIMITATION",
+  "status": "BLOCKED_CAPABILITY_CONFIGURATION",
   "profile": "discord-live-plan-engine-safe-mutations",
   "checks": [
     "live cache snapshot acquired",
@@ -14,11 +14,16 @@
     "discord_mutations": 0
   },
   "skipped_not_verified": [
-    "safe create/recovery/cleanup: sandbox bot lacks MANAGE_CHANNELS",
-    "safe create/recovery/cleanup: sandbox bot lacks MANAGE_ROLES",
-    "live crash window: no mutable operation passed preflight",
-    "429 behavior: contract-tested and not forced against Discord",
-    "ambiguous duplicate CREATE: deterministic fake-adapter evidence only"
+    "full create/update/move/reorder/overwrite/delete plan",
+    "live crash window and symbol recovery",
+    "cleanup by audited plan",
+    "429 behavior is contract-tested and not forced against Discord",
+    "ambiguous duplicate CREATE is not forced"
+  ],
+  "blocking_configuration": [
+    "sandbox bot role requires MANAGE_CHANNELS",
+    "sandbox bot role requires MANAGE_ROLES",
+    "ADMINISTRATOR must remain disabled"
   ],
   "cleanup": "NOT_REQUIRED_ZERO_MUTATIONS",
   "secrets_recorded": false,

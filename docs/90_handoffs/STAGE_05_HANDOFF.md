@@ -1,110 +1,175 @@
-# Handoff STAGE 05 — Desired State, Plan et Mutation Engine
+# Handoff STAGE 05 - Desired State, Plan et Mutation Engine
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-08-24` |
 | Base main | `f64c8253e6b7ec648d7161531344a2999b78ffe7` |
 | Branche | `stage/05-plan-engine` |
-| PR | [Draft PR #5](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/5) vers `main`, non mergée |
-| Statut | `COMPLETE_PR_OPEN` |
-| Migration | `0008_stage_05` ; parent `0007_stage_04` ; une seule tête |
+| PR | Draft PR #5 vers `main`, non mergee |
+| Statut | `CORRECTIVE_REVIEW_LIVE_BLOCKED` |
+| Migration | `0009_stage_05` apres `0008_stage_05` ; une seule tete Alembic |
 
-## Contrats Discord revalidés
+## Contrats Discord revalides
 
-Documentation officielle consultée le 2026-08-24 : [Channel Resource](https://docs.discord.com/developers/resources/channel), [Guild Resource](https://docs.discord.com/developers/resources/guild), [Permissions](https://docs.discord.com/developers/topics/permissions), [Rate Limits](https://docs.discord.com/developers/topics/rate-limits), [Gateway Events](https://docs.discord.com/developers/events/gateway-events) et [HTTP Reference](https://docs.discord.com/developers/reference).
+La documentation officielle Discord a ete relue le 2026-08-24 : Channel Resource,
+Guild Resource, Permissions, Rate Limits, Gateway Events et HTTP Reference. Les
+contraintes retenues sont notamment : audit reason borne a 512 octets UTF-8, roles
+managed et hierarchie, suppression d'une categorie sans suppression automatique de
+ses enfants, endpoints bulk de positions, au plus un changement de `parent_id` par
+requete bulk et omission HTTP d'un salon qui ne constitue jamais une preuve de
+suppression. `discord.py 2.7.1` est le transport epingle, pas la source normative.
 
-Les points appliqués sont : audit reason UTF-8 de 1 à 512 caractères ; rôles managed et hiérarchie ; suppression de catégorie sans suppression automatique des enfants ; endpoints create/update/delete rôles, salons et overwrites ; bulk positions ; au plus un changement de `parent_id` par requête bulk ; `Retry-After`/scope des 429 ; événements structurels Gateway. `discord.py 2.7.1` est le transport épinglé, jamais la source normative.
+## DSG, hash et immutabilite
 
-## DSG, canonicalisation et diff
+- Le DSG `did-dsg-v&#49;` est immutable et canonique. La correction de canonicalisation
+  traite les objets/tableaux geles avant les dataclasses generiques : le JSON persiste
+  des objets reels, jamais une enveloppe interne `items` accidentelle.
+- Le `plan_hash` lie le DSG/hash, le compiler et le registre de capacites, le snapshot
+  complet et sa version/hash, les operations et leurs preconditions, les dependances
+  et les symboles.
+- Avant `DRAFT -> VALIDATED`, un bundle relu dans une transaction recalcule tous ces
+  hashes depuis les lignes persistantes. Un tamper SQL d'un DRAFT est refuse.
+- Apres validation, les triggers PostgreSQL refusent `INSERT`, `UPDATE` et `DELETE`
+  des operations, symboles et dependances. Un snapshot reference est append-only,
+  pour `did_app` comme pour l'administrateur de test.
+- Les operation UUID restent deterministes, mais incluent le `plan_id`. La cle
+  primaire finale est `(guild_id, plan_id, id)`.
 
-- Schéma immuable `did-dsg-v&#49;` : Guild, category, channel, role et overwrite ; présence `PRESENT/ABSENT`, logical key, ID Discord optionnel, symbole et relations typées.
-- Les objets JSON sont gelés récursivement. La canonicalisation encode du JSON UTF-8, clés triées, séparateurs compacts, sans valeurs non JSON ; hash SHA-256 hexadécimal.
-- Le hash plan lie schéma, compiler `did-plan-compiler-v&#49;`, capability registry, version/hash du snapshot de base, hash DSG et opérations.
-- Le diff est déterministe sous permutation, produit le no-op vide, conserve `before` et `desired`, et refuse les formes non supportées.
+## Autorisation, confirmation et idempotence
 
-## Plan persistant et state machines
+- Les commandes sensibles STAGE 05 passent `sensitive=True` au moteur STAGE 02.
+  Validate transmet explicitement la preuve `actor_authorization_fresh`; confirm et
+  apply sont egalement sensibles. Cancel est sensible afin de ne pas contourner une
+  revocation pendant un apply.
+- Le worker lit le `requested_by` durable et, avant tout side effect, appelle le meme
+  `AuthorizationService` avec `PLANS_APPLY`, scope `GUILD`, installation `ACTIVE` et
+  targeted `Get Guild Member`. Il n'utilise jamais `List Guild Members` et ne depend
+  pas d'une session OAuth utilisateur. Perte de membership ou de capability termine
+  le plan sans appel mutable.
+- `begin_apply` exige une confirmation valide pour l'acteur exact du job. La
+  confirmation de B ne peut jamais remplacer celle de A.
+- La cle plan est unique par `(guild_id, actor_user_id, idempotency_key)`. Create et
+  confirm exposent `Idempotency-Key`; apply reutilise atomiquement le job actif par
+  logical key et cancel reutilise l'etat/version. Les routes apply/cancel ne pretendent
+  donc pas accepter un header absent de leur contrat public.
 
-Tables RLS : `plan_snapshots`, `plans`, `plan_operations`, `plan_operation_dependencies`, `plan_symbol_bindings`, `operation_attempts`, `plan_confirmations`, `plan_progress_events`, `plan_expected_mutations`. Toutes les relations tenant critiques utilisent `guild_id` et des FK composites. Les triggers rendent snapshot/graph/opérations/dépendances immuables, empêchent le rebind d'un symbole et refusent les cycles.
+## Preconditions juste-a-temps et preflight
 
-Plan : `DRAFT → VALIDATED → CONFIRMED → APPLYING → SUCCEEDED|FAILED|PARTIALLY_APPLIED|VERIFICATION_FAILED|INTERVENTION_REQUIRED`; `STALE`, `CANCEL_REQUESTED` et `CANCELLED` ont des transitions explicites. Opération : `PENDING → IN_FLIGHT → SUCCEEDED|FAILED|UNKNOWN_OUTCOME`, puis recovery vers `PENDING|SUCCEEDED|INTERVENTION_REQUIRED`. Attempt : `PREPARED → IN_FLIGHT → SUCCEEDED|FAILED|UNKNOWN`. `PREPARED` et `IN_FLIGHT` sont deux commits distincts.
+Chaque operation persiste `did-operation-precondition-v&#49;` : mode, type et ID de
+ressource, identite, before state/fingerprint et couverture. Les bulk portent leur
+liste d'etats avant; les overwrites portent channel, target, type, allow/deny. Apres
+`PREPARED` et immediatement avant `IN_FLIGHT`/REST, l'adapter relit la cible via le
+Governor. `CHANGED` ou `UNKNOWN` produit un audit/progress explicite et
+`INTERVENTION_REQUIRED`, sans appel mutable.
 
-Le DAG est persisté par arêtes, topologiquement validé et planifié seulement lorsque tous les prédécesseurs sont `SUCCEEDED`. Les CREATE produisent un symbole ; les consommateurs attendent un binding `BOUND`. Le binding ID/fingerprint et le résultat CREATE sont committés atomiquement.
+Le preflight global reutilise le Capability Checker et le Permission Evaluator STAGE
+04. Il controle tenant, installation, acteur, capacites bot, hierarchy/managed,
+structure version/hash, couverture/fraicheur, symboles, topologie et limites. Le
+worker refait ce preflight apres l'autorisation acteur reelle.
 
-## Catalogue et compilation
+## Impact Engine
 
-Catalogue fermé : `CREATE_ROLE`, `UPDATE_ROLE`, `DELETE_ROLE`, `REORDER_ROLES`, `CREATE_CHANNEL`, `UPDATE_CHANNEL`, `MOVE_OR_REORDER_CHANNELS`, `DELETE_CHANNEL`, `UPSERT_OVERWRITE`, `DELETE_OVERWRITE`. Les changements de parent sont séparés afin qu'une requête bulk n'en porte jamais plus d'un. La suppression d'une catégorie exige des effets enfants explicites et les dépendances adéquates.
+Le resume d'impact simule les permissions effectives avant/apres avec le
+`PermissionEvaluator` STAGE 04 et les membres deja en cache. Il calcule sujets
+affectes, bits ajoutes/retires, pertes `VIEW_CHANNEL` et grants `ADMINISTRATOR`.
+Categories et enfants augmentent le blast radius. Une couverture membres incomplete
+reste `incomplete_or_unknown=true`; elle n'est jamais transformee en zero et bloque
+les destructions lorsque le contrat fail-safe l'exige.
 
-## Preflight, risque et confirmation
+## Worker, progression et fencing
 
-Le preflight réutilise le Capability Checker STAGE 04 et vérifie : tenant, installation active, autorisation acteur fraîche au point API, identité/capacités bot, hiérarchie/managed, version de structure, version du registry, fraîcheur et couverture cache, symboles, topologie, limites salons/rôles/enfants/overwrites et impact destructif inconnu. La validation marque une base modifiée `STALE`. Le worker refait le preflight après le fencing `APPLYING` et avant de sélectionner une opération ; un refus terminal ne produit aucun REST.
+- Toutes les mutations passent par plan, job durable, lock Guild, Governor distribue
+  et mutable adapter; aucun router ou frontend ne mute Discord.
+- Les attempts `PREPARED`, `IN_FLIGHT`, `SUCCEEDED|FAILED|UNKNOWN` et leurs resultats
+  sont fences par owner, token et generation.
+- La perte de lease ne marque UNKNOWN que l'attempt portant exactement l'ancien
+  fence. Un callback tardif A ne peut pas modifier l'attempt courant B.
+- `plans.progress_sequence` est incremente par un `UPDATE ... RETURNING` atomique.
+  Les progress events concurrents sont uniques, continus et sans perte.
+- Le modele reste effectively-once : un crash peut laisser un outcome inconnu; aucune
+  garantie exactly-once n'est annoncee.
 
-Le risque `LOW/MEDIUM/HIGH/CRITICAL` dépend du type, caractère destructif, blast radius et connaissance de l'impact. Le résumé d'impact est renvoyé avec le plan. HIGH/CRITICAL exige la phrase renforcée liée au hash complet. Une confirmation est idempotente, actor-scopée, expirante (10 minutes par défaut), non réutilisable sur un plan modifié et recontrôlée au début de l'apply.
+## Recovery operation-specific
 
-## Worker, verrou et Discord adapter
+Les preuves ne sont pas interchangeables :
 
-- L'API ne fait aucune mutation Discord : elle persiste et enqueue atomiquement `APPLY_PLAN`.
-- Un index unique n'autorise qu'un plan `APPLYING` par Guild. Le lock Redis `did:guild:{guild}:mutation:lock:v&#49;` utilise token propriétaire, TTL, renouvellement et compare-delete.
-- Le job PostgreSQL fournit owner/token/generation. Tous les commits d'attempt/résultat vérifient ce fence ; un ancien worker est refusé après takeover.
-- L'I/O Discord se déroule hors transaction DB et passe par le Governor existant. Le mutable adapter est isolé dans `did.infrastructure.discord.mutations`.
-- Le motif `X-Audit-Log-Reason` est stable, borné, composé d'identifiants techniques et sans texte utilisateur ; seule son empreinte est persistée. Request/result payloads ont des fingerprints SHA-256.
-- Classification : 401 halt, 403 connu, 404 interprété par opération/recovery et jamais universellement comme suppression, 429 retryable avec `Retry-After`, timeout/connexion/5xx après émission comme outcome inconnu. Un 429 `shared` est mesuré mais exclu du budget invalid-request.
+- `CREATE_CHANNEL`: un candidat unique visible ou une reponse CREATE deja persistee
+  peut prouver la creation. L'absence dans `Get Guild Channels` ne prouve jamais
+  l'absence; sans event durable ou ID permettant une lecture ciblee, le resultat est
+  `AMBIGUOUS` puis intervention, sans second CREATE.
+- `DELETE_CHANNEL`: une reponse DELETE persistee, un `CHANNEL_DELETE` durable correle
+  ou une autre preuve ciblee forte peut prouver l'effet. Une omission, `ACCESS_LOST`
+  ou obfuscation ne donne jamais `PROVED_APPLIED`.
+- `CREATE_ROLE`/`DELETE_ROLE`: la reponse complete de `Get Guild Roles` est un signal
+  exhaustif distinct. Un candidat unique prouve un create; zero candidat permet de
+  prouver l'absence create ou l'application delete selon l'operation.
+- UPDATE, bulk et overwrite comparent strictement l'etat avant/desire. Toute ambiguite
+  devient intervention; aucun retry aveugle n'est effectue.
 
-## UNKNOWN_OUTCOME et compensation
+## Gateway et plans concernes
 
-Un lease repris transforme tout `IN_FLIGHT` en `UNKNOWN_OUTCOME` avant nouvelle sélection. CREATE liste et compare les propriétés/fingerprint : un candidat unique prouve la création, zéro candidat prouve l'absence et autorise une nouvelle tentative explicite, plusieurs candidats donnent `INTERVENTION_REQUIRED`. UPDATE compare état courant, état avant et état désiré. DELETE exige une absence observable. Move/reorder/overwrite utilisent une comparaison ciblée. Aucun CREATE ambigu n'est retry.
+- Reorder roles/channels enregistre une expected mutation par item et ressource.
+- Upsert/delete overwrite enregistre le channel, la target, le type, la presence,
+  allow/deny et l'ensemble complet trie des overwrites. L'expected mutation reste
+  observable apres le commit `SUCCEEDED` de l'operation.
+- Les matchers sont operation-specific et exigent tous les champs discriminants. Un
+  autre update du meme channel n'est pas classe own par simple egalite d'ID.
+- `plan_resource_dependencies` indexe les ressources lues ou mutees. Un drift externe
+  ne stale/interrompt que les plans concernes; un plan de role independant reste
+  valide lors d'un drift de channel.
 
-Compensation : `REVERSIBLE` lorsque l'inverse est prouvable ; `RECREATABLE_NOT_RESTORABLE` quand une recréation perd ID/historique/liens ; `NON_COMPENSABLE` sinon. Le moteur ne présente jamais une suppression Discord comme rollback parfait et n'annonce pas de rollback automatique inexistant.
+## API, audit et securite
 
-## Résultat, cache, Gateway, vérification et annulation
+Les routes versionnees create/read/operations/progress/validate/confirm/apply/cancel
+restent session+CSRF+RBAC, RLS et authorization-before-repository. Le motif
+`X-Audit-Log-Reason` lie plan, operation et correlation sans texte utilisateur; seule
+son empreinte est persistee. Les logs/metriques gardent des labels bornes sans secret
+ni identifiant tenant.
 
-Le succès committe résultat/fingerprint, symbole, audit, progression, expected mutation et write-through structure cache dans une transaction. Un événement Gateway au fingerprint attendu est marqué `OBSERVED`. Une correspondance unique avec une opération réellement `IN_FLIGHT` peut être attribuée conservativement ; aucune corrélation native Discord de plan n'est inventée. Un drift externe pertinent marque DRAFT/VALIDATED/CONFIRMED `STALE` et un apply actif en intervention/cancel sûr.
+## Preuves automatisees correctives
 
-La vérification finale utilise des GET/list ciblés et distingue `SUCCEEDED` de `VERIFICATION_FAILED`. Les erreurs partielles donnent `FAILED` ou `PARTIALLY_APPLIED`. Une annulation en apply devient `CANCEL_REQUESTED` et s'arrête seulement entre opérations ; les effets déjà prouvés restent visibles.
-
-Les progress events ont un `sequence` monotone par plan, les états, compteurs, message key, erreur et correlation ID. Ils sont durables, rejouables via API et publiés par outbox après commit. Redis/PubSub n'est jamais la vérité durable.
-
-## API et sécurité
-
-Routes : création, lecture plan, lecture opérations, replay progression, validate, confirm, apply et cancel sous l'API versionnée `/api/v&#49;/guilds/{guild_id}/plans`. Mutations : session+CSRF+RBAC frais ; lectures : session+RBAC. `Idempotency-Key` est obligatoire et borné. Les payloads Pydantic interdisent les champs inconnus, bornent graph/nœuds/propriétés et sérialisent Snowflakes/bitfields en chaînes décimales.
-
-La preuve architecture scanne récursivement : `did.planning` n'importe ni FastAPI, SQLAlchemy, Redis, discord.py ni infrastructure ; aucun router n'importe le mutable adapter. RLS `ENABLE/FORCE`, authorization-before-repository et tests Guild A/B couvrent l'isolation. Logs/métriques ont des labels bornés sans Guild/plan/resource IDs ni secrets.
-
-## Failure injection A–I
-
-| Point | Résultat prouvé |
-|---|---|
-| A avant commit PREPARED | zéro appel Discord ; reprise normale |
-| B PREPARED committé avant IN_FLIGHT | attempt abandonné marqué FAILED ; reprise sûre, zéro appel préalable |
-| C IN_FLIGHT avant réseau | lease recovery → UNKNOWN ; absence prouvée avant un unique CREATE |
-| D timeout après émission | `UNKNOWN_OUTCOME` durable avant reconciliation |
-| E succès Discord avant commit résultat | UNKNOWN au takeover ; rôle et salon retrouvés ; CREATE total = 1 |
-| F résultat+symbole committés avant ack | reprise finalise sans répéter l'effet |
-| G pendant vérification | vérification reprise ; aucun nouvel effet Discord |
-| H Redis indisponible après commit | résultat PostgreSQL conservé ; outbox retryable |
-| I crash avec lock/lease | TTL libère le lock ; ancien owner/token/generation est fenced |
-
-## Validation et performance
-
-| Validation | Résultat |
-|---|---|
-| `python scripts/validate_stage.py 05 --include-discord-live` | PASS : 172 unit, 61 integration, 13 failure-injection, 4 frontend, migrations, lint/type/build/secrets/docs et garde live |
-| `python scripts/validate_stage.py 05 --profile failure-injection` | PASS : 13 scénarios A–I |
-| charge DSG 500 nœuds | PASS, déterministe, sous la borne 3 s |
-| docs | PASS : 246/246 REQ, 35 ADR |
-| secret scan et diff checks | PASS |
-
-Preuve locale propre sur le commit de code validé `a8e8bcc7b3b648eab23186c245415e2c9048a12c` : `artifacts/test-evidence/stage-05/20260824T101948193363Z-a8e8bcc7b3b6-local-docker/`. La matrice failure-injection dédiée est aussi conservée sous `artifacts/test-evidence/stage-05/20260824T101546797719Z-c8b66d3569c2-local-docker/`. Les preuves du HEAD final de la PR sont les artifacts GitHub du workflow.
+- 183 tests unitaires passent, dont authorization worker membership/capability,
+  recovery channel/role, matchers Gateway et impacts permissions.
+- 24 tests d'integration STAGE 05 passent sur PostgreSQL/Redis reels, dont actor
+  binding, idempotence cross-actor, deux plans de meme DSG, immutabilite SQL,
+  precondition entre deux operations, expected mutations bulk/overwrite, plan
+  resource dependency, progression concurrente et late old-worker fencing.
+- Ruff, format et mypy passent. Les validateurs 01, 02, 03, 03-load, 04, 05,
+  05-failure-injection et 05-load sont PASS. Le profil complet compte 183 unit,
+  72 integration, 24 scenarios STAGE 05, 4 frontend et un DSG 500 noeuds.
+- Preuve Stage 05 hors live :
+  `artifacts/test-evidence/stage-05/20260824T140603689891Z-f162a708f0e1-local-docker/`.
+  Failure-injection : `20260824T140812036729Z-f162a708f0e1-local-docker/`; load :
+  `20260824T140832071303Z-f162a708f0e1-local-docker/`.
 
 ## Live sandbox et cleanup
 
-Statut : `PASS_WITH_APPROVED_LIMITATION`. Un snapshot live et un plan persisté ont été produits, puis le preflight a refusé les mutations : le bot sandbox n'a ni `MANAGE_CHANNELS` ni `MANAGE_ROLES`. Mutations exécutées : 0. Crash window live : `SKIPPED_NOT_VERIFIED` pour la même raison. Cleanup : `NOT_REQUIRED_ZERO_MUTATIONS`; aucune fixture STAGE 05 n'a été créée. Preuve expurgée : `STAGE_05_LIVE_EVIDENCE.json`.
+Statut actuel : `BLOCKED_CAPABILITY_CONFIGURATION`. Le runner opt-in a acquis le
+snapshot live, compile un plan et le preflight a refuse le bot de la Guild sandbox B,
+qui ne possede toujours ni `MANAGE_CHANNELS` ni `MANAGE_ROLES`. Mutations reelles :
+0. Crash window, plan complet et cleanup restent `SKIPPED_NOT_VERIFIED`; ce statut
+n'est ni PASS ni limitation approuvee.
 
-Les limites héritées ne sont pas réécrites : fixtures threads/category/hierarchy STAGE 04, profils humains non-owner/non-admin STAGE 02, modification/reconnect Gateway et Channel Obfuscation restent à leur statut antérieur.
+La commande exacte `python scripts/validate_stage.py 05 --include-discord-live` a
+echoue uniquement sur ce gate apres tous les gates locaux verts. Artifact :
+`artifacts/test-evidence/stage-05/20260824T140842339297Z-f162a708f0e1-local-docker/`.
 
-## Traçabilité et limites
+Le runner est pret a executer cinq plans : CREATE_ROLE avec crash apres reponse puis
+recovery/symbol binding, creation categorie/channel/role d'ancrage, updates + move
+parent + reorder + upsert overwrite, delete overwrite, puis suppression auditee de
+toutes les fixtures `DID-STAGE05-TEST-`. Il refusera PASS si un prefixe subsiste.
 
-`REQ-PLAN-001..016`, `REQ-GW-006`, `REQ-AUD-001..003`, `REQ-STR-004/005`, `REQ-RATE-005` et `REQ-CACHE-004` sont `IMPLEMENTED` avec preuves STAGE 05. `REQ-UX-006/007` restent `PLANNED` : le backend durable/rejouable est livré, mais l'expérience UI live et le contrat de succès visible appartiennent aux étapes UI ultérieures. Le live mutatif reste non vérifié faute de permissions sandbox ; ce n'est pas masqué par les tests fake.
+Action humaine requise uniquement dans la Guild sandbox B : accorder au role bot
+`MANAGE_CHANNELS` et `MANAGE_ROLES`, laisser `ADMINISTRATOR` desactive et placer ce
+role au-dessus des roles fixtures. Si une reinstallation est necessaire, generer une
+invite bot avec le bitfield minimal `268435472`, sans Administrator. Relancer ensuite
+`python scripts/validate_stage.py 05 --include-discord-live`.
 
-## Contrat STAGE 06
+## Tracabilite et limite de livraison
 
-STAGE 06 est interdite avant revue externe et merge normal de la Draft PR STAGE 05. Après merge seulement, elle pourra consommer le DSG, le compiler, le DAG, les symbols et l'apply worker comme API stable. Elle ne doit ni contourner plan/preflight/confirmation, ni muter Discord depuis API/frontend, ni importer un ID source comme ID destination, ni affaiblir RLS/Governor/UNKNOWN recovery. Aucun code clone, artifact portable, clipboard, library, `COPY_AS_NEW`, `MERGE`, `RECONCILE` ou `MAXIMUM_COMPATIBLE` n'a été commencé ici.
+`REQ-PLAN-001..016`, `REQ-GW-006`, `REQ-AUD-002/003`, `REQ-STR-004/005` et
+`REQ-RATE-005` sont audites ligne par ligne dans la matrice. `REQ-UX-006/007` restent
+`PLANNED`. Tant que le live mutatif est bloque, STAGE 05 n'est pas declaree complete
+pour merge.
+
+PR #5 reste Draft et non mergee. STAGE 06 n'a pas ete commencee et reste interdite.

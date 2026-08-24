@@ -13,15 +13,31 @@ import discord
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from did.application.planning import PlanningService
+from did.application.auth import AuthorizationService
+from did.application.planning import ApplyActorAuthorizer, PlanningService
+from did.domain.auth import AuthorizationScope, PlatformRole
+from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import create_database_engine, create_session_factory
 from did.infrastructure.discord import DiscordPyMutableAdapter, DiscordPyStructureAdapter
 from did.infrastructure.planning_lock import RedisGuildMutationLock
 from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.redis import create_redis_client
+from did.infrastructure.runtime_redis import RedisDiscordWorkloadCoordinator, RedisSingleFlight
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
-from did.planning.models import DesiredNode, DesiredStateGraph, NodePresence, ResourceType
+from did.oauth.discord import HttpDiscordMemberClient
+from did.oauth.models import DiscordGuild
+from did.oauth.stores import RedisActorMembershipStore, RedisGuildDiscoveryStore
+from did.planning.models import (
+    DesiredNode,
+    DesiredStateGraph,
+    NodePresence,
+    OperationType,
+    ReferenceKind,
+    ResourceReference,
+    ResourceType,
+)
+from did.worker.io.governor import DiscordWorkloadGovernor
 from did.worker.io.plan_executor import ApplyPlanExecutor
 
 REQUIRED_VARIABLES = (
@@ -105,6 +121,9 @@ class CountingAdapter:
         self.delegate = delegate
         self.create_calls = 0
 
+    async def check_preconditions(self, **kwargs: Any) -> Any:
+        return await self.delegate.check_preconditions(**kwargs)
+
     async def execute(self, **kwargs: Any) -> Any:
         if str(kwargs["operation_type"]).startswith("CREATE_"):
             self.create_calls += 1
@@ -117,12 +136,25 @@ class CountingAdapter:
         return await self.delegate.verify(**kwargs)
 
 
+class CachedGuildAuthContext:
+    """Minimum discovery surface used by the existing STAGE 02 authorization service."""
+
+    def __init__(self, guild_store: RedisGuildDiscoveryStore) -> None:
+        self.guild_store = guild_store
+
+    async def refresh_guilds(self, discord_user_id: int) -> tuple[DiscordGuild, ...]:
+        del discord_user_id
+        raise RuntimeError("live authorization discovery cache unexpectedly expired")
+
+
 async def seed_snapshot(
     *,
     guild_id: int,
     client: discord.Client,
     structure: DiscordPyStructureAdapter,
     runtime: RuntimeRepository,
+    auth_repository: AuthRepository,
+    guild_store: RedisGuildDiscoveryStore,
     admin_engine: Any,
 ) -> int:
     if client.user is None:
@@ -155,6 +187,25 @@ async def seed_snapshot(
                 "bot": client.user.id,
             },
         )
+    await auth_repository.save_user_access(
+        guild_id=guild_id,
+        target_user_id=client.user.id,
+        role=PlatformRole.TENANT_ADMIN,
+        actor_user_id=client.user.id,
+        scope=AuthorizationScope.guild(),
+    )
+    await guild_store.put(
+        client.user.id,
+        (
+            DiscordGuild(
+                guild_id=guild_id,
+                name=live_guild.name,
+                icon_hash=None,
+                owner=live_guild.owner_id == client.user.id,
+                permissions=0,
+            ),
+        ),
+    )
     correlation = uuid4()
     await runtime.apply_rest_role_snapshot(
         guild_id=guild_id, roles=roles, correlation_id=correlation
@@ -191,6 +242,7 @@ async def create_validated_plan(
     graph: DesiredStateGraph,
     actor: int,
     key: str,
+    authorization: ApplyActorAuthorizer,
 ) -> dict[str, Any]:
     correlation = uuid4()
     plan, created = await service.create(
@@ -201,12 +253,14 @@ async def create_validated_plan(
     )
     if not created:
         raise RuntimeError("live plan idempotency key unexpectedly existed")
+    await authorization.authorize_apply(guild_id=graph.guild_id, actor_user_id=actor)
     plan, preflight = await service.validate(
         guild_id=graph.guild_id,
         plan_id=UUID(str(plan["id"])),
         actor_user_id=actor,
         expected_version=1,
         correlation_id=correlation,
+        actor_authorization_fresh=True,
     )
     if not preflight.allowed:
         if all(error.startswith("capability.permission_missing") for error in preflight.errors):
@@ -231,6 +285,8 @@ async def apply_with_optional_crash(
     runtime: RuntimeRepository,
     adapter: CountingAdapter,
     lock: RedisGuildMutationLock,
+    authorization: ApplyActorAuthorizer,
+    governor: DiscordWorkloadGovernor,
     admin_engine: Any,
     guild_id: int,
     actor: int,
@@ -255,10 +311,12 @@ async def apply_with_optional_crash(
             adapter,
             lock,
             worker_id=first_worker,
+            authorization=authorization,
             faults=CrashAfterDiscord(),
+            preflight=service,
         )
         try:
-            await executor.execute_leased(guild_id, leased, None)
+            await executor.execute_leased(guild_id, leased, governor)
         except RuntimeError as exc:
             if str(exc) != "controlled live crash after Discord response":
                 raise
@@ -278,12 +336,26 @@ async def apply_with_optional_crash(
         )
         if leased is None:
             raise RuntimeError("live recovery job was not leasable")
-        executor = ApplyPlanExecutor(plans, adapter, lock, worker_id=recovery_worker)
-        await executor.execute_leased(guild_id, leased, None)
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            lock,
+            worker_id=recovery_worker,
+            authorization=authorization,
+            preflight=service,
+        )
+        await executor.execute_leased(guild_id, leased, governor)
         worker = recovery_worker
     else:
-        executor = ApplyPlanExecutor(plans, adapter, lock, worker_id=first_worker)
-        await executor.execute_leased(guild_id, leased, None)
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            lock,
+            worker_id=first_worker,
+            authorization=authorization,
+            preflight=service,
+        )
+        await executor.execute_leased(guild_id, leased, governor)
         worker = first_worker
     if not await runtime.complete_job(
         guild_id,
@@ -297,33 +369,82 @@ async def apply_with_optional_crash(
         raise RuntimeError(f"live plan did not succeed: {final['status']}")
 
 
+async def assert_operation_catalog(
+    plans: PlanningRepository,
+    *,
+    guild_id: int,
+    plan: dict[str, Any],
+    expected: dict[OperationType, int],
+) -> None:
+    rows = await plans.operations(guild_id, UUID(str(plan["id"])))
+    actual = {
+        operation_type: sum(str(row["operation_type"]) == operation_type.value for row in rows)
+        for operation_type in expected
+    }
+    if actual != expected or len(rows) != sum(expected.values()):
+        raise RuntimeError("live compiler did not produce the required operation catalog")
+
+
 async def run_live() -> dict[str, int]:
     guild_id = int(os.environ["DISCORD_TEST_GUILD_B_ID"])
     suffix = datetime.now(UTC).strftime("%H%M%S%f")[-10:]
     role_name = f"{PREFIX}ROLE-{suffix}"
+    anchor_role_name = f"{PREFIX}ANCHOR-{suffix}"
+    category_name = f"{PREFIX}CATEGORY-{suffix}"
     channel_name = f"{PREFIX}channel-{suffix}".lower()
     engine = create_database_engine(APP_URL, pool_size=4)
     admin_engine = create_database_engine(ADMIN_URL, pool_size=2)
     redis: Redis = create_redis_client(REDIS_URL)
     client = discord.Client(intents=discord.Intents.none())
+    member_client = HttpDiscordMemberClient(bot_token=os.environ["DISCORD_BOT_TOKEN"])
     try:
         await client.login(os.environ["DISCORD_BOT_TOKEN"])
         factory = create_session_factory(engine)
         runtime = RuntimeRepository(factory)
         plans = PlanningRepository(factory)
+        auth_repository = AuthRepository(factory)
         read_models = Stage04Repository(factory)
         service = PlanningService(plans, read_models)
         structure = DiscordPyStructureAdapter(client)
         mutable = CountingAdapter(DiscordPyMutableAdapter(client))
         lock = RedisGuildMutationLock(redis, ttl_seconds=30)
+        guild_store = RedisGuildDiscoveryStore(redis, ttl_seconds=300)
+        auth_context: Any = CachedGuildAuthContext(guild_store)
+        authorization = ApplyActorAuthorizer(
+            AuthorizationService(
+                auth=auth_context,
+                repository=auth_repository,
+                membership_store=RedisActorMembershipStore(redis, ttl_seconds=1),
+                member_client=member_client,
+                freshness_seconds=1,
+                membership_singleflight=RedisSingleFlight(redis),
+                metrics=runtime.metrics,
+            )
+        )
+        governor = DiscordWorkloadGovernor(
+            global_concurrency=2,
+            per_guild_concurrency=1,
+            max_queue_depth=16,
+            distributed_coordinator=RedisDiscordWorkloadCoordinator(
+                redis,
+                global_concurrency=2,
+                per_guild_concurrency=1,
+                permit_ttl_seconds=30,
+            ),
+        )
         actor = await seed_snapshot(
             guild_id=guild_id,
             client=client,
             structure=structure,
             runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
             admin_engine=admin_engine,
         )
-        graph = DesiredStateGraph(
+
+        # The crash window is isolated to CREATE_ROLE: Get Guild Roles is an
+        # exhaustive recovery signal, unlike an omitted Get Guild Channels row.
+        crash_graph = DesiredStateGraph(
             guild_id,
             (
                 DesiredNode.build(
@@ -331,6 +452,82 @@ async def run_live() -> dict[str, int]:
                     resource_type=ResourceType.ROLE,
                     symbol="live.role",
                     properties={"name": role_name, "permissions": "0"},
+                ),
+            ),
+        )
+        crash_plan = await create_validated_plan(
+            service,
+            graph=crash_graph,
+            actor=actor,
+            key=f"stage05-crash-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=crash_plan,
+            expected={OperationType.CREATE_ROLE: 1},
+        )
+        await apply_with_optional_crash(
+            service=service,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_id,
+            actor=actor,
+            plan=crash_plan,
+            inject_crash=True,
+        )
+        if mutable.create_calls != 1:
+            raise RuntimeError("live recovery duplicated or omitted a CREATE")
+
+        roles = await structure.fetch_roles(guild_id)
+        matching_roles = [item for item in roles if item["name"] == role_name]
+        if len(matching_roles) != 1:
+            raise RuntimeError("live crash recovery did not leave exactly one role fixture")
+        async with admin_engine.connect() as connection:
+            bound_symbols = int(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT count(*) FROM plan_symbol_bindings WHERE guild_id=:guild "
+                            "AND plan_id=:plan AND symbol='live.role' AND status='BOUND' "
+                            "AND discord_id IS NOT NULL"
+                        ),
+                        {"guild": guild_id, "plan": UUID(str(crash_plan["id"]))},
+                    )
+                ).scalar_one()
+            )
+        if bound_symbols != 1:
+            raise RuntimeError("live crash recovery did not restore the symbol binding")
+
+        await seed_snapshot(
+            guild_id=guild_id,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        create_graph = DesiredStateGraph(
+            guild_id,
+            (
+                DesiredNode.build(
+                    logical_key="live.anchor-role",
+                    resource_type=ResourceType.ROLE,
+                    symbol="live.anchor-role",
+                    properties={"name": anchor_role_name, "permissions": "0"},
+                ),
+                DesiredNode.build(
+                    logical_key="live.category",
+                    resource_type=ResourceType.CATEGORY,
+                    symbol="live.category",
+                    properties={"name": category_name},
                 ),
                 DesiredNode.build(
                     logical_key="live.channel",
@@ -341,7 +538,17 @@ async def run_live() -> dict[str, int]:
             ),
         )
         create_plan = await create_validated_plan(
-            service, graph=graph, actor=actor, key=f"stage05-live-{suffix}"
+            service,
+            graph=create_graph,
+            actor=actor,
+            key=f"stage05-create-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=create_plan,
+            expected={OperationType.CREATE_ROLE: 1, OperationType.CREATE_CHANNEL: 2},
         )
         await apply_with_optional_crash(
             service=service,
@@ -349,26 +556,194 @@ async def run_live() -> dict[str, int]:
             runtime=runtime,
             adapter=mutable,
             lock=lock,
+            authorization=authorization,
+            governor=governor,
             admin_engine=admin_engine,
             guild_id=guild_id,
             actor=actor,
             plan=create_plan,
-            inject_crash=True,
+            inject_crash=False,
         )
-        if mutable.create_calls != 2:
-            raise RuntimeError("live recovery duplicated or omitted a CREATE")
 
-        roles = await structure.fetch_roles(guild_id)
-        channels = await structure.fetch_channels(guild_id)
-        role = next((item for item in roles if item["name"] == role_name), None)
-        channel = next((item for item in channels if item["name"] == channel_name), None)
-        if role is None or channel is None:
-            raise RuntimeError("live created resources were not observed")
         await seed_snapshot(
             guild_id=guild_id,
             client=client,
             structure=structure,
             runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        roles = await structure.fetch_roles(guild_id)
+        channels = await structure.fetch_channels(guild_id)
+        role = next((item for item in roles if item["name"] == role_name), None)
+        anchor = next((item for item in roles if item["name"] == anchor_role_name), None)
+        category = next((item for item in channels if item["name"] == category_name), None)
+        channel = next((item for item in channels if item["name"] == channel_name), None)
+        if role is None or anchor is None or category is None or channel is None:
+            raise RuntimeError("live create plan resources were not all observed")
+        if int(role["position"]) == int(anchor["position"]):
+            raise RuntimeError("live role fixtures cannot demonstrate a deterministic reorder")
+
+        updated_role_name = f"{role_name}-UPDATED"
+        updated_category_name = f"{category_name}-UPDATED"
+        update_graph = DesiredStateGraph(
+            guild_id,
+            (
+                DesiredNode.build(
+                    logical_key="live.role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(role["role_id"]),
+                    properties={
+                        "name": updated_role_name,
+                        "permissions": "0",
+                        "position": int(anchor["position"]),
+                    },
+                ),
+                DesiredNode.build(
+                    logical_key="live.anchor-role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(anchor["role_id"]),
+                    properties={
+                        "name": anchor_role_name,
+                        "permissions": "0",
+                        "position": int(role["position"]),
+                    },
+                ),
+                DesiredNode.build(
+                    logical_key="live.category",
+                    resource_type=ResourceType.CATEGORY,
+                    discord_id=int(category["channel_id"]),
+                    properties={"name": updated_category_name, "type": 4},
+                ),
+                DesiredNode.build(
+                    logical_key="live.channel",
+                    resource_type=ResourceType.CHANNEL,
+                    discord_id=int(channel["channel_id"]),
+                    properties={
+                        "name": channel_name,
+                        "type": 0,
+                        "topic": "DID STAGE 05 live update",
+                        "position": int(channel["position"]),
+                    },
+                    relations={"parent": ResourceReference(ReferenceKind.LOGICAL, "live.category")},
+                ),
+                DesiredNode.build(
+                    logical_key="live.overwrite",
+                    resource_type=ResourceType.OVERWRITE,
+                    properties={"target_type": 0, "allow": 1024, "deny": 0},
+                    relations={
+                        "channel": ResourceReference(ReferenceKind.LOGICAL, "live.channel"),
+                        "subject": ResourceReference(ReferenceKind.LOGICAL, "live.role"),
+                    },
+                ),
+            ),
+        )
+        update_plan = await create_validated_plan(
+            service,
+            graph=update_graph,
+            actor=actor,
+            key=f"stage05-update-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=update_plan,
+            expected={
+                OperationType.UPDATE_ROLE: 1,
+                OperationType.REORDER_ROLES: 1,
+                OperationType.UPDATE_CHANNEL: 2,
+                OperationType.MOVE_OR_REORDER_CHANNELS: 1,
+                OperationType.UPSERT_OVERWRITE: 1,
+            },
+        )
+        await apply_with_optional_crash(
+            service=service,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_id,
+            actor=actor,
+            plan=update_plan,
+            inject_crash=False,
+        )
+
+        await seed_snapshot(
+            guild_id=guild_id,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        delete_overwrite_graph = DesiredStateGraph(
+            guild_id,
+            (
+                DesiredNode.build(
+                    logical_key="live.role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(role["role_id"]),
+                    properties={"name": updated_role_name},
+                ),
+                DesiredNode.build(
+                    logical_key="live.channel",
+                    resource_type=ResourceType.CHANNEL,
+                    discord_id=int(channel["channel_id"]),
+                    properties={"name": channel_name},
+                ),
+                DesiredNode.build(
+                    logical_key="live.overwrite",
+                    resource_type=ResourceType.OVERWRITE,
+                    presence=NodePresence.ABSENT,
+                    properties={"target_type": 0},
+                    relations={
+                        "channel": ResourceReference(ReferenceKind.LOGICAL, "live.channel"),
+                        "subject": ResourceReference(ReferenceKind.LOGICAL, "live.role"),
+                    },
+                ),
+            ),
+        )
+        overwrite_cleanup = await create_validated_plan(
+            service,
+            graph=delete_overwrite_graph,
+            actor=actor,
+            key=f"stage05-overwrite-delete-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=overwrite_cleanup,
+            expected={OperationType.DELETE_OVERWRITE: 1},
+        )
+        await apply_with_optional_crash(
+            service=service,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_id,
+            actor=actor,
+            plan=overwrite_cleanup,
+            inject_crash=False,
+        )
+
+        await seed_snapshot(
+            guild_id=guild_id,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
             admin_engine=admin_engine,
         )
         cleanup_graph = DesiredStateGraph(
@@ -381,15 +756,40 @@ async def run_live() -> dict[str, int]:
                     presence=NodePresence.ABSENT,
                 ),
                 DesiredNode.build(
+                    logical_key="live.cleanup.anchor-role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(anchor["role_id"]),
+                    presence=NodePresence.ABSENT,
+                ),
+                DesiredNode.build(
                     logical_key="live.cleanup.channel",
                     resource_type=ResourceType.CHANNEL,
                     discord_id=int(channel["channel_id"]),
+                    presence=NodePresence.ABSENT,
+                    relations={
+                        "parent": ResourceReference(ReferenceKind.LOGICAL, "live.cleanup.category")
+                    },
+                ),
+                DesiredNode.build(
+                    logical_key="live.cleanup.category",
+                    resource_type=ResourceType.CATEGORY,
+                    discord_id=int(category["channel_id"]),
                     presence=NodePresence.ABSENT,
                 ),
             ),
         )
         cleanup = await create_validated_plan(
-            service, graph=cleanup_graph, actor=actor, key=f"stage05-cleanup-{suffix}"
+            service,
+            graph=cleanup_graph,
+            actor=actor,
+            key=f"stage05-cleanup-{suffix}",
+            authorization=authorization,
+        )
+        await assert_operation_catalog(
+            plans,
+            guild_id=guild_id,
+            plan=cleanup,
+            expected={OperationType.DELETE_ROLE: 2, OperationType.DELETE_CHANNEL: 2},
         )
         await apply_with_optional_crash(
             service=service,
@@ -397,6 +797,8 @@ async def run_live() -> dict[str, int]:
             runtime=runtime,
             adapter=mutable,
             lock=lock,
+            authorization=authorization,
+            governor=governor,
             admin_engine=admin_engine,
             guild_id=guild_id,
             actor=actor,
@@ -405,19 +807,26 @@ async def run_live() -> dict[str, int]:
         )
         remaining_roles = await structure.fetch_roles(guild_id)
         remaining_channels = await structure.fetch_channels(guild_id)
-        if any(item["name"] == role_name for item in remaining_roles) or any(
-            item["name"] == channel_name for item in remaining_channels
+        if any(str(item["name"]).upper().startswith(PREFIX) for item in remaining_roles) or any(
+            str(item["name"]).upper().startswith(PREFIX) for item in remaining_channels
         ):
             raise RuntimeError("live cleanup plan did not remove all test resources")
         return {
-            "plans_succeeded": 2,
-            "create_operations": 2,
-            "create_calls_after_recovery": mutable.create_calls,
-            "cleanup_operations": 2,
+            "plans_succeeded": 5,
+            "create_operations": 4,
+            "create_calls_at_crash_recovery": 1,
+            "create_calls_total": mutable.create_calls,
+            "update_operations_verified": 3,
+            "move_or_reorder_operations_verified": 2,
+            "overwrite_upserts": 1,
+            "overwrite_deletes": 1,
+            "cleanup_operations": 4,
+            "symbol_bindings_recovered": bound_symbols,
             "controlled_failure_hooks": 1,
         }
     finally:
         await client.close()
+        await member_client.aclose()
         await redis.aclose()
         await engine.dispose()
         await admin_engine.dispose()
@@ -457,7 +866,7 @@ def main() -> int:
     except LiveCapabilityBlocked:
         write_report(
             arguments.report,
-            status="PASS_WITH_APPROVED_LIMITATION",
+            status="BLOCKED_CAPABILITY_CONFIGURATION",
             checks=[
                 "live cache snapshot acquired",
                 "persisted Plan compiled",
@@ -472,7 +881,7 @@ def main() -> int:
             ],
             counts={"plans_compiled": 1, "discord_mutations": 0},
         )
-        return 0
+        return 2
     except Exception as exc:
         write_report(
             arguments.report,
@@ -486,12 +895,18 @@ def main() -> int:
         arguments.report,
         status="PASS",
         checks=[
-            "persisted create plan and preflight",
-            "controlled crash after Discord response",
+            "persisted plans, sensitive worker authorization and final preflight",
+            "all Discord REST reads and mutations passed the workload governor",
+            "CREATE category, channel and role fixtures",
+            "UPDATE role, category and channel",
+            "MOVE channel parent and REORDER roles",
+            "UPSERT and DELETE overwrite",
+            "controlled crash after CREATE_ROLE Discord response",
             "UNKNOWN_OUTCOME recovery without duplicate CREATE",
-            "targeted REST verification",
+            "recovered durable symbol binding",
+            "targeted REST verification after each plan",
             "persisted destructive cleanup plan",
-            "cleanup absence verified",
+            "all prefixed fixtures absent after cleanup",
         ],
         missing=[],
         skipped=skipped,
