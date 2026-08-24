@@ -129,19 +129,24 @@ ni identifiant tenant.
 
 ## Preuves automatisees correctives
 
-- 183 tests unitaires passent, dont authorization worker membership/capability,
+- 190 tests unitaires passent, dont authorization worker membership/capability,
   recovery channel/role, matchers Gateway et impacts permissions.
 - 24 tests d'integration STAGE 05 passent sur PostgreSQL/Redis reels, dont actor
   binding, idempotence cross-actor, deux plans de meme DSG, immutabilite SQL,
   precondition entre deux operations, expected mutations bulk/overwrite, plan
   resource dependency, progression concurrente et late old-worker fencing.
 - Ruff, format et mypy passent. Les validateurs 01, 02, 03, 03-load, 04, 05,
-  05-failure-injection et 05-load sont PASS. Le profil complet compte 183 unit,
+  05-failure-injection et 05-load sont PASS. Le profil complet compte 190 unit,
   72 integration, 24 scenarios STAGE 05, 4 frontend et un DSG 500 noeuds.
-- Preuve Stage 05 hors live :
-  `artifacts/test-evidence/stage-05/20260824T140603689891Z-f162a708f0e1-local-docker/`.
-  Failure-injection : `20260824T140812036729Z-f162a708f0e1-local-docker/`; load :
-  `20260824T140832071303Z-f162a708f0e1-local-docker/`.
+- Preuve Stage 05 default sur `515a1699eb28` :
+  `artifacts/test-evidence/stage-05/20260824T151035611659Z-515a1699eb28-local-docker/`.
+  Failure-injection : `20260824T151241100087Z-515a1699eb28-local-docker/`; load :
+  `20260824T151301013798Z-515a1699eb28-local-docker/`; exact live :
+  `20260824T151311536314Z-515a1699eb28-local-docker/`.
+- Un premier run 04 a subi une expiration de lease de test STAGE 03 a 100 ms sous
+  ordonnancement Windows charge. Le test isole puis le profil 04 exact complet ont
+  repasse sans modification; le run representatif PASS est
+  `20260824T150835506648Z-515a1699eb28-local-docker`.
 
 ## Live sandbox et cleanup
 
@@ -162,6 +167,9 @@ Le cleanup est `COMPLETE_NO_PREFIXED_FIXTURES`; aucun identifiant Discord ni sec
 n'est conserve dans la preuve suivie `STAGE_05_LIVE_EVIDENCE.json`. Les seuls cas non
 forces contre Discord sont un 429 volontaire et un doublon CREATE ambigu; les deux
 restent couverts par contrats/failure injection locaux.
+
+La commande exacte `python scripts/validate_stage.py 05 --include-discord-live` est
+PASS sur `515a1699eb28`; son gate live a dure 136,572 secondes.
 
 ## Tracabilite et limite de livraison
 
