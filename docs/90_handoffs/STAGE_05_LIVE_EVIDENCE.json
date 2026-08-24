@@ -14,7 +14,7 @@
     "UNKNOWN_OUTCOME recovery without duplicate CREATE",
     "recovered durable symbol binding",
     "targeted REST verification after each plan",
-    "persisted role-order restoration and destructive cleanup plans",
+    "persisted destructive cleanup plan",
     "all prefixed fixtures absent after cleanup"
   ],
   "counts": {
@@ -30,11 +30,13 @@
     "role_order_restore_operations": 1,
     "symbol_bindings_recovered": 1,
     "controlled_failure_hooks": 1,
-    "preexisting_fixtures_cleaned": 4
+    "abandoned_fixture_jobs_resumed": 0,
+    "terminal_fixture_jobs_acknowledged": 0,
+    "preexisting_fixtures_cleaned": 0
   },
   "skipped_not_verified": [
-    "429 behavior is contract-tested and not forced against Discord",
-    "ambiguous duplicate CREATE requires a manual sandbox fixture and is not forced"
+    "429 behavior is contract-tested, not forced against Discord",
+    "ambiguous duplicate CREATE requires manual sandbox fixture and is not forced"
   ],
   "resource_prefix": "DID-STAGE05-TEST-",
   "cleanup": "COMPLETE_NO_PREFIXED_FIXTURES",

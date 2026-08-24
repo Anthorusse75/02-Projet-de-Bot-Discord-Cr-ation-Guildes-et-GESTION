@@ -64,8 +64,13 @@ Governor. `CHANGED` ou `UNKNOWN` produit un audit/progress explicite et
 
 Le preflight global reutilise le Capability Checker et le Permission Evaluator STAGE
 04. Il controle tenant, installation, acteur, capacites bot, hierarchy/managed,
-structure version/hash, couverture/fraicheur, symboles, topologie et limites. Le
-worker refait ce preflight apres l'autorisation acteur reelle.
+structure version/hash, couverture/fraicheur, symboles, topologie et limites. Pour
+UPDATE/DELETE/REORDER de role, la cible doit etre strictement sous le plus haut role
+du bot; egalite, role superieur, managed et `@everyone` sont refuses. REORDER controle
+chaque cible explicite et sa destination. Le worker refait ce preflight apres
+l'autorisation acteur reelle, puis l'adapter relit roles et roles du bot juste avant
+REST. Tout refus produit zero REST mutable; l'adapter interdit aussi directement la
+suppression et le reordonnancement de `@everyone`.
 
 ## Impact Engine
 
@@ -129,24 +134,29 @@ ni identifiant tenant.
 
 ## Preuves automatisees correctives
 
-- 190 tests unitaires passent, dont authorization worker membership/capability,
+- 204 tests unitaires passent, dont authorization worker membership/capability,
   recovery channel/role, matchers Gateway et impacts permissions.
 - 24 tests d'integration STAGE 05 passent sur PostgreSQL/Redis reels, dont actor
   binding, idempotence cross-actor, deux plans de meme DSG, immutabilite SQL,
   precondition entre deux operations, expected mutations bulk/overwrite, plan
   resource dependency, progression concurrente et late old-worker fencing.
 - Ruff, format et mypy passent. Les validateurs 01, 02, 03, 03-load, 04, 05,
-  05-failure-injection et 05-load sont PASS. Le profil complet compte 190 unit,
+  05-failure-injection et 05-load sont PASS. Le profil complet compte 204 unit,
   72 integration, 24 scenarios STAGE 05, 4 frontend et un DSG 500 noeuds.
-- Preuve Stage 05 default sur `515a1699eb28` :
-  `artifacts/test-evidence/stage-05/20260824T151035611659Z-515a1699eb28-local-docker/`.
-  Failure-injection : `20260824T151241100087Z-515a1699eb28-local-docker/`; load :
-  `20260824T151301013798Z-515a1699eb28-local-docker/`; exact live :
-  `20260824T151311536314Z-515a1699eb28-local-docker/`.
-- Un premier run 04 a subi une expiration de lease de test STAGE 03 a 100 ms sous
-  ordonnancement Windows charge. Le test isole puis le profil 04 exact complet ont
-  repasse sans modification; le run representatif PASS est
-  `20260824T150835506648Z-515a1699eb28-local-docker`.
+- Preuves propres sur `2646480eb172` : Stage 01
+  `20260824T171408085945Z-2646480eb172-local-docker`; Stage 02
+  `20260824T171614783817Z-2646480eb172-local-docker`; Stage 03
+  `20260824T172123162348Z-2646480eb172-local-docker`; Stage 03 load
+  `20260824T172403729466Z-2646480eb172-local-docker`; Stage 04
+  `20260824T172443655870Z-2646480eb172-local-docker`; Stage 05 default
+  `20260824T172621831131Z-2646480eb172-local-docker`; failure-injection
+  `20260824T172843612909Z-2646480eb172-local-docker`; load
+  `20260824T172907506831Z-2646480eb172-local-docker`; exact live
+  `20260824T173943192856Z-2646480eb172-local-docker`.
+- Sous forte charge Windows, des leases de test STAGE 01/03 a 100 ms et 150 ms ont
+  expire ponctuellement, sans defaut produit. Les tests exacts isoles puis les profils
+  representatifs complets ont repasse sans modification. Un premier acces live a
+  aussi recu un Discord 503 avant toute mutation; le replay exact suivant est PASS.
 
 ## Live sandbox et cleanup
 
@@ -160,8 +170,12 @@ roles, puis suppression auditee de toutes les fixtures `DID-STAGE05-TEST-`.
 La fenetre de crash prouve un seul appel CREATE et aucune duplication. Les mutations
 passent toutes par API/plan, preflight, worker, Governor et adapter. La verification
 REST ciblee relit l'intention finale, y compris apres une reponse intermediaire de
-channel move. Les segments role bulk incluent les items Discord intermediaires tout
-en verifiant les cibles explicites du DSG apres normalisation des roles managed.
+channel move. Pour REORDER_ROLES, le payload REST contient uniquement les roles
+explicitement demandes. Le `expected_position_segment` separe conserve le segment
+final complet, y compris les decalages implicites de roles speciaux, pour les
+preconditions, les attentes Gateway et la verification. Lors d'une montee, la
+coordonnee REST explicite est normalisee sans ajouter de cible artificielle; la
+verification porte sur la position finale demandee.
 
 Le cleanup est `COMPLETE_NO_PREFIXED_FIXTURES`; aucun identifiant Discord ni secret
 n'est conserve dans la preuve suivie `STAGE_05_LIVE_EVIDENCE.json`. Les seuls cas non
@@ -169,7 +183,7 @@ forces contre Discord sont un 429 volontaire et un doublon CREATE ambigu; les de
 restent couverts par contrats/failure injection locaux.
 
 La commande exacte `python scripts/validate_stage.py 05 --include-discord-live` est
-PASS sur `515a1699eb28`; son gate live a dure 136,572 secondes.
+PASS sur `2646480eb172`; son gate live a dure 142,265 secondes.
 
 ## Tracabilite et limite de livraison
 
