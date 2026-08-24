@@ -5,9 +5,9 @@
 | Date | `2026-08-24` |
 | Base main | `f4dfc635ecc0de0697c034c26000638c3356a3fd` |
 | Branche | `stage/06-portability` |
-| Commit implémentation | `ab7a45b` — `feat(portability): implement portable artifact pipeline` |
-| PR | Draft, à renseigner après publication |
-| Statut | `IMPLEMENTED_VALIDATION_IN_PROGRESS` |
+| Commits | `ab7a45b..559ad52` — pipeline, preuves, durcissements du Plan Engine et validation live |
+| PR | [#6](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/6), Draft, non mergée |
+| Statut | `STAGE_06_COMPLETE_PR_OPEN` |
 | Migration | `0010_stage_06` après `0009_stage_05` ; une seule tête attendue |
 
 ## Artifact, fichier et provenance
@@ -128,11 +128,30 @@ TTL/purge, owner U/V, tenant A/B, FK cross-owner, RLS template/policy/transfert 
 destination-only appelle le reader exactement sur B et crée un seul DSG/plan B ; la compilation d'un
 artifact stocké ne possède aucun reader A. Le load utilise 600 ressources.
 
-Les run IDs finaux, le live, la preuve source inchangée, le cleanup et le statut CI seront ajoutés
-après exécution sur un commit propre. Le live RECONCILE n'est pas requis s'il ne peut être borné sans
-risque ; le test local prouve son scope exact. Les limites volontaires sont : aucune signature de
-fichier (le hash n'est pas une authentification), pas d'installation automatique de bot/webhook,
-pas de membres/messages/history/audit, et pas d'UI STAGE 07.
+Toutes les validations de code ont été exécutées sur le commit propre `559ad52785fe` : STAGE 01
+`20260824T213842023114Z-559ad52785fe-local-docker`, STAGE 02
+`20260824T213953257903Z-559ad52785fe-local-docker`, STAGE 03
+`20260824T214105559854Z-559ad52785fe-local-docker`, STAGE 03 load
+`20260824T214228432404Z-559ad52785fe-local-docker`, STAGE 04
+`20260824T214256436671Z-559ad52785fe-local-docker`, STAGE 05
+`20260824T214436666098Z-559ad52785fe-local-docker`, failure-injection
+`20260824T214610074205Z-559ad52785fe-local-docker`, load
+`20260824T214625261146Z-559ad52785fe-local-docker`, STAGE 06 default
+`20260824T214705015922Z-559ad52785fe-local-docker`, security
+`20260824T213832331816Z-559ad52785fe-local-docker` et live complet
+`20260824T213355960201Z-559ad52785fe-local-docker`. Tous sont `PASS`.
+
+Le live A→B a créé toutes les fixtures via STAGE 05, produit puis chiffré l'artifact, compilé deux
+plans destination, créé de nouveaux IDs en `COPY_AS_NEW`, confirmé un mapping de rôle existant,
+recompilé l'artifact stocké avec un source reader fail-if-called et constaté zéro lecture A après
+export et zéro mutation A. Les snapshots A avant/après sont byte-identical. Le cleanup A/B a utilisé
+des plans STAGE 05 audités puis l'artifact et ses transferts ont été purgés. La preuve expurgée est
+suivie dans `STAGE_06_LIVE_EVIDENCE.json`; elle ne contient aucun secret ni identifiant Discord.
+
+Le live RECONCILE n'a volontairement pas été forcé ; le test d'intégration prouve son scope de
+suppression exact et borné. Les limites volontaires sont : aucune signature de fichier (le hash n'est
+pas une authentification), pas d'installation automatique de bot/webhook, pas de
+membres/messages/history/audit, et pas d'UI STAGE 07.
 
 ## Contrat transmis à STAGE 07
 

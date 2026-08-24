@@ -1,0 +1,39 @@
+{
+  "stage": "06",
+  "date": "2026-08-24",
+  "status": "PASS",
+  "profile": "discord-live-cross-guild-portability",
+  "tested_commit": "559ad52785fe0aadc34a1181fecf31204a0024e8",
+  "run_id": "20260824T213355960201Z-559ad52785fe-local-docker",
+  "checks": [
+    "source fixtures created only by STAGE 05 plan",
+    "live export produced immutable encrypted artifact",
+    "dependency graph and mapping resolver compiled destination-only plan",
+    "COPY_AS_NEW created distinct destination Discord IDs",
+    "explicit existing-role mapping was confirmed",
+    "stored artifact compiled and applied with source reader fail-if-called",
+    "source snapshot remained byte-identical during destination clones",
+    "mutable adapter recorded zero source calls during clone",
+    "source and destination cleanup used audited STAGE 05 plans",
+    "artifact and owned transfers were purged"
+  ],
+  "counts": {
+    "source_fixture_resources": 4,
+    "destination_copy_plans": 2,
+    "explicit_role_mappings": 1,
+    "explicit_structural_mappings": 4,
+    "new_destination_ids_verified": 2,
+    "source_mutations_during_clone": 0,
+    "source_read_after_export": 0,
+    "cleanup_resources": 8,
+    "artifacts_purged": 1
+  },
+  "skipped_not_verified": [
+    "live RECONCILE was not forced; exact bounded delete scope is integration-tested",
+    "bot and webhook incompatibilities are security-tested without unsafe live fixtures"
+  ],
+  "resource_prefix": "DID-STAGE06-TEST-",
+  "cleanup": "COMPLETE_NO_PREFIXED_FIXTURES_NO_ACTIVE_TRANSFER",
+  "secrets_recorded": false,
+  "discord_identifiers_recorded": false
+}

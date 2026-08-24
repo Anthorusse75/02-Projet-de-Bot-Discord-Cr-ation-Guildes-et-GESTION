@@ -2,28 +2,20 @@
 
 | Champ | Valeur |
 |---|---|
-| Current stage | `STAGE_06_READY_NOT_STARTED` |
-| Last completed stage | `STAGE_05_PLAN_ENGINE` |
-| Documentation baseline commit | `c285ac81afb0ec7a3c3197085ceff821a5d1c446` |
-| STAGE 01 merge commit | `28774bf26f2fe590562021f567f0e67f623ff7f5` |
-| STAGE 02 merge commit | `5b962a24058e399c3703095f2162e1f38e1bfd60` |
-| STAGE 03 merge commit | `12ec64c0dda973ad245880aeb28d88c03a9c03b5` |
-| STAGE 03 completion tag | `stage-03-complete` -> `12ec64c0dda973ad245880aeb28d88c03a9c03b5` |
-| STAGE 04 merge commit | `67f8281bd6b759329c5036fbc9cbd6164b6e5b3c` |
-| STAGE 04 completion tag | `stage-04-complete` -> `67f8281bd6b759329c5036fbc9cbd6164b6e5b3c` |
-| STAGE 05 base / branch | `f64c8253e6b7ec648d7161531344a2999b78ffe7` / `stage/05-plan-engine` |
-| STAGE 05 approved head | `8d000b578f95793b42a84fb8e8a3aa01c296590a` |
-| STAGE 05 merge commit | `c0ef8abe696e2f6caeb51840499751ef2fb36c83` ; parents `f64c8253e6b7ec648d7161531344a2999b78ffe7` et `8d000b578f95793b42a84fb8e8a3aa01c296590a` |
-| STAGE 05 completion tag | `stage-05-complete` -> `c0ef8abe696e2f6caeb51840499751ef2fb36c83` |
-| Last migration | `0009_stage_05` ; parent `0008_stage_05` ; une seule tete |
-| Corrective implementation | Autorisation sensible API et worker avec targeted member refresh; confirmation liee a l'acteur; idempotence actor-scoped; operation PK plan-scoped; immutabilite SQL INSERT/UPDATE/DELETE et snapshot append-only; hash relu avant validation; preconditions par operation; recovery channel/role distinct; expected Gateway bulk/overwrite strict; index des plans concernes; Impact Engine STAGE 04; sequence atomique; lease-loss fence exact; hierarchie role globale et JIT strictement inferieure; gardes managed/@everyone; REORDER avec items REST explicites separes du segment final attendu |
-| Tests status | Post-merge PASS sur `c0ef8abe696e` : validate_stage 01, 02, 03, 03-load, 04, 05, 05-failure-injection et 05-load. Ruff, format, mypy sur 89 fichiers, migrations base/0001..0007 -> 0009, RLS, docs, secrets et frontend lint/typecheck/tests/build PASS. Profil complet : 204 unit, 72 integration, 24 failure-injection, 4 frontend et DSG 500 noeuds. Aucune regression STAGE 01-04. |
-| Discord live status | Post-merge `PASS` sur `c0ef8abe696e` : six plans reussis; CREATE/UPDATE/MOVE/REORDER/UPSERT/DELETE reels; crash apres reponse CREATE_ROLE recupere avec exactement un appel CREATE et symbol binding durable; ordre des roles restaure; cleanup audite complet; aucune fixture prefixee restante. |
-| Required external configuration | Satisfaite dans la Guild sandbox B : `MANAGE_CHANNELS` et `MANAGE_ROLES` sont presents, `ADMINISTRATOR` n'est pas requis. Aucune action restante. |
-| Known failures | Aucune regression post-merge. Les limites volontaires restent la non-provocation d'un 429 live et d'un doublon CREATE ambigu; leurs contrats fail-safe sont testes localement. |
-| Documentation status | PASS - 11 stages, 246/246 REQ et 35 ADR. Handoff, strategie, matrice sandbox, evidence live, decisions et tracabilite sont corriges; `REQ-UX-006/007` restent `PLANNED`. |
-| GitHub publication | PR #5 mergee le `2026-08-24T18:31:24Z` par merge commit normal; branche `stage/05-plan-engine` conservee. |
-| Evidence storage | Post-merge sur `c0ef8abe696e` : Stage 01 `20260824T183204169014Z-c0ef8abe696e-local-docker`; Stage 02 `20260824T183312135095Z-c0ef8abe696e-local-docker`; Stage 03 `20260824T183433777812Z-c0ef8abe696e-local-docker`; Stage 03 load `20260824T183555617865Z-c0ef8abe696e-local-docker`; Stage 04 `20260824T183623059349Z-c0ef8abe696e-local-docker`; Stage 05 `20260824T183756694877Z-c0ef8abe696e-local-docker`; failure-injection `20260824T183946011571Z-c0ef8abe696e-local-docker`; load `20260824T184002356291Z-c0ef8abe696e-local-docker`; exact live `20260824T184103337452Z-c0ef8abe696e-local-docker`. Preuve live expurgee suivie dans `docs/90_handoffs/STAGE_05_LIVE_EVIDENCE.json`. |
-| Next stage | `STAGE_06_READY_NOT_STARTED` |
+| Current stage | `STAGE_06_COMPLETE_PR_OPEN` |
+| Last completed stage | `STAGE_06_CLONE_TEMPLATES_PORTABLE_ARTIFACTS` |
+| Base main | `f4dfc635ecc0de0697c034c26000638c3356a3fd` |
+| Branch | `stage/06-portability` |
+| Tested implementation head | `559ad52785fe0aadc34a1181fecf31204a0024e8` |
+| Last migration | `0010_stage_06` ; parent `0009_stage_05` ; une seule tete |
+| Implementation | Portable Artifact immutable et canonique; stockage owner chiffre AES-256-GCM avec envelope et rotation; import fichier hostile borne; Dependency Graph; Mapping Resolver explicite; COPY_AS_NEW, MERGE, RECONCILE et MAXIMUM_COMPATIBLE; templates tenant-prives; clipboard/library owner-prives; transferts A vers B sans federation; plan STAGE 05 exclusivement B. |
+| Authorization | Lecture/export A via `STRUCTURE_READ`; compilation B via `PLANS_CREATE` + `STRUCTURE_WRITE`; templates via `TEMPLATES_READ/WRITE`; apply via `PLANS_APPLY` STAGE 05. Les autorisations A/B sont independantes et l'artifact ne confere aucune capability. |
+| Tests status | PASS sur `559ad52785fe` : STAGE 01, 02, 03, 03-load, 04, 05, 05-failure-injection, 05-load, 06 default et 06 security. STAGE 06 default couvre 233 tests unitaires, 73 integration, matrice migrations, RLS PostgreSQL, frontend et charge; security couvre 17 cas hostiles. |
+| Discord live status | PASS sur `559ad52785fe` : export A, graph/mapping, deux plans B, nouveaux IDs COPY_AS_NEW, mapping role explicite, artifact stocke sans relecture A, snapshot A identique, zero mutation A et cleanup audite complet. Live RECONCILE non force; scope exact prouve en integration. |
+| Traceability | 246/246 REQ et 35 ADR. `REQ-TEN-008`, `REQ-TEN-011..014` et `REQ-DUP-001..019` sont `IMPLEMENTED`. `REQ-STR-008/011/013` restent `PLANNED` pour l'UI STAGE 07; `REQ-I18N-008` reste `PLANNED` pour STAGE 08. |
+| GitHub publication | Draft PR [#6](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/6), non mergee; revue externe obligatoire. |
+| Evidence storage | STAGE 01 `20260824T213842023114Z-559ad52785fe-local-docker`; STAGE 02 `20260824T213953257903Z-559ad52785fe-local-docker`; STAGE 03 `20260824T214105559854Z-559ad52785fe-local-docker`; STAGE 03 load `20260824T214228432404Z-559ad52785fe-local-docker`; STAGE 04 `20260824T214256436671Z-559ad52785fe-local-docker`; STAGE 05 `20260824T214436666098Z-559ad52785fe-local-docker`; failure-injection `20260824T214610074205Z-559ad52785fe-local-docker`; load `20260824T214625261146Z-559ad52785fe-local-docker`; STAGE 06 default `20260824T214705015922Z-559ad52785fe-local-docker`; security `20260824T213832331816Z-559ad52785fe-local-docker`; live `20260824T213355960201Z-559ad52785fe-local-docker`. |
+| Known limitations | Hash sans signature/authenticite; aucun membre, message, historique ou audit; aucun bot/webhook installe automatiquement; RECONCILE live non force; aucune UI STAGE 07. |
+| Next stage | `STAGE_07_FORBIDDEN_BEFORE_STAGE_06_MERGE` |
 
-Le detail est dans [`STAGE_05_HANDOFF.md`](../90_handoffs/STAGE_05_HANDOFF.md). STAGE 05 est mergee et cloturee. STAGE 06 est autorisee mais n'a pas ete commencee.
+Le detail est dans [`STAGE_06_HANDOFF.md`](../90_handoffs/STAGE_06_HANDOFF.md) et la preuve live expurgee dans [`STAGE_06_LIVE_EVIDENCE.json`](../90_handoffs/STAGE_06_LIVE_EVIDENCE.json). STAGE 06 est complete en Draft PR, non mergee. STAGE 07 n'a pas ete commencee et reste interdite avant merge normal et revue externe.
