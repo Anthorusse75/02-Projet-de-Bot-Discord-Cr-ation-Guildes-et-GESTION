@@ -5,11 +5,14 @@
 | Date | `2026-08-24` |
 | Base main | `1f7e4cd7f2ebe92e6c63ede0738731c5bcc3b6ee` |
 | Branche | `stage/04-read-permissions` |
-| PR | [Draft PR #4](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/4) vers `main`, non mergée |
-| Commits code | `ce7558676250`, `7e154bc`, `05d11c1`, `5721fdc`, `29561b18f71f`, correction `6abe938` |
-| Commit handoff/CI | `b90065a203f5` |
+| PR | [PR #4](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/4) passée Draft → Ready, puis `MERGED` par merge normal le `2026-08-24` |
+| HEAD final STAGE 04 | `1c3f3687d8fa26e044b864195c08cec7f01e770d` |
+| Merge commit | `67f8281bd6b759329c5036fbc9cbd6164b6e5b3c` — parents base `1f7e4cd7f2ebe92e6c63ede0738731c5bcc3b6ee`, head `1c3f3687d8fa26e044b864195c08cec7f01e770d` |
+| Tag | tag annoté `stage-04-complete` ciblant exactement le merge commit `67f8281bd6b759329c5036fbc9cbd6164b6e5b3c` |
+| Commits code | `ce7558676250`, `7e154bc`, `05d11c1`, `5721fdc`, `29561b18f71f`, correction prouvée `6abe938` |
+| Historique handoff/CI | `b90065a203f5`, `a9ff510`, clôture de branche `1c3f368`; le présent document est la clôture post-merge sur `main` |
 | Migration | `0005_stage_03 -> 0006_stage_04 -> 0007_stage_04` |
-| Statut | `STAGE_04_COMPLETE_PR_OPEN` |
+| Statut | `STAGE_04_MERGED`; prochaine étape `STAGE_05_READY_NOT_STARTED` |
 
 ## Contrat livré
 
@@ -124,4 +127,4 @@ Revue ciblée et tests de non-régression : aucune troncature/float/JS Number; u
 - `REQ-BOT-006` : la configuration bot-écrit/humains-lisent est simulable avec de vrais overwrites, mais son application appartient aux STAGE 05/10.
 - `REQ-CACHE-007` : l’API `include_hidden_deleted` existe; son contrôle UI appartient à STAGE 07.
 
-Le contrat d’entrée Stage 05 est `GuildSnapshot` + versions de source + `PermissionDecision` + Capability Checker + groupes/scopes locaux. Stage 05 devra construire Desired State/Plan sans modifier le calculateur pur, revalider versions/fraîcheur/capabilities juste avant exécution, conserver RLS/audit/outbox/governor, et traduire toute incertitude en blocage. **STAGE 05 est interdite avant merge et revue externe de la Draft PR Stage 04.**
+Le contrat d’entrée Stage 05 est `GuildSnapshot` + versions de source + `PermissionDecision` + Capability Checker + groupes/scopes locaux. Stage 05 devra construire Desired State/Plan sans modifier le calculateur pur, revalider versions/fraîcheur/capabilities juste avant exécution, conserver RLS/audit/outbox/governor, et traduire toute incertitude en blocage. **STAGE 04 est intégrée dans `main`. STAGE 05 est désormais autorisée (`STAGE_05_READY_NOT_STARTED`), mais aucune implémentation ni branche STAGE 05 n’a été commencée.**
