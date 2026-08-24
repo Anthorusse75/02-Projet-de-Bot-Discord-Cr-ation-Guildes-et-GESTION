@@ -34,7 +34,7 @@ class PlanCompiler:
         self._diff = diff_engine or DiffEngine()
 
     def compile(
-        self, observed: GuildSnapshot, desired: DesiredStateGraph
+        self, observed: GuildSnapshot, desired: DesiredStateGraph, *, plan_id: UUID
     ) -> tuple[PlanOperation, ...]:
         graph_hash = canonical_hash(desired)
         entries = self._diff.compare(observed, desired)
@@ -54,11 +54,15 @@ class PlanCompiler:
                     channel_moves.append(entry)
             if entry.action is DiffAction.MOVE_OR_REORDER and not non_move_fields:
                 continue
-            operation = self._compile_entry(graph_hash, desired, entry, non_move_fields)
+            operation = self._compile_entry(
+                plan_id, graph_hash, observed, desired, entry, non_move_fields
+            )
             operations.append(operation)
             last_for_node[entry.node.logical_key] = operation.operation_id
         if role_moves:
-            operation = self._bulk_reorder(graph_hash, desired, role_moves, roles=True)
+            operation = self._bulk_reorder(
+                plan_id, graph_hash, observed, desired, role_moves, roles=True
+            )
             operation = replace(
                 operation,
                 predecessors=tuple(
@@ -83,7 +87,9 @@ class PlanCompiler:
         for batch_index, channel_batch in enumerate(channel_batches):
             # Discord currently accepts at most one parent_id change per bulk request.
             operation = self._bulk_reorder(
+                plan_id,
                 graph_hash,
+                observed,
                 desired,
                 channel_batch,
                 roles=False,
@@ -111,7 +117,9 @@ class PlanCompiler:
 
     def _compile_entry(
         self,
+        plan_id: UUID,
         graph_hash: str,
+        observed: GuildSnapshot,
         desired: DesiredStateGraph,
         entry: DiffEntry,
         non_move_fields: set[str],
@@ -120,8 +128,22 @@ class PlanCompiler:
         operation_type = self._operation_type(entry)
         payload = self._payload(desired, node)
         if non_move_fields:
-            payload = {key: value for key, value in payload.items() if key in non_move_fields}
-        operation_id = self._operation_id(graph_hash, node.logical_key, operation_type.value)
+            identity_fields = {
+                key
+                for key in payload
+                if key == "id"
+                or key == "target_type"
+                or key.endswith("_id")
+                or key.endswith("_symbol")
+            }
+            payload = {
+                key: value
+                for key, value in payload.items()
+                if key in non_move_fields or key in identity_fields
+            }
+        operation_id = self._operation_id(
+            plan_id, graph_hash, node.logical_key, operation_type.value
+        )
         is_create = operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}
         is_delete = operation_type in {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL}
         capability = (
@@ -160,13 +182,18 @@ class PlanCompiler:
                 else RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED
             ),
             self._gateway_events(operation_type),
+            preconditions=freeze_json_object(
+                self._preconditions(observed, operation_type, node.resource_type, payload, entry)
+            ),
             produces_symbol=node.symbol if is_create else None,
             consumes_symbols=self._consumed_symbols(desired, node),
         )
 
     def _bulk_reorder(
         self,
+        plan_id: UUID,
         graph_hash: str,
+        observed: GuildSnapshot,
         desired: DesiredStateGraph,
         entries: list[DiffEntry],
         *,
@@ -177,6 +204,7 @@ class PlanCompiler:
             OperationType.REORDER_ROLES if roles else OperationType.MOVE_OR_REORDER_CHANNELS
         )
         items = []
+        before_items = []
         consumed: set[str] = set()
         for entry in sorted(entries, key=lambda item: item.node.logical_key):
             payload = self._payload(desired, entry.node)
@@ -190,20 +218,36 @@ class PlanCompiler:
             if entry.node.symbol:
                 consumed.add(entry.node.symbol)
             items.append(item)
+            before = thaw_json_object(entry.before)
+            before_items.append(
+                {key: before[key] for key in ("id", "position", "parent_id") if key in before}
+            )
         key = "bulk:roles" if roles else f"bulk:channels:{key_suffix or '0'}"
         return PlanOperation(
-            self._operation_id(graph_hash, key, operation_type.value),
+            self._operation_id(plan_id, graph_hash, key, operation_type.value),
             operation_type,
             ResourceType.ROLE if roles else ResourceType.CHANNEL,
             key,
             freeze_json_object({"items": items}),
-            freeze_json_object({}),
+            freeze_json_object({"items": before_items}),
             ("MANAGE_ROLES" if roles else "MANAGE_CHANNELS",),
             CompensationClass.REVERSIBLE,
             RiskLevel.MEDIUM,
             VerificationStrategy.TARGETED_LIST_AND_MATCH,
             RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED,
             ("GUILD_ROLE_UPDATE",) if roles else ("CHANNEL_UPDATE",),
+            preconditions=freeze_json_object(
+                {
+                    "schema_version": "did-operation-precondition-v1",
+                    "mode": "MATCH_BEFORE",
+                    "resource_type": "ROLE" if roles else "CHANNEL",
+                    "before": {"items": before_items},
+                    "before_fingerprint": canonical_hash({"items": before_items}),
+                    "coverage_complete": (
+                        observed.roles_complete if roles else observed.channels_complete
+                    ),
+                }
+            ),
             consumes_symbols=tuple(sorted(consumed)),
         )
 
@@ -320,5 +364,42 @@ class PlanCompiler:
         return ("CHANNEL_UPDATE",)
 
     @staticmethod
-    def _operation_id(graph_hash: str, resource_ref: str, operation_type: str) -> UUID:
-        return uuid5(PLAN_OPERATION_NAMESPACE, f"{graph_hash}:{resource_ref}:{operation_type}")
+    def _operation_id(
+        plan_id: UUID, graph_hash: str, resource_ref: str, operation_type: str
+    ) -> UUID:
+        return uuid5(
+            PLAN_OPERATION_NAMESPACE,
+            f"{plan_id}:{graph_hash}:{resource_ref}:{operation_type}",
+        )
+
+    @staticmethod
+    def _preconditions(
+        observed: GuildSnapshot,
+        operation_type: OperationType,
+        resource_type: ResourceType,
+        payload: dict[str, object],
+        entry: DiffEntry,
+    ) -> dict[str, object]:
+        before = thaw_json_object(entry.before)
+        is_create = operation_type in {
+            OperationType.CREATE_ROLE,
+            OperationType.CREATE_CHANNEL,
+        }
+        return {
+            "schema_version": "did-operation-precondition-v1",
+            "mode": "ABSENT_OR_UNCHANGED" if is_create else "MATCH_BEFORE",
+            "resource_type": resource_type.value,
+            "resource_id": payload.get("id"),
+            "identity": {
+                key: payload[key]
+                for key in ("name", "type", "channel_id", "subject_id", "target_id", "target_type")
+                if key in payload
+            },
+            "before": before,
+            "before_fingerprint": canonical_hash(before),
+            "coverage_complete": (
+                observed.roles_complete
+                if resource_type is ResourceType.ROLE
+                else observed.channels_complete
+            ),
+        }

@@ -23,6 +23,12 @@ class RecoveryOutcome(StrEnum):
     AMBIGUOUS = "AMBIGUOUS"
 
 
+class PreconditionOutcome(StrEnum):
+    SATISFIED = "SATISFIED"
+    CHANGED = "CHANGED"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True, slots=True)
 class MutationResult:
     discord_status: int
@@ -43,6 +49,15 @@ class MutableDiscordError(DiscordAdapterError):
 
 
 class MutableDiscordPort(Protocol):
+    async def check_preconditions(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        preconditions: dict[str, Any],
+    ) -> PreconditionOutcome: ...
+
     async def execute(
         self,
         *,
@@ -87,6 +102,126 @@ class DiscordPyMutableAdapter:
     def __init__(self, client: discord.Client) -> None:
         self._client = client
         self._reads = DiscordPyStructureAdapter(client)
+
+    async def check_preconditions(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        preconditions: dict[str, Any],
+    ) -> PreconditionOutcome:
+        if preconditions.get("schema_version") != "did-operation-precondition-v1":
+            return PreconditionOutcome.UNKNOWN
+        role_operations = {
+            OperationType.CREATE_ROLE,
+            OperationType.UPDATE_ROLE,
+            OperationType.DELETE_ROLE,
+            OperationType.REORDER_ROLES,
+        }
+        resources = (
+            await self._reads.fetch_roles(guild_id)
+            if operation_type in role_operations
+            else await self._reads.fetch_channels(guild_id)
+        )
+        if operation_type in {
+            OperationType.UPSERT_OVERWRITE,
+            OperationType.DELETE_OVERWRITE,
+        }:
+            return self._overwrite_precondition(resources, payload, preconditions)
+        before = preconditions.get("before")
+        if not isinstance(before, dict):
+            return PreconditionOutcome.UNKNOWN
+        if operation_type in {
+            OperationType.REORDER_ROLES,
+            OperationType.MOVE_OR_REORDER_CHANNELS,
+        }:
+            expected_items = before.get("items")
+            if not isinstance(expected_items, list):
+                return PreconditionOutcome.UNKNOWN
+            by_id = {
+                int(item.get("id", item.get("role_id", item.get("channel_id", 0)))): item
+                for item in resources
+            }
+            for item in expected_items:
+                if not isinstance(item, dict) or item.get("id") is None:
+                    return PreconditionOutcome.UNKNOWN
+                current = by_id.get(int(item["id"]))
+                if current is None:
+                    return (
+                        PreconditionOutcome.CHANGED
+                        if operation_type is OperationType.REORDER_ROLES
+                        else PreconditionOutcome.UNKNOWN
+                    )
+                if not self._matches(current, item):
+                    return PreconditionOutcome.CHANGED
+            return PreconditionOutcome.SATISFIED
+        if operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}:
+            identity = preconditions.get("identity")
+            if not isinstance(identity, dict) or not identity:
+                return PreconditionOutcome.UNKNOWN
+            candidates = [item for item in resources if self._matches(item, identity)]
+            return PreconditionOutcome.CHANGED if candidates else PreconditionOutcome.SATISFIED
+        resource_id = payload.get("id") or preconditions.get("resource_id")
+        if resource_id is None:
+            return PreconditionOutcome.UNKNOWN
+        current = next(
+            (
+                item
+                for item in resources
+                if int(item.get("id", item.get("role_id", item.get("channel_id", 0))))
+                == int(resource_id)
+            ),
+            None,
+        )
+        if current is None:
+            return (
+                PreconditionOutcome.CHANGED
+                if operation_type in {OperationType.UPDATE_ROLE, OperationType.DELETE_ROLE}
+                else PreconditionOutcome.UNKNOWN
+            )
+        return (
+            PreconditionOutcome.SATISFIED
+            if self._matches(current, before)
+            else PreconditionOutcome.CHANGED
+        )
+
+    @classmethod
+    def _overwrite_precondition(
+        cls,
+        channels: list[dict[str, Any]],
+        payload: dict[str, Any],
+        preconditions: dict[str, Any],
+    ) -> PreconditionOutcome:
+        try:
+            channel_id = cls._required_id(payload, "channel_id")
+            target_id = cls._required_id(payload, "subject_id", fallback="target_id")
+        except ValueError:
+            return PreconditionOutcome.UNKNOWN
+        channel = next(
+            (item for item in channels if int(item.get("channel_id", 0)) == channel_id), None
+        )
+        if channel is None:
+            return PreconditionOutcome.UNKNOWN
+        target_type = int(payload.get("target_type", 0))
+        current = next(
+            (
+                item
+                for item in channel.get("permission_overwrites", [])
+                if int(item.get("id", 0)) == target_id and int(item.get("type", 0)) == target_type
+            ),
+            None,
+        )
+        before = preconditions.get("before")
+        if not isinstance(before, dict):
+            return PreconditionOutcome.UNKNOWN
+        if not before:
+            return PreconditionOutcome.SATISFIED if current is None else PreconditionOutcome.CHANGED
+        return (
+            PreconditionOutcome.SATISFIED
+            if current is not None and cls._matches(current, before)
+            else PreconditionOutcome.CHANGED
+        )
 
     async def execute(
         self,
@@ -270,7 +405,11 @@ class DiscordPyMutableAdapter:
             if len(candidates) == 1:
                 return RecoveryResult(RecoveryOutcome.PROVED_CREATED, candidates[0])
             if not candidates:
-                return RecoveryResult(RecoveryOutcome.PROVED_ABSENT)
+                return RecoveryResult(
+                    RecoveryOutcome.PROVED_ABSENT
+                    if operation_type is OperationType.CREATE_ROLE
+                    else RecoveryOutcome.AMBIGUOUS
+                )
             return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
         resource_id = payload.get("id")
         current = next(
@@ -283,6 +422,9 @@ class DiscordPyMutableAdapter:
             None,
         )
         if operation_type in deletes:
+            if operation_type is OperationType.DELETE_CHANNEL and current is None:
+                # Get Guild Channels omission can mean access loss/obfuscation.
+                return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
             return RecoveryResult(
                 RecoveryOutcome.PROVED_APPLIED
                 if current is None
@@ -351,6 +493,15 @@ class DiscordPyMutableAdapter:
         payload: dict[str, Any],
         result_payload: dict[str, Any] | None,
     ) -> bool:
+        if result_payload is not None:
+            if operation_type in {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL} and bool(
+                result_payload.get("deleted")
+            ):
+                return True
+            if operation_type in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL} and (
+                result_payload.get("id") is not None
+            ):
+                return True
         recovery = await self.recover(
             guild_id=guild_id,
             operation_type=operation_type,
@@ -445,10 +596,19 @@ class DiscordPyMutableAdapter:
             "lock_permissions",
         }
         comparable = {key: value for key, value in desired.items() if key not in skipped}
-        return all(
-            str(observed.get(key)) == str(value)
+
+        def observed_value(key: str) -> object:
+            if key == "id":
+                return observed.get("id", observed.get("role_id", observed.get("channel_id")))
+            if key == "target_id":
+                return observed.get("target_id", observed.get("id"))
+            if key == "target_type":
+                return observed.get("target_type", observed.get("type"))
+            return observed.get(key)
+
+        return bool(comparable) and all(
+            observed_value(key) is not None and str(observed_value(key)) == str(value)
             for key, value in comparable.items()
-            if key in observed
         )
 
 

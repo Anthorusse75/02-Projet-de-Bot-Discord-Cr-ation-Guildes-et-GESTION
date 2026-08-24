@@ -81,7 +81,9 @@ class PlanningRepository:
         async with tenant_transaction(
             self._factory, TenantContext(guild_id, actor_user_id)
         ) as session:
-            existing = await self._plan_by_idempotency(session, guild_id, idempotency_key)
+            existing = await self._plan_by_idempotency(
+                session, guild_id, actor_user_id, idempotency_key
+            )
             if existing is not None:
                 if str(existing["desired_graph_hash"]) != graph_hash:
                     raise PlanConflict("idempotency key reused with another desired graph")
@@ -150,7 +152,7 @@ class PlanningRepository:
             }
             for operation in operations:
                 payload = thaw_json_object(operation.desired_payload)
-                resource_id = payload.get("id")
+                resource_id = payload.get("id") or payload.get("channel_id")
                 await session.execute(
                     text(
                         "INSERT INTO plan_operations "
@@ -158,11 +160,13 @@ class PlanningRepository:
                         "resource_ref,resource_discord_id,produces_symbol,consumes_symbols,"
                         "desired_payload,before_payload,required_capabilities,compensation_class,"
                         "risk_level,verification_strategy,recovery_strategy,"
-                        "expected_gateway_events,immutable_hash,display_order) VALUES "
+                        "expected_gateway_events,preconditions,immutable_hash,display_order) "
+                        "VALUES "
                         "(:id,:guild_id,:plan_id,:operation_type,:execution_target,:resource_type,"
                         ":resource_ref,:resource_id,:produces_symbol,:consumes_symbols,"
                         "CAST(:desired AS jsonb),CAST(:before AS jsonb),:capabilities,"
                         ":compensation,:risk,:verification,:recovery,:gateway_events,"
+                        "CAST(:preconditions AS jsonb),"
                         ":immutable_hash,:display_order)"
                     ),
                     {
@@ -184,6 +188,7 @@ class PlanningRepository:
                         "verification": operation.verification.value,
                         "recovery": operation.recovery.value,
                         "gateway_events": list(operation.expected_gateway_events),
+                        "preconditions": canonical_json(operation.preconditions),
                         "immutable_hash": canonical_hash(operation),
                         "display_order": display_order[operation.operation_id],
                     },
@@ -218,6 +223,13 @@ class PlanningRepository:
                             "predecessor_id": predecessor,
                         },
                     )
+            await self._insert_resource_dependencies(
+                session,
+                guild_id=guild_id,
+                plan_id=plan_id,
+                operations=operations,
+                before_snapshot=before_snapshot,
+            )
             await self._append_audit(
                 session,
                 guild_id=guild_id,
@@ -270,7 +282,8 @@ class PlanningRepository:
                             "dependencies.plan_id=operations.plan_id AND "
                             "dependencies.operation_id=operations.id WHERE "
                             "operations.guild_id=:guild_id AND operations.plan_id=:plan_id "
-                            "GROUP BY operations.id ORDER BY operations.display_order"
+                            "GROUP BY operations.guild_id,operations.plan_id,operations.id "
+                            "ORDER BY operations.display_order"
                         ),
                         {"guild_id": guild_id, "plan_id": plan_id},
                     )
@@ -281,6 +294,79 @@ class PlanningRepository:
         if not rows and not await self._exists(guild_id, plan_id):
             raise PlanNotFound("plan not found")
         return [dict(row) for row in rows]
+
+    async def integrity_bundle(self, guild_id: int, plan_id: UUID) -> dict[str, Any]:
+        """Read every immutable hash input in one tenant transaction."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            plan = await self._plan_row(session, guild_id, plan_id)
+            if plan is None:
+                raise PlanNotFound("plan not found")
+            snapshot = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM plan_snapshots WHERE guild_id=:guild_id "
+                            "AND id=:snapshot_id"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "snapshot_id": plan["before_snapshot_id"],
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            operation_rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT operations.*, COALESCE(array_agg(dependencies."
+                            "predecessor_operation_id ORDER BY dependencies."
+                            "predecessor_operation_id) FILTER (WHERE dependencies."
+                            "predecessor_operation_id IS NOT NULL), '{}') AS predecessors "
+                            "FROM plan_operations operations LEFT JOIN "
+                            "plan_operation_dependencies dependencies ON "
+                            "dependencies.guild_id=operations.guild_id AND "
+                            "dependencies.plan_id=operations.plan_id AND "
+                            "dependencies.operation_id=operations.id WHERE "
+                            "operations.guild_id=:guild_id AND operations.plan_id=:plan_id "
+                            "GROUP BY operations.guild_id,operations.plan_id,operations.id "
+                            "ORDER BY operations.display_order"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            symbol_rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT symbol,resource_type,producer_operation_id FROM "
+                            "plan_symbol_bindings WHERE guild_id=:guild_id AND plan_id=:plan_id "
+                            "ORDER BY symbol"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return {
+            "plan": dict(plan),
+            "snapshot": dict(snapshot),
+            "operations": [dict(row) for row in operation_rows],
+            "symbols": tuple(
+                {
+                    "symbol": str(row["symbol"]),
+                    "resource_type": str(row["resource_type"]),
+                    "producer_operation_id": str(row["producer_operation_id"]),
+                }
+                for row in symbol_rows
+            ),
+        }
 
     async def transition_plan(
         self,
@@ -659,6 +745,7 @@ class PlanningRepository:
         lease_owner: str,
         lease_token: UUID,
         lease_generation: int,
+        actor_user_id: int,
         correlation_id: UUID,
     ) -> dict[str, Any]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -678,13 +765,28 @@ class PlanningRepository:
             confirmation = await session.scalar(
                 text(
                     "SELECT id FROM plan_confirmations WHERE guild_id=:guild_id AND "
-                    "plan_id=:plan_id AND plan_hash=:hash AND revoked_at IS NULL "
+                    "plan_id=:plan_id AND actor_user_id=:actor AND plan_hash=:hash "
+                    "AND revoked_at IS NULL "
                     "AND expires_at > now() ORDER BY confirmed_at DESC LIMIT 1"
                 ),
-                {"guild_id": guild_id, "plan_id": plan_id, "hash": plan["plan_hash"]},
+                {
+                    "guild_id": guild_id,
+                    "plan_id": plan_id,
+                    "actor": actor_user_id,
+                    "hash": plan["plan_hash"],
+                },
             )
             if confirmation is None:
                 raise ConfirmationInvalid("confirmation expired before apply")
+            requested_by = await session.scalar(
+                text(
+                    "SELECT requested_by FROM discord_io_jobs WHERE guild_id=:guild_id "
+                    "AND job_id=:job_id"
+                ),
+                {"guild_id": guild_id, "job_id": job_id},
+            )
+            if requested_by is None or int(requested_by) != actor_user_id:
+                raise PlanFencingError("apply actor does not match the durable job requester")
             row = (
                 (
                     await session.execute(
@@ -835,7 +937,7 @@ class PlanningRepository:
                     "in_flight_at,request_fingerprint,lease_owner,lease_token,lease_generation,"
                     "outcome_detail) VALUES "
                     "(:id,:guild_id,:plan_id,:operation_id,:attempt,'PREPARED',:now,NULL,"
-                    ":fingerprint,:owner,:token,:generation,'{}'::jsonb)"
+                    ":fingerprint,:owner,:token,:generation,CAST(:detail AS jsonb))"
                 ),
                 {
                     "id": attempt_id,
@@ -848,6 +950,9 @@ class PlanningRepository:
                     "owner": lease_owner,
                     "token": lease_token,
                     "generation": lease_generation,
+                    "detail": json.dumps(
+                        {"resolved_payload": resolved_payload}, separators=(",", ":")
+                    ),
                 },
             )
             result = dict(row)
@@ -916,6 +1021,146 @@ class PlanningRepository:
                 or getattr(operation_result, "rowcount", 0) != 1
             ):
                 raise PlanConflict("prepared attempt is no longer claimable")
+            operation = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM plan_operations WHERE guild_id=:guild_id AND "
+                            "plan_id=:plan_id AND id=:operation_id"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "plan_id": plan_id,
+                            "operation_id": operation_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            resolved_payload = await session.scalar(
+                text(
+                    "SELECT outcome_detail->'resolved_payload' FROM operation_attempts "
+                    "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=:attempt_id"
+                ),
+                {"guild_id": guild_id, "plan_id": plan_id, "attempt_id": attempt_id},
+            )
+            if OperationType(str(operation["operation_type"])) in {
+                OperationType.REORDER_ROLES,
+                OperationType.MOVE_OR_REORDER_CHANNELS,
+                OperationType.UPSERT_OVERWRITE,
+                OperationType.DELETE_OVERWRITE,
+            }:
+                await self._register_expected_gateway(
+                    session,
+                    guild_id,
+                    plan_id,
+                    operation,
+                    self._result_resource_id(operation, dict(resolved_payload or {})),
+                    dict(resolved_payload or {}),
+                    now,
+                )
+
+    async def reject_operation_precondition(
+        self,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        operation_id: UUID,
+        attempt_id: UUID,
+        job_id: UUID,
+        lease_owner: str,
+        lease_token: UUID,
+        lease_generation: int,
+        outcome: str,
+        correlation_id: UUID,
+    ) -> None:
+        if outcome not in {"CHANGED", "UNKNOWN"}:
+            raise ValueError("precondition rejection requires CHANGED or UNKNOWN")
+        code = f"OPERATION_PRECONDITION_{outcome}"
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await self._assert_job_fence(
+                session,
+                guild_id=guild_id,
+                job_id=job_id,
+                lease_owner=lease_owner,
+                lease_token=lease_token,
+                lease_generation=lease_generation,
+            )
+            attempt = await session.scalar(
+                text(
+                    "UPDATE operation_attempts SET status='FAILED',completed_at=now(),"
+                    "error_classification=:code,outcome_detail=CAST(:detail AS jsonb) "
+                    "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=:attempt_id "
+                    "AND operation_id=:operation_id AND status='PREPARED' AND "
+                    "lease_owner=:owner AND lease_token=:token AND lease_generation="
+                    ":generation RETURNING id"
+                ),
+                {
+                    "code": code,
+                    "detail": json.dumps({"precondition_outcome": outcome}),
+                    "guild_id": guild_id,
+                    "plan_id": plan_id,
+                    "attempt_id": attempt_id,
+                    "operation_id": operation_id,
+                    "owner": lease_owner,
+                    "token": lease_token,
+                    "generation": lease_generation,
+                },
+            )
+            if attempt is None:
+                raise PlanFencingError("prepared precondition attempt is no longer current")
+            operation = await session.scalar(
+                text(
+                    "UPDATE plan_operations SET status='INTERVENTION_REQUIRED',"
+                    "error_code=:code,completed_at=now(),state_version=state_version+1,"
+                    "updated_at=now() WHERE guild_id=:guild_id AND plan_id=:plan_id "
+                    "AND id=:operation_id AND status='PENDING' AND attempt_count="
+                    "(SELECT attempt_number FROM operation_attempts WHERE guild_id=:guild_id "
+                    "AND plan_id=:plan_id AND id=:attempt_id) RETURNING id"
+                ),
+                {
+                    "code": code,
+                    "guild_id": guild_id,
+                    "plan_id": plan_id,
+                    "operation_id": operation_id,
+                    "attempt_id": attempt_id,
+                },
+            )
+            if operation is None:
+                raise PlanFencingError("operation precondition attempt was superseded")
+            await session.execute(
+                text(
+                    "UPDATE plans SET status='INTERVENTION_REQUIRED',error_code=:code,"
+                    "completed_at=now(),state_version=state_version+1,updated_at=now() "
+                    "WHERE guild_id=:guild_id AND id=:plan_id AND status='APPLYING'"
+                ),
+                {"code": code, "guild_id": guild_id, "plan_id": plan_id},
+            )
+            await self._append_audit(
+                session,
+                guild_id=guild_id,
+                actor_user_id=None,
+                event_type="PLAN_OPERATION_PRECONDITION_REJECTED",
+                target_type="PLAN_OPERATION",
+                target_id=str(operation_id),
+                plan_id=plan_id,
+                operation_id=operation_id,
+                correlation_id=correlation_id,
+                result_state=OperationState.INTERVENTION_REQUIRED.value,
+                data={"precondition_outcome": outcome},
+            )
+            await self._append_progress(
+                session,
+                guild_id=guild_id,
+                plan_id=plan_id,
+                operation_id=operation_id,
+                plan_status=PlanState.INTERVENTION_REQUIRED,
+                operation_status=OperationState.INTERVENTION_REQUIRED,
+                message_key="plans.progress.preconditionRejected",
+                error_code=code,
+                correlation_id=correlation_id,
+            )
 
     async def record_operation_success(
         self,
@@ -1267,7 +1512,16 @@ class PlanningRepository:
                 return
             if outcome in {"PROVED_CREATED", "PROVED_APPLIED"}:
                 if resource_payload is None:
-                    raise ValueError("proved recovery requires observed payload")
+                    if OperationType(str(operation["operation_type"])) not in {
+                        OperationType.DELETE_ROLE,
+                        OperationType.DELETE_CHANNEL,
+                        OperationType.DELETE_OVERWRITE,
+                    }:
+                        raise ValueError("proved recovery requires observed payload")
+                    resource_payload = {
+                        **dict(operation["desired_payload"]),
+                        "deleted": True,
+                    }
                 resource_id = self._result_resource_id(operation, resource_payload)
                 fingerprint = canonical_hash(resource_payload)
                 await session.execute(
@@ -1331,7 +1585,7 @@ class PlanningRepository:
                 await session.execute(
                     text(
                         "UPDATE plan_operations SET status='INTERVENTION_REQUIRED',"
-                        "error_code='UNKNOWN_CREATE_AMBIGUOUS',completed_at=now(),"
+                        "error_code='UNKNOWN_OUTCOME_AMBIGUOUS',completed_at=now(),"
                         "state_version=state_version+1,updated_at=now() WHERE "
                         "guild_id=:guild_id AND plan_id=:plan_id AND id=:operation_id"
                     ),
@@ -1340,7 +1594,7 @@ class PlanningRepository:
                 await session.execute(
                     text(
                         "UPDATE plans SET status='INTERVENTION_REQUIRED',"
-                        "error_code='UNKNOWN_CREATE_AMBIGUOUS',completed_at=now(),"
+                        "error_code='UNKNOWN_OUTCOME_AMBIGUOUS',completed_at=now(),"
                         "state_version=state_version+1,updated_at=now() WHERE "
                         "guild_id=:guild_id AND id=:plan_id AND status='APPLYING'"
                     ),
@@ -1453,34 +1707,71 @@ class PlanningRepository:
             )
             self.metrics.plan_transition(status)
 
+    async def inflight_attempt_fence(self, guild_id: int, plan_id: UUID) -> dict[str, Any] | None:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT attempts.lease_owner,attempts.lease_token,"
+                            "attempts.lease_generation FROM operation_attempts attempts "
+                            "JOIN plan_operations operations ON operations.guild_id="
+                            "attempts.guild_id AND operations.plan_id=attempts.plan_id "
+                            "AND operations.id=attempts.operation_id WHERE attempts.guild_id="
+                            ":guild_id AND attempts.plan_id=:plan_id AND attempts.status="
+                            "'IN_FLIGHT' AND operations.status='IN_FLIGHT' ORDER BY "
+                            "attempts.attempt_number DESC LIMIT 1"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
     async def mark_inflight_unknown_after_lease_loss(
-        self, guild_id: int, plan_id: UUID, *, correlation_id: UUID
+        self,
+        guild_id: int,
+        plan_id: UUID,
+        *,
+        lease_owner: str,
+        lease_token: UUID,
+        lease_generation: int,
+        correlation_id: UUID,
     ) -> int:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             rows = (
                 (
                     await session.execute(
                         text(
-                            "UPDATE plan_operations SET status='UNKNOWN_OUTCOME',"
+                            "WITH lost AS (UPDATE operation_attempts SET status='UNKNOWN',"
+                            "completed_at=now(),error_classification='WORKER_LEASE_LOST' "
+                            "WHERE guild_id=:guild_id AND plan_id=:plan_id AND status="
+                            "'IN_FLIGHT' AND lease_owner=:owner AND lease_token=:token "
+                            "AND lease_generation=:generation RETURNING operation_id,"
+                            "attempt_number) "
+                            "UPDATE plan_operations operations SET status='UNKNOWN_OUTCOME',"
                             "error_code='WORKER_LEASE_LOST',state_version=state_version+1,"
-                            "updated_at=now() WHERE guild_id=:guild_id AND plan_id=:plan_id "
-                            "AND status='IN_FLIGHT' RETURNING id"
+                            "updated_at=now() FROM lost WHERE operations.guild_id=:guild_id "
+                            "AND operations.plan_id=:plan_id AND operations.id="
+                            "lost.operation_id AND operations.status='IN_FLIGHT' AND "
+                            "operations.attempt_count=lost.attempt_number RETURNING "
+                            "operations.id"
                         ),
-                        {"guild_id": guild_id, "plan_id": plan_id},
+                        {
+                            "guild_id": guild_id,
+                            "plan_id": plan_id,
+                            "owner": lease_owner,
+                            "token": lease_token,
+                            "generation": lease_generation,
+                        },
                     )
                 )
                 .scalars()
                 .all()
             )
             if rows:
-                await session.execute(
-                    text(
-                        "UPDATE operation_attempts SET status='UNKNOWN',completed_at=now(),"
-                        "error_classification='WORKER_LEASE_LOST' WHERE guild_id=:guild_id "
-                        "AND plan_id=:plan_id AND status='IN_FLIGHT'"
-                    ),
-                    {"guild_id": guild_id, "plan_id": plan_id},
-                )
                 for operation_id in rows:
                     await self._append_audit(
                         session,
@@ -1540,18 +1831,85 @@ class PlanningRepository:
 
     @staticmethod
     async def _plan_by_idempotency(
-        session: AsyncSession, guild_id: int, idempotency_key: str
+        session: AsyncSession,
+        guild_id: int,
+        actor_user_id: int,
+        idempotency_key: str,
     ) -> Any | None:
         return (
             (
                 await session.execute(
-                    text("SELECT * FROM plans WHERE guild_id=:guild_id AND idempotency_key=:key"),
-                    {"guild_id": guild_id, "key": idempotency_key},
+                    text(
+                        "SELECT * FROM plans WHERE guild_id=:guild_id "
+                        "AND actor_user_id=:actor AND idempotency_key=:key"
+                    ),
+                    {"guild_id": guild_id, "actor": actor_user_id, "key": idempotency_key},
                 )
             )
             .mappings()
             .one_or_none()
         )
+
+    @staticmethod
+    async def _insert_resource_dependencies(
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        operations: tuple[PlanOperation, ...],
+        before_snapshot: dict[str, Any],
+    ) -> None:
+        dependencies: dict[tuple[str, int], str] = {}
+
+        def remember(resource_type: str, value: object, reason: str) -> None:
+            rendered = str(value)
+            if value is None or not rendered.isdecimal() or int(rendered) <= 0:
+                return
+            normalized = "CHANNEL" if resource_type == "CATEGORY" else resource_type
+            dependencies.setdefault((normalized, int(rendered)), reason)
+
+        category_targets: set[int] = set()
+        for operation in operations:
+            payload = thaw_json_object(operation.desired_payload)
+            before = thaw_json_object(operation.before_payload)
+            target_type = operation.resource_type.value
+            remember(target_type, payload.get("id") or before.get("id"), "TARGET")
+            remember("CHANNEL", payload.get("parent_id") or before.get("parent_id"), "PARENT")
+            remember("CHANNEL", payload.get("channel_id") or before.get("channel_id"), "TARGET")
+            subject_id = payload.get("subject_id") or payload.get("target_id")
+            if int(payload.get("target_type", before.get("target_type", 0)) or 0) == 0:
+                remember("ROLE", subject_id, "SUBJECT")
+            for item in payload.get("items", []):
+                if isinstance(item, dict):
+                    remember(target_type, item.get("id"), "TARGET")
+                    remember("CHANNEL", item.get("parent_id"), "PARENT")
+            if (
+                operation.operation_type is OperationType.DELETE_CHANNEL
+                and operation.resource_type.value == "CATEGORY"
+            ):
+                raw_id = payload.get("id") or before.get("id")
+                if raw_id is not None:
+                    category_targets.add(int(raw_id))
+        for channel in before_snapshot.get("channels", []):
+            if isinstance(channel, dict) and channel.get("parent_id") is not None:
+                if int(channel["parent_id"]) in category_targets:
+                    remember("CHANNEL", channel.get("id"), "CATEGORY_CHILD")
+        for (resource_type, resource_id), reason in dependencies.items():
+            await session.execute(
+                text(
+                    "INSERT INTO plan_resource_dependencies "
+                    "(guild_id,plan_id,resource_type,discord_resource_id,reason) VALUES "
+                    "(:guild_id,:plan_id,:resource_type,:resource_id,:reason) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "plan_id": plan_id,
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "reason": reason,
+                },
+            )
 
     @staticmethod
     async def _assert_job_fence(
@@ -1618,7 +1976,10 @@ class PlanningRepository:
 
     @staticmethod
     def _result_resource_id(operation: Any, result_payload: dict[str, Any]) -> int | None:
+        operation_type = OperationType(str(operation["operation_type"]))
         value = result_payload.get("id") or operation["resource_discord_id"]
+        if operation_type in {OperationType.UPSERT_OVERWRITE, OperationType.DELETE_OVERWRITE}:
+            value = result_payload.get("channel_id") or value
         return int(value) if value is not None else None
 
     @staticmethod
@@ -1805,32 +2166,118 @@ class PlanningRepository:
         payload: dict[str, Any],
         now: datetime,
     ) -> None:
-        if resource_id is None:
-            return
+        operation_type = OperationType(str(operation["operation_type"]))
+        expected_items: list[tuple[int, dict[str, Any]]] = []
+        if operation_type in {
+            OperationType.REORDER_ROLES,
+            OperationType.MOVE_OR_REORDER_CHANNELS,
+        }:
+            desired_items = dict(operation["desired_payload"]).get("items", [])
+            desired_ids = {
+                int(item["id"])
+                for item in desired_items
+                if isinstance(item, dict) and item.get("id") is not None
+            }
+            for item in payload.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id") or item.get("role_id") or item.get("channel_id")
+                if item_id is not None and int(item_id) in desired_ids:
+                    expected_items.append((int(item_id), dict(item)))
+        elif operation_type in {
+            OperationType.UPSERT_OVERWRITE,
+            OperationType.DELETE_OVERWRITE,
+        }:
+            expected_overwrite = {**dict(operation["desired_payload"]), **payload}
+            channel_id = expected_overwrite.get("channel_id") or resource_id
+            target_id = expected_overwrite.get("target_id") or expected_overwrite.get("subject_id")
+            if channel_id is not None and target_id is not None:
+                overwrite = {
+                    "target_id": int(target_id),
+                    "target_type": int(expected_overwrite.get("target_type", 0)),
+                    "present": operation_type is OperationType.UPSERT_OVERWRITE,
+                }
+                if operation_type is OperationType.UPSERT_OVERWRITE:
+                    overwrite.update(
+                        {
+                            "allow": int(expected_overwrite.get("allow", 0)),
+                            "deny": int(expected_overwrite.get("deny", 0)),
+                        }
+                    )
+                current_rows = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT target_id,target_type,allow_bits,deny_bits FROM "
+                                "channel_overwrites_cache WHERE guild_id=:guild_id AND "
+                                "channel_id=:channel_id ORDER BY target_type,target_id"
+                            ),
+                            {"guild_id": guild_id, "channel_id": int(channel_id)},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                full_overwrites = [
+                    {
+                        "id": int(row["target_id"]),
+                        "type": int(row["target_type"]),
+                        "allow": int(row["allow_bits"]),
+                        "deny": int(row["deny_bits"]),
+                    }
+                    for row in current_rows
+                    if not (
+                        int(row["target_id"]) == int(target_id)
+                        and int(row["target_type"]) == int(expected_overwrite.get("target_type", 0))
+                    )
+                ]
+                if operation_type is OperationType.UPSERT_OVERWRITE:
+                    full_overwrites.append(
+                        {
+                            "id": int(target_id),
+                            "type": int(expected_overwrite.get("target_type", 0)),
+                            "allow": int(expected_overwrite.get("allow", 0)),
+                            "deny": int(expected_overwrite.get("deny", 0)),
+                        }
+                    )
+                full_overwrites.sort(key=lambda item: (item["type"], item["id"]))
+                expected_items.append(
+                    (
+                        int(channel_id),
+                        {
+                            "channel_id": int(channel_id),
+                            "overwrite": overwrite,
+                            "full_overwrites": full_overwrites,
+                        },
+                    )
+                )
+        elif resource_id is not None:
+            expected_items.append((resource_id, payload))
         for event_type in operation["expected_gateway_events"]:
-            expected_id = uuid4()
-            await session.execute(
-                text(
-                    "INSERT INTO plan_expected_mutations "
-                    "(id,guild_id,plan_id,operation_id,event_type,resource_type,"
-                    "discord_resource_id,expected_payload,expected_fingerprint,expires_at) "
-                    "VALUES (:id,:guild_id,:plan_id,:operation_id,:event_type,:resource_type,"
-                    ":resource_id,CAST(:payload AS jsonb),:fingerprint,:expires) ON CONFLICT "
-                    "(guild_id,plan_id,operation_id,event_type) DO NOTHING"
-                ),
-                {
-                    "id": expected_id,
-                    "guild_id": guild_id,
-                    "plan_id": plan_id,
-                    "operation_id": operation["id"],
-                    "event_type": str(event_type),
-                    "resource_type": str(operation["resource_type"]),
-                    "resource_id": resource_id,
-                    "payload": json.dumps(payload, separators=(",", ":")),
-                    "fingerprint": canonical_hash(payload),
-                    "expires": now + timedelta(minutes=5),
-                },
-            )
+            for expected_resource_id, expected_payload in expected_items:
+                await session.execute(
+                    text(
+                        "INSERT INTO plan_expected_mutations "
+                        "(id,guild_id,plan_id,operation_id,event_type,resource_type,"
+                        "discord_resource_id,expected_payload,expected_fingerprint,expires_at) "
+                        "VALUES (:id,:guild_id,:plan_id,:operation_id,:event_type,:resource_type,"
+                        ":resource_id,CAST(:payload AS jsonb),:fingerprint,:expires) ON CONFLICT "
+                        "(guild_id,plan_id,operation_id,event_type,discord_resource_id) "
+                        "DO NOTHING"
+                    ),
+                    {
+                        "id": uuid4(),
+                        "guild_id": guild_id,
+                        "plan_id": plan_id,
+                        "operation_id": operation["id"],
+                        "event_type": str(event_type),
+                        "resource_type": str(operation["resource_type"]),
+                        "resource_id": expected_resource_id,
+                        "payload": json.dumps(expected_payload, separators=(",", ":")),
+                        "fingerprint": canonical_hash(expected_payload),
+                        "expires": now + timedelta(minutes=5),
+                    },
+                )
 
     @staticmethod
     async def _append_progress(
@@ -1859,16 +2306,16 @@ class PlanningRepository:
             .mappings()
             .one()
         )
-        sequence = int(
-            await session.scalar(
-                text(
-                    "SELECT COALESCE(max(sequence),0)+1 FROM plan_progress_events "
-                    "WHERE guild_id=:guild_id AND plan_id=:plan_id"
-                ),
-                {"guild_id": guild_id, "plan_id": plan_id},
-            )
-            or 1
+        allocated = await session.scalar(
+            text(
+                "UPDATE plans SET progress_sequence=progress_sequence+1 "
+                "WHERE guild_id=:guild_id AND id=:plan_id RETURNING progress_sequence"
+            ),
+            {"guild_id": guild_id, "plan_id": plan_id},
         )
+        if allocated is None:
+            raise PlanNotFound("plan not found while allocating progress sequence")
+        sequence = int(allocated)
         event_id = uuid4()
         await session.execute(
             text(

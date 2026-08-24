@@ -213,7 +213,7 @@ class AuthorizationService:
     def __init__(
         self,
         *,
-        auth: AuthService,
+        auth: AuthService | None,
         repository: AuthRepository,
         membership_store: RedisActorMembershipStore,
         member_client: DiscordMemberClient | None,
@@ -232,6 +232,8 @@ class AuthorizationService:
     async def guilds_for_user(
         self, discord_user_id: int, *, force_refresh: bool = False
     ) -> tuple[DiscordGuild, ...]:
+        if self.auth is None:
+            raise RuntimeError("OAuth-backed Guild discovery is unavailable in this process")
         if not force_refresh:
             cached = await self.auth.guild_store.get(discord_user_id)
             if cached is not None:
@@ -263,8 +265,10 @@ class AuthorizationService:
         scope: AuthorizationScope,
         sensitive: bool = False,
         require_active_installation: bool = True,
+        require_discovery: bool = True,
     ) -> AuthorizationDecision:
-        await self.discovery(discord_user_id, guild_id)
+        if require_discovery:
+            await self.discovery(discord_user_id, guild_id)
         accesses = await self.repository.get_accesses(guild_id, discord_user_id)
         direct_roles = [
             access.platform_role

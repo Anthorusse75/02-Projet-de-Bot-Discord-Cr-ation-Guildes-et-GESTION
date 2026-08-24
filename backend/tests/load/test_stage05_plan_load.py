@@ -5,6 +5,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
+from uuid import uuid4
 
 import pytest
 
@@ -53,7 +54,7 @@ def test_large_plan_compile_hash_and_dag_are_bounded_and_deterministic() -> None
     )
     graph = DesiredStateGraph(GUILD, tuple(reversed(nodes)))
     started = perf_counter()
-    operations = PlanCompiler().compile(empty_guild(), graph)
+    operations = PlanCompiler().compile(empty_guild(), graph, plan_id=uuid4())
     duration = perf_counter() - started
     assert len(operations) == 500
     assert len(topological_order(operations)) == 500

@@ -182,6 +182,7 @@ async def _authorize(
         guild_id=guild_id,
         capability=capability,
         scope=AuthorizationScope.guild(),
+        sensitive=True,
     )
 
 
@@ -307,6 +308,7 @@ async def validate_plan(
         actor_user_id=session.discord_user_id,
         expected_version=body.expected_version,
         correlation_id=_correlation(request),
+        actor_authorization_fresh=True,
     )
     return {
         "plan": _plan_response(row),

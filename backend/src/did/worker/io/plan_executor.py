@@ -4,7 +4,12 @@ import asyncio
 from typing import Any, Protocol
 from uuid import UUID
 
-from did.infrastructure.discord.mutations import MutableDiscordError, MutableDiscordPort
+from did.application.auth.service import AuthorizationDenied
+from did.infrastructure.discord.mutations import (
+    MutableDiscordError,
+    MutableDiscordPort,
+    PreconditionOutcome,
+)
 from did.infrastructure.planning_lock import RedisGuildMutationLock
 from did.infrastructure.planning_repository import PlanningRepository
 from did.planning.models import OperationState, OperationType, PlanState
@@ -16,7 +21,13 @@ class FaultInjector(Protocol):
 
 
 class ApplyPreflightPort(Protocol):
-    async def recheck(self, *, guild_id: int, plan_id: UUID) -> Any: ...
+    async def recheck(
+        self, *, guild_id: int, plan_id: UUID, actor_authorization_fresh: bool
+    ) -> Any: ...
+
+
+class ApplyAuthorizationPort(Protocol):
+    async def authorize_apply(self, *, guild_id: int, actor_user_id: int) -> None: ...
 
 
 class NoFaults:
@@ -34,6 +45,7 @@ class ApplyPlanExecutor:
         mutation_lock: RedisGuildMutationLock,
         *,
         worker_id: str,
+        authorization: ApplyAuthorizationPort,
         faults: FaultInjector | None = None,
         preflight: ApplyPreflightPort | None = None,
     ) -> None:
@@ -41,6 +53,7 @@ class ApplyPlanExecutor:
         self._adapter = adapter
         self._lock = mutation_lock
         self._worker_id = worker_id
+        self._authorization = authorization
         self._faults = faults or NoFaults()
         self._preflight = preflight
 
@@ -62,6 +75,9 @@ class ApplyPlanExecutor:
             await self._repository.mark_inflight_unknown_after_lease_loss(
                 guild_id,
                 plan_id,
+                lease_owner=self._worker_id,
+                lease_token=UUID(str(leased["lease_token"])),
+                lease_generation=int(leased["lease_generation"]),
                 correlation_id=UUID(str(leased["correlation_id"])),
             )
             raise
@@ -77,15 +93,21 @@ class ApplyPlanExecutor:
         lease_token = UUID(str(leased["lease_token"]))
         lease_generation = int(leased["lease_generation"])
         correlation_id = UUID(str(leased["correlation_id"]))
+        actor_user_id = int(leased["requested_by"])
         if lease_generation > 1:
             # A previous process may have transmitted Discord I/O and died before
             # persisting the response.  Promote its in-flight attempt to UNKNOWN
             # before selecting any new work; recovery below must decide the truth.
-            await self._repository.mark_inflight_unknown_after_lease_loss(
-                guild_id,
-                plan_id,
-                correlation_id=correlation_id,
-            )
+            stale_fence = await self._repository.inflight_attempt_fence(guild_id, plan_id)
+            if stale_fence is not None and int(stale_fence["lease_generation"]) < lease_generation:
+                await self._repository.mark_inflight_unknown_after_lease_loss(
+                    guild_id,
+                    plan_id,
+                    lease_owner=str(stale_fence["lease_owner"]),
+                    lease_token=UUID(str(stale_fence["lease_token"])),
+                    lease_generation=int(stale_fence["lease_generation"]),
+                    correlation_id=correlation_id,
+                )
         await self._repository.begin_apply(
             guild_id=guild_id,
             plan_id=plan_id,
@@ -93,10 +115,41 @@ class ApplyPlanExecutor:
             lease_owner=self._worker_id,
             lease_token=lease_token,
             lease_generation=lease_generation,
+            actor_user_id=actor_user_id,
             correlation_id=correlation_id,
         )
+        try:
+
+            async def authorize_actor() -> None:
+                await self._authorization.authorize_apply(
+                    guild_id=guild_id, actor_user_id=actor_user_id
+                )
+
+            (
+                await governor.run_distributed(guild_id, authorize_actor)
+                if governor is not None
+                else await authorize_actor()
+            )
+        except AuthorizationDenied as exc:
+            await self._repository.finalize_plan(
+                guild_id=guild_id,
+                plan_id=plan_id,
+                status=PlanState.FAILED,
+                verification_summary={
+                    "strategy": "ACTOR_AUTHORIZATION_RECHECK",
+                    "verified": False,
+                    "errors": [exc.code],
+                },
+                error_code="ACTOR_AUTHORIZATION_REVOKED",
+                correlation_id=correlation_id,
+            )
+            return
         if self._preflight is not None:
-            result = await self._preflight.recheck(guild_id=guild_id, plan_id=plan_id)
+            result = await self._preflight.recheck(
+                guild_id=guild_id,
+                plan_id=plan_id,
+                actor_authorization_fresh=True,
+            )
             if not result.allowed:
                 await self._repository.finalize_plan(
                     guild_id=guild_id,
@@ -132,6 +185,37 @@ class ApplyPlanExecutor:
             attempt_id = UUID(str(operation["attempt_id"]))
             operation_type = OperationType(str(operation["operation_type"]))
             await self._faults.checkpoint("B_AFTER_PREPARED_BEFORE_IN_FLIGHT")
+
+            async def check_precondition(
+                operation_type: OperationType = operation_type,
+                operation: dict[str, Any] = operation,
+            ) -> PreconditionOutcome:
+                return await self._adapter.check_preconditions(
+                    guild_id=guild_id,
+                    operation_type=operation_type,
+                    payload=dict(operation["resolved_payload"]),
+                    preconditions=dict(operation["preconditions"]),
+                )
+
+            precondition = (
+                await governor.run_distributed(guild_id, check_precondition)
+                if governor is not None
+                else await check_precondition()
+            )
+            if precondition is not PreconditionOutcome.SATISFIED:
+                await self._repository.reject_operation_precondition(
+                    guild_id=guild_id,
+                    plan_id=plan_id,
+                    operation_id=operation_id,
+                    attempt_id=attempt_id,
+                    job_id=job_id,
+                    lease_owner=self._worker_id,
+                    lease_token=lease_token,
+                    lease_generation=lease_generation,
+                    outcome=precondition.value,
+                    correlation_id=correlation_id,
+                )
+                return
             await self._repository.mark_attempt_in_flight(
                 guild_id=guild_id,
                 plan_id=plan_id,

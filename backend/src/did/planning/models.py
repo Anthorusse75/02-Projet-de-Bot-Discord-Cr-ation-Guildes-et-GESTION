@@ -285,6 +285,7 @@ class PlanOperation:
     verification: VerificationStrategy
     recovery: RecoveryStrategy
     expected_gateway_events: tuple[str, ...]
+    preconditions: FrozenJsonObject = field(default_factory=FrozenJsonObject)
     predecessors: tuple[UUID, ...] = field(default_factory=tuple)
     produces_symbol: str | None = None
     consumes_symbols: tuple[str, ...] = field(default_factory=tuple)

@@ -288,6 +288,23 @@ class Stage04Repository:
             for member_id in member_ids
         )
 
+    async def cached_member_snapshots(self, guild_id: int) -> tuple[MemberSnapshot, ...]:
+        """Return only locally known subjects; this never invokes Discord member listing."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            member_ids = tuple(
+                int(value)
+                for value in (
+                    await session.execute(
+                        text(
+                            "SELECT discord_user_id FROM discord_member_authorization_cache "
+                            "WHERE guild_id=:guild_id ORDER BY discord_user_id"
+                        ),
+                        {"guild_id": guild_id},
+                    )
+                ).scalars()
+            )
+        return await self.member_snapshots(guild_id, member_ids)
+
     async def bot_identity(self, guild_id: int) -> tuple[int | None, str | None]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             row = (

@@ -40,6 +40,8 @@ def _json_value(value: Any) -> Any:
                 for name, reference in value.relations
             ],
         }
+    if isinstance(value, FrozenJsonObject | FrozenJsonArray):
+        return _frozen_value(value)
     if is_dataclass(value):
         return _json_value(asdict(value))  # type: ignore[arg-type]
     if isinstance(value, dict):
