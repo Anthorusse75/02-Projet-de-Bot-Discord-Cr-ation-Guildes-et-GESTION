@@ -94,6 +94,11 @@ class PreflightEngine:
         if not guild.channels_complete or not guild.roles_complete:
             errors.append("preflight.resource_inventory_incomplete")
         self._check_symbols(operations, errors)
+        producer_symbols = {
+            operation.produces_symbol
+            for operation in operations
+            if operation.produces_symbol is not None
+        }
         self._check_topology(graph, guild, errors)
         self._check_limits(graph, guild, context.limits, errors)
         for operation in operations:
@@ -105,6 +110,7 @@ class PreflightEngine:
                 errors,
                 warnings,
                 checked,
+                producer_symbols,
             )
         if risk.impact.incomplete_or_unknown and risk.level in {
             RiskLevel.HIGH,
@@ -255,6 +261,7 @@ class PreflightEngine:
         errors: list[str],
         warnings: list[str],
         checked: set[str],
+        producer_symbols: set[str],
     ) -> None:
         payload = thaw_json_object(operation.desired_payload)
         resource_id = payload.get("id")
@@ -334,7 +341,20 @@ class PreflightEngine:
         checked.add(bot_operation.value)
         warnings.extend(decision.warnings)
         if decision.outcome is not CapabilityOutcome.CAN:
-            errors.extend(decision.causes or ("preflight.capability_unknown",))
+            deferred_channel = (
+                operation.operation_type
+                in {OperationType.UPSERT_OVERWRITE, OperationType.DELETE_OVERWRITE}
+                and channel is None
+                and isinstance(payload.get("channel_symbol"), str)
+                and payload["channel_symbol"] in producer_symbols
+                and payload["channel_symbol"] in operation.consumes_symbols
+            )
+            causes = tuple(
+                cause
+                for cause in decision.causes
+                if not (deferred_channel and cause == "capability.channel_required")
+            )
+            errors.extend(causes or (() if deferred_channel else ("preflight.capability_unknown",)))
         if channel is not None and (
             channel.observability is not ObservabilityState.VISIBLE
             or channel.freshness.state is not FreshnessState.FRESH
