@@ -605,11 +605,42 @@ async def run_live() -> dict[str, int]:
             raise RuntimeError("destination category reused a source Discord ID")
 
         _, portable_artifact = await repository.get_artifact(actor, artifact_id)
-        role_ref = next(
-            item.logical_key
-            for item in portable_artifact.resources
-            if item.resource_type is PortableResourceType.ROLE
+        explicit_mappings: list[ExplicitMapping] = []
+        destination_by_type_and_name = {
+            (PortableResourceType.ROLE, str(item["name"])): str(item["role_id"]) for item in roles_b
+        }
+        destination_by_type_and_name.update(
+            {
+                (
+                    PortableResourceType.CATEGORY
+                    if int(item["type"]) == 4
+                    else PortableResourceType.CHANNEL,
+                    str(item["name"]),
+                ): str(item["channel_id"])
+                for item in channels_b
+            }
         )
+        for resource in portable_artifact.resources:
+            if resource.resource_type not in {
+                PortableResourceType.ROLE,
+                PortableResourceType.CATEGORY,
+                PortableResourceType.CHANNEL,
+            }:
+                continue
+            destination_ref = destination_by_type_and_name.get(
+                (resource.resource_type, str(resource.attribute_map().get("name")))
+            )
+            if destination_ref is None:
+                raise RuntimeError("live explicit mapping destination is unavailable")
+            explicit_mappings.append(
+                ExplicitMapping(
+                    resource.logical_key,
+                    guild_b,
+                    destination_ref,
+                    resource.resource_type,
+                    True,
+                )
+            )
         destination_only = DestinationOnlyReadModels(read_models, guild_a)
         stored_service = PortabilityService(
             repository,
@@ -622,16 +653,8 @@ async def run_live() -> dict[str, int]:
             actor_user_id=actor,
             artifact_id=artifact_id,
             destination_guild_id=guild_b,
-            mode=CloneMode.COPY_AS_NEW,
-            explicit_mappings=(
-                ExplicitMapping(
-                    role_ref,
-                    guild_b,
-                    str(destination_role["role_id"]),
-                    PortableResourceType.ROLE,
-                    True,
-                ),
-            ),
+            mode=CloneMode.MERGE,
+            explicit_mappings=tuple(explicit_mappings),
             idempotency_key=f"stage06-stored-{suffix}",
             correlation_id=uuid4(),
         )
@@ -705,6 +728,7 @@ async def run_live() -> dict[str, int]:
             "source_fixture_resources": 4,
             "destination_copy_plans": 2,
             "explicit_role_mappings": 1,
+            "explicit_structural_mappings": len(explicit_mappings),
             "new_destination_ids_verified": 2,
             "source_mutations_during_clone": 0,
             "source_read_after_export": 0,
