@@ -284,7 +284,10 @@ async def run_live() -> dict[str, int]:
     suffix = datetime.now(UTC).strftime("%H%M%S%f")[-10:]
     role_name = f"{PREFIX}ROLE-{suffix}"
     category_name = f"{PREFIX}CATEGORY-{suffix}"
-    channel_names = (f"{PREFIX}ONE-{suffix}", f"{PREFIX}TWO-{suffix}")
+    channel_names = (
+        f"{PREFIX}ONE-{suffix}".lower(),
+        f"{PREFIX}TWO-{suffix}".lower(),
+    )
     engine = create_database_engine(APP_URL, pool_size=4)
     admin_engine = create_database_engine(ADMIN_URL, pool_size=2)
     redis: Redis = create_redis_client(REDIS_URL)
