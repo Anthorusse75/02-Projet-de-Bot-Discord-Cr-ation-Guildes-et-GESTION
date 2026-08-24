@@ -396,17 +396,6 @@ async def run_live() -> dict[str, int]:
                     )
                     for index, name in enumerate(channel_names)
                 ),
-                DesiredNode.build(
-                    logical_key="stage06.source.overwrite",
-                    resource_type=ResourceType.OVERWRITE,
-                    properties={"target_type": 0, "allow": "1024", "deny": "0"},
-                    relations={
-                        "channel": ResourceReference(
-                            ReferenceKind.LOGICAL, "stage06.source.channel.0"
-                        ),
-                        "subject": ResourceReference(ReferenceKind.LOGICAL, "stage06.source.role"),
-                    },
-                ),
             ),
         )
         source_plan = await create_validated_plan(
@@ -451,9 +440,87 @@ async def run_live() -> dict[str, int]:
         await refresh_discovery(guild_store, actor, client, (guild_a, guild_b))
         roles_a = await structure.fetch_roles(guild_a)
         channels_a = await structure.fetch_channels(guild_a)
-        source_before = prefixed_snapshot(roles_a, channels_a)
         source_role = next(item for item in roles_a if item["name"] == role_name)
         source_category = next(item for item in channels_a if item["name"] == category_name)
+        source_channels = [
+            next(item for item in channels_a if item["name"] == channel_name)
+            for channel_name in channel_names
+        ]
+        overwrite_graph = DesiredStateGraph(
+            guild_a,
+            (
+                DesiredNode.build(
+                    logical_key="stage06.source.role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(source_role["role_id"]),
+                    properties={"name": role_name, "permissions": "0"},
+                ),
+                DesiredNode.build(
+                    logical_key="stage06.source.category",
+                    resource_type=ResourceType.CATEGORY,
+                    discord_id=int(source_category["channel_id"]),
+                    properties={"name": category_name, "type": 4},
+                ),
+                *(
+                    DesiredNode.build(
+                        logical_key=f"stage06.source.channel.{index}",
+                        resource_type=ResourceType.CHANNEL,
+                        discord_id=int(channel["channel_id"]),
+                        properties={"name": channel["name"], "type": 0},
+                        relations={
+                            "parent": ResourceReference(
+                                ReferenceKind.LOGICAL, "stage06.source.category"
+                            )
+                        },
+                    )
+                    for index, channel in enumerate(source_channels)
+                ),
+                DesiredNode.build(
+                    logical_key="stage06.source.overwrite",
+                    resource_type=ResourceType.OVERWRITE,
+                    properties={"target_type": 0, "allow": "1024", "deny": "0"},
+                    relations={
+                        "channel": ResourceReference(
+                            ReferenceKind.LOGICAL, "stage06.source.channel.0"
+                        ),
+                        "subject": ResourceReference(ReferenceKind.LOGICAL, "stage06.source.role"),
+                    },
+                ),
+            ),
+        )
+        overwrite_plan = await create_validated_plan(
+            planning,
+            graph=overwrite_graph,
+            actor=actor,
+            key=f"stage06-source-overwrite-{suffix}",
+            authorization=authorization,
+        )
+        await apply_with_optional_crash(
+            service=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_a,
+            actor=actor,
+            plan=overwrite_plan,
+            inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_a,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        roles_a = await structure.fetch_roles(guild_a)
+        channels_a = await structure.fetch_channels(guild_a)
+        source_before = prefixed_snapshot(roles_a, channels_a)
 
         repository = PortabilityRepository(
             factory,
