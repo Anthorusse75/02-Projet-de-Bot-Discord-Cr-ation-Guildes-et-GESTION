@@ -26,6 +26,7 @@ class CloneReportOutcome(StrEnum):
     REMAPPED = "REMAPPED"
     SKIPPED = "SKIPPED"
     IMPOSSIBLE = "IMPOSSIBLE"
+    PARTIAL = "PARTIAL"
     INTERVENTION_REQUIRED = "INTERVENTION_REQUIRED"
     DELETE_CANDIDATE = "DELETE_CANDIDATE"
 
@@ -63,9 +64,10 @@ class ReconcileScope:
 
 @dataclass(frozen=True, slots=True)
 class DestinationCompilation:
-    graph: DesiredStateGraph
+    graph: DesiredStateGraph | None
     report: CloneReport
     local_resources: tuple[str, ...] = field(default_factory=tuple)
+    no_mutation: bool = False
 
 
 def support_matrix() -> dict[str, dict[str, tuple[str, ...]]]:
@@ -76,10 +78,21 @@ def support_matrix() -> dict[str, dict[str, tuple[str, ...]]]:
         CloneMode.MAXIMUM_COMPATIBLE.value: ("CREATE", "MAP_EXISTING", "REPORT"),
     }
     return {
-        "version": {"value": ("did-clone-support-v1",)},
+        "version": {"value": ("did-clone-support-v2",)},
+        "attribute_schema": {"value": ("did-portable-attributes-v2",)},
         PortableResourceType.ROLE.value: create_merge_reconcile,
         PortableResourceType.CATEGORY.value: create_merge_reconcile,
         PortableResourceType.CHANNEL.value: create_merge_reconcile,
+        "CHANNEL_TYPES": {
+            "0_TEXT": ("FULL", "slowmode", "default_auto_archive_duration"),
+            "2_VOICE": ("FULL", "bitrate", "user_limit"),
+            "4_CATEGORY": ("FULL",),
+            "5_ANNOUNCEMENT": ("FULL", "slowmode", "default_auto_archive_duration"),
+            "13_STAGE": ("FULL", "bitrate", "user_limit"),
+            "14_DIRECTORY": ("UNSUPPORTED", "no_stage05_mutation_contract"),
+            "15_FORUM": ("UNSUPPORTED", "forum_tags_and_layout_not_portable"),
+            "16_MEDIA": ("UNSUPPORTED", "media_contract_not_stable"),
+        },
         PortableResourceType.OVERWRITE.value: create_merge_reconcile,
         PortableResourceType.LOGICAL_GROUP.value: {
             mode.value: ("CREATE_DID_LOCAL", "REPORT") for mode in CloneMode
@@ -110,6 +123,35 @@ class DestinationPlanCompiler:
         if destination_guild_id <= 0:
             raise ValueError("destination Guild must be positive")
         resolution_by_ref = {item.source_logical_ref: item for item in resolutions}
+        if mode is CloneMode.MAXIMUM_COMPATIBLE:
+            maximum_report = tuple(
+                CloneReportEntry(
+                    resource.logical_key,
+                    resource.resource_type,
+                    (
+                        CloneReportOutcome.IMPOSSIBLE
+                        if resolution_by_ref[resource.logical_key].decision
+                        is MappingDecision.UNSUPPORTED
+                        else CloneReportOutcome.SKIPPED
+                        if resolution_by_ref[resource.logical_key].decision is MappingDecision.SKIP
+                        else CloneReportOutcome.INTERVENTION_REQUIRED
+                        if resolution_by_ref[resource.logical_key].decision
+                        is MappingDecision.MANUAL
+                        else CloneReportOutcome.PARTIAL
+                        if self._is_partial(resource)
+                        else CloneReportOutcome.CLONED
+                    ),
+                    resolution_by_ref[resource.logical_key].reason,
+                    resolution_by_ref[resource.logical_key].destination_ref,
+                )
+                for resource in artifact.resources
+            )
+            return DestinationCompilation(
+                None,
+                CloneReport(mode, tuple(sorted(maximum_report, key=lambda item: item.logical_ref))),
+                (),
+                True,
+            )
         candidate_by_ref = {(item.destination_ref, item.resource_type): item for item in candidates}
         nodes: list[DesiredNode] = []
         report: list[CloneReportEntry] = []
@@ -212,13 +254,22 @@ class DestinationPlanCompiler:
                 resolutions,
                 reconcile_scope or ReconcileScope(),
             )
-        if not nodes and not local_resources:
-            raise ValueError("portable compilation produced no destination plan operations")
         return DestinationCompilation(
             DesiredStateGraph(destination_guild_id, tuple(nodes)),
             CloneReport(mode, tuple(sorted(report, key=lambda item: item.logical_ref))),
             tuple(sorted(local_resources)),
         )
+
+    @staticmethod
+    def _is_partial(resource: object) -> bool:
+        from did.portability.artifact import PortableResource
+
+        assert isinstance(resource, PortableResource)
+        if resource.resource_type is not PortableResourceType.CHANNEL:
+            return False
+        attributes = resource.attribute_map()
+        # Flags are observed, but not accepted on Discord channel creation by Stage 05.
+        return bool(attributes.get("flags"))
 
     @staticmethod
     def _node(
@@ -241,40 +292,12 @@ class DestinationPlanCompiler:
         planning_type = kind_map.get(resource.resource_type)
         if planning_type is None:
             return None
+        # Destination identity comes from the confirmed mapping; portable desired
+        # properties continue to come from the immutable source artifact.
         attributes = resource.attribute_map()
         attributes.pop("managed", None)
         if resolution.decision is MappingDecision.MAP_EXISTING:
             assert resolution.destination_ref is not None
-            candidate = candidates.get((resolution.destination_ref, resource.resource_type))
-            if candidate is not None and candidate.attributes:
-                attributes = dict(candidate.attributes)
-                attributes.pop("managed", None)
-                allowed = {
-                    ResourceType.ROLE: {
-                        "name",
-                        "permissions",
-                        "color",
-                        "hoist",
-                        "mentionable",
-                        "position",
-                    },
-                    ResourceType.CATEGORY: {"name", "position"},
-                    ResourceType.CHANNEL: {
-                        "type",
-                        "name",
-                        "topic",
-                        "nsfw",
-                        "position",
-                        "flags",
-                        "bitrate",
-                        "user_limit",
-                        "rate_limit_per_user",
-                        "lock_permissions",
-                        "parent_id",
-                    },
-                    ResourceType.OVERWRITE: {"target_type", "allow", "deny"},
-                }[planning_type]
-                attributes = {key: value for key, value in attributes.items() if key in allowed}
             discord_id = int(resolution.destination_ref)
             symbol = None
         else:
@@ -322,20 +345,22 @@ class DestinationPlanCompiler:
             for item in resolutions
             if item.decision is MappingDecision.MAP_EXISTING and item.destination_ref is not None
         }
-        artifact_types = {resource.resource_type for resource in artifact.resources}
+        del artifact
         type_map = {
             PortableResourceType.ROLE: ResourceType.ROLE,
             PortableResourceType.CATEGORY: ResourceType.CATEGORY,
             PortableResourceType.CHANNEL: ResourceType.CHANNEL,
         }
         for candidate in scope.resources:
-            if candidate.destination_ref in mapped or candidate.resource_type not in artifact_types:
+            if candidate.destination_ref in mapped:
                 continue
             planning_type = type_map.get(candidate.resource_type)
             if planning_type is None:
                 continue
             logical_ref = (
-                f"reconcile.delete.{candidate.resource_type.value.lower()}."
+                f"reconcile.delete.{candidate.portable_key}"
+                if candidate.portable_key is not None
+                else f"reconcile.delete.{candidate.resource_type.value.lower()}."
                 f"{candidate.destination_ref}"
             )
             nodes.append(

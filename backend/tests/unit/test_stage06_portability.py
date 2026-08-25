@@ -8,7 +8,7 @@ from itertools import permutations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -17,7 +17,7 @@ from starlette.requests import Request
 from did.api.main import create_app
 from did.api.stage06 import LiveTransferInput, create_live_transfer
 from did.application.auth.service import AuthorizationDenied
-from did.application.portability import PortabilityService
+from did.application.portability import MappingRequired, PortabilityService
 from did.cloning import (
     ArtifactSelection,
     DestinationPlanCompiler,
@@ -35,6 +35,9 @@ from did.domain.read_model import (
     RoleSnapshot,
 )
 from did.domain.read_model.models import ChannelType
+from did.planning.compiler import PlanCompiler
+from did.planning.diff import DiffEngine
+from did.planning.models import DiffAction, NodePresence, OperationType
 from did.portability import (
     ArtifactCipher,
     ArtifactType,
@@ -334,22 +337,22 @@ def test_mapping_rejects_foreign_wrong_type_and_unconfirmed_explicit_targets() -
         GUILD_B, PortableResourceType.ROLE, "623456789012345678", "Staff"
     )
     resolver = MappingResolver()
-    unconfirmed = resolver.resolve(
-        graph,
-        destination_guild_id=GUILD_B,
-        mode=CloneMode.MERGE,
-        candidates=(candidate,),
-        explicit=(
-            ExplicitMapping(
-                "role.staff",
-                GUILD_B,
-                candidate.destination_ref,
-                PortableResourceType.ROLE,
-                False,
+    with pytest.raises(ValueError, match="must be confirmed"):
+        resolver.resolve(
+            graph,
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.MERGE,
+            candidates=(candidate,),
+            explicit=(
+                ExplicitMapping(
+                    "role.staff",
+                    GUILD_B,
+                    candidate.destination_ref,
+                    PortableResourceType.ROLE,
+                    False,
+                ),
             ),
-        ),
-    )
-    assert unconfirmed[0].decision is MappingDecision.MANUAL
+        )
     with pytest.raises(ValueError, match="foreign or incompatible"):
         resolver.resolve(
             graph,
@@ -554,6 +557,183 @@ def test_compiler_targets_only_destination_and_reconcile_deletes_need_explicit_s
     assert unrelated.destination_ref not in deletes
 
 
+def test_merge_keeps_destination_identity_but_emits_portable_role_and_channel_updates() -> None:
+    role_id = 623456789012345678
+    channel_id = 723456789012345678
+    fresh = destination_snapshot().freshness
+    destination = replace(
+        destination_snapshot(),
+        roles=(
+            destination_snapshot().roles[0],
+            RoleSnapshot(GUILD_B, role_id, "Old Staff", 1, 0, False, fresh),
+        ),
+        channels=(
+            ChannelSnapshot(
+                GUILD_B,
+                channel_id,
+                ChannelType.GUILD_TEXT,
+                0,
+                None,
+                "old-room",
+                (),
+                True,
+                ObservabilityState.VISIBLE,
+                fresh,
+                topic="old topic",
+                nsfw=False,
+                rate_limit_per_user=0,
+                default_auto_archive_duration=60,
+            ),
+        ),
+    )
+    value = artifact(
+        role_resource("New Staff"),
+        PortableResource.build(
+            "channel.staff",
+            PortableResourceType.CHANNEL,
+            {
+                "name": "new-room",
+                "type": 0,
+                "position": 0,
+                "topic": "portable topic",
+                "nsfw": False,
+                "flags": 0,
+                "rate_limit_per_user": 15,
+                "default_auto_archive_duration": 1440,
+            },
+        ),
+    )
+    candidates = PortabilityService._destination_candidates(destination)
+    mappings = (
+        ExplicitMapping("role.staff", GUILD_B, str(role_id), PortableResourceType.ROLE, True),
+        ExplicitMapping(
+            "channel.staff", GUILD_B, str(channel_id), PortableResourceType.CHANNEL, True
+        ),
+    )
+    resolutions = MappingResolver().resolve(
+        DependencyGraph.build(value),
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MERGE,
+        candidates=candidates,
+        explicit=mappings,
+    )
+    compiled = DestinationPlanCompiler().compile(
+        value,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MERGE,
+        resolutions=resolutions,
+        candidates=candidates,
+    )
+    assert compiled.graph is not None
+    role_node = compiled.graph.node("role.staff")
+    channel_node = compiled.graph.node("channel.staff")
+    assert role_node is not None and role_node.discord_id == role_id
+    assert role_node.property_map()["name"] == "New Staff"
+    assert channel_node is not None and channel_node.discord_id == channel_id
+    assert channel_node.property_map()["rate_limit_per_user"] == 15
+    diffs = DiffEngine().compare(destination, compiled.graph)
+    assert {entry.action for entry in diffs} == {DiffAction.UPDATE}
+    operations = PlanCompiler().compile(destination, compiled.graph, plan_id=uuid4())
+    assert {item.operation_type for item in operations} == {
+        OperationType.UPDATE_ROLE,
+        OperationType.UPDATE_CHANNEL,
+    }
+
+
+def test_maximum_compatible_is_truthful_report_only_with_no_destination_graph() -> None:
+    value = artifact(
+        role_resource(),
+        PortableResource.build(
+            "channel.forum",
+            PortableResourceType.CHANNEL,
+            {"name": "forum", "type": 15, "position": 0},
+        ),
+    )
+    resolutions = MappingResolver().resolve(
+        DependencyGraph.build(value),
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MAXIMUM_COMPATIBLE,
+    )
+    compiled = DestinationPlanCompiler().compile(
+        value,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MAXIMUM_COMPATIBLE,
+        resolutions=resolutions,
+    )
+    assert compiled.graph is None
+    assert compiled.no_mutation is True
+    outcomes = {entry.logical_ref: entry.outcome.value for entry in compiled.report.entries}
+    assert outcomes == {"channel.forum": "IMPOSSIBLE", "role.staff": "CLONED"}
+
+
+def test_mapping_rejects_duplicate_unknown_and_duplicate_destination_claims() -> None:
+    value = artifact(
+        role_resource(),
+        PortableResource.build(
+            "role.other", PortableResourceType.ROLE, {"name": "Other", "permissions": "0"}
+        ),
+    )
+    graph = DependencyGraph.build(value)
+    candidate = DestinationCandidate(
+        GUILD_B, PortableResourceType.ROLE, "623456789012345678", "Staff"
+    )
+    duplicate = ExplicitMapping(
+        "role.staff", GUILD_B, candidate.destination_ref, PortableResourceType.ROLE, True
+    )
+    with pytest.raises(ValueError, match="duplicate explicit"):
+        MappingResolver().resolve(
+            graph,
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.MERGE,
+            candidates=(candidate,),
+            explicit=(duplicate, duplicate),
+        )
+    with pytest.raises(ValueError, match="unknown source"):
+        MappingResolver().resolve(
+            graph,
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.MERGE,
+            candidates=(candidate,),
+            explicit=(replace(duplicate, source_logical_ref="role.unknown"),),
+        )
+    with pytest.raises(ValueError, match="cannot claim"):
+        MappingResolver().resolve(
+            graph,
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.MERGE,
+            candidates=(candidate,),
+            explicit=(duplicate, replace(duplicate, source_logical_ref="role.other")),
+        )
+
+
+def test_portable_attribute_schemas_fail_closed_and_channel_matrix_is_explicit() -> None:
+    with pytest.raises(ValueError, match="unsupported portable attributes"):
+        PortableResource.build(
+            "role.bad", PortableResourceType.ROLE, {"name": "bad", "mystery": True}
+        )
+    matrix = support_matrix()
+    assert matrix["version"]["value"] == ("did-clone-support-v2",)
+    assert matrix["CHANNEL_TYPES"]["0_TEXT"][0] == "FULL"
+    assert matrix["CHANNEL_TYPES"]["15_FORUM"][0] == "UNSUPPORTED"
+
+
+def test_full_caller_idempotency_material_is_hashed_without_prefix_truncation_collision() -> None:
+    artifact_id = uuid4()
+    prefix = "x" * 159
+    first = PortabilityService._planning_idempotency_key(
+        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "a"
+    )
+    second = PortabilityService._planning_idempotency_key(
+        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "b"
+    )
+    repeated = PortabilityService._planning_idempotency_key(
+        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "a"
+    )
+    assert first != second
+    assert first == repeated
+    assert len(first) <= 160
+
+
 def test_transfer_state_machine_is_explicit_and_does_not_duplicate_plan_apply_states() -> None:
     assert TransferState.READY.can_transition_to(TransferState.COMPILED)
     assert_transfer_transition(TransferState.READY, TransferState.COMPILED)
@@ -747,6 +927,7 @@ async def test_stored_artifact_compile_reads_destination_only_and_builds_one_sta
                     "destination_guild_id": GUILD_B,
                     "portable_artifact_id": artifact_id,
                     "source_guild_id": GUILD_A,
+                    "status": "CREATED",
                 },
                 True,
             )
@@ -761,6 +942,8 @@ async def test_stored_artifact_compile_reads_destination_only_and_builds_one_sta
             }
         ),
         audit_boundary=AsyncMock(),
+        transition_transfer=AsyncMock(return_value={"id": transfer_id, "status": "EXPORTED"}),
+        reconcile_bindings=AsyncMock(return_value=[]),
     )
     read_models = SimpleNamespace(
         guild_snapshot=AsyncMock(return_value=(destination_snapshot(), None))
@@ -786,5 +969,234 @@ async def test_stored_artifact_compile_reads_destination_only_and_builds_one_sta
     assert plan["id"] == plan_id
     read_models.guild_snapshot.assert_awaited_once_with(GUILD_B, 99)
     planning.create.assert_awaited_once()
+    repository.transition_transfer.assert_any_await(
+        actor_user_id=99,
+        transfer_id=transfer_id,
+        expected=TransferState.CREATED,
+        target=TransferState.EXPORTED,
+    )
     graph = planning.create.await_args.kwargs["graph"]
     assert graph.guild_id == GUILD_B
+
+
+@pytest.mark.asyncio
+async def test_product_reconcile_derives_owned_delete_scope_and_never_targets_unrelated_b() -> None:
+    artifact_id = uuid4()
+    transfer_id = uuid4()
+    plan_id = uuid4()
+    staff_id = 623456789012345671
+    owned_extra_id = 623456789012345672
+    unrelated_id = 623456789012345673
+    value = artifact(role_resource("Portable Staff"))
+    relationship_key = PortabilityService._relationship_key(value, GUILD_B)
+    base = destination_snapshot()
+    destination = replace(
+        base,
+        roles=(
+            base.roles[0],
+            RoleSnapshot(GUILD_B, staff_id, "Diverged Staff", 1, 0, False, base.freshness),
+            RoleSnapshot(GUILD_B, owned_extra_id, "Old clone", 2, 0, False, base.freshness),
+            RoleSnapshot(GUILD_B, unrelated_id, "Native B", 3, 0, False, base.freshness),
+        ),
+    )
+    repository = SimpleNamespace(
+        get_artifact=AsyncMock(return_value=({"source_guild_id": GUILD_A}, value)),
+        reconcile_bindings=AsyncMock(
+            return_value=[
+                {
+                    "logical_ref": "role.staff",
+                    "resource_type": "ROLE",
+                    "destination_resource_id": staff_id,
+                },
+                {
+                    "logical_ref": "role.removed",
+                    "resource_type": "ROLE",
+                    "destination_resource_id": owned_extra_id,
+                },
+            ]
+        ),
+        create_transfer=AsyncMock(
+            return_value=(
+                {
+                    "id": transfer_id,
+                    "status": "CREATED",
+                    "relationship_key": relationship_key,
+                },
+                True,
+            )
+        ),
+        transition_transfer=AsyncMock(return_value={"id": transfer_id}),
+        compile_transfer=AsyncMock(
+            return_value={
+                "id": transfer_id,
+                "status": "COMPILED",
+                "destination_plan_id": plan_id,
+            }
+        ),
+        audit_boundary=AsyncMock(),
+    )
+    read_models = SimpleNamespace(guild_snapshot=AsyncMock(return_value=(destination, None)))
+    planning = SimpleNamespace(create=AsyncMock(return_value=({"id": plan_id}, True)))
+    service = PortabilityService(
+        cast(Any, repository),
+        cast(Any, read_models),
+        cast(Any, planning),
+        cast(Any, SimpleNamespace()),
+    )
+
+    preview = await service.preview_stored(
+        actor_user_id=99,
+        artifact_id=artifact_id,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.RECONCILE,
+        explicit_mappings=(),
+    )
+    assert preview["delete_candidates"] == [
+        {
+            "logical_ref": "reconcile.delete.role.removed",
+            "resource_type": "ROLE",
+            "outcome": "DELETE_CANDIDATE",
+            "reason": "clone.reconcile_explicit_scope_extra",
+            "destination_ref": str(owned_extra_id),
+            "destructive": True,
+        }
+    ]
+
+    await service.compile_stored(
+        actor_user_id=99,
+        artifact_id=artifact_id,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.RECONCILE,
+        explicit_mappings=(),
+        idempotency_key="server-derived-reconcile",
+        correlation_id=uuid4(),
+    )
+    graph = planning.create.await_args.kwargs["graph"]
+    assert graph.node("role.staff").discord_id == staff_id
+    deletion = graph.node("reconcile.delete.role.removed")
+    assert deletion is not None and deletion.presence is NodePresence.ABSENT
+    assert deletion.discord_id == owned_extra_id
+    assert all(node.discord_id != unrelated_id for node in graph.nodes)
+    read_models.guild_snapshot.assert_awaited_with(GUILD_B, 99)
+
+
+@pytest.mark.asyncio
+async def test_maximum_compatible_service_persists_null_plan_and_never_calls_planning() -> None:
+    artifact_id = uuid4()
+    transfer_id = uuid4()
+    value = artifact(role_resource())
+    repository = SimpleNamespace(
+        get_artifact=AsyncMock(return_value=({"source_guild_id": GUILD_A}, value)),
+        reconcile_bindings=AsyncMock(return_value=[]),
+        create_transfer=AsyncMock(return_value=({"id": transfer_id, "status": "CREATED"}, True)),
+        transition_transfer=AsyncMock(return_value={"id": transfer_id}),
+        compile_transfer=AsyncMock(
+            return_value={
+                "id": transfer_id,
+                "status": "COMPILED",
+                "destination_plan_id": None,
+                "report_json": [{"outcome": "CLONED"}],
+            }
+        ),
+        audit_boundary=AsyncMock(),
+    )
+    planning = SimpleNamespace(create=AsyncMock())
+    service = PortabilityService(
+        cast(Any, repository),
+        cast(
+            Any,
+            SimpleNamespace(guild_snapshot=AsyncMock(return_value=(destination_snapshot(), None))),
+        ),
+        cast(Any, planning),
+        cast(Any, SimpleNamespace()),
+    )
+    transfer, plan, created = await service.compile_stored(
+        actor_user_id=99,
+        artifact_id=artifact_id,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MAXIMUM_COMPATIBLE,
+        explicit_mappings=(),
+        idempotency_key="report-only",
+        correlation_id=uuid4(),
+    )
+    assert created is True and plan is None
+    assert transfer["destination_plan_id"] is None
+    planning.create.assert_not_awaited()
+    assert repository.compile_transfer.await_args.kwargs["destination_plan_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_required_is_durable_and_same_transfer_resumes_without_source_read() -> None:
+    artifact_id = uuid4()
+    transfer_id = uuid4()
+    plan_id = uuid4()
+    role_id = 623456789012345678
+    value = artifact(role_resource())
+    base = destination_snapshot()
+    destination = replace(
+        base,
+        roles=(
+            base.roles[0],
+            RoleSnapshot(GUILD_B, role_id, "Staff", 1, 0, False, base.freshness),
+        ),
+    )
+    repository = SimpleNamespace(
+        get_artifact=AsyncMock(return_value=({"source_guild_id": GUILD_A}, value)),
+        reconcile_bindings=AsyncMock(return_value=[]),
+        create_transfer=AsyncMock(
+            side_effect=[
+                ({"id": transfer_id, "status": "CREATED"}, True),
+                ({"id": transfer_id, "status": "MAPPING_REQUIRED"}, False),
+            ]
+        ),
+        transition_transfer=AsyncMock(return_value={"id": transfer_id}),
+        compile_transfer=AsyncMock(
+            return_value={"id": transfer_id, "status": "COMPILED", "destination_plan_id": plan_id}
+        ),
+        audit_boundary=AsyncMock(),
+    )
+    read_models = SimpleNamespace(guild_snapshot=AsyncMock(return_value=(destination, None)))
+    planning = SimpleNamespace(create=AsyncMock(return_value=({"id": plan_id}, True)))
+    service = PortabilityService(
+        cast(Any, repository),
+        cast(Any, read_models),
+        cast(Any, planning),
+        cast(Any, SimpleNamespace()),
+    )
+    with pytest.raises(MappingRequired):
+        await service.compile_stored(
+            actor_user_id=99,
+            artifact_id=artifact_id,
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.MERGE,
+            explicit_mappings=(),
+            idempotency_key="resume-me",
+            correlation_id=uuid4(),
+        )
+    mapping_transition = next(
+        call
+        for call in repository.transition_transfer.await_args_list
+        if call.kwargs["target"] is TransferState.MAPPING_REQUIRED
+    )
+    assert mapping_transition.kwargs["mapping"][0]["candidate_refs"] == [str(role_id)]
+    await service.compile_stored(
+        actor_user_id=99,
+        artifact_id=artifact_id,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.MERGE,
+        explicit_mappings=(
+            ExplicitMapping("role.staff", GUILD_B, str(role_id), PortableResourceType.ROLE, True),
+        ),
+        idempotency_key="resume-me",
+        correlation_id=uuid4(),
+    )
+    create_calls = repository.create_transfer.await_args_list
+    assert create_calls[0].kwargs["idempotency_key"] == create_calls[1].kwargs["idempotency_key"]
+    repository.transition_transfer.assert_any_await(
+        actor_user_id=99,
+        transfer_id=transfer_id,
+        expected=TransferState.MAPPING_REQUIRED,
+        target=TransferState.READY,
+        mapping=ANY,
+    )
+    assert all(call.args[0] == GUILD_B for call in read_models.guild_snapshot.await_args_list)

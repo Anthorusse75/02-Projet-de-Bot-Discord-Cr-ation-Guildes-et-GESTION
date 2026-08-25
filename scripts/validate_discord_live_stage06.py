@@ -390,7 +390,12 @@ async def run_live() -> dict[str, int]:
                         logical_key=f"stage06.source.channel.{index}",
                         resource_type=ResourceType.CHANNEL,
                         symbol=f"stage06.source.channel.{index}.symbol",
-                        properties={"name": name, "type": 0},
+                        properties={
+                            "name": name,
+                            "type": 0,
+                            "rate_limit_per_user": 7 if index == 0 else 0,
+                            "default_auto_archive_duration": 1440,
+                        },
                     )
                     for index, name in enumerate(channel_names)
                 ),
@@ -464,7 +469,14 @@ async def run_live() -> dict[str, int]:
                         logical_key=f"stage06.source.channel.{index}",
                         resource_type=ResourceType.CHANNEL,
                         discord_id=int(channel["channel_id"]),
-                        properties={"name": channel["name"], "type": 0},
+                        properties={
+                            "name": channel["name"],
+                            "type": 0,
+                            "rate_limit_per_user": int(channel.get("rate_limit_per_user") or 0),
+                            "default_auto_archive_duration": int(
+                                channel.get("default_auto_archive_duration") or 60
+                            ),
+                        },
                         relations={
                             "parent": ResourceReference(
                                 ReferenceKind.LOGICAL, "stage06.source.category"
@@ -595,6 +607,11 @@ async def run_live() -> dict[str, int]:
             guild_store=guild_store,
             admin_engine=admin_engine,
         )
+        await portability.finalize_transfer(
+            actor_user_id=actor,
+            transfer_id=UUID(str(transfer["id"])),
+            correlation_id=uuid4(),
+        )
         roles_b = await structure.fetch_roles(guild_b)
         channels_b = await structure.fetch_channels(guild_b)
         destination_role = next(item for item in roles_b if item["name"] == role_name)
@@ -641,6 +658,60 @@ async def run_live() -> dict[str, int]:
                     True,
                 )
             )
+        destination_channel = next(item for item in channels_b if item["name"] == channel_names[0])
+        divergence_graph = DesiredStateGraph(
+            guild_b,
+            (
+                DesiredNode.build(
+                    logical_key="stage06.diverged.role",
+                    resource_type=ResourceType.ROLE,
+                    discord_id=int(destination_role["role_id"]),
+                    properties={"name": f"{role_name}-DIVERGED", "permissions": "0"},
+                ),
+                DesiredNode.build(
+                    logical_key="stage06.diverged.channel",
+                    resource_type=ResourceType.CHANNEL,
+                    discord_id=int(destination_channel["channel_id"]),
+                    properties={
+                        "name": destination_channel["name"],
+                        "type": 0,
+                        "topic": "stage06-diverged",
+                        "rate_limit_per_user": 0,
+                        "default_auto_archive_duration": 60,
+                    },
+                ),
+            ),
+        )
+        divergence_plan = await create_validated_plan(
+            planning,
+            graph=divergence_graph,
+            actor=actor,
+            key=f"stage06-diverge-{suffix}",
+            authorization=authorization,
+        )
+        await apply_with_optional_crash(
+            service=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_b,
+            actor=actor,
+            plan=divergence_plan,
+            inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_b,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
         destination_only = DestinationOnlyReadModels(read_models, guild_a)
         stored_service = PortabilityService(
             repository,
@@ -649,7 +720,7 @@ async def run_live() -> dict[str, int]:
             plans,
             metrics=runtime.metrics,
         )
-        _, stored_plan, _ = await stored_service.compile_stored(
+        stored_transfer, stored_plan, _ = await stored_service.compile_stored(
             actor_user_id=actor,
             artifact_id=artifact_id,
             destination_guild_id=guild_b,
@@ -678,6 +749,166 @@ async def run_live() -> dict[str, int]:
             actor=actor,
             plan=stored_plan,
             inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_b,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        merged_roles = await structure.fetch_roles(guild_b)
+        merged_channels = await structure.fetch_channels(guild_b)
+        merged_role = next(
+            item
+            for item in merged_roles
+            if int(item["role_id"]) == int(destination_role["role_id"])
+        )
+        merged_channel = next(
+            item
+            for item in merged_channels
+            if int(item["channel_id"]) == int(destination_channel["channel_id"])
+        )
+        if merged_role["name"] != role_name:
+            raise RuntimeError("MERGE did not restore portable role properties")
+        if int(merged_channel.get("rate_limit_per_user") or 0) != 7:
+            raise RuntimeError("MERGE did not restore portable text-channel slowmode")
+        if int(merged_channel.get("default_auto_archive_duration") or 0) != 1440:
+            raise RuntimeError("MERGE did not restore default auto archive duration")
+        await stored_service.finalize_transfer(
+            actor_user_id=actor,
+            transfer_id=UUID(str(stored_transfer["id"])),
+            correlation_id=uuid4(),
+        )
+        owned_extra_name = f"{PREFIX}OWNED-EXTRA-{suffix}"
+        unrelated_name = f"{PREFIX}UNRELATED-{suffix}"
+        reconcile_fixture_plan = await create_validated_plan(
+            planning,
+            graph=DesiredStateGraph(
+                guild_b,
+                (
+                    DesiredNode.build(
+                        logical_key="stage06.reconcile.owned_extra",
+                        resource_type=ResourceType.ROLE,
+                        symbol="stage06.reconcile.owned_extra.symbol",
+                        properties={"name": owned_extra_name, "permissions": "0"},
+                    ),
+                    DesiredNode.build(
+                        logical_key="stage06.reconcile.unrelated",
+                        resource_type=ResourceType.ROLE,
+                        symbol="stage06.reconcile.unrelated.symbol",
+                        properties={"name": unrelated_name, "permissions": "0"},
+                    ),
+                ),
+            ),
+            actor=actor,
+            key=f"stage06-reconcile-fixtures-{suffix}",
+            authorization=authorization,
+        )
+        await apply_with_optional_crash(
+            service=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_b,
+            actor=actor,
+            plan=reconcile_fixture_plan,
+            inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_b,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        reconcile_roles = await structure.fetch_roles(guild_b)
+        owned_extra = next(item for item in reconcile_roles if item["name"] == owned_extra_name)
+        unrelated = next(item for item in reconcile_roles if item["name"] == unrelated_name)
+        relationship_key = str(stored_transfer["relationship_key"])
+        await repository.save_clone_bindings(
+            actor_user_id=actor,
+            transfer_id=UUID(str(stored_transfer["id"])),
+            destination_guild_id=guild_b,
+            relationship_key=relationship_key,
+            artifact_hash=str(stored_transfer["artifact_content_hash"]),
+            bindings=[
+                {
+                    "logical_ref": "role.removed",
+                    "resource_type": "ROLE",
+                    "destination_resource_id": int(owned_extra["role_id"]),
+                    "binding_origin": "CREATED",
+                }
+            ],
+        )
+        preview = await stored_service.preview_stored(
+            actor_user_id=actor,
+            artifact_id=artifact_id,
+            destination_guild_id=guild_b,
+            mode=CloneMode.RECONCILE,
+            explicit_mappings=(),
+            relationship_key=relationship_key,
+        )
+        delete_refs = {str(item["destination_ref"]) for item in preview["delete_candidates"]}
+        if delete_refs != {str(owned_extra["role_id"])}:
+            raise RuntimeError("RECONCILE preview did not expose the exact owned delete")
+        reconcile_transfer, reconcile_plan, _ = await stored_service.compile_stored(
+            actor_user_id=actor,
+            artifact_id=artifact_id,
+            destination_guild_id=guild_b,
+            mode=CloneMode.RECONCILE,
+            explicit_mappings=(),
+            idempotency_key=f"stage06-reconcile-{suffix}",
+            correlation_id=uuid4(),
+            relationship_key=relationship_key,
+        )
+        reconcile_plan = await create_validated_plan_from_draft(
+            planning,
+            authorization,
+            reconcile_plan,
+            actor=actor,
+            key=f"stage06-reconcile-{suffix}",
+        )
+        await apply_with_optional_crash(
+            service=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_b,
+            actor=actor,
+            plan=reconcile_plan,
+            inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_b,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        remaining_roles = await structure.fetch_roles(guild_b)
+        if any(int(item["role_id"]) == int(owned_extra["role_id"]) for item in remaining_roles):
+            raise RuntimeError("RECONCILE did not delete its owned extra")
+        if not any(int(item["role_id"]) == int(unrelated["role_id"]) for item in remaining_roles):
+            raise RuntimeError("RECONCILE touched an unrelated destination role")
+        await stored_service.finalize_transfer(
+            actor_user_id=actor,
+            transfer_id=UUID(str(reconcile_transfer["id"])),
+            correlation_id=uuid4(),
         )
         source_after = prefixed_snapshot(
             await structure.fetch_roles(guild_a), await structure.fetch_channels(guild_a)
@@ -732,6 +963,10 @@ async def run_live() -> dict[str, int]:
             "new_destination_ids_verified": 2,
             "source_mutations_during_clone": 0,
             "source_read_after_export": 0,
+            "divergent_merge_updates_verified": 2,
+            "full_text_channel_properties_verified": 2,
+            "reconcile_owned_deletes": 1,
+            "reconcile_unrelated_controls_untouched": 1,
             "cleanup_resources": cleanup_count,
             "artifacts_purged": 1,
         }
@@ -793,7 +1028,6 @@ def main() -> int:
     load_local_environment(Path(".env.local"))
     missing = [name for name in REQUIRED_VARIABLES if not os.environ.get(name)]
     skipped = [
-        "live RECONCILE is not forced; exact bounded delete scope is integration-tested",
         "bot/webhook incompatibilities are security-tested without unsafe live fixtures",
     ]
     if not arguments.include:
@@ -844,7 +1078,11 @@ def main() -> int:
             "Dependency Graph and Mapping Resolver compiled a destination-only plan",
             "COPY_AS_NEW created distinct destination Discord IDs",
             "explicit existing-role mapping was confirmed",
+            "divergent destination role/channel were restored by stored MERGE",
+            "text slowmode and default auto archive duration were preserved",
             "stored artifact compiled and applied with source reader fail-if-called",
+            "RECONCILE preview exposed one relationship-owned delete",
+            "RECONCILE deleted the owned extra and preserved an unrelated control",
             "source snapshot remained byte-identical during destination clones",
             "mutable adapter recorded zero source calls during clone",
             "source and destination cleanup used audited STAGE 05 plans",

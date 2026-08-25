@@ -160,11 +160,59 @@ class PortabilityService:
         explicit_mappings: tuple[ExplicitMapping, ...],
         idempotency_key: str,
         correlation_id: UUID,
-        reconcile_scope: ReconcileScope | None = None,
-    ) -> tuple[dict[str, Any], dict[str, Any], bool]:
+        source_authorized: bool = False,
+        relationship_key: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
         metadata, artifact = await self.repository.get_artifact(actor_user_id, artifact_id)
+        relationship_key = relationship_key or self._relationship_key(
+            artifact, destination_guild_id
+        )
+        transfer_key = self._transfer_idempotency_key(
+            artifact_id,
+            destination_guild_id,
+            mode,
+            [],
+            f"{relationship_key}:{idempotency_key}",
+        )
+        transfer, transfer_created = await self.repository.create_transfer(
+            transfer_id=uuid4(),
+            actor_user_id=actor_user_id,
+            source_guild_id=metadata["source_guild_id"],
+            destination_guild_id=destination_guild_id,
+            artifact_id=artifact_id,
+            artifact_content_hash=artifact.content_hash,
+            mode=mode.value,
+            mapping=[],
+            status=TransferState.CREATED.value,
+            correlation_id=correlation_id,
+            idempotency_key=transfer_key,
+            relationship_key=relationship_key,
+        )
+        transfer_id = UUID(str(transfer["id"]))
+        state = TransferState(str(transfer["status"]))
+        if state is TransferState.CREATED:
+            if source_authorized:
+                transfer = await self.repository.transition_transfer(
+                    actor_user_id=actor_user_id,
+                    transfer_id=transfer_id,
+                    expected=TransferState.CREATED,
+                    target=TransferState.SOURCE_AUTHORIZED,
+                )
+                state = TransferState.SOURCE_AUTHORIZED
+            transfer = await self.repository.transition_transfer(
+                actor_user_id=actor_user_id,
+                transfer_id=transfer_id,
+                expected=state,
+                target=TransferState.EXPORTED,
+            )
+            state = TransferState.EXPORTED
         destination, _ = await self._read_models.guild_snapshot(destination_guild_id, actor_user_id)
-        candidates = self._destination_candidates(destination)
+        candidates, owned_scope = await self._server_relationship_candidates(
+            actor_user_id=actor_user_id,
+            destination_guild_id=destination_guild_id,
+            relationship_key=relationship_key,
+            candidates=self._destination_candidates(destination),
+        )
         graph = DependencyGraph.build(artifact)
         resolutions = self._resolver.resolve(
             graph,
@@ -184,42 +232,61 @@ class PortabilityService:
             for item in resolutions
             if item.decision in {MappingDecision.MANUAL, MappingDecision.UNSUPPORTED}
         )
+        mapping_json = [
+            self._resolution_json(item, actor_user_id=actor_user_id) for item in resolutions
+        ]
         if unresolved and mode is not CloneMode.MAXIMUM_COMPATIBLE:
+            if state is TransferState.EXPORTED:
+                await self.repository.transition_transfer(
+                    actor_user_id=actor_user_id,
+                    transfer_id=transfer_id,
+                    expected=TransferState.EXPORTED,
+                    target=TransferState.MAPPING_REQUIRED,
+                    mapping=mapping_json,
+                    report=mapping_json,
+                )
             raise MappingRequired(unresolved)
+        if state in {TransferState.EXPORTED, TransferState.MAPPING_REQUIRED}:
+            transfer = await self.repository.transition_transfer(
+                actor_user_id=actor_user_id,
+                transfer_id=transfer_id,
+                expected=state,
+                target=TransferState.READY,
+                mapping=mapping_json,
+            )
+            state = TransferState.READY
         compilation = self._compiler.compile(
             artifact,
             destination_guild_id=destination_guild_id,
             mode=mode,
             resolutions=resolutions,
             candidates=candidates,
-            reconcile_scope=reconcile_scope,
-        )
-        transfer_id = uuid4()
-        mapping_json = [
-            self._resolution_json(item, actor_user_id=actor_user_id) for item in resolutions
-        ]
-        transfer_key = self._transfer_idempotency_key(
-            artifact_id, destination_guild_id, mode, mapping_json, idempotency_key
-        )
-        transfer, transfer_created = await self.repository.create_transfer(
-            transfer_id=transfer_id,
-            actor_user_id=actor_user_id,
-            source_guild_id=metadata["source_guild_id"],
-            destination_guild_id=destination_guild_id,
-            artifact_id=artifact_id,
-            artifact_content_hash=artifact.content_hash,
-            mode=mode.value,
-            mapping=mapping_json,
-            status=TransferState.READY.value,
-            correlation_id=correlation_id,
-            idempotency_key=transfer_key,
+            reconcile_scope=owned_scope if mode is CloneMode.RECONCILE else None,
         )
         if self._metrics is not None:
             self._metrics.portability_outcome("transfer_state", TransferState.READY.value)
-        transfer_id = UUID(str(transfer["id"]))
+        report_json = [self._report_json(item) for item in compilation.report.entries]
+        if compilation.no_mutation:
+            transfer = await self.repository.compile_transfer(
+                actor_user_id=actor_user_id,
+                transfer_id=transfer_id,
+                destination_plan_id=None,
+                report=report_json,
+            )
+            await self.repository.audit_boundary(
+                guild_id=destination_guild_id,
+                actor_user_id=actor_user_id,
+                transfer_id=transfer_id,
+                event_type="PORTABLE_ARTIFACT_COMPILED",
+                artifact_hash=artifact.content_hash,
+                correlation_id=correlation_id,
+            )
+            return transfer, None, transfer_created
         planning_key = self._planning_idempotency_key(
             artifact_id, destination_guild_id, mode, mapping_json, idempotency_key
         )
+        if compilation.graph is None:
+            raise RuntimeError("mutable compilation is missing a destination graph")
         plan, plan_created = await self._planning.create(
             graph=compilation.graph,
             actor_user_id=actor_user_id,
@@ -230,7 +297,6 @@ class PortabilityService:
             self._metrics.portability_outcome(
                 "destination_plan_compile", "created" if plan_created else "reused"
             )
-        report_json = [self._report_json(item) for item in compilation.report.entries]
         if self._metrics is not None:
             for report_entry in compilation.report.entries:
                 self._metrics.portability_outcome("clone_report", report_entry.outcome.value)
@@ -241,16 +307,15 @@ class PortabilityService:
             destination_plan_id=UUID(str(plan["id"])),
             report=report_json,
         )
-        if transfer_created or plan_created:
-            await self.repository.audit_boundary(
-                guild_id=destination_guild_id,
-                actor_user_id=actor_user_id,
-                transfer_id=transfer_id,
-                event_type="PORTABLE_ARTIFACT_COMPILED",
-                artifact_hash=artifact.content_hash,
-                correlation_id=correlation_id,
-                destination_plan_id=UUID(str(plan["id"])),
-            )
+        await self.repository.audit_boundary(
+            guild_id=destination_guild_id,
+            actor_user_id=actor_user_id,
+            transfer_id=transfer_id,
+            event_type="PORTABLE_ARTIFACT_COMPILED",
+            artifact_hash=artifact.content_hash,
+            correlation_id=correlation_id,
+            destination_plan_id=UUID(str(plan["id"])),
+        )
         return transfer, plan, plan_created
 
     async def preview_stored(
@@ -261,17 +326,41 @@ class PortabilityService:
         destination_guild_id: int,
         mode: CloneMode,
         explicit_mappings: tuple[ExplicitMapping, ...],
-    ) -> list[dict[str, Any]]:
+        relationship_key: str | None = None,
+    ) -> dict[str, Any]:
         _, artifact = await self.repository.get_artifact(actor_user_id, artifact_id)
         destination, _ = await self._read_models.guild_snapshot(destination_guild_id, actor_user_id)
+        candidates, scope = await self._server_relationship_candidates(
+            actor_user_id=actor_user_id,
+            destination_guild_id=destination_guild_id,
+            relationship_key=relationship_key
+            or self._relationship_key(artifact, destination_guild_id),
+            candidates=self._destination_candidates(destination),
+        )
         resolutions = self._resolver.resolve(
             DependencyGraph.build(artifact),
             destination_guild_id=destination_guild_id,
             mode=mode,
-            candidates=self._destination_candidates(destination),
+            candidates=candidates,
             explicit=explicit_mappings,
         )
-        return [self._resolution_json(item, actor_user_id=actor_user_id) for item in resolutions]
+        compilation = self._compiler.compile(
+            artifact,
+            destination_guild_id=destination_guild_id,
+            mode=mode,
+            resolutions=resolutions,
+            candidates=candidates,
+            reconcile_scope=scope if mode is CloneMode.RECONCILE else None,
+        )
+        report = [self._report_json(item) for item in compilation.report.entries]
+        return {
+            "mappings": [
+                self._resolution_json(item, actor_user_id=actor_user_id) for item in resolutions
+            ],
+            "report": report,
+            "delete_candidates": [item for item in report if item["destructive"]],
+            "no_mutation": compilation.no_mutation,
+        }
 
     async def create_template(
         self,
@@ -311,7 +400,7 @@ class PortabilityService:
         explicit_mappings: tuple[ExplicitMapping, ...],
         idempotency_key: str,
         correlation_id: UUID,
-    ) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
         template, artifact = await self.repository.get_template(
             guild_id, actor_user_id, template_id
         )
@@ -371,6 +460,43 @@ class PortabilityService:
             if isinstance(item, dict)
         }
         resources_by_ref = {item.logical_key: item for item in artifact.resources}
+        relationship_key = transfer.get("relationship_key")
+        if not isinstance(relationship_key, str):
+            raise ValueError("clone relationship is unavailable")
+        durable_bindings: list[dict[str, Any]] = []
+        for logical_ref, resource in resources_by_ref.items():
+            if resource.resource_type not in {
+                PortableResourceType.ROLE,
+                PortableResourceType.CATEGORY,
+                PortableResourceType.CHANNEL,
+            }:
+                continue
+            mapping = mappings[logical_ref]
+            destination_ref = mapping.get("destination_ref")
+            origin = "EXPLICIT"
+            if mapping["decision"] == MappingDecision.CREATE.value:
+                destination_ref = bindings.get(f"portable:{logical_ref}")
+                origin = "CREATED"
+            elif mapping.get("reason") == "mapping.unique_did_managed_key":
+                origin = "MANAGED_KEY"
+            if destination_ref is None:
+                raise ValueError("clone destination binding is unresolved")
+            durable_bindings.append(
+                {
+                    "logical_ref": logical_ref,
+                    "resource_type": resource.resource_type.value,
+                    "destination_resource_id": int(destination_ref),
+                    "binding_origin": origin,
+                }
+            )
+        await self.repository.save_clone_bindings(
+            actor_user_id=actor_user_id,
+            transfer_id=transfer_id,
+            destination_guild_id=destination_guild_id,
+            relationship_key=relationship_key,
+            artifact_hash=artifact.content_hash,
+            bindings=durable_bindings,
+        )
         created_groups: list[dict[str, str]] = []
         created_policies: list[dict[str, str]] = []
         for group in artifact.resources:
@@ -542,10 +668,71 @@ class PortabilityService:
                         "topic": channel.topic,
                         "nsfw": channel.nsfw,
                         "flags": channel.flags,
+                        "bitrate": channel.bitrate,
+                        "user_limit": channel.user_limit,
+                        "rate_limit_per_user": channel.rate_limit_per_user,
+                        "default_auto_archive_duration": channel.default_auto_archive_duration,
                     },
                 )
             )
         return tuple(result)
+
+    async def _server_relationship_candidates(
+        self,
+        *,
+        actor_user_id: int,
+        destination_guild_id: int,
+        relationship_key: str,
+        candidates: tuple[DestinationCandidate, ...],
+    ) -> tuple[tuple[DestinationCandidate, ...], ReconcileScope]:
+        rows = await self.repository.reconcile_bindings(
+            actor_user_id, destination_guild_id, relationship_key
+        )
+        candidates_by_identity = {
+            (item.destination_ref, item.resource_type): item for item in candidates
+        }
+        owned_by_identity: dict[tuple[str, PortableResourceType], DestinationCandidate] = {}
+        for row in rows:
+            resource_type = PortableResourceType(str(row["resource_type"]))
+            destination_ref = str(row["destination_resource_id"])
+            candidate = candidates_by_identity.get((destination_ref, resource_type))
+            if candidate is None:
+                continue
+            owned_by_identity[(destination_ref, resource_type)] = DestinationCandidate(
+                destination_guild_id,
+                resource_type,
+                destination_ref,
+                candidate.name,
+                portable_key=str(row["logical_ref"]),
+                managed=candidate.managed,
+                attributes=candidate.attributes,
+            )
+        decorated = tuple(
+            owned_by_identity.get((item.destination_ref, item.resource_type), item)
+            for item in candidates
+        )
+        return decorated, ReconcileScope(
+            tuple(
+                sorted(
+                    owned_by_identity.values(),
+                    key=lambda item: (item.resource_type.value, item.destination_ref),
+                )
+            )
+        )
+
+    @staticmethod
+    def _relationship_key(artifact: Any, destination_guild_id: int) -> str:
+        material = json.dumps(
+            {
+                "source_guild_id": artifact.provenance.source_guild_id,
+                "source_resource_ids": artifact.provenance.source_resource_ids,
+                "artifact_type": artifact.artifact_type.value,
+                "destination_guild_id": str(destination_guild_id),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(material).hexdigest()
 
     @staticmethod
     def _resolution_json(item: Any, *, actor_user_id: int) -> dict[str, Any]:
@@ -582,11 +769,18 @@ class PortabilityService:
         mapping: list[dict[str, Any]],
         caller_key: str,
     ) -> str:
-        digest = hashlib.sha256(
-            json.dumps(mapping, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()[:24]
-        value = f"portable:{artifact_id}:{destination_guild_id}:{mode.value}:{digest}:{caller_key}"
-        return value[:160]
+        material = json.dumps(
+            {
+                "artifact_id": str(artifact_id),
+                "destination_guild_id": str(destination_guild_id),
+                "mode": mode.value,
+                "mapping": mapping,
+                "caller_key": caller_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return "portable-plan:" + hashlib.sha256(material).hexdigest()
 
     @staticmethod
     def _transfer_idempotency_key(

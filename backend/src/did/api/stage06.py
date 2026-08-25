@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -16,6 +17,10 @@ from did.portability.artifact import MAX_RAW_FILE_BYTES
 
 router = APIRouter(tags=["stage-06-portability"])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=160)]
+
+
+def _derived_api_key(operation: str, caller_key: str) -> str:
+    return f"{operation}:" + hashlib.sha256(caller_key.encode("utf-8")).hexdigest()
 
 
 class SelectionInput(BaseModel):
@@ -62,6 +67,13 @@ class MappingInput(BaseModel):
     def destination_snowflake(cls, value: str) -> str:
         return str(parse_snowflake(value))
 
+    @field_validator("confirmed")
+    @classmethod
+    def mapping_must_be_confirmed(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("explicit mapping must be confirmed")
+        return value
+
     def domain(self, destination_guild_id: int) -> ExplicitMapping:
         return ExplicitMapping(
             self.source_logical_ref,
@@ -78,6 +90,7 @@ class CompileInput(BaseModel):
     artifact_id: UUID
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
+    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class CloneInput(BaseModel):
@@ -86,6 +99,7 @@ class CloneInput(BaseModel):
     destination_guild_id: str
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
+    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("destination_guild_id")
     @classmethod
@@ -102,6 +116,7 @@ class LiveTransferInput(BaseModel):
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
     name: str | None = Field(default=None, min_length=1, max_length=160)
+    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("source_guild_id", "destination_guild_id")
     @classmethod
@@ -174,6 +189,7 @@ def _transfer(row: dict[str, Any]) -> dict[str, Any]:
         "destination_guild_id": str(row["destination_guild_id"]),
         "portable_artifact_id": str(row["portable_artifact_id"]),
         "artifact_content_hash": str(row["artifact_content_hash"]),
+        "relationship_key": row.get("relationship_key"),
         "destination_plan_id": (
             str(row["destination_plan_id"]) if row.get("destination_plan_id") is not None else None
         ),
@@ -220,6 +236,7 @@ async def _compile(
     idempotency_key: str,
     session: Any,
     container: Any,
+    source_authorized: bool = False,
 ) -> dict[str, Any]:
     service = _portable(container)
     try:
@@ -231,10 +248,23 @@ async def _compile(
             explicit_mappings=tuple(item.domain(destination) for item in body.mappings),
             idempotency_key=idempotency_key,
             correlation_id=UUID(str(request.state.correlation_id)),
+            source_authorized=source_authorized,
+            relationship_key=body.relationship_key,
         )
     except MappingRequired as exc:
         raise _mapping_problem(exc) from exc
-    return {"created": created, "transfer": _transfer(transfer), "plan": _plan(plan)}
+    except ValueError as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="PORTABLE_MAPPING_INVALID",
+            message_key="errors.portability.mappingInvalid",
+        ) from exc
+    return {
+        "created": created,
+        "transfer": _transfer(transfer),
+        "plan": _plan(plan) if plan is not None else None,
+        "no_mutation": plan is None,
+    }
 
 
 @router.post("/api/v1/guilds/{guild_id}/exports/portable", status_code=status.HTTP_201_CREATED)
@@ -377,7 +407,12 @@ async def clone_portable_artifact(
 ) -> dict[str, Any]:
     destination = int(body.destination_guild_id)
     await _authorize_destination(destination, session, container)
-    compile_body = CompileInput(artifact_id=artifact_id, mode=body.mode, mappings=body.mappings)
+    compile_body = CompileInput(
+        artifact_id=artifact_id,
+        mode=body.mode,
+        mappings=body.mappings,
+        relationship_key=body.relationship_key,
+    )
     return await _compile(
         body=compile_body,
         destination=destination,
@@ -418,14 +453,22 @@ async def import_preview(
 ) -> dict[str, Any]:
     destination = parse_snowflake(guild_id)
     await _authorize_destination(destination, session, container)
-    mappings = await _portable(container).preview_stored(
-        actor_user_id=session.discord_user_id,
-        artifact_id=body.artifact_id,
-        destination_guild_id=destination,
-        mode=body.mode,
-        explicit_mappings=tuple(item.domain(destination) for item in body.mappings),
-    )
-    return {"artifact_id": str(body.artifact_id), "mappings": mappings}
+    try:
+        preview = await _portable(container).preview_stored(
+            actor_user_id=session.discord_user_id,
+            artifact_id=body.artifact_id,
+            destination_guild_id=destination,
+            mode=body.mode,
+            explicit_mappings=tuple(item.domain(destination) for item in body.mappings),
+            relationship_key=body.relationship_key,
+        )
+    except ValueError as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="PORTABLE_MAPPING_INVALID",
+            message_key="errors.portability.mappingInvalid",
+        ) from exc
+    return {"artifact_id": str(body.artifact_id), **preview}
 
 
 @router.post("/api/v1/transfers", status_code=status.HTTP_201_CREATED)
@@ -445,7 +488,7 @@ async def create_live_transfer(
         selection=body.selection.domain(),
         kind=ArtifactKind.EXPORT_BUNDLE,
         name=body.name,
-        idempotency_key=f"{idempotency_key}:export"[:160],
+        idempotency_key=_derived_api_key("live-export", idempotency_key),
         correlation_id=UUID(str(request.state.correlation_id)),
         logical_group_id=body.selection.logical_group_id,
     )
@@ -455,12 +498,14 @@ async def create_live_transfer(
             artifact_id=UUID(str(artifact["id"])),
             mode=body.mode,
             mappings=body.mappings,
+            relationship_key=body.relationship_key,
         ),
         destination=destination,
         request=request,
-        idempotency_key=f"{idempotency_key}:compile"[:160],
+        idempotency_key=_derived_api_key("live-compile", idempotency_key),
         session=session,
         container=container,
+        source_authorized=True,
     )
     if result["created"]:
         transfer = result["transfer"]
@@ -576,7 +621,8 @@ async def apply_template(
     return {
         "created": created,
         "transfer": _transfer(transfer),
-        "plan": _plan(plan),
+        "plan": _plan(plan) if plan is not None else None,
+        "no_mutation": plan is None,
     }
 
 

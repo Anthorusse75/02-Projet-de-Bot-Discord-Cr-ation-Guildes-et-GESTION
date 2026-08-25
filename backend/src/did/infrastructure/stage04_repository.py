@@ -216,6 +216,26 @@ class Stage04Repository:
                         bool(full_payload["nsfw"]) if full_payload.get("nsfw") is not None else None
                     ),
                     flags=int(row["flags"]),
+                    bitrate=(
+                        int(full_payload["bitrate"])
+                        if full_payload.get("bitrate") is not None
+                        else None
+                    ),
+                    user_limit=(
+                        int(full_payload["user_limit"])
+                        if full_payload.get("user_limit") is not None
+                        else None
+                    ),
+                    rate_limit_per_user=(
+                        int(full_payload["rate_limit_per_user"])
+                        if full_payload.get("rate_limit_per_user") is not None
+                        else None
+                    ),
+                    default_auto_archive_duration=(
+                        int(full_payload["default_auto_archive_duration"])
+                        if full_payload.get("default_auto_archive_duration") is not None
+                        else None
+                    ),
                 )
             )
         member = self._member(guild_id, member_id, member_row, membership_rows)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -28,6 +29,8 @@ from did.portability import (
     PortableProvenance,
     PortableResource,
     PortableResourceType,
+    TransferState,
+    artifact_to_bytes,
 )
 from did.tenancy import TenantContext
 
@@ -249,6 +252,153 @@ async def test_artifact_owner_rls_ciphertext_idempotency_templates_and_purge() -
         await repository.delete_artifact(USER_U, row["id"])
         with pytest.raises(TransferNotFound):
             await repository.get_transfer(USER_U, transfer["id"])
+    finally:
+        await engine.dispose()
+        await admin.dispose()
+
+
+@pytest.mark.asyncio
+async def test_owner_quota_is_atomic_for_count_and_bytes_under_concurrency() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=4)
+    try:
+        count_repository = PortabilityRepository(
+            create_session_factory(engine),
+            ArtifactCipher(InMemoryKeyProvider({1: b"q" * 32}, current_version=1)),
+            max_artifacts_per_owner=1,
+        )
+
+        async def create(repository: PortabilityRepository, key: str) -> object:
+            try:
+                return await repository.create_artifact(
+                    owner_user_id=USER_U,
+                    kind="LIBRARY",
+                    artifact=portable(),
+                    name=key,
+                    expires_at=None,
+                    idempotency_operation="QUOTA",
+                    idempotency_key=key,
+                )
+            except Exception as exc:  # the assertion below checks the exact loser type
+                return exc
+
+        count_results = await asyncio.gather(
+            create(count_repository, "count-a"), create(count_repository, "count-b")
+        )
+        assert sum(isinstance(item, PortableQuotaExceeded) for item in count_results) == 1
+        assert sum(isinstance(item, tuple) for item in count_results) == 1
+
+        await seed()
+        encoded_size = len(artifact_to_bytes(portable()))
+        byte_repository = PortabilityRepository(
+            create_session_factory(engine),
+            ArtifactCipher(InMemoryKeyProvider({1: b"b" * 32}, current_version=1)),
+            max_artifacts_per_owner=10,
+            max_total_bytes_per_owner=encoded_size,
+        )
+        byte_results = await asyncio.gather(
+            create(byte_repository, "bytes-a"), create(byte_repository, "bytes-b")
+        )
+        assert sum(isinstance(item, PortableQuotaExceeded) for item in byte_results) == 1
+        assert sum(isinstance(item, tuple) for item in byte_results) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_idempotent() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=2)
+    admin = create_database_engine(ADMIN_URL, pool_size=1)
+    try:
+        repository = PortabilityRepository(
+            create_session_factory(engine),
+            ArtifactCipher(InMemoryKeyProvider({1: b"l" * 32}, current_version=1)),
+        )
+        artifact_row, _ = await repository.create_artifact(
+            owner_user_id=USER_U,
+            kind="LIBRARY",
+            artifact=portable(),
+            name="lifecycle",
+            expires_at=None,
+            idempotency_operation="LIFECYCLE",
+            idempotency_key="artifact",
+        )
+        transfer_id = uuid4()
+        relationship_key = "a" * 64
+        transfer, created = await repository.create_transfer(
+            transfer_id=transfer_id,
+            actor_user_id=USER_U,
+            source_guild_id=GUILD_A,
+            destination_guild_id=GUILD_B,
+            artifact_id=artifact_row["id"],
+            artifact_content_hash=portable().content_hash,
+            mode="MAXIMUM_COMPATIBLE",
+            mapping=[],
+            status="CREATED",
+            correlation_id=uuid4(),
+            idempotency_key="lifecycle-transfer",
+            relationship_key=relationship_key,
+        )
+        assert created and transfer["state_version"] == 1
+        for expected, target in (
+            (TransferState.CREATED, TransferState.EXPORTED),
+            (TransferState.EXPORTED, TransferState.READY),
+        ):
+            transfer = await repository.transition_transfer(
+                actor_user_id=USER_U,
+                transfer_id=transfer_id,
+                expected=expected,
+                target=target,
+            )
+        transfer = await repository.compile_transfer(
+            actor_user_id=USER_U,
+            transfer_id=transfer_id,
+            destination_plan_id=None,
+            report=[{"outcome": "CLONED", "destructive": False}],
+        )
+        assert transfer["status"] == "COMPILED"
+        assert transfer["destination_plan_id"] is None
+
+        await repository.save_clone_bindings(
+            actor_user_id=USER_U,
+            transfer_id=transfer_id,
+            destination_guild_id=GUILD_B,
+            relationship_key=relationship_key,
+            artifact_hash=portable().content_hash,
+            bindings=[
+                {
+                    "logical_ref": "role.staff",
+                    "resource_type": "ROLE",
+                    "destination_resource_id": 770606060606060601,
+                    "binding_origin": "CREATED",
+                }
+            ],
+        )
+        owned = await repository.reconcile_bindings(USER_U, GUILD_B, relationship_key)
+        foreign = await repository.reconcile_bindings(USER_V, GUILD_B, relationship_key)
+        assert [item["logical_ref"] for item in owned] == ["role.staff"]
+        assert foreign == []
+
+        correlation = uuid4()
+        for _ in range(2):
+            await repository.audit_boundary(
+                guild_id=GUILD_B,
+                actor_user_id=USER_U,
+                transfer_id=transfer_id,
+                event_type="PORTABLE_ARTIFACT_COMPILED",
+                artifact_hash=portable().content_hash,
+                correlation_id=correlation,
+            )
+        async with admin.connect() as connection:
+            count = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM internal_audit_events WHERE source='PORTABILITY' "
+                    "AND event_type='PORTABLE_ARTIFACT_COMPILED' AND target_id=:target"
+                ),
+                {"target": str(transfer_id)},
+            )
+        assert count == 1
     finally:
         await engine.dispose()
         await admin.dispose()

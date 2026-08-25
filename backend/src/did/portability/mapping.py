@@ -72,6 +72,25 @@ class MappingResolver:
         candidates: tuple[DestinationCandidate, ...] = (),
         explicit: tuple[ExplicitMapping, ...] = (),
     ) -> tuple[MappingResolution, ...]:
+        known_sources = {item.logical_key for item in graph.nodes}
+        sources = [item.source_logical_ref for item in explicit]
+        if len(sources) != len(set(sources)):
+            raise ValueError("duplicate explicit mapping source logical ref")
+        unknown_sources = set(sources) - known_sources
+        if unknown_sources:
+            raise ValueError("explicit mapping references an unknown source logical ref")
+        resources_by_key = {item.logical_key: item for item in graph.nodes}
+        destinations = [
+            (
+                item.destination_ref,
+                self._explicit_target_type(resources_by_key[item.source_logical_ref]),
+            )
+            for item in explicit
+        ]
+        if len(destinations) != len(set(destinations)):
+            raise ValueError("multiple portable resources cannot claim one destination resource")
+        if any(not item.confirmed for item in explicit):
+            raise ValueError("explicit mappings must be confirmed")
         explicit_by_source = {item.source_logical_ref: item for item in explicit}
         candidate_by_ref = {(item.destination_ref, item.resource_type): item for item in candidates}
         result: list[MappingResolution] = []
@@ -88,32 +107,18 @@ class MappingResolver:
                     or candidate.resource_type is not expected_target_type
                 ):
                     raise ValueError("explicit mapping target is foreign or incompatible")
-                if not mapping.confirmed:
-                    result.append(
-                        MappingResolution(
-                            resource.logical_key,
-                            resource.resource_type,
-                            MappingDecision.MANUAL,
-                            "mapping.explicit_confirmation_required",
-                            candidate.destination_ref,
-                            (candidate.destination_ref,),
-                            100,
-                            True,
-                        )
+                result.append(
+                    MappingResolution(
+                        resource.logical_key,
+                        resource.resource_type,
+                        MappingDecision.MAP_EXISTING,
+                        "mapping.explicit_confirmed",
+                        candidate.destination_ref,
+                        (candidate.destination_ref,),
+                        100,
+                        False,
                     )
-                else:
-                    result.append(
-                        MappingResolution(
-                            resource.logical_key,
-                            resource.resource_type,
-                            MappingDecision.MAP_EXISTING,
-                            "mapping.explicit_confirmed",
-                            candidate.destination_ref,
-                            (candidate.destination_ref,),
-                            100,
-                            False,
-                        )
-                    )
+                )
                 continue
             result.append(self._automatic(resource, destination_guild_id, mode, candidates))
         return tuple(sorted(result, key=lambda item: item.source_logical_ref))
@@ -134,6 +139,17 @@ class MappingResolver:
         candidates: tuple[DestinationCandidate, ...],
     ) -> MappingResolution:
         attributes = resource.attribute_map()
+        if resource.resource_type is PortableResourceType.CHANNEL and attributes.get("type") in {
+            14,
+            15,
+            16,
+        }:
+            return MappingResolution(
+                resource.logical_key,
+                resource.resource_type,
+                MappingDecision.UNSUPPORTED,
+                "mapping.channel_type_not_faithfully_portable",
+            )
         if resource.resource_type is PortableResourceType.SYSTEM_PRINCIPAL:
             if attributes.get("kind") != "EVERYONE":
                 return MappingResolution(

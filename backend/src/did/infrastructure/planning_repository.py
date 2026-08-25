@@ -2035,8 +2035,16 @@ class PlanningRepository:
 
     @staticmethod
     def _persisted_result_resource_id(operation: Any, resource_id: int | None) -> int | None:
+        # CREATE discovers identity; UPDATE/DELETE preserve their existing target
+        # through SQL COALESCE. Bulk reorder and overwrite results name a consumed
+        # channel/role, not the operation's own identity, and must remain NULL.
         operation_type = OperationType(str(operation["operation_type"]))
-        if operation_type not in {OperationType.CREATE_ROLE, OperationType.CREATE_CHANNEL}:
+        if operation_type in {
+            OperationType.REORDER_ROLES,
+            OperationType.MOVE_OR_REORDER_CHANNELS,
+            OperationType.UPSERT_OVERWRITE,
+            OperationType.DELETE_OVERWRITE,
+        }:
             return None
         return resource_id
 

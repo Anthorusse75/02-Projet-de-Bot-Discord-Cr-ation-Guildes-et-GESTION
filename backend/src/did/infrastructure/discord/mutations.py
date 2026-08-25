@@ -387,6 +387,7 @@ class DiscordPyMutableAdapter:
                     "bitrate",
                     "user_limit",
                     "rate_limit_per_user",
+                    "default_auto_archive_duration",
                 },
             )
             channel_result = await http.create_channel(
@@ -404,6 +405,7 @@ class DiscordPyMutableAdapter:
                     "bitrate",
                     "user_limit",
                     "rate_limit_per_user",
+                    "default_auto_archive_duration",
                     "flags",
                 },
             )
@@ -686,13 +688,27 @@ class DiscordPyMutableAdapter:
                 "parent_id",
                 "nsfw",
                 "flags",
+                "bitrate",
+                "user_limit",
+                "slowmode_delay",
+                "default_auto_archive_duration",
             ):
                 if hasattr(value, key):
-                    result[key] = getattr(value, key)
+                    destination_key = "rate_limit_per_user" if key == "slowmode_delay" else key
+                    result[destination_key] = getattr(value, key)
         for key in ("id", "guild_id", "parent_id"):
             if result.get(key) is not None:
                 result[key] = int(result[key])
-        for key in ("permissions", "color", "flags", "type"):
+        for key in (
+            "permissions",
+            "color",
+            "flags",
+            "type",
+            "bitrate",
+            "user_limit",
+            "rate_limit_per_user",
+            "default_auto_archive_duration",
+        ):
             item = result.get(key)
             raw_value = getattr(item, "value", None)
             if raw_value is not None:

@@ -137,6 +137,22 @@ class PortableArtifactBuilder:
                         "flags": channel.flags,
                     }
                 )
+                if int(channel.channel_type) in {0, 5}:
+                    attributes.update(
+                        {
+                            "rate_limit_per_user": channel.rate_limit_per_user,
+                            "default_auto_archive_duration": (
+                                channel.default_auto_archive_duration
+                            ),
+                        }
+                    )
+                if int(channel.channel_type) in {2, 13}:
+                    attributes.update(
+                        {
+                            "bitrate": channel.bitrate,
+                            "user_limit": channel.user_limit,
+                        }
+                    )
             resources.append(PortableResource.build(key, kind, attributes))
             if channel.parent_id is not None:
                 dependencies.append(

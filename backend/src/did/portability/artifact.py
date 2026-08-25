@@ -67,6 +67,62 @@ class PortableResourceType(StrEnum):
     WEBHOOK_REFERENCE = "WEBHOOK_REFERENCE"
 
 
+PORTABLE_ATTRIBUTE_SCHEMA_VERSION = "did-portable-attributes-v2"
+
+_ATTRIBUTE_KEYS: dict[PortableResourceType, frozenset[str]] = {
+    PortableResourceType.ROLE: frozenset(
+        {"name", "permissions", "color", "hoist", "mentionable", "position", "managed"}
+    ),
+    PortableResourceType.CATEGORY: frozenset({"name", "position"}),
+    PortableResourceType.CHANNEL: frozenset(
+        {
+            "name",
+            "type",
+            "position",
+            "topic",
+            "nsfw",
+            "flags",
+            "bitrate",
+            "user_limit",
+            "rate_limit_per_user",
+            "default_auto_archive_duration",
+        }
+    ),
+    PortableResourceType.OVERWRITE: frozenset({"target_type", "allow", "deny"}),
+    PortableResourceType.LOGICAL_GROUP: frozenset({"name", "slug", "description"}),
+    PortableResourceType.POLICY: frozenset({"name", "rules"}),
+    PortableResourceType.SYSTEM_PRINCIPAL: frozenset({"kind"}),
+    PortableResourceType.PRINCIPAL_REQUIREMENT: frozenset({"kind", "name", "source_binding"}),
+    PortableResourceType.BOT_REFERENCE: frozenset({"name"}),
+    PortableResourceType.WEBHOOK_REFERENCE: frozenset({"name"}),
+}
+
+
+def validate_portable_attributes(
+    resource_type: PortableResourceType, attributes: dict[str, Any]
+) -> None:
+    """Fail closed on fields that are not part of the versioned portable contract."""
+
+    unknown = set(attributes) - _ATTRIBUTE_KEYS[resource_type]
+    if unknown:
+        raise ValueError(
+            "unsupported portable attributes for "
+            f"{resource_type.value}: {','.join(sorted(unknown))}"
+        )
+    if resource_type is PortableResourceType.CHANNEL:
+        channel_type = attributes.get("type")
+        if not isinstance(channel_type, int) or isinstance(channel_type, bool):
+            raise ValueError("portable channel type must be an integer")
+        if channel_type not in {0, 2, 5, 13, 14, 15, 16}:
+            raise ValueError("unsupported portable channel type")
+        text_only = {"rate_limit_per_user", "default_auto_archive_duration"}
+        voice_only = {"bitrate", "user_limit"}
+        if channel_type not in {0, 5} and text_only & set(attributes):
+            raise ValueError("text-only portable attributes used by another channel type")
+        if channel_type not in {2, 13} and voice_only & set(attributes):
+            raise ValueError("voice-only portable attributes used by another channel type")
+
+
 @dataclass(frozen=True, slots=True)
 class FrozenObject:
     items: tuple[tuple[str, JsonValue], ...] = field(default_factory=tuple)
@@ -164,6 +220,7 @@ class PortableResource:
         if not isinstance(thawed, dict):
             raise ValueError("portable resource attributes must be an object")
         _walk_keys(thawed)
+        validate_portable_attributes(self.resource_type, thawed)
 
     @classmethod
     def build(

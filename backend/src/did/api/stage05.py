@@ -65,6 +65,7 @@ class DesiredNodeInput(BaseModel):
                 "bitrate",
                 "user_limit",
                 "rate_limit_per_user",
+                "default_auto_archive_duration",
                 "lock_permissions",
                 "parent_id",
             },
@@ -88,7 +89,7 @@ class DesiredNodeInput(BaseModel):
         ):
             raise ValueError("parent_id must be null or a decimal Snowflake string")
         channel_type = self.properties.get("type")
-        if channel_type is not None and channel_type not in {0, 2, 4, 5, 13, 15, 16}:
+        if channel_type is not None and channel_type not in {0, 2, 4, 5, 13}:
             raise ValueError("unsupported mutable Discord channel type")
         target_type = self.properties.get("target_type")
         if target_type is not None and target_type not in {0, 1}:
