@@ -2,13 +2,13 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | `2026-08-24` |
+| Date | `2026-08-25` — revue corrective |
 | Base main | `f4dfc635ecc0de0697c034c26000638c3356a3fd` |
 | Branche | `stage/06-portability` |
-| Commits | `ab7a45b..559ad52` — pipeline, preuves, durcissements du Plan Engine et validation live |
+| Commits | `ab7a45b..71faa95` — pipeline initial puis correction sémantique/persistance/live |
 | PR | [#6](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/6), Draft, non mergée |
 | Statut | `STAGE_06_COMPLETE_PR_OPEN` |
-| Migration | `0010_stage_06` après `0009_stage_05` ; une seule tête attendue |
+| Migration | `0011_stage_06` après `0010_stage_06` ; une seule tête attendue |
 
 ## Artifact, fichier et provenance
 
@@ -66,11 +66,17 @@ l'ID de B ; bots, webhooks et membres exigent un mapping B existant explicite ou
 Une policy est copiée comme définition sans binding actif et ses principals doivent être confirmés.
 
 Les quatre modes utilisent le même compilateur : COPY_AS_NEW crée sans fusion par nom ni suppression ;
-MERGE combine uniquement des mappings explicites et ne supprime rien ; RECONCILE peut créer, mettre à
-jour et supprimer seulement les ressources énumérées dans `ReconcileScope`, chaque DELETE apparaissant
-comme `DELETE_CANDIDATE` destructif avant STAGE 05 ; MAXIMUM_COMPATIBLE rend chaque résultat
-`CLONED/CREATED/REMAPPED/SKIPPED/IMPOSSIBLE/INTERVENTION_REQUIRED`. La matrice
-`did-clone-support-v&#49;` expose les opérations réelles par type et mode.
+MERGE conserve l'identité B confirmée et compile les propriétés portables de l'artifact, donc une
+divergence réelle produit un UPDATE ; RECONCILE réutilise ce MERGE, crée les absents et supprime seulement
+les bindings owner/B/relation dérivés côté serveur. Chaque DELETE est exposé comme
+`DELETE_CANDIDATE` destructif dans preview avant STAGE 05. Le client fournit au plus une relation opaque,
+jamais des IDs à supprimer. MAXIMUM_COMPATIBLE est strictement report-only avec `plan=null`,
+`destination_plan_id=NULL` et résultats `CLONED/PARTIAL/SKIPPED/IMPOSSIBLE/INTERVENTION_REQUIRED`.
+
+La matrice `did-clone-support-v&#50;` est explicite par type Discord : text et announcement préservent
+slowmode et durée d'archivage par défaut ; voice et stage préservent bitrate/user limit ; category est
+FULL. Directory, forum et media sont UNSUPPORTED tant que leur contrat complet n'est pas porté. Les
+attributs suivent `did-portable-attributes-v&#50;` et tout champ inconnu est refusé fail-closed.
 
 Les catégories, channels et rôles deviennent des nœuds DSG destination. Un logical group reçoit une
 nouvelle UUID DID déterministe par transfert et est créé seulement après succès du plan ; une policy
@@ -84,11 +90,12 @@ portable devient une nouvelle définition tenant B sans binding source. La final
 composites. Un template contient l'artifact portable et son apply le stocke chiffré pour appeler
 exactement `compile_stored`, donc sans pipeline divergent.
 
-`cross_guild_transfers` porte owner/actor, A, B, artifact/hash, mode, mapping, report, plan B,
-correlation/idempotency, statut et résultat local. Une FK composite interdit de lier l'artifact d'un
-autre owner. Les états explicites sont `CREATED`, `SOURCE_AUTHORIZED`, `EXPORTED`,
+`cross_guild_transfers` porte owner/actor, A, B, artifact/hash, relation opaque, mode, mapping, report,
+plan B nullable, correlation/idempotency, version d'état et résultat local. `portable_clone_bindings`
+porte les logical refs et IDs B réellement créés ou explicitement mappés, sous FORCE RLS owner. Une FK
+composite interdit de lier l'artifact d'un autre owner. Les états explicites sont `CREATED`, `SOURCE_AUTHORIZED`, `EXPORTED`,
 `MAPPING_REQUIRED`, `READY`, `COMPILED`, `FAILED`, `CANCELLED`; l'apply reste entièrement dans la
-machine STAGE 05.
+machine STAGE 05. Les transitions sont CAS et `MAPPING_REQUIRED` est durable/reprenable sans lecture A.
 
 Le pipeline est unique : autoriser/lire A, fermer ce contexte, produire/stocker l'artifact, autoriser
 B, lire B, construire graphe/mappings/DSG, créer un unique plan STAGE 05 B. Il n'existe ni transaction
@@ -97,9 +104,10 @@ confère aucune capability. `STRUCTURE_READ` couvre A ; `PLANS_CREATE` + `STRUCT
 compilation B ; `TEMPLATES_READ/WRITE` couvrent les templates ; l'apply revalide `PLANS_APPLY` dans
 STAGE 05. Cette décision est consignée dans IMP-013.
 
-Les clés d'idempotence lient l'opération, l'owner, la sélection/artifact, B, le mode, le mapping et la
-clé appelante. Les insertions concurrentes utilisent `ON CONFLICT`; un retry après mapping ou plan
-retourne le même transfert/plan. Le même `transfer_id` relie audits source et destination. Les erreurs
+Les clés d'idempotence hashent une sérialisation canonique contenant l'intégralité de la clé appelante,
+l'artifact, B, le mode et le mapping ; aucune troncature de préfixe n'est possible. Les quotas owner
+count/bytes sont sérialisés par advisory transaction lock. Les audits de frontière sont idempotents par
+transfer/event, indépendamment de la création/réutilisation du plan. Le même `transfer_id` relie audits source et destination. Les erreurs
 404 owner, 403 capability, 409 mapping/quota, 422 intégrité/format et 503 clé/service évitent toute
 divulgation de l'existence, du plaintext ou des secrets.
 
@@ -121,25 +129,24 @@ de candidats ou création de plan.
 
 ## Tests et preuves
 
-Les tests unitaires couvrent canonicalisation, immutabilité, format hostile, graphe/fermeture/cycles,
-mapping et ambiguïté, principals, observabilité live, scope RECONCILE, quatre modes, crypto/rotation,
+Les tests unitaires couvrent canonicalisation, immutabilité, format hostile, schémas d'attributs,
+graphe/fermeture/cycles, mappings dupliqués/inconnus/non confirmés, MERGE divergent rôle/channel,
+scope RECONCILE produit, report-only, lifecycle reprenable, crypto/rotation,
 API, architecture et confused deputy. PostgreSQL réel couvre encryption at rest, idempotence, quota,
 TTL/purge, owner U/V, tenant A/B, FK cross-owner, RLS template/policy/transfert et cascade. Le test
 destination-only appelle le reader exactement sur B et crée un seul DSG/plan B ; la compilation d'un
 artifact stocké ne possède aucun reader A. Le load utilise 600 ressources.
 
-Toutes les validations de code ont été exécutées sur le commit propre `559ad52785fe` : STAGE 01
-`20260824T213842023114Z-559ad52785fe-local-docker`, STAGE 02
-`20260824T213953257903Z-559ad52785fe-local-docker`, STAGE 03
-`20260824T214105559854Z-559ad52785fe-local-docker`, STAGE 03 load
-`20260824T214228432404Z-559ad52785fe-local-docker`, STAGE 04
-`20260824T214256436671Z-559ad52785fe-local-docker`, STAGE 05
-`20260824T214436666098Z-559ad52785fe-local-docker`, failure-injection
-`20260824T214610074205Z-559ad52785fe-local-docker`, load
-`20260824T214625261146Z-559ad52785fe-local-docker`, STAGE 06 default
-`20260824T214705015922Z-559ad52785fe-local-docker`, security
-`20260824T213832331816Z-559ad52785fe-local-docker` et live complet
-`20260824T213355960201Z-559ad52785fe-local-docker`. Tous sont `PASS`.
+La revue corrective a validé le code de `71faa95ff21ac` avec la matrice finale complète : STAGE 01
+`20260825T060346320781Z`, STAGE 02 `20260825T060503041969Z`, STAGE 03 et load
+`20260825T060620647167Z` / `20260825T060725680647Z`, STAGE 04 `20260825T060746280769Z`, STAGE 05,
+failure-injection et load `20260825T060918233376Z` / `20260825T061050186747Z` /
+`20260825T061102125839Z`, STAGE 06, security et live `20260825T061104978911Z` /
+`20260825T061237702152Z` / `20260825T061252707811Z` (suffixe commun
+`-71faa95ff21a-local-docker`). Le dernier run inclut 241 tests unitaires, 75 intégrations, les
+migrations downgrade/upgrade jusqu'à la tête unique `0011_stage_06`, frontend, secret scan, docs,
+PostgreSQL RLS, charge et Discord live. Les preuves initiales sur `559ad52785fe` restent historiques ;
+elles ne servent plus à justifier les sémantiques MERGE/RECONCILE corrigées.
 
 Le live A→B a créé toutes les fixtures via STAGE 05, produit puis chiffré l'artifact, compilé deux
 plans destination, créé de nouveaux IDs en `COPY_AS_NEW`, confirmé un mapping de rôle existant,
@@ -148,8 +155,10 @@ export et zéro mutation A. Les snapshots A avant/après sont byte-identical. Le
 des plans STAGE 05 audités puis l'artifact et ses transferts ont été purgés. La preuve expurgée est
 suivie dans `STAGE_06_LIVE_EVIDENCE.json`; elle ne contient aucun secret ni identifiant Discord.
 
-Le live RECONCILE n'a volontairement pas été forcé ; le test d'intégration prouve son scope de
-suppression exact et borné. Les limites volontaires sont : aucune signature de fichier (le hash n'est
+La revue corrective live a volontairement divergé un rôle et un text channel B, puis prouvé que MERGE
+restaure le nom, slowmode et auto-archive depuis l'artifact sans lire A. Elle a ensuite preview/appliqué
+un RECONCILE : une ressource liée a été supprimée et une ressource B témoin non liée est restée intacte.
+Le run final officiel a nettoyé 9 fixtures. Les limites volontaires sont : aucune signature de fichier (le hash n'est
 pas une authentification), pas d'installation automatique de bot/webhook, pas de
 membres/messages/history/audit, et pas d'UI STAGE 07.
 

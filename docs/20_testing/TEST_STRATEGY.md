@@ -68,7 +68,7 @@ Le parser et protector reçoivent property-based tests/fuzzing. Toute modificati
 
 ## Preuves STAGE 06
 
-- Le profil par défaut rejoue les migrations `base`, `0001` à `0009` vers l'unique tête `0010_stage_06`, puis `head -> 0009 -> head`. Il couvre le domaine pur, l'API, PostgreSQL/RLS, l'enveloppe chiffrée, le graphe, les quatre modes, les mappings et la compilation d'un unique plan STAGE 05 destination.
+- Le profil par défaut rejoue les migrations `base`, `0001` à `0010` vers l'unique tête `0011_stage_06`, puis `head -> 0009 -> head`. Il couvre le domaine pur, l'API, PostgreSQL/RLS, l'enveloppe chiffrée, les quotas concurrents, les bindings de relation, le lifecycle CAS, les quatre modes, MERGE divergent, RECONCILE borné et le report-only sans plan.
 - Le profil `security` est distinct : fichiers hostiles, limites, champs dupliqués, versions/types inconnus, absence de SSRF, injection d'IDs/capabilities/bindings, altération de l'enveloppe et de l'AAD, clé historique absente, isolation owner U/V, tenant A/B, quota, confused deputy et ambiguïté.
 - Le profil load construit, ferme, mappe et compile 600 ressources sans requête Discord ni boucle DB par ressource. Le rapport et les métriques gardent une cardinalité bornée.
 - Le live A→B n'est `PASS` que si les fixtures A et B sont créées par plans STAGE 05, le COPY_AS_NEW produit de nouveaux IDs B, A reste identique et sans mutation, un mapping existant confirmé est réutilisé, un second plan est compilé depuis l'artifact stocké avec un reader source interdit, puis le cleanup par plans et la purge ne laissent aucun préfixe `DID-STAGE06-TEST-`.
