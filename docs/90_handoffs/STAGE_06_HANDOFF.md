@@ -2,13 +2,13 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | `2026-08-25` — revue corrective |
+| Date | `2026-08-26` — revue durabilité et identité |
 | Base main | `f4dfc635ecc0de0697c034c26000638c3356a3fd` |
 | Branche | `stage/06-portability` |
-| Commits | `ab7a45b..71faa95` — pipeline initial puis correction sémantique/persistance/live |
+| Commits | `ab7a45b..65c7355` — pipeline initial, corrections sémantiques puis durabilité/identité/reprise |
 | PR | [#6](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/6), Draft, non mergée |
 | Statut | `STAGE_06_COMPLETE_PR_OPEN` |
-| Migration | `0011_stage_06` après `0010_stage_06` ; une seule tête attendue |
+| Migration | `0012_stage_06` après `0011_stage_06` ; une seule tête attendue |
 
 ## Artifact, fichier et provenance
 
@@ -21,8 +21,12 @@ signature ni une preuve de confiance. Les kinds owner-scopés sont `CLIPBOARD`, 
 `GUILD_CONFIG` et `CUSTOM_BUNDLE`.
 
 La provenance autorise seulement un `source_guild_id` et des IDs source informatifs, triés, avec
-`assertion=NON_AUTHORITATIVE`. Elle n'est jamais consultée pour résoudre une identité ou une
-autorisation. Les logical keys et symboles sont les seules références structurelles compilables.
+`assertion=NON_AUTHORITATIVE`. Elle n'est jamais consultée pour résoudre une relationship ou une
+autorisation. Le builder réel dérive chaque logical ref sous forme `type.k<sha256 tronqué>` depuis la
+Guild source, le type et le Snowflake source. Le Snowflake brut n'est ni exposé comme destination ref,
+ni comparé à B, ni porteur de capability ; il sert uniquement à stabiliser l'identité logique opaque
+d'une ressource entre A1 et A2. Ajouts, suppressions et réordonnancements ne renumérotent donc aucun
+survivant et une ancienne ref n'est pas recyclée.
 
 Sont explicitement exclus : tokens bot/OAuth/webhook/provider, URL webhook secrète, sessions,
 cookies, capabilities/permissions DID, membres, bindings utilisateur/rôle source, ownership, boosts,
@@ -41,7 +45,8 @@ ciphertext, DEK enveloppée, nonces, hash, owner et artifact ID et vérifient le
 
 Les TTL par défaut sont 3 600 s pour le clipboard et 2 592 000 s pour les exports/imports. Les quotas
 par owner sont 100 artifacts et 25 000 000 octets actifs ; les expirés sont invisibles, purgés lors
-de la liste owner et ne consomment pas le quota. La suppression owner cascade les transferts associés.
+de la liste owner et ne consomment pas le quota. La suppression/purge d'un artifact peut cascader ses
+transferts éphémères, mais ne supprime jamais `portable_clone_relationships` ni ses bindings durables.
 
 L'import refuse au plus tard à 2 000 000 octets bruts : compression/`Content-Encoding`, JSON invalide,
 clés dupliquées, champs inconnus, version future, hash faux, type inconnu, plus de 1 000 ressources,
@@ -73,10 +78,12 @@ les bindings owner/B/relation dérivés côté serveur. Chaque DELETE est expos�
 jamais des IDs à supprimer. MAXIMUM_COMPATIBLE est strictement report-only avec `plan=null`,
 `destination_plan_id=NULL` et résultats `CLONED/PARTIAL/SKIPPED/IMPOSSIBLE/INTERVENTION_REQUIRED`.
 
-La matrice `did-clone-support-v&#50;` est explicite par type Discord : text et announcement préservent
-slowmode et durée d'archivage par défaut ; voice et stage préservent bitrate/user limit ; category est
-FULL. Directory, forum et media sont UNSUPPORTED tant que leur contrat complet n'est pas porté. Les
-attributs suivent `did-portable-attributes-v&#50;` et tout champ inconnu est refusé fail-closed.
+La matrice `did-clone-support-v&#50;` est explicite par type Discord : category est `FULL`; text,
+announcement, voice et stage sont `PARTIAL`, car leurs propriétés portées sont préservées mais un
+`flags` observé n'est pas accepté à la création. Directory, forum et media sont `UNSUPPORTED` tant que
+leur contrat complet n'est pas porté. Les attributs suivent `did-portable-attributes-v&#50;` : clés,
+types, containers, booléens, entiers, chaînes, bitfields décimaux et bornes sont validés fail-closed
+dès `artifact_from_bytes`, avant mapping ou création de plan.
 
 Les catégories, channels et rôles deviennent des nœuds DSG destination. Un logical group reçoit une
 nouvelle UUID DID déterministe par transfert et est créé seulement après succès du plan ; une policy
@@ -90,22 +97,41 @@ portable devient une nouvelle définition tenant B sans binding source. La final
 composites. Un template contient l'artifact portable et son apply le stocke chiffré pour appeler
 exactement `compile_stored`, donc sans pipeline divergent.
 
-`cross_guild_transfers` porte owner/actor, A, B, artifact/hash, relation opaque, mode, mapping, report,
-plan B nullable, correlation/idempotency, version d'état et résultat local. `portable_clone_bindings`
-porte les logical refs et IDs B réellement créés ou explicitement mappés, sous FORCE RLS owner. Une FK
-composite interdit de lier l'artifact d'un autre owner. Les états explicites sont `CREATED`, `SOURCE_AUTHORIZED`, `EXPORTED`,
-`MAPPING_REQUIRED`, `READY`, `COMPILED`, `FAILED`, `CANCELLED`; l'apply reste entièrement dans la
-machine STAGE 05. Les transitions sont CAS et `MAPPING_REQUIRED` est durable/reprenable sans lecture A.
+`portable_clone_relationships` possède un `relationship_id` UUID généré côté serveur, owner, B,
+descriptor source informatif, statut, timestamps, dernier transfer et dernier hash. Elle porte
+`FORCE RLS` owner et ne possède aucune FK vers un artifact. COPY_AS_NEW sans relation en crée une
+nouvelle ; MERGE/RECONCILE exigent une relation explicite compatible owner/B/état. Un fichier importé
+sans relation ne reçoit jamais de scope destructif implicite.
 
-Le pipeline est unique : autoriser/lire A, fermer ce contexte, produire/stocker l'artifact, autoriser
-B, lire B, construire graphe/mappings/DSG, créer un unique plan STAGE 05 B. Il n'existe ni transaction
+`cross_guild_transfers` porte owner/actor, A, B, artifact/hash, `relationship_id`, mode, mapping/report,
+`request_hash`, `mapping_hash`, `report_hash`, plan B nullable, correlation/idempotency et version
+d'état. `portable_clone_bindings` dépend de la relationship, non du transfer ; `last_transfer_id` est
+nullable `ON DELETE SET NULL`. La finalisation upsert les refs courantes et place `active=false` avec
+`tombstoned_at` sur les refs disparues ; `reconcile_bindings()` ne retourne que les bindings actifs.
+Une FK composite interdit de lier l'artifact d'un autre owner.
+
+Les états explicites sont `CREATED`, `SOURCE_AUTHORIZED`, `EXPORTED`, `MAPPING_REQUIRED`, `READY`,
+`COMPILED`, `FAILED`, `CANCELLED`. La reprise traite chaque frontière déterministement : CREATED peut
+reprendre l'autorisation source, SOURCE_AUTHORIZED persiste l'export, EXPORTED reprend le mapping,
+MAPPING_REQUIRED accepte le complément, READY reprend la création/récupération du plan et COMPILED est
+read-only. Un crash après création du plan mais avant COMPILED retrouve ce même plan ; aucun second
+transfer ou plan et aucune relecture A ne sont produits.
+
+Le pipeline est unique : autoriser/lire A, fermer ce contexte, produire/stocker l'artifact, créer la
+relationship/transfer et persister `SOURCE_AUTHORIZED` puis `EXPORTED`, autoriser B, lire B, construire
+graphe/mappings/DSG, créer un unique plan STAGE 05 B. Un refus B laisse le transfer `EXPORTED`; le retry
+reprend l'artifact stocké sans lire A. Il n'existe ni transaction
 A+B, ni lock A+B, ni adapter Discord mutable dans l'orchestrateur. L'artifact ou sa provenance ne
 confère aucune capability. `STRUCTURE_READ` couvre A ; `PLANS_CREATE` + `STRUCTURE_WRITE` couvrent la
 compilation B ; `TEMPLATES_READ/WRITE` couvrent les templates ; l'apply revalide `PLANS_APPLY` dans
 STAGE 05. Cette décision est consignée dans IMP-013.
 
 Les clés d'idempotence hashent une sérialisation canonique contenant l'intégralité de la clé appelante,
-l'artifact, B, le mode et le mapping ; aucune troncature de préfixe n'est possible. Les quotas owner
+l'artifact, B et le mode ; aucune troncature de préfixe n'est possible. Le mapping reste complétable
+jusqu'à READY, où sa sérialisation canonique et son `mapping_hash` sont figés par CAS. À READY ou
+COMPILED, même clé/même mapping reprend le résultat ; un mapping différent produit un conflit 409 sans
+nouveau plan. COMPILED n'est jamais réécrit : plan, mapping et report doivent avoir les mêmes hashes.
+Les quotas owner
 count/bytes sont sérialisés par advisory transaction lock. Les audits de frontière sont idempotents par
 transfer/event, indépendamment de la création/réutilisation du plan. Le même `transfer_id` relie audits source et destination. Les erreurs
 404 owner, 403 capability, 409 mapping/quota, 422 intégrité/format et 503 clé/service évitent toute
@@ -129,36 +155,40 @@ de candidats ou création de plan.
 
 ## Tests et preuves
 
-Les tests unitaires couvrent canonicalisation, immutabilité, format hostile, schémas d'attributs,
-graphe/fermeture/cycles, mappings dupliqués/inconnus/non confirmés, MERGE divergent rôle/channel,
-scope RECONCILE produit, report-only, lifecycle reprenable, crypto/rotation,
-API, architecture et confused deputy. PostgreSQL réel couvre encryption at rest, idempotence, quota,
-TTL/purge, owner U/V, tenant A/B, FK cross-owner, RLS template/policy/transfert et cascade. Le test
-destination-only appelle le reader exactement sur B et crée un seul DSG/plan B ; la compilation d'un
-artifact stocké ne possède aucun reader A. Le load utilise 600 ressources.
+Les tests unitaires couvrent canonicalisation, immutabilité, format hostile et mauvais types/bornes,
+graphe/fermeture/cycles, mappings dupliqués/inconnus/non confirmés, refs stables du vrai builder entre
+générations avec suppressions/insertions avant les survivants, MERGE divergent rôle/channel, cycle
+naturel A1→A2 sans injection manuelle, report-only, toutes les frontières du lifecycle, gel READY,
+COMPILED immutable, denial B puis retry sans A, crypto/rotation, API, architecture et confused deputy.
+PostgreSQL réel couvre encryption at rest, idempotence, quota, owner U/V, tenant A/B, FK cross-owner,
+RLS template/policy/transfert/relation, survie relation+bindings après delete artifact et purge TTL,
+tombstone, mapping hash et plan immutable. Le test destination-only appelle le reader exactement sur B
+et crée un seul DSG/plan B ; la compilation d'un artifact stocké ne possède aucun reader A. Le load
+utilise 600 ressources.
 
-La revue corrective a validé le code de `71faa95ff21ac` avec la matrice finale complète : STAGE 01
-`20260825T060346320781Z`, STAGE 02 `20260825T060503041969Z`, STAGE 03 et load
-`20260825T060620647167Z` / `20260825T060725680647Z`, STAGE 04 `20260825T060746280769Z`, STAGE 05,
-failure-injection et load `20260825T060918233376Z` / `20260825T061050186747Z` /
-`20260825T061102125839Z`, STAGE 06, security et live `20260825T061104978911Z` /
-`20260825T061237702152Z` / `20260825T061252707811Z` (suffixe commun
-`-71faa95ff21a-local-docker`). Le dernier run inclut 241 tests unitaires, 75 intégrations, les
-migrations downgrade/upgrade jusqu'à la tête unique `0011_stage_06`, frontend, secret scan, docs,
-PostgreSQL RLS, charge et Discord live. Les preuves initiales sur `559ad52785fe` restent historiques ;
-elles ne servent plus à justifier les sémantiques MERGE/RECONCILE corrigées.
+La revue durabilité/identité a validé le worktree ensuite figé en `65c735543e4c` avec la matrice finale
+complète : STAGE 01 `20260826T052123732430Z`, STAGE 02 `20260826T052253390327Z`, STAGE 03 et load
+`20260826T052413728862Z` / `20260826T052530220450Z`, STAGE 04 `20260826T052553804546Z`, STAGE 05,
+failure-injection et load `20260826T052718072673Z` / `20260826T052858691849Z` /
+`20260826T052915529635Z`, STAGE 06, security et live `20260826T052924409829Z` /
+`20260826T053101193803Z` / `20260826T053113447965Z` (les run IDs portent le HEAD de départ
+`d438d05d1d92` et `repository_dirty=true`; le diff validé est exactement le commit `65c7355`). Le
+dernier run inclut 255 tests unitaires, 75 intégrations, les migrations downgrade/upgrade jusqu'à la
+tête unique `0012_stage_06`, frontend, secret scan, docs, PostgreSQL RLS, charge et Discord live. Les
+preuves antérieures restent historiques.
 
-Le live A→B a créé toutes les fixtures via STAGE 05, produit puis chiffré l'artifact, compilé deux
-plans destination, créé de nouveaux IDs en `COPY_AS_NEW`, confirmé un mapping de rôle existant,
-recompilé l'artifact stocké avec un source reader fail-if-called et constaté zéro lecture A après
-export et zéro mutation A. Les snapshots A avant/après sont byte-identical. Le cleanup A/B a utilisé
-des plans STAGE 05 audités puis l'artifact et ses transferts ont été purgés. La preuve expurgée est
-suivie dans `STAGE_06_LIVE_EVIDENCE.json`; elle ne contient aucun secret ni identifiant Discord.
+Le live A→B a créé toutes les fixtures via STAGE 05, produit A1, effectué COPY_AS_NEW puis finalize,
+et supprimé l'artifact A1 tout en conservant relationship et bindings. Il a ensuite modifié A via un
+plan STAGE 05 : un channel survivant a changé, un channel a été supprimé et un nouveau ajouté. Le vrai
+builder A2 a conservé la logical ref du survivant. A2 a été persisté EXPORTED, puis preview/compile B
+ont utilisé un source reader fail-if-called. RECONCILE a mis à jour le même ID B, créé le nouveau,
+exposé puis supprimé exactement le B correspondant à la source disparue, tombstoné son binding et
+laissé le rôle témoin B intact. Après suppression A2, relation et quatre bindings actifs subsistaient.
+Zéro lecture A après export et zéro mutation A pendant B ont été mesurées ; le snapshot A2 est resté
+byte-identical. Le cleanup A/B a utilisé des plans STAGE 05 audités et a nettoyé 9 fixtures. La preuve
+expurgée `STAGE_06_LIVE_EVIDENCE.json` ne contient aucun secret ni identifiant Discord.
 
-La revue corrective live a volontairement divergé un rôle et un text channel B, puis prouvé que MERGE
-restaure le nom, slowmode et auto-archive depuis l'artifact sans lire A. Elle a ensuite preview/appliqué
-un RECONCILE : une ressource liée a été supprimée et une ressource B témoin non liée est restée intacte.
-Le run final officiel a nettoyé 9 fixtures. Les limites volontaires sont : aucune signature de fichier (le hash n'est
+Les limites volontaires sont : aucune signature de fichier (le hash n'est
 pas une authentification), pas d'installation automatique de bot/webhook, pas de
 membres/messages/history/audit, et pas d'UI STAGE 07.
 
