@@ -213,10 +213,24 @@ class PortabilityService:
         )
         transfer_id = UUID(str(transfer["id"]))
         state = TransferState(str(transfer["status"]))
-        frozen_mapping_hash = self._explicit_mapping_hash(explicit_mappings)
+        frozen_mapping_hash: str | None = None
+        frozen_mapping_json: list[dict[str, Any]] | None = None
         if state in {TransferState.READY, TransferState.COMPILED}:
-            if str(transfer.get("mapping_hash")) != frozen_mapping_hash:
+            raw_mapping = transfer.get("mapping_json")
+            if not isinstance(raw_mapping, list) or not all(
+                isinstance(item, dict) for item in raw_mapping
+            ):
+                raise TransferConflict("frozen transfer mapping is invalid")
+            frozen_mapping_json = [dict(item) for item in raw_mapping]
+            stored_mapping_hash = transfer.get("mapping_hash")
+            if not isinstance(stored_mapping_hash, str) or len(stored_mapping_hash) != 64:
+                raise TransferConflict("frozen transfer mapping hash is invalid")
+            replay_mapping_hash = self._semantic_mapping_hash(
+                explicit_mappings, frozen_mapping_json
+            )
+            if replay_mapping_hash != stored_mapping_hash:
                 raise TransferConflict("transfer mapping is already frozen")
+            frozen_mapping_hash = stored_mapping_hash
             if state is TransferState.COMPILED:
                 raw_plan_id = transfer.get("destination_plan_id")
                 plan = (
@@ -256,6 +270,13 @@ class PortabilityService:
         mapping_json = [
             self._resolution_json(item, actor_user_id=actor_user_id) for item in resolutions
         ]
+        resolved_mapping_hash = self._semantic_mapping_hash(explicit_mappings, mapping_json)
+        if state is TransferState.READY:
+            if resolved_mapping_hash != frozen_mapping_hash:
+                raise TransferConflict("frozen transfer mapping is stale")
+            if frozen_mapping_json is None:
+                raise TransferConflict("frozen transfer mapping is invalid")
+            mapping_json = frozen_mapping_json
         if unresolved and mode is not CloneMode.MAXIMUM_COMPATIBLE:
             if state is TransferState.EXPORTED:
                 await self.repository.transition_transfer(
@@ -273,9 +294,12 @@ class PortabilityService:
                 transfer_id=transfer_id,
                 expected=state,
                 mapping=mapping_json,
-                mapping_hash=frozen_mapping_hash,
+                mapping_hash=resolved_mapping_hash,
             )
             state = TransferState.READY
+            frozen_mapping_hash = resolved_mapping_hash
+        if frozen_mapping_hash is None:
+            raise TransferConflict("transfer mapping was not frozen")
         compilation = self._compiler.compile(
             artifact,
             destination_guild_id=destination_guild_id,
@@ -307,7 +331,7 @@ class PortabilityService:
             )
             return transfer, None, transfer_created
         planning_key = self._planning_idempotency_key(
-            artifact_id, destination_guild_id, mode, mapping_json, idempotency_key
+            artifact_id, destination_guild_id, mode, frozen_mapping_hash, idempotency_key
         )
         if compilation.graph is None:
             raise RuntimeError("mutable compilation is missing a destination graph")
@@ -855,8 +879,10 @@ class PortabilityService:
         return hashlib.sha256(material).hexdigest()
 
     @staticmethod
-    def _explicit_mapping_hash(explicit_mappings: tuple[ExplicitMapping, ...]) -> str:
-        canonical = [
+    def _canonical_explicit_mappings(
+        explicit_mappings: tuple[ExplicitMapping, ...],
+    ) -> list[dict[str, Any]]:
+        return [
             {
                 "source_logical_ref": item.source_logical_ref,
                 "destination_guild_id": str(item.destination_guild_id),
@@ -873,7 +899,50 @@ class PortabilityService:
                 ),
             )
         ]
-        return PortabilityService._canonical_hash(canonical)
+
+    @classmethod
+    def _semantic_mapping_hash(
+        cls,
+        explicit_mappings: tuple[ExplicitMapping, ...],
+        resolved_mapping: list[dict[str, Any]],
+    ) -> str:
+        explicit_sources = {item.source_logical_ref for item in explicit_mappings}
+        resolved = []
+        for item in resolved_mapping:
+            source_logical_ref = str(item["source_logical_ref"])
+            if source_logical_ref in explicit_sources:
+                confirmation = "CONFIRMED"
+            elif bool(item.get("confirmation_required")):
+                confirmation = "REQUIRED"
+            else:
+                confirmation = "NOT_REQUIRED"
+            resolved.append(
+                {
+                    "source_logical_ref": source_logical_ref,
+                    "resource_type": str(item["resource_type"]),
+                    "decision": str(item["decision"]),
+                    "destination_ref": (
+                        str(item["destination_ref"])
+                        if item.get("destination_ref") is not None
+                        else None
+                    ),
+                    "confirmation": confirmation,
+                }
+            )
+        resolved.sort(
+            key=lambda item: (
+                item["source_logical_ref"],
+                item["resource_type"],
+                item["decision"],
+                item["destination_ref"] or "",
+            )
+        )
+        return cls._canonical_hash(
+            {
+                "explicit": cls._canonical_explicit_mappings(explicit_mappings),
+                "resolved": resolved,
+            }
+        )
 
     @staticmethod
     def _canonical_hash(value: Any) -> str:
@@ -925,7 +994,7 @@ class PortabilityService:
         artifact_id: UUID,
         destination_guild_id: int,
         mode: CloneMode,
-        mapping: list[dict[str, Any]],
+        mapping_hash: str,
         caller_key: str,
     ) -> str:
         material = json.dumps(
@@ -933,7 +1002,7 @@ class PortabilityService:
                 "artifact_id": str(artifact_id),
                 "destination_guild_id": str(destination_guild_id),
                 "mode": mode.value,
-                "mapping": mapping,
+                "mapping_hash": mapping_hash,
                 "caller_key": caller_key,
             },
             sort_keys=True,

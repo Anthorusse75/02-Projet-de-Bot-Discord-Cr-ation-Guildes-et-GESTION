@@ -3,12 +3,19 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from did.application.portability import PortabilityService
+from did.cloning import DestinationPlanCompiler
+from did.domain.discord_runtime import CoverageMode, FreshnessState
+from did.domain.read_model import CoverageSnapshot, FreshnessSnapshot, GuildSnapshot, RoleSnapshot
 from did.infrastructure.database import (
     create_database_engine,
     create_session_factory,
@@ -25,6 +32,7 @@ from did.infrastructure.runtime_metrics import RuntimeMetrics
 from did.portability import (
     ArtifactCipher,
     ArtifactType,
+    CloneMode,
     InMemoryKeyProvider,
     PortableArtifact,
     PortableProvenance,
@@ -89,6 +97,45 @@ def portable() -> PortableArtifact:
         ),
         roots=("role.staff",),
         provenance=PortableProvenance(str(GUILD_A), ("777777777777777777",)),
+    )
+
+
+def destination_mapping_snapshot(*role_ids: int) -> GuildSnapshot:
+    now = datetime.now(UTC)
+    freshness = FreshnessSnapshot(FreshnessState.FRESH, "GATEWAY", 1, now, now, now)
+    coverage = CoverageSnapshot(
+        GUILD_B,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "GATEWAY",
+        1,
+        known_channels=0,
+        visible_channels=0,
+        obfuscated_channels=0,
+        known_roles=1 + len(role_ids),
+        overwrites_complete=True,
+    )
+    return GuildSnapshot(
+        GUILD_B,
+        1,
+        (
+            RoleSnapshot(GUILD_B, GUILD_B, "@everyone", 0, 0, False, freshness),
+            *(
+                RoleSnapshot(
+                    GUILD_B,
+                    role_id,
+                    "Stage Six Secret Staff",
+                    1,
+                    8,
+                    False,
+                    freshness,
+                )
+                for role_id in role_ids
+            ),
+        ),
+        (),
+        coverage,
+        freshness,
     )
 
 
@@ -318,6 +365,113 @@ async def test_owner_quota_is_atomic_for_count_and_bytes_under_concurrency() -> 
         )
         assert sum(isinstance(item, PortableQuotaExceeded) for item in byte_results) == 1
         assert sum(isinstance(item, tuple) for item in byte_results) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ready_semantic_mapping_drift_is_rejected_before_stage05_plan() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=2)
+    try:
+        repository = PortabilityRepository(
+            create_session_factory(engine),
+            ArtifactCipher(InMemoryKeyProvider({1: b"m" * 32}, current_version=1)),
+        )
+        artifact_row, _ = await repository.create_artifact(
+            owner_user_id=USER_U,
+            kind="LIBRARY",
+            artifact=portable(),
+            name="semantic-mapping",
+            expires_at=None,
+            idempotency_operation="SEMANTIC_MAPPING",
+            idempotency_key="artifact",
+        )
+        relationship, _ = await repository.create_clone_relationship(
+            actor_user_id=USER_U,
+            destination_guild_id=GUILD_B,
+            creation_key="9" * 64,
+            source_descriptor={"source_guild_id": GUILD_A},
+        )
+        relationship_id = relationship["relationship_id"]
+        target = 770606060606060601
+        seed_transfer_id = uuid4()
+        await repository.create_transfer(
+            transfer_id=seed_transfer_id,
+            actor_user_id=USER_U,
+            source_guild_id=GUILD_A,
+            destination_guild_id=GUILD_B,
+            artifact_id=artifact_row["id"],
+            artifact_content_hash=portable().content_hash,
+            mode="COPY_AS_NEW",
+            mapping=[],
+            status="CREATED",
+            correlation_id=uuid4(),
+            idempotency_key="semantic-binding-seed",
+            relationship_id=relationship_id,
+            request_hash="8" * 64,
+        )
+        await repository.save_clone_bindings(
+            actor_user_id=USER_U,
+            transfer_id=seed_transfer_id,
+            destination_guild_id=GUILD_B,
+            relationship_id=relationship_id,
+            artifact_hash=portable().content_hash,
+            bindings=[
+                {
+                    "logical_ref": "role.staff",
+                    "resource_type": "ROLE",
+                    "destination_resource_id": target,
+                    "binding_origin": "CREATED",
+                }
+            ],
+        )
+        read_models = SimpleNamespace(
+            guild_snapshot=AsyncMock(return_value=(destination_mapping_snapshot(target), None))
+        )
+        planning = SimpleNamespace(create=AsyncMock())
+        service = PortabilityService(
+            repository,
+            cast(Any, read_models),
+            cast(Any, planning),
+            cast(Any, SimpleNamespace()),
+        )
+        service._compiler = cast(
+            Any,
+            SimpleNamespace(compile=Mock(side_effect=RuntimeError("crash after READY"))),
+        )
+        caller_key = "postgres-ready-drift"
+        common = {
+            "actor_user_id": USER_U,
+            "artifact_id": artifact_row["id"],
+            "destination_guild_id": GUILD_B,
+            "mode": CloneMode.MERGE,
+            "explicit_mappings": (),
+            "idempotency_key": caller_key,
+            "correlation_id": uuid4(),
+            "relationship_id": relationship_id,
+        }
+        with pytest.raises(RuntimeError, match="crash after READY"):
+            await service.compile_stored(**cast(Any, common))
+        transfer_key = service._stored_transfer_idempotency_key(
+            artifact_row["id"], GUILD_B, CloneMode.MERGE, caller_key
+        )
+        frozen = await repository.find_transfer_by_idempotency(USER_U, transfer_key)
+        assert frozen is not None and frozen["status"] == TransferState.READY.value
+        assert len(frozen["mapping_hash"]) == 64
+        assert frozen["mapping_json"][0]["decision"] == "MAP_EXISTING"
+        assert frozen["mapping_json"][0]["destination_ref"] == str(target)
+
+        read_models.guild_snapshot.return_value = (destination_mapping_snapshot(), None)
+        service._compiler = DestinationPlanCompiler()
+        with pytest.raises(TransferConflict, match="mapping is stale"):
+            await service.compile_stored(**cast(Any, common))
+        unchanged = await repository.find_transfer_by_idempotency(USER_U, transfer_key)
+        assert unchanged is not None
+        assert unchanged["status"] == TransferState.READY.value
+        assert unchanged["mapping_json"] == frozen["mapping_json"]
+        assert unchanged["mapping_hash"] == frozen["mapping_hash"]
+        planning.create.assert_not_awaited()
     finally:
         await engine.dispose()
 

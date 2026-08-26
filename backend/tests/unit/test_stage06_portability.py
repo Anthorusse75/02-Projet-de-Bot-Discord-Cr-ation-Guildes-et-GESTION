@@ -8,7 +8,7 @@ from itertools import permutations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import ANY, AsyncMock
+from unittest.mock import ANY, AsyncMock, Mock
 from uuid import UUID, uuid4
 
 import pytest
@@ -154,6 +154,23 @@ def destination_snapshot() -> GuildSnapshot:
     )
     everyone = RoleSnapshot(GUILD_B, GUILD_B, "@everyone", 0, 0, False, fresh)
     return GuildSnapshot(GUILD_B, 19, (everyone,), (), coverage, fresh)
+
+
+def destination_snapshot_with_roles(
+    *roles: tuple[int, str, int],
+) -> GuildSnapshot:
+    base = destination_snapshot()
+    return replace(
+        base,
+        roles=(
+            base.roles[0],
+            *(
+                RoleSnapshot(GUILD_B, role_id, name, 1, permissions, False, base.freshness)
+                for role_id, name, permissions in roles
+            ),
+        ),
+        coverage=replace(base.coverage, known_roles=1 + len(roles)),
+    )
 
 
 def service_repository(
@@ -904,17 +921,59 @@ def test_full_caller_idempotency_material_is_hashed_without_prefix_truncation_co
     artifact_id = uuid4()
     prefix = "x" * 159
     first = PortabilityService._planning_idempotency_key(
-        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "a"
+        artifact_id, GUILD_B, CloneMode.MERGE, "1" * 64, prefix + "a"
     )
     second = PortabilityService._planning_idempotency_key(
-        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "b"
+        artifact_id, GUILD_B, CloneMode.MERGE, "1" * 64, prefix + "b"
     )
     repeated = PortabilityService._planning_idempotency_key(
-        artifact_id, GUILD_B, CloneMode.MERGE, [], prefix + "a"
+        artifact_id, GUILD_B, CloneMode.MERGE, "1" * 64, prefix + "a"
     )
     assert first != second
     assert first == repeated
     assert len(first) <= 160
+
+
+def test_semantic_mapping_hash_includes_intent_and_excludes_diagnostics() -> None:
+    explicit = (
+        ExplicitMapping(
+            "role.staff", GUILD_B, "623456789012345678", PortableResourceType.ROLE, True
+        ),
+    )
+    resolved = [
+        {
+            "source_logical_ref": "role.staff",
+            "resource_type": "ROLE",
+            "decision": "MAP_EXISTING",
+            "destination_ref": "623456789012345678",
+            "confirmation_required": False,
+            "reason": "mapping.explicit_confirmed",
+            "score": 100,
+            "candidate_refs": ["623456789012345678"],
+            "confirmed_by": "99",
+            "confirmed_at": "TRANSFER_CREATED_AT",
+        }
+    ]
+    expected = PortabilityService._semantic_mapping_hash(explicit, resolved)
+    diagnostics_changed = [
+        {
+            **resolved[0],
+            "reason": "different wording",
+            "score": 1,
+            "candidate_refs": ["999999999999999999"],
+            "confirmed_by": "100",
+            "confirmed_at": "different timestamp",
+        }
+    ]
+    assert PortabilityService._semantic_mapping_hash(explicit, diagnostics_changed) == expected
+    assert (
+        PortabilityService._semantic_mapping_hash(
+            explicit,
+            [{**resolved[0], "destination_ref": "723456789012345678"}],
+        )
+        != expected
+    )
+    assert PortabilityService._semantic_mapping_hash((), resolved) != expected
 
 
 def test_transfer_state_machine_is_explicit_and_does_not_duplicate_plan_apply_states() -> None:
@@ -1387,6 +1446,233 @@ async def test_source_authorized_transfer_resumes_to_exported_without_source_rea
         expected=TransferState.SOURCE_AUTHORIZED,
         target=TransferState.EXPORTED,
     )
+
+
+async def _freeze_ready_then_crash_before_planning(
+    *,
+    first_destination: GuildSnapshot,
+    bindings: list[dict[str, object]],
+    key: str,
+) -> tuple[
+    PortabilityService,
+    SimpleNamespace,
+    SimpleNamespace,
+    dict[str, object],
+    dict[str, object],
+]:
+    artifact_id = uuid4()
+    transfer_id = uuid4()
+    repository, _, row = service_repository(
+        artifact(role_resource()),
+        artifact_id=artifact_id,
+        transfer_id=transfer_id,
+        bindings=bindings,
+    )
+    read_models = SimpleNamespace(guild_snapshot=AsyncMock(return_value=(first_destination, None)))
+    planning = SimpleNamespace(create=AsyncMock())
+    service = PortabilityService(
+        cast(Any, repository),
+        cast(Any, read_models),
+        cast(Any, planning),
+        cast(Any, SimpleNamespace()),
+    )
+    service._compiler = cast(
+        Any,
+        SimpleNamespace(compile=Mock(side_effect=RuntimeError("crash after READY"))),
+    )
+    common: dict[str, object] = {
+        "actor_user_id": 99,
+        "artifact_id": artifact_id,
+        "destination_guild_id": GUILD_B,
+        "mode": CloneMode.MERGE,
+        "explicit_mappings": (),
+        "idempotency_key": key,
+        "correlation_id": uuid4(),
+    }
+    with pytest.raises(RuntimeError, match="crash after READY"):
+        await service.compile_stored(**cast(Any, common))
+    assert row["status"] == TransferState.READY.value
+    planning.create.assert_not_awaited()
+    frozen = {
+        "mapping_json": json.loads(json.dumps(row["mapping_json"])),
+        "mapping_hash": row["mapping_hash"],
+    }
+    service._compiler = DestinationPlanCompiler()
+    return service, read_models, planning, row, {**common, "frozen": frozen}
+
+
+@pytest.mark.asyncio
+async def test_ready_retry_keeps_automatic_map_existing_target_and_frozen_intent() -> None:
+    target = 623456789012345678
+    destination = destination_snapshot_with_roles((target, "Staff", 8))
+    service, read_models, planning, row, context = await _freeze_ready_then_crash_before_planning(
+        first_destination=destination,
+        bindings=[
+            {
+                "logical_ref": "role.staff",
+                "resource_type": "ROLE",
+                "destination_resource_id": target,
+            }
+        ],
+        key="ready-auto-unchanged",
+    )
+    frozen = cast(dict[str, object], context.pop("frozen"))
+    read_models.guild_snapshot.return_value = (destination, None)
+    planning.create.return_value = ({"id": uuid4()}, True)
+    await service.compile_stored(**cast(Any, context))
+    assert row["mapping_json"] == frozen["mapping_json"]
+    assert row["mapping_hash"] == frozen["mapping_hash"]
+    assert cast(list[dict[str, object]], row["mapping_json"])[0]["destination_ref"] == str(target)
+    planning.create.assert_awaited_once()
+    assert planning.create.await_args.kwargs[
+        "idempotency_key"
+    ] == PortabilityService._planning_idempotency_key(
+        cast(UUID, context["artifact_id"]),
+        GUILD_B,
+        CloneMode.MERGE,
+        cast(str, frozen["mapping_hash"]),
+        cast(str, context["idempotency_key"]),
+    )
+
+
+@pytest.mark.asyncio
+async def test_ready_retry_rejects_deleted_automatic_target_before_planning() -> None:
+    target = 623456789012345678
+    service, read_models, planning, row, context = await _freeze_ready_then_crash_before_planning(
+        first_destination=destination_snapshot_with_roles((target, "Staff", 8)),
+        bindings=[
+            {
+                "logical_ref": "role.staff",
+                "resource_type": "ROLE",
+                "destination_resource_id": target,
+            }
+        ],
+        key="ready-auto-deleted",
+    )
+    frozen = cast(dict[str, object], context.pop("frozen"))
+    read_models.guild_snapshot.return_value = (destination_snapshot(), None)
+    with pytest.raises(TransferConflict, match="mapping is stale"):
+        await service.compile_stored(**cast(Any, context))
+    assert row["mapping_json"] == frozen["mapping_json"]
+    assert row["mapping_hash"] == frozen["mapping_hash"]
+    planning.create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ready_retry_never_remaps_to_new_same_name_candidate() -> None:
+    target = 623456789012345678
+    alternative = 723456789012345678
+    service, read_models, planning, row, context = await _freeze_ready_then_crash_before_planning(
+        first_destination=destination_snapshot_with_roles((target, "Staff", 8)),
+        bindings=[
+            {
+                "logical_ref": "role.staff",
+                "resource_type": "ROLE",
+                "destination_resource_id": target,
+            }
+        ],
+        key="ready-auto-alternative",
+    )
+    frozen = cast(dict[str, object], context.pop("frozen"))
+    read_models.guild_snapshot.return_value = (
+        destination_snapshot_with_roles(
+            (target, "Staff", 8),
+            (alternative, "Staff", 8),
+        ),
+        None,
+    )
+    planning.create.return_value = ({"id": uuid4()}, True)
+    await service.compile_stored(**cast(Any, context))
+    persisted = cast(list[dict[str, object]], row["mapping_json"])
+    assert persisted == frozen["mapping_json"]
+    assert persisted[0]["destination_ref"] == str(target)
+    assert persisted[0]["destination_ref"] != str(alternative)
+
+
+@pytest.mark.asyncio
+async def test_ready_retry_rejects_create_to_same_name_manual_drift() -> None:
+    service, read_models, planning, row, context = await _freeze_ready_then_crash_before_planning(
+        first_destination=destination_snapshot(),
+        bindings=[],
+        key="ready-create-drift",
+    )
+    frozen = cast(dict[str, object], context.pop("frozen"))
+    assert cast(list[dict[str, object]], frozen["mapping_json"])[0]["decision"] == "CREATE"
+    read_models.guild_snapshot.return_value = (
+        destination_snapshot_with_roles((723456789012345678, "Staff", 8)),
+        None,
+    )
+    with pytest.raises(TransferConflict, match="mapping is stale"):
+        await service.compile_stored(**cast(Any, context))
+    assert row["mapping_json"] == frozen["mapping_json"]
+    assert row["mapping_hash"] == frozen["mapping_hash"]
+    planning.create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ready_retry_rejects_explicit_mapping_change_before_destination_read() -> None:
+    first_target = 623456789012345678
+    second_target = 723456789012345678
+    artifact_id = uuid4()
+    repository, _, row = service_repository(
+        artifact(role_resource()), artifact_id=artifact_id, transfer_id=uuid4()
+    )
+    destination = destination_snapshot_with_roles(
+        (first_target, "Staff", 8),
+        (second_target, "Staff", 8),
+    )
+    read_models = SimpleNamespace(guild_snapshot=AsyncMock(return_value=(destination, None)))
+    planning = SimpleNamespace(create=AsyncMock())
+    service = PortabilityService(
+        cast(Any, repository),
+        cast(Any, read_models),
+        cast(Any, planning),
+        cast(Any, SimpleNamespace()),
+    )
+    service._compiler = cast(
+        Any,
+        SimpleNamespace(compile=Mock(side_effect=RuntimeError("crash after READY"))),
+    )
+    common = {
+        "actor_user_id": 99,
+        "artifact_id": artifact_id,
+        "destination_guild_id": GUILD_B,
+        "mode": CloneMode.MERGE,
+        "idempotency_key": "ready-explicit-change",
+        "correlation_id": uuid4(),
+    }
+    with pytest.raises(RuntimeError, match="crash after READY"):
+        await service.compile_stored(
+            explicit_mappings=(
+                ExplicitMapping(
+                    "role.staff",
+                    GUILD_B,
+                    str(first_target),
+                    PortableResourceType.ROLE,
+                    True,
+                ),
+            ),
+            **cast(Any, common),
+        )
+    frozen_mapping = json.loads(json.dumps(row["mapping_json"]))
+    frozen_hash = row["mapping_hash"]
+    with pytest.raises(TransferConflict, match="mapping is already frozen"):
+        await service.compile_stored(
+            explicit_mappings=(
+                ExplicitMapping(
+                    "role.staff",
+                    GUILD_B,
+                    str(second_target),
+                    PortableResourceType.ROLE,
+                    True,
+                ),
+            ),
+            **cast(Any, common),
+        )
+    assert read_models.guild_snapshot.await_count == 1
+    assert row["mapping_json"] == frozen_mapping
+    assert row["mapping_hash"] == frozen_hash
+    planning.create.assert_not_awaited()
 
 
 @pytest.mark.asyncio

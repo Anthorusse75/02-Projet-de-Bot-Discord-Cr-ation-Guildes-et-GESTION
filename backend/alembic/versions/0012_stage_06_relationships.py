@@ -113,12 +113,15 @@ def upgrade() -> None:
         "r.destination_guild_id=b.destination_guild_id AND "
         "r.creation_key=b.relationship_key"
     )
+    # Pre-0012 READY/COMPILED rows did not persist enough material to prove the
+    # complete semantic mapping. Fail them closed instead of synthesizing a
+    # misleading hash that could silently re-resolve to another destination.
     op.execute(
         "UPDATE cross_guild_transfers SET request_hash=artifact_content_hash,"
-        "mapping_hash=CASE WHEN status IN ('READY','COMPILED') THEN "
-        "md5(mapping_json::text)||md5('mapping-'||mapping_json::text) END,"
-        "report_hash=CASE WHEN report_json IS NOT NULL THEN "
-        "md5(report_json::text)||md5('report-'||report_json::text) END"
+        "status=CASE WHEN status IN ('READY','COMPILED') THEN 'FAILED' ELSE status END,"
+        "error_code=CASE WHEN status IN ('READY','COMPILED') "
+        "THEN 'LEGACY_MAPPING_REFREEZE_REQUIRED' ELSE error_code END,"
+        "mapping_hash=NULL,report_hash=NULL"
     )
 
     op.alter_column("cross_guild_transfers", "relationship_id", nullable=False)
