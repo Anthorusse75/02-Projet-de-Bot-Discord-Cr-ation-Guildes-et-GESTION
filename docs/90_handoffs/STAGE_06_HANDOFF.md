@@ -2,10 +2,10 @@
 
 | Champ | Valeur |
 |---|---|
-| Date | `2026-08-26` — revue durabilité et identité |
+| Date | `2026-08-26` — revue finale du gel sémantique READY |
 | Base main | `f4dfc635ecc0de0697c034c26000638c3356a3fd` |
 | Branche | `stage/06-portability` |
-| Commits | `ab7a45b..65c7355` — pipeline initial, corrections sémantiques puis durabilité/identité/reprise |
+| Commits | `ab7a45b..0f129dd` — pipeline initial, durabilité/identité/reprise puis gel du mapping sémantique complet |
 | PR | [#6](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/6), Draft, non mergée |
 | Statut | `STAGE_06_COMPLETE_PR_OPEN` |
 | Migration | `0012_stage_06` après `0011_stage_06` ; une seule tête attendue |
@@ -128,9 +128,24 @@ STAGE 05. Cette décision est consignée dans IMP-013.
 
 Les clés d'idempotence hashent une sérialisation canonique contenant l'intégralité de la clé appelante,
 l'artifact, B et le mode ; aucune troncature de préfixe n'est possible. Le mapping reste complétable
-jusqu'à READY, où sa sérialisation canonique et son `mapping_hash` sont figés par CAS. À READY ou
-COMPILED, même clé/même mapping reprend le résultat ; un mapping différent produit un conflit 409 sans
-nouveau plan. COMPILED n'est jamais réécrit : plan, mapping et report doivent avoir les mêmes hashes.
+jusqu'à READY. La transition READY persiste atomiquement la résolution complète dans `mapping_json` et
+un SHA-256 `mapping_hash` calculé sur `{explicit,resolved}`. `explicit` contient logical ref, type,
+Guild B, destination, confirmation ; `resolved` contient logical ref, type, décision, destination et
+état de confirmation. Score, raison diagnostique, candidats, wording, acteur/timestamp et ordre non
+sémantique sont exclus. La clé d'idempotence du plan dépend directement de ce hash figé.
+
+Un retry READY compare d'abord l'intention explicite au mapping persisté, relit ensuite B et rejoue le
+resolver uniquement pour prouver que le hash sémantique complet est inchangé. Une cible automatique
+disparue, un remap vers un candidat alternatif ou une décision CREATE devenue MANUAL produit
+`TransferConflict` avant le compilateur et avant `PlanningService.create`; `mapping_json` et
+`mapping_hash` ne sont jamais réécrits. Une cible inchangée reprend le même mapping et la même clé de
+plan. COMPILED reste read-only : même plan/mapping/report retourne l'existant et toute divergence est
+un conflit.
+
+Les lignes READY/COMPILED antérieures à 0012 ne contenaient pas assez de matière pour reconstruire ce
+hash complet. Le backfill 0012 les invalide donc fail-closed en `FAILED` avec
+`LEGACY_MAPPING_REFREEZE_REQUIRED`, au lieu de fabriquer un hash trompeur. STAGE 06 n'étant pas mergée,
+aucune compatibilité de production fictive n'est entretenue et aucune migration 0013 n'est nécessaire.
 Les quotas owner
 count/bytes sont sérialisés par advisory transaction lock. Les audits de frontière sont idempotents par
 transfer/event, indépendamment de la création/réutilisation du plan. Le même `transfer_id` relie audits source et destination. Les erreurs
@@ -158,22 +173,22 @@ de candidats ou création de plan.
 Les tests unitaires couvrent canonicalisation, immutabilité, format hostile et mauvais types/bornes,
 graphe/fermeture/cycles, mappings dupliqués/inconnus/non confirmés, refs stables du vrai builder entre
 générations avec suppressions/insertions avant les survivants, MERGE divergent rôle/channel, cycle
-naturel A1→A2 sans injection manuelle, report-only, toutes les frontières du lifecycle, gel READY,
-COMPILED immutable, denial B puis retry sans A, crypto/rotation, API, architecture et confused deputy.
+naturel A1→A2 sans injection manuelle, report-only, toutes les frontières du lifecycle, gel READY du
+mapping sémantique complet, cible automatique inchangée/supprimée/alternative, drift CREATE, conflit
+explicite M1→M2, COMPILED immutable, denial B puis retry sans A, crypto/rotation, API, architecture et confused deputy.
 PostgreSQL réel couvre encryption at rest, idempotence, quota, owner U/V, tenant A/B, FK cross-owner,
 RLS template/policy/transfert/relation, survie relation+bindings après delete artifact et purge TTL,
 tombstone, mapping hash et plan immutable. Le test destination-only appelle le reader exactement sur B
 et crée un seul DSG/plan B ; la compilation d'un artifact stocké ne possède aucun reader A. Le load
 utilise 600 ressources.
 
-La revue durabilité/identité a validé le worktree ensuite figé en `65c735543e4c` avec la matrice finale
-complète : STAGE 01 `20260826T052123732430Z`, STAGE 02 `20260826T052253390327Z`, STAGE 03 et load
-`20260826T052413728862Z` / `20260826T052530220450Z`, STAGE 04 `20260826T052553804546Z`, STAGE 05,
-failure-injection et load `20260826T052718072673Z` / `20260826T052858691849Z` /
-`20260826T052915529635Z`, STAGE 06, security et live `20260826T052924409829Z` /
-`20260826T053101193803Z` / `20260826T053113447965Z` (les run IDs portent le HEAD de départ
-`d438d05d1d92` et `repository_dirty=true`; le diff validé est exactement le commit `65c7355`). Le
-dernier run inclut 255 tests unitaires, 75 intégrations, les migrations downgrade/upgrade jusqu'à la
+La revue finale a validé le commit propre `0f129dd36e61` avec la matrice complète : STAGE 01
+`20260826T210325464845Z`, STAGE 02 `20260826T210446419888Z`, STAGE 03 et load
+`20260826T210559080215Z` / `20260826T210714417697Z`, STAGE 04 `20260826T210735618902Z`, STAGE 05,
+failure-injection et load `20260826T210907041069Z` / `20260826T211046491783Z` /
+`20260826T211059907801Z`, STAGE 06, security et live `20260826T211102852024Z` /
+`20260826T211239541227Z` / `20260826T211254622127Z`. Le dernier run inclut 261 tests unitaires,
+76 intégrations, quatre tests PostgreSQL STAGE 06 dont le drift READY, les migrations downgrade/upgrade jusqu'à la
 tête unique `0012_stage_06`, frontend, secret scan, docs, PostgreSQL RLS, charge et Discord live. Les
 preuves antérieures restent historiques.
 

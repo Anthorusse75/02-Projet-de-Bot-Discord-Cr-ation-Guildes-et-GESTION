@@ -483,7 +483,7 @@ STAGE06_REQUIREMENT_PROGRESS = {
     ),
     "REQ-DUP-009": (
         "IMPLEMENTED",
-        "STAGE 06 same-name role/bot/webhook/principal suggestions stay MANUAL and explicit targets require type/Guild validation plus confirmation",
+        "Same-name suggestions stay MANUAL; READY freezes a SHA-256 of explicit intent plus complete resolved semantics and PostgreSQL/unit crash-window tests reject deleted targets, alternative candidates, CREATE drift and explicit M1→M2 before planning",
     ),
     "REQ-DUP-010": (
         "IMPLEMENTED",

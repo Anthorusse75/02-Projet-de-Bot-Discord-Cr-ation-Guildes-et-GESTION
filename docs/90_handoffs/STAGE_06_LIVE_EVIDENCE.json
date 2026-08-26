@@ -3,9 +3,9 @@
   "date": "2026-08-26",
   "status": "PASS",
   "profile": "discord-live-cross-guild-portability",
-  "tested_commit": "65c735543e4c8e2579da97b8609559eeae4880aa",
-  "run_id": "20260826T053113447965Z-d438d05d1d92-local-docker",
-  "validation_note": "The dirty worktree validated by this run was frozen without code changes as tested_commit.",
+  "tested_commit": "0f129dd36e618b4774621379b6f7c38b613b2064",
+  "run_id": "20260826T211254622127Z-0f129dd36e61-local-docker",
+  "validation_note": "The complete live matrix ran from a clean worktree at tested_commit.",
   "checks": [
     "source fixtures created only by STAGE 05 plan",
     "live export produced immutable encrypted artifact",
