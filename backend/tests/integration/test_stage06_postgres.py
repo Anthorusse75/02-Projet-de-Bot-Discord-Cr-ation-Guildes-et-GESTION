@@ -18,6 +18,7 @@ from did.infrastructure.portability_repository import (
     PortabilityRepository,
     PortableArtifactNotFound,
     PortableQuotaExceeded,
+    TransferConflict,
     TransferNotFound,
 )
 from did.infrastructure.runtime_metrics import RuntimeMetrics
@@ -170,6 +171,12 @@ async def test_artifact_owner_rls_ciphertext_idempotency_templates_and_purge() -
                 idempotency_key="over-quota",
             )
         with pytest.raises(DBAPIError):
+            relationship, _ = await repository.create_clone_relationship(
+                actor_user_id=USER_U,
+                destination_guild_id=GUILD_B,
+                creation_key="b" * 64,
+                source_descriptor={"source_guild_id": GUILD_A},
+            )
             await repository.create_transfer(
                 transfer_id=uuid4(),
                 actor_user_id=USER_V,
@@ -179,9 +186,11 @@ async def test_artifact_owner_rls_ciphertext_idempotency_templates_and_purge() -
                 artifact_content_hash=portable().content_hash,
                 mode="COPY_AS_NEW",
                 mapping=[],
-                status="READY",
+                status="CREATED",
                 correlation_id=uuid4(),
                 idempotency_key="cross-owner-forbidden",
+                relationship_id=relationship["relationship_id"],
+                request_hash="c" * 64,
             )
 
         async with admin.connect() as connection:
@@ -234,6 +243,12 @@ async def test_artifact_owner_rls_ciphertext_idempotency_templates_and_purge() -
             )
         assert hidden_policy is None
 
+        transfer_relationship, _ = await repository.create_clone_relationship(
+            actor_user_id=USER_U,
+            destination_guild_id=GUILD_B,
+            creation_key="d" * 64,
+            source_descriptor={"source_guild_id": GUILD_A},
+        )
         transfer, _ = await repository.create_transfer(
             transfer_id=uuid4(),
             actor_user_id=USER_U,
@@ -243,9 +258,11 @@ async def test_artifact_owner_rls_ciphertext_idempotency_templates_and_purge() -
             artifact_content_hash=portable().content_hash,
             mode="COPY_AS_NEW",
             mapping=[],
-            status="READY",
+            status="CREATED",
             correlation_id=uuid4(),
             idempotency_key="transfer",
+            relationship_id=transfer_relationship["relationship_id"],
+            request_hash="e" * 64,
         )
         with pytest.raises(TransferNotFound):
             await repository.get_transfer(USER_V, transfer["id"])
@@ -325,7 +342,14 @@ async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_i
             idempotency_key="artifact",
         )
         transfer_id = uuid4()
-        relationship_key = "a" * 64
+        relationship, relationship_created = await repository.create_clone_relationship(
+            actor_user_id=USER_U,
+            destination_guild_id=GUILD_B,
+            creation_key="a" * 64,
+            source_descriptor={"source_guild_id": GUILD_A, "authority": "INFORMATIVE_ONLY"},
+        )
+        relationship_id = relationship["relationship_id"]
+        assert relationship_created
         transfer, created = await repository.create_transfer(
             transfer_id=transfer_id,
             actor_user_id=USER_U,
@@ -338,12 +362,13 @@ async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_i
             status="CREATED",
             correlation_id=uuid4(),
             idempotency_key="lifecycle-transfer",
-            relationship_key=relationship_key,
+            relationship_id=relationship_id,
+            request_hash="1" * 64,
         )
         assert created and transfer["state_version"] == 1
         for expected, target in (
-            (TransferState.CREATED, TransferState.EXPORTED),
-            (TransferState.EXPORTED, TransferState.READY),
+            (TransferState.CREATED, TransferState.SOURCE_AUTHORIZED),
+            (TransferState.SOURCE_AUTHORIZED, TransferState.EXPORTED),
         ):
             transfer = await repository.transition_transfer(
                 actor_user_id=USER_U,
@@ -351,20 +376,63 @@ async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_i
                 expected=expected,
                 target=target,
             )
+        transfer = await repository.freeze_transfer_mapping(
+            actor_user_id=USER_U,
+            transfer_id=transfer_id,
+            expected=TransferState.EXPORTED,
+            mapping=[],
+            mapping_hash="2" * 64,
+        )
+        same_ready = await repository.freeze_transfer_mapping(
+            actor_user_id=USER_U,
+            transfer_id=transfer_id,
+            expected=TransferState.EXPORTED,
+            mapping=[],
+            mapping_hash="2" * 64,
+        )
+        assert same_ready["state_version"] == transfer["state_version"]
+        with pytest.raises(TransferConflict, match="already frozen"):
+            await repository.freeze_transfer_mapping(
+                actor_user_id=USER_U,
+                transfer_id=transfer_id,
+                expected=TransferState.EXPORTED,
+                mapping=[{"source_logical_ref": "role.other"}],
+                mapping_hash="3" * 64,
+            )
         transfer = await repository.compile_transfer(
             actor_user_id=USER_U,
             transfer_id=transfer_id,
             destination_plan_id=None,
             report=[{"outcome": "CLONED", "destructive": False}],
+            mapping_hash="2" * 64,
+            report_hash="4" * 64,
         )
         assert transfer["status"] == "COMPILED"
         assert transfer["destination_plan_id"] is None
+        same_compiled = await repository.compile_transfer(
+            actor_user_id=USER_U,
+            transfer_id=transfer_id,
+            destination_plan_id=None,
+            report=[{"outcome": "CLONED", "destructive": False}],
+            mapping_hash="2" * 64,
+            report_hash="4" * 64,
+        )
+        assert same_compiled["state_version"] == transfer["state_version"]
+        with pytest.raises(TransferConflict, match="immutable"):
+            await repository.compile_transfer(
+                actor_user_id=USER_U,
+                transfer_id=transfer_id,
+                destination_plan_id=None,
+                report=[{"outcome": "DIFFERENT", "destructive": False}],
+                mapping_hash="2" * 64,
+                report_hash="6" * 64,
+            )
 
         await repository.save_clone_bindings(
             actor_user_id=USER_U,
             transfer_id=transfer_id,
             destination_guild_id=GUILD_B,
-            relationship_key=relationship_key,
+            relationship_id=relationship_id,
             artifact_hash=portable().content_hash,
             bindings=[
                 {
@@ -375,8 +443,8 @@ async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_i
                 }
             ],
         )
-        owned = await repository.reconcile_bindings(USER_U, GUILD_B, relationship_key)
-        foreign = await repository.reconcile_bindings(USER_V, GUILD_B, relationship_key)
+        owned = await repository.reconcile_bindings(USER_U, GUILD_B, relationship_id)
+        foreign = await repository.reconcile_bindings(USER_V, GUILD_B, relationship_id)
         assert [item["logical_ref"] for item in owned] == ["role.staff"]
         assert foreign == []
 
@@ -399,6 +467,70 @@ async def test_transfer_lifecycle_clone_bindings_rls_and_audit_are_durable_and_i
                 {"target": str(transfer_id)},
             )
         assert count == 1
+
+        await repository.delete_artifact(USER_U, artifact_row["id"])
+        with pytest.raises(TransferNotFound):
+            await repository.get_transfer(USER_U, transfer_id)
+        assert [
+            item["logical_ref"]
+            for item in await repository.reconcile_bindings(USER_U, GUILD_B, relationship_id)
+        ] == ["role.staff"]
+        assert (await repository.get_clone_relationship(USER_U, GUILD_B, relationship_id))[
+            "relationship_id"
+        ] == relationship_id
+
+        expired_artifact, _ = await repository.create_artifact(
+            owner_user_id=USER_U,
+            kind="CLIPBOARD",
+            artifact=portable(),
+            name="expired-after-binding",
+            expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            idempotency_operation="LIFECYCLE",
+            idempotency_key="expired-after-binding",
+        )
+        expired_transfer_id = uuid4()
+        await repository.create_transfer(
+            transfer_id=expired_transfer_id,
+            actor_user_id=USER_U,
+            source_guild_id=GUILD_A,
+            destination_guild_id=GUILD_B,
+            artifact_id=expired_artifact["id"],
+            artifact_content_hash=portable().content_hash,
+            mode="RECONCILE",
+            mapping=[],
+            status="CREATED",
+            correlation_id=uuid4(),
+            idempotency_key="expired-transfer",
+            relationship_id=relationship_id,
+            request_hash="5" * 64,
+        )
+        await repository.save_clone_bindings(
+            actor_user_id=USER_U,
+            transfer_id=expired_transfer_id,
+            destination_guild_id=GUILD_B,
+            relationship_id=relationship_id,
+            artifact_hash=portable().content_hash,
+            bindings=[],
+        )
+        await repository.list_artifacts(USER_U)
+        with pytest.raises(TransferNotFound):
+            await repository.get_transfer(USER_U, expired_transfer_id)
+        assert await repository.reconcile_bindings(USER_U, GUILD_B, relationship_id) == []
+        async with admin.connect() as connection:
+            tombstone = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT active,tombstoned_at FROM portable_clone_bindings "
+                            "WHERE relationship_id=:relationship_id AND logical_ref='role.staff'"
+                        ),
+                        {"relationship_id": relationship_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert tombstone["active"] is False and tombstone["tombstoned_at"] is not None
     finally:
         await engine.dispose()
         await admin.dispose()

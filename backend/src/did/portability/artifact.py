@@ -101,7 +101,7 @@ _ATTRIBUTE_KEYS: dict[PortableResourceType, frozenset[str]] = {
 def validate_portable_attributes(
     resource_type: PortableResourceType, attributes: dict[str, Any]
 ) -> None:
-    """Fail closed on fields that are not part of the versioned portable contract."""
+    """Fail closed on fields and values outside the versioned portable contract."""
 
     unknown = set(attributes) - _ATTRIBUTE_KEYS[resource_type]
     if unknown:
@@ -109,7 +109,52 @@ def validate_portable_attributes(
             "unsupported portable attributes for "
             f"{resource_type.value}: {','.join(sorted(unknown))}"
         )
-    if resource_type is PortableResourceType.CHANNEL:
+
+    def string(key: str, *, maximum: int, nullable: bool = False) -> None:
+        value = attributes.get(key)
+        if value is None and (nullable or key not in attributes):
+            return
+        if not isinstance(value, str) or not 1 <= len(value) <= maximum:
+            raise ValueError(f"portable {key} must be a bounded string")
+
+    def integer(
+        key: str, *, minimum: int = 0, maximum: int | None = None, nullable: bool = False
+    ) -> None:
+        value = attributes.get(key)
+        if value is None and (nullable or key not in attributes):
+            return
+        if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+            raise ValueError(f"portable {key} must be a bounded integer")
+        if maximum is not None and value > maximum:
+            raise ValueError(f"portable {key} must be a bounded integer")
+
+    def boolean(key: str, *, nullable: bool = False) -> None:
+        value = attributes.get(key)
+        if value is None and (nullable or key not in attributes):
+            return
+        if not isinstance(value, bool):
+            raise ValueError(f"portable {key} must be a boolean")
+
+    def decimal(key: str) -> None:
+        value = attributes.get(key)
+        if key in attributes and (
+            not isinstance(value, str) or not value.isdecimal() or int(value) < 0
+        ):
+            raise ValueError(f"portable {key} must be a non-negative decimal string")
+
+    if resource_type is PortableResourceType.ROLE:
+        string("name", maximum=100)
+        decimal("permissions")
+        integer("color", maximum=0xFFFFFF)
+        integer("position")
+        boolean("hoist")
+        boolean("mentionable")
+        boolean("managed")
+    elif resource_type is PortableResourceType.CATEGORY:
+        string("name", maximum=100)
+        integer("position")
+    elif resource_type is PortableResourceType.CHANNEL:
+        string("name", maximum=100)
         channel_type = attributes.get("type")
         if not isinstance(channel_type, int) or isinstance(channel_type, bool):
             raise ValueError("portable channel type must be an integer")
@@ -121,6 +166,42 @@ def validate_portable_attributes(
             raise ValueError("text-only portable attributes used by another channel type")
         if channel_type not in {2, 13} and voice_only & set(attributes):
             raise ValueError("voice-only portable attributes used by another channel type")
+        integer("position")
+        string("topic", maximum=4096, nullable=True)
+        boolean("nsfw", nullable=True)
+        integer("flags")
+        integer("bitrate", minimum=8000, nullable=True)
+        integer("user_limit", maximum=99, nullable=True)
+        integer("rate_limit_per_user", maximum=21_600, nullable=True)
+        integer("default_auto_archive_duration", minimum=60, maximum=10_080, nullable=True)
+    elif resource_type is PortableResourceType.OVERWRITE:
+        integer("target_type", maximum=1)
+        if "target_type" in attributes and attributes["target_type"] not in {0, 1}:
+            raise ValueError("portable overwrite target_type must be 0 or 1")
+        decimal("allow")
+        decimal("deny")
+    elif resource_type is PortableResourceType.LOGICAL_GROUP:
+        string("name", maximum=160)
+        string("slug", maximum=160)
+        string("description", maximum=4096, nullable=True)
+    elif resource_type is PortableResourceType.POLICY:
+        string("name", maximum=160)
+        rules = attributes.get("rules")
+        if "rules" in attributes and not isinstance(rules, list | dict):
+            raise ValueError("portable policy rules must be an object or array")
+    elif resource_type is PortableResourceType.SYSTEM_PRINCIPAL:
+        string("kind", maximum=64)
+        if attributes.get("kind") != "EVERYONE":
+            raise ValueError("portable system principal kind is unsupported")
+    elif resource_type is PortableResourceType.PRINCIPAL_REQUIREMENT:
+        string("kind", maximum=64)
+        string("name", maximum=100)
+        string("source_binding", maximum=64)
+    elif resource_type in {
+        PortableResourceType.BOT_REFERENCE,
+        PortableResourceType.WEBHOOK_REFERENCE,
+    }:
+        string("name", maximum=100)
 
 
 @dataclass(frozen=True, slots=True)

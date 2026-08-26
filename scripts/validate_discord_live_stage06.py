@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import discord
 from redis.asyncio import Redis
+from sqlalchemy import text
 
 from did.application.auth import AuthorizationService
 from did.application.planning import ApplyActorAuthorizer, PlanningService
@@ -48,6 +49,7 @@ from did.portability import (
     PortableResourceType,
 )
 from did.worker.io.governor import DiscordWorkloadGovernor
+from did.worker.io.plan_executor import ApplyPlanExecutor
 from validate_discord_live_stage05 import (
     CachedGuildAuthContext,
     CountingAdapter,
@@ -276,6 +278,125 @@ async def cleanup_prefix(
     return len(roles) + len(channels)
 
 
+async def resume_portability_jobs(
+    *,
+    guild_ids: tuple[int, int],
+    actor: int,
+    planning: PlanningService,
+    plans: PlanningRepository,
+    runtime: RuntimeRepository,
+    adapter: GuildCountingAdapter,
+    lock: RedisGuildMutationLock,
+    authorization: ApplyActorAuthorizer,
+    governor: DiscordWorkloadGovernor,
+    admin_engine: Any,
+) -> int:
+    """Resume only sandbox jobs proven to originate from Stage 06 compilation."""
+
+    parameters = {"guild_a": guild_ids[0], "guild_b": guild_ids[1], "actor": actor}
+    async with admin_engine.connect() as connection:
+        candidate_rows = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT j.job_id,j.guild_id FROM discord_io_jobs j "
+                        "JOIN plans p ON p.guild_id=j.guild_id "
+                        "AND p.id=(j.payload->>'plan_id')::uuid "
+                        "WHERE j.guild_id IN (:guild_a,:guild_b) "
+                        "AND j.requested_by=:actor AND p.actor_user_id=:actor "
+                        "AND j.workload_type='APPLY_PLAN' "
+                        "AND (j.status='PENDING' OR (j.status='LEASED' AND "
+                        "(j.leased_until<=now() OR "
+                        "j.lease_owner LIKE 'stage06-live-resume-%'))) "
+                        "AND (p.idempotency_key LIKE 'portable-plan:%' OR EXISTS "
+                        "(SELECT 1 FROM cross_guild_transfers t "
+                        "WHERE t.actor_discord_user_id=:actor "
+                        "AND t.destination_guild_id=j.guild_id "
+                        "AND t.destination_plan_id=p.id)) "
+                        "ORDER BY j.created_at"
+                    ),
+                    parameters,
+                )
+            )
+            .mappings()
+            .all()
+        )
+    resumed = 0
+    for candidate in candidate_rows:
+        guild_id = int(candidate["guild_id"])
+        job_id = UUID(str(candidate["job_id"]))
+        worker = f"stage06-live-resume-{guild_id}-{resumed}"
+        lease_token = uuid4()
+        async with admin_engine.begin() as connection:
+            leased_row = (
+                (
+                    await connection.execute(
+                        text(
+                            "UPDATE discord_io_jobs SET status='LEASED', "
+                            "lease_owner=:owner,lease_token=:token,"
+                            "leased_until=now()+interval '1200 seconds',"
+                            "lease_generation=lease_generation+1,"
+                            "attempt_count=attempt_count+1,updated_at=now() "
+                            "WHERE job_id=:job AND guild_id=:guild "
+                            "AND (status='PENDING' OR (status='LEASED' AND "
+                            "(leased_until<=now() OR "
+                            "lease_owner LIKE 'stage06-live-resume-%'))) "
+                            "RETURNING job_id,guild_id,workload_type,logical_key,priority,"
+                            "payload,requested_by,correlation_id,attempt_count,created_at,"
+                            "lease_token,lease_generation,leased_until"
+                        ),
+                        {
+                            "owner": worker,
+                            "token": lease_token,
+                            "job": job_id,
+                            "guild": guild_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if leased_row is None:
+            continue
+        leased = dict(leased_row)
+        plan_id = UUID(str(dict(leased["payload"])["plan_id"]))
+        async with admin_engine.connect() as connection:
+            owned = await connection.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM plans p WHERE p.id=:plan_id "
+                    "AND p.guild_id=:guild AND p.actor_user_id=:actor "
+                    "AND (p.idempotency_key LIKE 'portable-plan:%' OR EXISTS "
+                    "(SELECT 1 FROM cross_guild_transfers t "
+                    "WHERE t.actor_discord_user_id=:actor "
+                    "AND t.destination_guild_id=:guild "
+                    "AND t.destination_plan_id=p.id)))"
+                ),
+                {"actor": actor, "guild": guild_id, "plan_id": plan_id},
+            )
+        if owned is not True:
+            raise RuntimeError("refusing to resume a non-portability sandbox job")
+        plan = await plans.get_plan(guild_id, plan_id)
+        if str(plan["status"]) != "SUCCEEDED":
+            executor = ApplyPlanExecutor(
+                plans,
+                adapter,
+                lock,
+                worker_id=worker,
+                authorization=authorization,
+                preflight=planning,
+            )
+            await executor.execute_leased(guild_id, leased, governor)
+        if not await runtime.complete_job(
+            guild_id,
+            job_id,
+            lease_owner=worker,
+            lease_token=lease_token,
+        ):
+            raise RuntimeError("resumed portability job was not acknowledged")
+        resumed += 1
+    return resumed
+
+
 async def run_live() -> dict[str, int]:
     guild_a = int(os.environ["DISCORD_TEST_GUILD_A_ID"])
     guild_b = int(os.environ["DISCORD_TEST_GUILD_B_ID"])
@@ -344,6 +465,18 @@ async def run_live() -> dict[str, int]:
             )
         assert actor is not None
         await refresh_discovery(guild_store, actor, client, (guild_a, guild_b))
+        resumed_jobs = await resume_portability_jobs(
+            guild_ids=(guild_a, guild_b),
+            actor=actor,
+            planning=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+        )
         for guild_id in (guild_a, guild_b):
             cleanup_count += await cleanup_prefix(
                 guild_id=guild_id,
@@ -574,6 +707,8 @@ async def run_live() -> dict[str, int]:
             artifact_hash=str(transfer["artifact_content_hash"]),
             correlation_id=uuid4(),
         )
+        if destination_plan is None:
+            raise RuntimeError("fresh COPY transfer did not return its destination plan")
         destination_plan = await create_validated_plan_from_draft(
             planning,
             authorization,
@@ -729,6 +864,8 @@ async def run_live() -> dict[str, int]:
             idempotency_key=f"stage06-stored-{suffix}",
             correlation_id=uuid4(),
         )
+        if stored_plan is None:
+            raise RuntimeError("fresh stored MERGE transfer did not return its destination plan")
         stored_plan = await create_validated_plan_from_draft(
             planning,
             authorization,
@@ -782,19 +919,12 @@ async def run_live() -> dict[str, int]:
             transfer_id=UUID(str(stored_transfer["id"])),
             correlation_id=uuid4(),
         )
-        owned_extra_name = f"{PREFIX}OWNED-EXTRA-{suffix}"
         unrelated_name = f"{PREFIX}UNRELATED-{suffix}"
         reconcile_fixture_plan = await create_validated_plan(
             planning,
             graph=DesiredStateGraph(
                 guild_b,
                 (
-                    DesiredNode.build(
-                        logical_key="stage06.reconcile.owned_extra",
-                        resource_type=ResourceType.ROLE,
-                        symbol="stage06.reconcile.owned_extra.symbol",
-                        properties={"name": owned_extra_name, "permissions": "0"},
-                    ),
                     DesiredNode.build(
                         logical_key="stage06.reconcile.unrelated",
                         resource_type=ResourceType.ROLE,
@@ -831,23 +961,161 @@ async def run_live() -> dict[str, int]:
             admin_engine=admin_engine,
         )
         reconcile_roles = await structure.fetch_roles(guild_b)
-        owned_extra = next(item for item in reconcile_roles if item["name"] == owned_extra_name)
         unrelated = next(item for item in reconcile_roles if item["name"] == unrelated_name)
-        relationship_key = str(stored_transfer["relationship_key"])
-        await repository.save_clone_bindings(
+        relationship_id = UUID(str(transfer["relationship_id"]))
+        removed_destination_channel = next(
+            item
+            for item in await structure.fetch_channels(guild_b)
+            if item["name"] == channel_names[1]
+        )
+        removed_ref = next(
+            resource.logical_key
+            for resource in portable_artifact.resources
+            if resource.resource_type is PortableResourceType.CHANNEL
+            and resource.attribute_map().get("name") == channel_names[1]
+        )
+        survivor_ref = next(
+            resource.logical_key
+            for resource in portable_artifact.resources
+            if resource.resource_type is PortableResourceType.CHANNEL
+            and resource.attribute_map().get("name") == channel_names[0]
+        )
+
+        await repository.delete_artifact(actor, artifact_id)
+        artifact_id = None
+        if (await repository.get_clone_relationship(actor, guild_b, relationship_id))[
+            "relationship_id"
+        ] != relationship_id:
+            raise RuntimeError("clone relationship did not survive A1 artifact deletion")
+
+        new_channel_name = f"{PREFIX}THREE-{suffix}".lower()
+        source_a2_plan = await create_validated_plan(
+            planning,
+            graph=DesiredStateGraph(
+                guild_a,
+                (
+                    DesiredNode.build(
+                        logical_key="stage06.source.a2.role",
+                        resource_type=ResourceType.ROLE,
+                        discord_id=int(source_role["role_id"]),
+                        properties={"name": f"{role_name}-A2", "permissions": "0"},
+                    ),
+                    DesiredNode.build(
+                        logical_key="stage06.source.a2.category",
+                        resource_type=ResourceType.CATEGORY,
+                        discord_id=int(source_category["channel_id"]),
+                        properties={"name": category_name, "type": 4},
+                    ),
+                    DesiredNode.build(
+                        logical_key="stage06.source.a2.survivor",
+                        resource_type=ResourceType.CHANNEL,
+                        discord_id=int(source_channels[0]["channel_id"]),
+                        properties={
+                            "name": channel_names[0],
+                            "type": 0,
+                            "topic": "stage06-a2-survivor",
+                            "rate_limit_per_user": 3,
+                            "default_auto_archive_duration": 1440,
+                        },
+                        relations={
+                            "parent": ResourceReference(
+                                ReferenceKind.LOGICAL, "stage06.source.a2.category"
+                            )
+                        },
+                    ),
+                    DesiredNode.build(
+                        logical_key="stage06.source.a2.removed",
+                        resource_type=ResourceType.CHANNEL,
+                        presence=NodePresence.ABSENT,
+                        discord_id=int(source_channels[1]["channel_id"]),
+                    ),
+                    DesiredNode.build(
+                        logical_key="stage06.source.a2.added",
+                        resource_type=ResourceType.CHANNEL,
+                        symbol="stage06.source.a2.added.symbol",
+                        properties={
+                            "name": new_channel_name,
+                            "type": 0,
+                            "rate_limit_per_user": 0,
+                            "default_auto_archive_duration": 1440,
+                        },
+                        relations={
+                            "parent": ResourceReference(
+                                ReferenceKind.LOGICAL, "stage06.source.a2.category"
+                            )
+                        },
+                    ),
+                ),
+            ),
+            actor=actor,
+            key=f"stage06-source-a2-{suffix}",
+            authorization=authorization,
+        )
+        await apply_with_optional_crash(
+            service=planning,
+            plans=plans,
+            runtime=runtime,
+            adapter=mutable,
+            lock=lock,
+            authorization=authorization,
+            governor=governor,
+            admin_engine=admin_engine,
+            guild_id=guild_a,
+            actor=actor,
+            plan=source_a2_plan,
+            inject_crash=False,
+        )
+        await seed_snapshot(
+            guild_id=guild_a,
+            client=client,
+            structure=structure,
+            runtime=runtime,
+            auth_repository=auth_repository,
+            guild_store=guild_store,
+            admin_engine=admin_engine,
+        )
+        artifact_a2_row, _ = await portability.export_live(
+            source_guild_id=guild_a,
             actor_user_id=actor,
-            transfer_id=UUID(str(stored_transfer["id"])),
+            selection=ArtifactSelection(
+                ArtifactType.CATEGORY,
+                category_ids=(int(source_category["channel_id"]),),
+            ),
+            kind=ArtifactKind.EXPORT_BUNDLE,
+            name=f"{PREFIX}ARTIFACT-A2-{suffix}",
+            idempotency_key=f"stage06-export-a2-{suffix}",
+            correlation_id=uuid4(),
+        )
+        artifact_id = UUID(str(artifact_a2_row["id"]))
+        source_a2_before = prefixed_snapshot(
+            await structure.fetch_roles(guild_a), await structure.fetch_channels(guild_a)
+        )
+        _, portable_a2 = await repository.get_artifact(actor, artifact_id)
+        if survivor_ref not in {resource.logical_key for resource in portable_a2.resources}:
+            raise RuntimeError("A2 did not preserve the survivor logical reference")
+        if removed_ref in {resource.logical_key for resource in portable_a2.resources}:
+            raise RuntimeError("A2 retained the removed logical reference")
+
+        retry_key = f"stage06-reconcile-a2-{suffix}"
+        prepared, _, _ = await portability.prepare_stored_transfer(
+            actor_user_id=actor,
+            artifact_id=artifact_id,
             destination_guild_id=guild_b,
-            relationship_key=relationship_key,
-            artifact_hash=str(stored_transfer["artifact_content_hash"]),
-            bindings=[
-                {
-                    "logical_ref": "role.removed",
-                    "resource_type": "ROLE",
-                    "destination_resource_id": int(owned_extra["role_id"]),
-                    "binding_origin": "CREATED",
-                }
-            ],
+            mode=CloneMode.RECONCILE,
+            idempotency_key=retry_key,
+            correlation_id=uuid4(),
+            source_authorized=True,
+            relationship_id=relationship_id,
+        )
+        if prepared["status"] != "EXPORTED":
+            raise RuntimeError("A2 transfer was not durably exported before destination compile")
+        destination_only = DestinationOnlyReadModels(read_models, guild_a)
+        stored_service = PortabilityService(
+            repository,
+            destination_only,  # type: ignore[arg-type]
+            planning,
+            plans,
+            metrics=runtime.metrics,
         )
         preview = await stored_service.preview_stored(
             actor_user_id=actor,
@@ -855,27 +1123,29 @@ async def run_live() -> dict[str, int]:
             destination_guild_id=guild_b,
             mode=CloneMode.RECONCILE,
             explicit_mappings=(),
-            relationship_key=relationship_key,
+            relationship_id=relationship_id,
         )
         delete_refs = {str(item["destination_ref"]) for item in preview["delete_candidates"]}
-        if delete_refs != {str(owned_extra["role_id"])}:
-            raise RuntimeError("RECONCILE preview did not expose the exact owned delete")
+        if delete_refs != {str(removed_destination_channel["channel_id"])}:
+            raise RuntimeError("natural A2 RECONCILE did not expose the exact A1-owned delete")
         reconcile_transfer, reconcile_plan, _ = await stored_service.compile_stored(
             actor_user_id=actor,
             artifact_id=artifact_id,
             destination_guild_id=guild_b,
             mode=CloneMode.RECONCILE,
             explicit_mappings=(),
-            idempotency_key=f"stage06-reconcile-{suffix}",
+            idempotency_key=retry_key,
             correlation_id=uuid4(),
-            relationship_key=relationship_key,
+            relationship_id=relationship_id,
         )
+        if reconcile_plan is None:
+            raise RuntimeError("fresh RECONCILE transfer did not return its destination plan")
         reconcile_plan = await create_validated_plan_from_draft(
             planning,
             authorization,
             reconcile_plan,
             actor=actor,
-            key=f"stage06-reconcile-{suffix}",
+            key=retry_key,
         )
         await apply_with_optional_crash(
             service=planning,
@@ -890,6 +1160,7 @@ async def run_live() -> dict[str, int]:
             actor=actor,
             plan=reconcile_plan,
             inject_crash=False,
+            lease_seconds=1_200,
         )
         await seed_snapshot(
             guild_id=guild_b,
@@ -901,8 +1172,22 @@ async def run_live() -> dict[str, int]:
             admin_engine=admin_engine,
         )
         remaining_roles = await structure.fetch_roles(guild_b)
-        if any(int(item["role_id"]) == int(owned_extra["role_id"]) for item in remaining_roles):
-            raise RuntimeError("RECONCILE did not delete its owned extra")
+        remaining_channels = await structure.fetch_channels(guild_b)
+        if any(
+            int(item["channel_id"]) == int(removed_destination_channel["channel_id"])
+            for item in remaining_channels
+        ):
+            raise RuntimeError("natural A2 RECONCILE did not delete its removed A1 channel")
+        survivor_destination = next(
+            item for item in remaining_channels if item["name"] == channel_names[0]
+        )
+        if (
+            survivor_destination.get("topic") != "stage06-a2-survivor"
+            or int(survivor_destination.get("rate_limit_per_user") or 0) != 3
+        ):
+            raise RuntimeError("natural A2 RECONCILE did not update its survivor")
+        if not any(item["name"] == new_channel_name for item in remaining_channels):
+            raise RuntimeError("natural A2 RECONCILE did not create its added channel")
         if not any(int(item["role_id"]) == int(unrelated["role_id"]) for item in remaining_roles):
             raise RuntimeError("RECONCILE touched an unrelated destination role")
         await stored_service.finalize_transfer(
@@ -910,11 +1195,25 @@ async def run_live() -> dict[str, int]:
             transfer_id=UUID(str(reconcile_transfer["id"])),
             correlation_id=uuid4(),
         )
+        active_bindings = await repository.reconcile_bindings(actor, guild_b, relationship_id)
+        active_refs = {str(item["logical_ref"]) for item in active_bindings}
+        if removed_ref in active_refs or survivor_ref not in active_refs:
+            raise RuntimeError("A2 finalization did not tombstone the removed A1 binding")
+        await repository.delete_artifact(actor, artifact_id)
+        artifact_id = None
+        await repository.get_clone_relationship(actor, guild_b, relationship_id)
+        if {
+            str(item["logical_ref"])
+            for item in await repository.reconcile_bindings(actor, guild_b, relationship_id)
+        } != active_refs:
+            raise RuntimeError("clone bindings did not survive A2 artifact deletion")
         source_after = prefixed_snapshot(
             await structure.fetch_roles(guild_a), await structure.fetch_channels(guild_a)
         )
-        if source_after != source_before:
-            raise RuntimeError("source structure changed during destination cloning")
+        if source_a2_before == source_before:
+            raise RuntimeError("source A2 fixture did not change from A1")
+        if source_after != source_a2_before:
+            raise RuntimeError("source structure changed during A2 destination reconciliation")
 
         cleanup_count += await cleanup_prefix(
             guild_id=guild_b,
@@ -944,8 +1243,6 @@ async def run_live() -> dict[str, int]:
             admin_engine=admin_engine,
             actor=actor,
         )
-        await repository.delete_artifact(actor, artifact_id)
-        artifact_id = None
         for guild_id in (guild_a, guild_b):
             if any(
                 str(item["name"]).upper().startswith(PREFIX)
@@ -967,8 +1264,15 @@ async def run_live() -> dict[str, int]:
             "full_text_channel_properties_verified": 2,
             "reconcile_owned_deletes": 1,
             "reconcile_unrelated_controls_untouched": 1,
+            "stable_survivor_refs_across_generations": 1,
+            "natural_a1_a2_reconcile_cycles": 1,
+            "durable_export_retries_without_source_read": 1,
+            "relationships_surviving_artifact_delete": 1,
+            "bindings_surviving_artifact_delete": len(active_refs),
+            "tombstoned_removed_bindings": 1,
+            "resumed_portability_jobs": resumed_jobs,
             "cleanup_resources": cleanup_count,
-            "artifacts_purged": 1,
+            "artifacts_purged": 2,
         }
     finally:
         if artifact_id is not None and actor is not None:
@@ -1081,12 +1385,15 @@ def main() -> int:
             "divergent destination role/channel were restored by stored MERGE",
             "text slowmode and default auto archive duration were preserved",
             "stored artifact compiled and applied with source reader fail-if-called",
-            "RECONCILE preview exposed one relationship-owned delete",
-            "RECONCILE deleted the owned extra and preserved an unrelated control",
-            "source snapshot remained byte-identical during destination clones",
+            "A1 artifact deletion preserved the server-generated clone relationship",
+            "natural A1-to-A2 RECONCILE exposed the exact removed-source destination",
+            "natural A1-to-A2 RECONCILE updated, created and tombstoned bindings",
+            "unrelated destination control remained untouched",
+            "source A2 snapshot remained byte-identical during destination reconciliation",
             "mutable adapter recorded zero source calls during clone",
             "source and destination cleanup used audited STAGE 05 plans",
-            "artifact and owned transfers were purged",
+            "A2 artifact deletion preserved the relationship and active bindings",
+            "ephemeral artifacts and transfers were purged",
         ],
         missing=[],
         skipped=skipped,

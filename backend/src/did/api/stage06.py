@@ -12,6 +12,7 @@ from did.api.guilds import parse_snowflake
 from did.application.portability import ArtifactKind, MappingRequired
 from did.cloning import ArtifactSelection, support_matrix
 from did.domain.auth import AuthorizationScope, Capability
+from did.infrastructure.portability_repository import TransferConflict
 from did.portability import ArtifactType, CloneMode, ExplicitMapping, PortableResourceType
 from did.portability.artifact import MAX_RAW_FILE_BYTES
 
@@ -90,7 +91,7 @@ class CompileInput(BaseModel):
     artifact_id: UUID
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
-    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    relationship_id: UUID | None = None
 
 
 class CloneInput(BaseModel):
@@ -99,7 +100,7 @@ class CloneInput(BaseModel):
     destination_guild_id: str
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
-    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    relationship_id: UUID | None = None
 
     @field_validator("destination_guild_id")
     @classmethod
@@ -116,7 +117,7 @@ class LiveTransferInput(BaseModel):
     mode: CloneMode = CloneMode.COPY_AS_NEW
     mappings: list[MappingInput] = Field(default_factory=list, max_length=1000)
     name: str | None = Field(default=None, min_length=1, max_length=160)
-    relationship_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    relationship_id: UUID | None = None
 
     @field_validator("source_guild_id", "destination_guild_id")
     @classmethod
@@ -189,7 +190,9 @@ def _transfer(row: dict[str, Any]) -> dict[str, Any]:
         "destination_guild_id": str(row["destination_guild_id"]),
         "portable_artifact_id": str(row["portable_artifact_id"]),
         "artifact_content_hash": str(row["artifact_content_hash"]),
-        "relationship_key": row.get("relationship_key"),
+        "relationship_id": (
+            str(row["relationship_id"]) if row.get("relationship_id") is not None else None
+        ),
         "destination_plan_id": (
             str(row["destination_plan_id"]) if row.get("destination_plan_id") is not None else None
         ),
@@ -249,10 +252,16 @@ async def _compile(
             idempotency_key=idempotency_key,
             correlation_id=UUID(str(request.state.correlation_id)),
             source_authorized=source_authorized,
-            relationship_key=body.relationship_key,
+            relationship_id=body.relationship_id,
         )
     except MappingRequired as exc:
         raise _mapping_problem(exc) from exc
+    except TransferConflict as exc:
+        raise ApiProblem(
+            status_code=409,
+            code="PORTABLE_TRANSFER_CONFLICT",
+            message_key="errors.portability.transferConflict",
+        ) from exc
     except ValueError as exc:
         raise ApiProblem(
             status_code=422,
@@ -411,7 +420,7 @@ async def clone_portable_artifact(
         artifact_id=artifact_id,
         mode=body.mode,
         mappings=body.mappings,
-        relationship_key=body.relationship_key,
+        relationship_id=body.relationship_id,
     )
     return await _compile(
         body=compile_body,
@@ -460,7 +469,7 @@ async def import_preview(
             destination_guild_id=destination,
             mode=body.mode,
             explicit_mappings=tuple(item.domain(destination) for item in body.mappings),
-            relationship_key=body.relationship_key,
+            relationship_id=body.relationship_id,
         )
     except ValueError as exc:
         raise ApiProblem(
@@ -481,16 +490,67 @@ async def create_live_transfer(
 ) -> dict[str, Any]:
     source = int(body.source_guild_id)
     destination = int(body.destination_guild_id)
-    await _authorize(source, session, container, Capability.STRUCTURE_READ)
-    artifact, _ = await _portable(container).export_live(
-        source_guild_id=source,
+    service = _portable(container)
+    export_key = _derived_api_key("live-export", idempotency_key)
+    selection = body.selection.domain()
+    artifact = await service.find_live_export(
         actor_user_id=session.discord_user_id,
-        selection=body.selection.domain(),
+        source_guild_id=source,
+        selection=selection,
         kind=ArtifactKind.EXPORT_BUNDLE,
-        name=body.name,
-        idempotency_key=_derived_api_key("live-export", idempotency_key),
-        correlation_id=UUID(str(request.state.correlation_id)),
+        idempotency_key=export_key,
         logical_group_id=body.selection.logical_group_id,
+    )
+    compile_key = _derived_api_key("live-compile", idempotency_key)
+    resumable = (
+        await service.find_resumable_transfer(
+            actor_user_id=session.discord_user_id,
+            artifact_id=UUID(str(artifact["id"])),
+            destination_guild_id=destination,
+            mode=body.mode,
+            idempotency_key=compile_key,
+        )
+        if artifact is not None
+        else None
+    )
+    if artifact is None:
+        await _authorize(source, session, container, Capability.STRUCTURE_READ)
+        artifact, _ = await service.export_live(
+            source_guild_id=source,
+            actor_user_id=session.discord_user_id,
+            selection=selection,
+            kind=ArtifactKind.EXPORT_BUNDLE,
+            name=body.name,
+            idempotency_key=export_key,
+            correlation_id=UUID(str(request.state.correlation_id)),
+            logical_group_id=body.selection.logical_group_id,
+        )
+    elif resumable is None:
+        await _authorize(source, session, container, Capability.STRUCTURE_READ)
+    try:
+        prepared, _, _ = await service.prepare_stored_transfer(
+            actor_user_id=session.discord_user_id,
+            artifact_id=UUID(str(artifact["id"])),
+            destination_guild_id=destination,
+            mode=body.mode,
+            idempotency_key=compile_key,
+            correlation_id=UUID(str(request.state.correlation_id)),
+            source_authorized=True,
+            relationship_id=body.relationship_id,
+        )
+    except TransferConflict as exc:
+        raise ApiProblem(
+            status_code=409,
+            code="PORTABLE_TRANSFER_CONFLICT",
+            message_key="errors.portability.transferConflict",
+        ) from exc
+    await container.portability_repository.audit_boundary(
+        guild_id=source,
+        actor_user_id=session.discord_user_id,
+        transfer_id=UUID(str(prepared["id"])),
+        event_type="CROSS_GUILD_SOURCE_EXPORTED",
+        artifact_hash=str(prepared["artifact_content_hash"]),
+        correlation_id=UUID(str(request.state.correlation_id)),
     )
     await _authorize_destination(destination, session, container)
     result = await _compile(
@@ -498,25 +558,15 @@ async def create_live_transfer(
             artifact_id=UUID(str(artifact["id"])),
             mode=body.mode,
             mappings=body.mappings,
-            relationship_key=body.relationship_key,
+            relationship_id=UUID(str(prepared["relationship_id"])),
         ),
         destination=destination,
         request=request,
-        idempotency_key=_derived_api_key("live-compile", idempotency_key),
+        idempotency_key=compile_key,
         session=session,
         container=container,
         source_authorized=True,
     )
-    if result["created"]:
-        transfer = result["transfer"]
-        await container.portability_repository.audit_boundary(
-            guild_id=source,
-            actor_user_id=session.discord_user_id,
-            transfer_id=UUID(transfer["id"]),
-            event_type="CROSS_GUILD_SOURCE_EXPORTED",
-            artifact_hash=transfer["artifact_content_hash"],
-            correlation_id=UUID(str(request.state.correlation_id)),
-        )
     return result
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
@@ -46,7 +47,10 @@ class PortableArtifactBuilder:
             selected_channels or selected_categories or selected_roles
         ):
             selected_channels.update(
-                channel.channel_id for channel in guild.channels if not channel.is_thread
+                channel.channel_id
+                for channel in guild.channels
+                if not channel.is_thread
+                and channel.observability is not ObservabilityState.DELETED_CONFIRMED
             )
             selected_roles.update(role.role_id for role in guild.roles)
         for category_id in tuple(selected_categories):
@@ -57,7 +61,9 @@ class PortableArtifactBuilder:
             selected_channels.update(
                 channel.channel_id
                 for channel in guild.channels
-                if channel.parent_id == category_id and not channel.is_thread
+                if channel.parent_id == category_id
+                and not channel.is_thread
+                and channel.observability is not ObservabilityState.DELETED_CONFIRMED
             )
         for channel_id in tuple(selected_channels):
             channel = channels.get(channel_id)
@@ -73,16 +79,18 @@ class PortableArtifactBuilder:
         self._assert_selected_observable(guild, selected_channels, selected_roles)
 
         channel_keys = self._keys(
+            guild.guild_id,
             "category",
             sorted(value for value in selected_channels if channels[value].channel_type == 4),
         )
         channel_keys.update(
             self._keys(
+                guild.guild_id,
                 "channel",
                 sorted(value for value in selected_channels if channels[value].channel_type != 4),
             )
         )
-        role_keys = self._keys("role", sorted(selected_roles - {guild.guild_id}))
+        role_keys = self._keys(guild.guild_id, "role", sorted(selected_roles - {guild.guild_id}))
         resources: list[PortableResource] = []
         dependencies: list[PortableDependency] = []
         source_ids: set[str] = {str(value) for value in selected_channels | selected_roles}
@@ -115,7 +123,6 @@ class PortableArtifactBuilder:
                     },
                 )
             )
-        overwrite_index = 0
         for channel_id in sorted(selected_channels):
             channel = channels[channel_id]
             key = channel_keys[channel_id]
@@ -159,8 +166,11 @@ class PortableArtifactBuilder:
                     PortableDependency(key, channel_keys[channel.parent_id], "parent")
                 )
             for overwrite in channel.overwrites:
-                overwrite_index += 1
-                overwrite_key = f"overwrite.o{overwrite_index:04d}"
+                overwrite_key = self._logical_key(
+                    guild.guild_id,
+                    "overwrite",
+                    f"{channel_id}:{overwrite.target_type}:{overwrite.target_id}",
+                )
                 if overwrite.target_type == 0:
                     principal_key = (
                         everyone_key
@@ -168,7 +178,9 @@ class PortableArtifactBuilder:
                         else role_keys[overwrite.target_id]
                     )
                 else:
-                    principal_key = f"principal_requirement.member{overwrite_index:04d}"
+                    principal_key = self._logical_key(
+                        guild.guild_id, "principal_requirement", str(overwrite.target_id)
+                    )
                     resources.append(
                         PortableResource.build(
                             principal_key,
@@ -294,11 +306,20 @@ class PortableArtifactBuilder:
             raise SourceNotObservable("live clone source is stale, hidden or inaccessible")
 
     @staticmethod
-    def _keys(prefix: str, source_ids: list[int]) -> dict[int, str]:
+    def _keys(source_guild_id: int, prefix: str, source_ids: list[int]) -> dict[int, str]:
         return {
-            source_id: f"{prefix}.{prefix[0]}{index:04d}"
-            for index, source_id in enumerate(source_ids, 1)
+            source_id: PortableArtifactBuilder._logical_key(source_guild_id, prefix, str(source_id))
+            for source_id in source_ids
         }
+
+    @staticmethod
+    def _logical_key(source_guild_id: int, resource_type: str, source_identity: str) -> str:
+        """Encode a stable source identity without exposing a raw Discord ID as a reference."""
+
+        material = (
+            f"did:portable-logical:v1:{source_guild_id}:{resource_type}:{source_identity}"
+        ).encode()
+        return f"{resource_type}.k{hashlib.sha256(material).hexdigest()[:40]}"
 
     @staticmethod
     def _roots(

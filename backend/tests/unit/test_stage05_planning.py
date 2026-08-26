@@ -339,6 +339,49 @@ def test_delete_everyone_is_rejected_by_preflight() -> None:
     assert "preflight.default_role_delete_forbidden" in result.errors
 
 
+@pytest.mark.parametrize(
+    ("observability", "expected_error"),
+    [
+        (ObservabilityState.VISIBLE, True),
+        (ObservabilityState.DELETED_CONFIRMED, False),
+    ],
+)
+def test_category_delete_ignores_only_children_confirmed_deleted(
+    observability: ObservabilityState, expected_error: bool
+) -> None:
+    base = current_guild()
+    category = replace(
+        base.channels[0],
+        channel_id=700,
+        channel_type=ChannelType.GUILD_CATEGORY,
+        parent_id=None,
+        name="category",
+    )
+    child = replace(
+        base.channels[0],
+        channel_id=701,
+        parent_id=category.channel_id,
+        name="child",
+        observability=observability,
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="category.deleted",
+                resource_type=ResourceType.CATEGORY,
+                discord_id=category.channel_id,
+                presence=NodePresence.ABSENT,
+            ),
+        ),
+    )
+    errors: list[str] = []
+
+    PreflightEngine._check_topology(graph, replace(base, channels=(category, child)), errors)
+
+    assert ("preflight.category_delete_child_effect_implicit" in errors) is expected_error
+
+
 def test_preflight_accepts_overwrite_on_channel_created_by_the_same_symbolic_plan() -> None:
     base = current_guild()
     permissions = DEFAULT_PERMISSION_REGISTRY.value(

@@ -32,6 +32,10 @@ class TransferNotFound(LookupError):
     pass
 
 
+class TransferConflict(ValueError):
+    pass
+
+
 class PortabilityRepository:
     def __init__(
         self,
@@ -187,6 +191,20 @@ class PortabilityRepository:
                 .all()
             )
             return [dict(row) for row in rows]
+
+    async def find_artifact_by_idempotency(
+        self, owner_user_id: int, operation: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        async with tenant_transaction(self._factory, UserContext(owner_user_id)) as session:
+            row = await self._artifact_by_idempotency(
+                session, owner_user_id, operation, idempotency_key
+            )
+            if row is None or (
+                row.get("expires_at") is not None
+                and row["expires_at"] <= datetime.now().astimezone()
+            ):
+                return None
+            return dict(row)
 
     async def get_artifact(
         self, owner_user_id: int, artifact_id: UUID
@@ -390,6 +408,108 @@ class PortabilityRepository:
             raise PortableArtifactNotFound("template unavailable")
         return dict(row), artifact_from_dict(dict(row["artifact_json"]))
 
+    async def create_clone_relationship(
+        self,
+        *,
+        actor_user_id: int,
+        destination_guild_id: int,
+        creation_key: str,
+        source_descriptor: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        relationship_id = uuid4()
+        async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "INSERT INTO portable_clone_relationships "
+                            "(relationship_id,owner_discord_user_id,destination_guild_id,"
+                            "creation_key,source_descriptor_json) VALUES "
+                            "(:id,:actor,:destination,:creation_key,:descriptor) "
+                            "ON CONFLICT (owner_discord_user_id,creation_key) DO NOTHING "
+                            "RETURNING *"
+                        ),
+                        {
+                            "id": relationship_id,
+                            "actor": actor_user_id,
+                            "destination": destination_guild_id,
+                            "creation_key": creation_key,
+                            "descriptor": json.dumps(source_descriptor),
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is not None:
+                return dict(row), True
+            existing = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM portable_clone_relationships "
+                            "WHERE owner_discord_user_id=:actor AND creation_key=:creation_key"
+                        ),
+                        {"actor": actor_user_id, "creation_key": creation_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is None:
+                raise RuntimeError("idempotent clone relationship insert lost without a winner")
+            if (
+                int(existing["destination_guild_id"]) != destination_guild_id
+                or str(existing["status"]) != "ACTIVE"
+            ):
+                raise TransferConflict("clone relationship request conflicts with durable state")
+            return dict(existing), False
+
+    async def get_clone_relationship(
+        self, actor_user_id: int, destination_guild_id: int, relationship_id: UUID
+    ) -> dict[str, Any]:
+        async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM portable_clone_relationships "
+                            "WHERE relationship_id=:id AND owner_discord_user_id=:actor "
+                            "AND destination_guild_id=:destination AND status='ACTIVE'"
+                        ),
+                        {
+                            "id": relationship_id,
+                            "actor": actor_user_id,
+                            "destination": destination_guild_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise TransferConflict("clone relationship is unavailable or incompatible")
+            return dict(row)
+
+    async def find_transfer_by_idempotency(
+        self, actor_user_id: int, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM cross_guild_transfers WHERE "
+                            "actor_discord_user_id=:actor AND idempotency_key=:key"
+                        ),
+                        {"actor": actor_user_id, "key": idempotency_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            return dict(row) if row is not None else None
+
     async def create_transfer(
         self,
         *,
@@ -404,8 +524,11 @@ class PortabilityRepository:
         status: str,
         correlation_id: UUID,
         idempotency_key: str,
-        relationship_key: str | None = None,
+        relationship_id: UUID,
+        request_hash: str,
     ) -> tuple[dict[str, Any], bool]:
+        if status != TransferState.CREATED.value or mapping:
+            raise ValueError("new transfers must start in CREATED with an empty mapping")
         async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
             existing = (
                 (
@@ -421,7 +544,18 @@ class PortabilityRepository:
                 .one_or_none()
             )
             if existing is not None:
-                return dict(existing), False
+                value = dict(existing)
+                if (
+                    str(value["request_hash"]) != request_hash
+                    or UUID(str(value["relationship_id"])) != relationship_id
+                    or UUID(str(value["portable_artifact_id"])) != artifact_id
+                    or int(value["destination_guild_id"]) != destination_guild_id
+                    or str(value["transfer_mode"]) != mode
+                ):
+                    raise TransferConflict(
+                        "transfer idempotency request conflicts with durable state"
+                    )
+                return value, False
             row = (
                 (
                     await session.execute(
@@ -429,9 +563,10 @@ class PortabilityRepository:
                             "INSERT INTO cross_guild_transfers "
                             "(id,actor_discord_user_id,source_guild_id,destination_guild_id,"
                             "portable_artifact_id,artifact_content_hash,transfer_mode,mapping_json,"
-                            "status,correlation_id,idempotency_key,relationship_key) VALUES "
+                            "status,correlation_id,idempotency_key,relationship_id,request_hash) "
+                            "VALUES "
                             "(:id,:actor,:source,:destination,:artifact,:hash,:mode,:mapping,"
-                            ":status,:correlation,:key,:relationship_key) ON CONFLICT "
+                            ":status,:correlation,:key,:relationship_id,:request_hash) ON CONFLICT "
                             "(actor_discord_user_id,idempotency_key) DO NOTHING RETURNING *"
                         ),
                         {
@@ -446,7 +581,8 @@ class PortabilityRepository:
                             "status": status,
                             "correlation": correlation_id,
                             "key": idempotency_key,
-                            "relationship_key": relationship_key,
+                            "relationship_id": relationship_id,
+                            "request_hash": request_hash,
                         },
                     )
                 )
@@ -469,8 +605,68 @@ class PortabilityRepository:
                 )
                 if existing is None:
                     raise RuntimeError("idempotent transfer insert lost without a winner")
-                return dict(existing), False
+                value = dict(existing)
+                if str(value["request_hash"]) != request_hash:
+                    raise TransferConflict(
+                        "transfer idempotency request conflicts with durable state"
+                    )
+                return value, False
             return dict(row), True
+
+    async def freeze_transfer_mapping(
+        self,
+        *,
+        actor_user_id: int,
+        transfer_id: UUID,
+        expected: TransferState,
+        mapping: list[dict[str, Any]],
+        mapping_hash: str,
+    ) -> dict[str, Any]:
+        if expected not in {TransferState.EXPORTED, TransferState.MAPPING_REQUIRED}:
+            raise ValueError("mapping can only be frozen from an exported transfer")
+        async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE cross_guild_transfers SET status='READY',mapping_json=:mapping,"
+                            "mapping_hash=:mapping_hash,state_version=state_version+1,"
+                            "updated_at=now() "
+                            "WHERE id=:id AND actor_discord_user_id=:actor AND status=:expected "
+                            "AND mapping_hash IS NULL RETURNING *"
+                        ),
+                        {
+                            "mapping": json.dumps(mapping),
+                            "mapping_hash": mapping_hash,
+                            "id": transfer_id,
+                            "actor": actor_user_id,
+                            "expected": expected.value,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is not None:
+                return dict(row)
+            current = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM cross_guild_transfers WHERE id=:id "
+                            "AND actor_discord_user_id=:actor"
+                        ),
+                        {"id": transfer_id, "actor": actor_user_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if current is not None and str(current["status"]) in {"READY", "COMPILED"}:
+                if str(current["mapping_hash"]) == mapping_hash:
+                    return dict(current)
+                raise TransferConflict("transfer mapping is already frozen")
+            raise TransferNotFound("transfer state changed or transfer unavailable")
 
     async def compile_transfer(
         self,
@@ -479,6 +675,8 @@ class PortabilityRepository:
         transfer_id: UUID,
         destination_plan_id: UUID | None,
         report: list[dict[str, Any]],
+        mapping_hash: str,
+        report_hash: str,
     ) -> dict[str, Any]:
         assert_transfer_transition(TransferState.READY, TransferState.COMPILED)
         async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
@@ -487,14 +685,17 @@ class PortabilityRepository:
                     await session.execute(
                         text(
                             "UPDATE cross_guild_transfers SET destination_plan_id=:plan_id,"
-                            "report_json=:report,status='COMPILED',updated_at=now() "
+                            "report_json=:report,report_hash=:report_hash,status='COMPILED',"
+                            "state_version=state_version+1,updated_at=now() "
                             "WHERE id=:id AND actor_discord_user_id=:actor "
-                            "AND status IN ('READY','COMPILED') "
+                            "AND status='READY' AND mapping_hash=:mapping_hash "
                             "RETURNING *"
                         ),
                         {
                             "plan_id": destination_plan_id,
                             "report": json.dumps(report),
+                            "report_hash": report_hash,
+                            "mapping_hash": mapping_hash,
                             "id": transfer_id,
                             "actor": actor_user_id,
                         },
@@ -503,9 +704,32 @@ class PortabilityRepository:
                 .mappings()
                 .one_or_none()
             )
-            if row is None:
+            if row is not None:
+                return dict(row)
+            existing = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM cross_guild_transfers WHERE id=:id "
+                            "AND actor_discord_user_id=:actor"
+                        ),
+                        {"id": transfer_id, "actor": actor_user_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is None:
                 raise TransferNotFound("transfer unavailable")
-            return dict(row)
+            value = dict(existing)
+            if (
+                str(value["status"]) == "COMPILED"
+                and value["destination_plan_id"] == destination_plan_id
+                and str(value["mapping_hash"]) == mapping_hash
+                and str(value["report_hash"]) == report_hash
+            ):
+                return value
+            raise TransferConflict("compiled transfer intent is immutable")
 
     async def transition_transfer(
         self,
@@ -561,7 +785,7 @@ class PortabilityRepository:
             return dict(row)
 
     async def reconcile_bindings(
-        self, actor_user_id: int, destination_guild_id: int, relationship_key: str
+        self, actor_user_id: int, destination_guild_id: int, relationship_id: UUID
     ) -> list[dict[str, Any]]:
         async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
             rows = (
@@ -569,15 +793,20 @@ class PortabilityRepository:
                     await session.execute(
                         text(
                             "SELECT logical_ref,resource_type,destination_resource_id,"
-                            "binding_origin,source_artifact_hash,transfer_id "
-                            "FROM portable_clone_bindings WHERE owner_discord_user_id=:actor "
-                            "AND destination_guild_id=:destination AND relationship_key=:key "
-                            "AND active ORDER BY logical_ref"
+                            "b.binding_origin,b.source_artifact_hash,b.last_transfer_id "
+                            "FROM portable_clone_bindings b JOIN portable_clone_relationships r "
+                            "ON r.relationship_id=b.relationship_id AND "
+                            "r.owner_discord_user_id=b.owner_discord_user_id AND "
+                            "r.destination_guild_id=b.destination_guild_id "
+                            "WHERE b.owner_discord_user_id=:actor "
+                            "AND b.destination_guild_id=:destination "
+                            "AND b.relationship_id=:relationship_id AND b.active "
+                            "AND r.status='ACTIVE' ORDER BY b.logical_ref"
                         ),
                         {
                             "actor": actor_user_id,
                             "destination": destination_guild_id,
-                            "key": relationship_key,
+                            "relationship_id": relationship_id,
                         },
                     )
                 )
@@ -592,30 +821,81 @@ class PortabilityRepository:
         actor_user_id: int,
         transfer_id: UUID,
         destination_guild_id: int,
-        relationship_key: str,
+        relationship_id: UUID,
         artifact_hash: str,
         bindings: list[dict[str, Any]],
     ) -> None:
         async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:
+            relationship = (
+                await session.execute(
+                    text(
+                        "SELECT relationship_id FROM portable_clone_relationships "
+                        "WHERE relationship_id=:relationship_id AND owner_discord_user_id=:actor "
+                        "AND destination_guild_id=:destination AND status='ACTIVE' FOR UPDATE"
+                    ),
+                    {
+                        "relationship_id": relationship_id,
+                        "actor": actor_user_id,
+                        "destination": destination_guild_id,
+                    },
+                )
+            ).scalar_one_or_none()
+            if relationship is None:
+                raise TransferConflict("clone relationship is unavailable or incompatible")
+            logical_refs = [str(item["logical_ref"]) for item in bindings]
+            if logical_refs:
+                await session.execute(
+                    text(
+                        "UPDATE portable_clone_bindings SET active=false,tombstoned_at=now(),"
+                        "last_transfer_id=:transfer_id,updated_at=now() "
+                        "WHERE owner_discord_user_id=:actor AND destination_guild_id=:destination "
+                        "AND relationship_id=:relationship_id AND active "
+                        "AND NOT (logical_ref = ANY(CAST(:logical_refs AS text[])))"
+                    ),
+                    {
+                        "transfer_id": transfer_id,
+                        "actor": actor_user_id,
+                        "destination": destination_guild_id,
+                        "relationship_id": relationship_id,
+                        "logical_refs": logical_refs,
+                    },
+                )
+            else:
+                await session.execute(
+                    text(
+                        "UPDATE portable_clone_bindings SET active=false,tombstoned_at=now(),"
+                        "last_transfer_id=:transfer_id,updated_at=now() "
+                        "WHERE owner_discord_user_id=:actor AND destination_guild_id=:destination "
+                        "AND relationship_id=:relationship_id AND active"
+                    ),
+                    {
+                        "transfer_id": transfer_id,
+                        "actor": actor_user_id,
+                        "destination": destination_guild_id,
+                        "relationship_id": relationship_id,
+                    },
+                )
             for item in bindings:
                 await session.execute(
                     text(
                         "INSERT INTO portable_clone_bindings "
-                        "(owner_discord_user_id,destination_guild_id,relationship_key,logical_ref,"
+                        "(owner_discord_user_id,destination_guild_id,relationship_id,logical_ref,"
                         "resource_type,destination_resource_id,binding_origin,source_artifact_hash,"
-                        "transfer_id,active) VALUES (:actor,:destination,:key,:logical_ref,"
-                        ":resource_type,:resource_id,:origin,:hash,:transfer_id,true) "
+                        "last_transfer_id,active,tombstoned_at) VALUES "
+                        "(:actor,:destination,:relationship_id,:logical_ref,"
+                        ":resource_type,:resource_id,:origin,:hash,:transfer_id,true,NULL) "
                         "ON CONFLICT (owner_discord_user_id,destination_guild_id,"
-                        "relationship_key,logical_ref) "
+                        "relationship_id,logical_ref) "
                         "DO UPDATE SET resource_type=excluded.resource_type,"
                         "destination_resource_id=excluded.destination_resource_id,"
                         "binding_origin=excluded.binding_origin,source_artifact_hash=excluded.source_artifact_hash,"
-                        "transfer_id=excluded.transfer_id,active=true,updated_at=now()"
+                        "last_transfer_id=excluded.last_transfer_id,active=true,tombstoned_at=NULL,"
+                        "updated_at=now()"
                     ),
                     {
                         "actor": actor_user_id,
                         "destination": destination_guild_id,
-                        "key": relationship_key,
+                        "relationship_id": relationship_id,
                         "logical_ref": item["logical_ref"],
                         "resource_type": item["resource_type"],
                         "resource_id": int(item["destination_resource_id"]),
@@ -624,6 +904,19 @@ class PortabilityRepository:
                         "transfer_id": transfer_id,
                     },
                 )
+            await session.execute(
+                text(
+                    "UPDATE portable_clone_relationships SET last_transfer_id=:transfer_id,"
+                    "last_artifact_hash=:artifact_hash,updated_at=now() "
+                    "WHERE relationship_id=:relationship_id AND owner_discord_user_id=:actor"
+                ),
+                {
+                    "transfer_id": transfer_id,
+                    "artifact_hash": artifact_hash,
+                    "relationship_id": relationship_id,
+                    "actor": actor_user_id,
+                },
+            )
 
     async def get_transfer(self, actor_user_id: int, transfer_id: UUID) -> dict[str, Any]:
         async with tenant_transaction(self._factory, UserContext(actor_user_id)) as session:

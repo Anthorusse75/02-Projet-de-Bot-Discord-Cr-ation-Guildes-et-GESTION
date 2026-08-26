@@ -174,7 +174,10 @@ class PreflightEngine:
                 and node.discord_id is not None
             ):
                 children = [
-                    channel for channel in guild.channels if channel.parent_id == node.discord_id
+                    channel
+                    for channel in guild.channels
+                    if channel.parent_id == node.discord_id
+                    and channel.observability is not ObservabilityState.DELETED_CONFIRMED
                 ]
                 for child in children:
                     child_node = desired_by_id.get(child.channel_id)
