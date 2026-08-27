@@ -292,6 +292,7 @@ async def apply_with_optional_crash(
     actor: int,
     plan: dict[str, Any],
     inject_crash: bool,
+    lease_seconds: int = 300,
 ) -> None:
     plan_id = UUID(str(plan["id"]))
     correlation = uuid4()
@@ -302,7 +303,9 @@ async def apply_with_optional_crash(
         correlation_id=correlation,
     )
     first_worker = "stage05-live-first"
-    leased = await runtime.lease_next_job(guild_id, lease_owner=first_worker, lease_seconds=300)
+    leased = await runtime.lease_next_job(
+        guild_id, lease_owner=first_worker, lease_seconds=lease_seconds
+    )
     if leased is None:
         raise RuntimeError("live apply job was not leasable")
     if inject_crash:
@@ -332,7 +335,7 @@ async def apply_with_optional_crash(
             )
         recovery_worker = "stage05-live-recovery"
         leased = await runtime.lease_next_job(
-            guild_id, lease_owner=recovery_worker, lease_seconds=300
+            guild_id, lease_owner=recovery_worker, lease_seconds=lease_seconds
         )
         if leased is None:
             raise RuntimeError("live recovery job was not leasable")

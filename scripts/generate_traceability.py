@@ -428,6 +428,107 @@ STAGE05_REQUIREMENT_PROGRESS = {
 
 REQUIREMENT_PROGRESS.update(STAGE05_REQUIREMENT_PROGRESS)
 
+STAGE06_REQUIREMENT_PROGRESS = {
+    "REQ-TEN-008": (
+        "IMPLEMENTED",
+        "STAGE 06 tenant-keyed templates with FORCE RLS, composite primary key and real A/B PostgreSQL isolation test",
+    ),
+    "REQ-TEN-011": (
+        "IMPLEMENTED",
+        "STAGE 06 creates only actor-requested transfers with explicit source/destination IDs; no discovery, sharing or federation path exists",
+    ),
+    "REQ-TEN-012": (
+        "IMPLEMENTED",
+        "STAGE 06 API separately authorizes STRUCTURE_READ on A then PLANS_CREATE+STRUCTURE_WRITE on B; confused-deputy denial tests assert zero export/plan",
+    ),
+    "REQ-TEN-013": (
+        "IMPLEMENTED",
+        "STAGE 06 immutable portable snapshot ends source reads before mapping and destination DSG; stored-artifact fail-if-source-called test",
+    ),
+    "REQ-TEN-014": (
+        "IMPLEMENTED",
+        "STAGE 06 clipboard/library artifacts use owner FORCE RLS, bounded TTL/quota and AES-256-GCM envelope encryption with U/V PostgreSQL tests",
+    ),
+    "REQ-DUP-001": (
+        "IMPLEMENTED",
+        "STAGE 06 category builder closes real category children/roles/overwrites and compiles only STAGE 05 category/channel primitives",
+    ),
+    "REQ-DUP-002": (
+        "IMPLEMENTED",
+        "STAGE 06 strict schema has no message/history resource and rejects message IDs and secret/operational fields",
+    ),
+    "REQ-DUP-003": (
+        "IMPLEMENTED",
+        "STAGE 06 logical-group artifact resolves structural mappings then finalizes a new deterministic destination DID UUID after plan success",
+    ),
+    "REQ-DUP-004": (
+        "IMPLEMENTED",
+        "STAGE 06 COPY_AS_NEW ignores same-name/source-ID identity and creates roles unless a visible confirmed mapping is supplied",
+    ),
+    "REQ-DUP-005": (
+        "IMPLEMENTED",
+        "STAGE 06 artifacts/templates use bounded logical keys, dependency references and destination symbols; source IDs are provenance-only",
+    ),
+    "REQ-DUP-006": (
+        "IMPLEMENTED",
+        "STAGE 06 template apply reuses strict artifact validation, mapping and STAGE 05 preflight; unresolved/incompatible resources block",
+    ),
+    "REQ-DUP-007": (
+        "IMPLEMENTED",
+        "STAGE 06 DependencyGraph validates references and topological acyclicity before DestinationPlanCompiler",
+    ),
+    "REQ-DUP-008": (
+        "IMPLEMENTED",
+        "STAGE 06 source builder converts Discord structural IDs to generated logical keys and symbols; hostile direct destination ID keys reject",
+    ),
+    "REQ-DUP-009": (
+        "IMPLEMENTED",
+        "Same-name suggestions stay MANUAL; READY freezes a SHA-256 of explicit intent plus complete resolved semantics and PostgreSQL/unit crash-window tests reject deleted targets, alternative candidates, CREATE drift and explicit M1→M2 before planning",
+    ),
+    "REQ-DUP-010": (
+        "IMPLEMENTED",
+        "STAGE 06 MAXIMUM_COMPATIBLE produces stable CREATED/REMAPPED/SKIPPED/IMPOSSIBLE/INTERVENTION report entries",
+    ),
+    "REQ-DUP-011": (
+        "IMPLEMENTED",
+        "STAGE 06 live API checks A and B independently; source observability and destination STAGE 05 capability preflight fail closed",
+    ),
+    "REQ-DUP-012": (
+        "IMPLEMENTED",
+        "STAGE 06 file/artifact contract explicitly excludes members, messages, audit, ownership, secrets and original operational IDs",
+    ),
+    "REQ-DUP-013": (
+        "IMPLEMENTED",
+        "STAGE 06 export, clipboard, library/file clone and template apply converge on PortableArtifact→DependencyGraph→MappingResolver→DSG→PlanningService",
+    ),
+    "REQ-DUP-014": (
+        "IMPLEMENTED",
+        "STAGE 06 stored compile test asserts the only read-model call and resulting DSG guild_id are destination B; no mutable adapter or dual lock import",
+    ),
+    "REQ-DUP-015": (
+        "IMPLEMENTED",
+        "STAGE 06 exposes four CloneMode values plus a versioned per-resource operation support matrix",
+    ),
+    "REQ-DUP-016": (
+        "IMPLEMENTED",
+        "STAGE 06 persisted mapping/report JSON lists manual, unsupported, skipped, remapped, created and impossible outcomes before apply",
+    ),
+    "REQ-DUP-017": (
+        "IMPLEMENTED",
+        "STAGE 06 RECONCILE creates destructive DSG nodes only from an explicit ReconcileScope and reports each exact destination ref",
+    ),
+    "REQ-DUP-018": (
+        "IMPLEMENTED",
+        "STAGE 06 LIVE export requires FULL/FRESH/visible complete source; stored compilation has a source-reader fail-if-called proof",
+    ),
+    "REQ-DUP-019": (
+        "IMPLEMENTED",
+        "STAGE 06 persists portable dashboard policy definitions separately with no active source bindings; principal mapping must be explicit and confirmed",
+    ),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE06_REQUIREMENT_PROGRESS)
+
 
 def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()

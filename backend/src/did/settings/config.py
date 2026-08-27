@@ -68,6 +68,24 @@ class Settings(BaseSettings):
         ),
     )
     oauth_token_key_version: int = Field(default=1, ge=1)
+    artifact_encryption_key: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        validation_alias=AliasChoices("ARTIFACT_ENCRYPTION_KEY", "DID_ARTIFACT_ENCRYPTION_KEY"),
+    )
+    artifact_encryption_key_version: int = Field(default=1, ge=1)
+    artifact_previous_encryption_keys: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        validation_alias=AliasChoices(
+            "ARTIFACT_PREVIOUS_ENCRYPTION_KEYS",
+            "DID_ARTIFACT_PREVIOUS_ENCRYPTION_KEYS",
+        ),
+    )
+    artifact_clipboard_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    artifact_export_ttl_seconds: int = Field(default=2592000, ge=3600, le=7776000)
+    artifact_max_items_per_owner: int = Field(default=100, ge=1, le=1000)
+    artifact_max_bytes_per_owner: int = Field(default=25000000, ge=2097152, le=250000000)
     session_idle_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     session_absolute_ttl_seconds: int = Field(default=604800, ge=3600, le=2592000)
     oauth_state_ttl_seconds: int = Field(default=300, ge=60, le=900)
@@ -112,6 +130,7 @@ class Settings(BaseSettings):
                 "discord_oauth_redirect_uri": self.discord_oauth_redirect_uri,
                 "session_secret": self.session_secret,
                 "oauth_token_encryption_key": self.oauth_token_encryption_key,
+                "artifact_encryption_key": self.artifact_encryption_key,
             }
             missing = [name for name, value in required.items() if value is None]
             if missing:
@@ -137,4 +156,7 @@ class Settings(BaseSettings):
             "session_secret": "[REDACTED]",
             "oauth_token_encryption_key": "[REDACTED]",
             "oauth_token_key_version": str(self.oauth_token_key_version),
+            "artifact_encryption_key": "[REDACTED]",
+            "artifact_encryption_key_version": str(self.artifact_encryption_key_version),
+            "artifact_previous_encryption_keys": "[REDACTED]",
         }

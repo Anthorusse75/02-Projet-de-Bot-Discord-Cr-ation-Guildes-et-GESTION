@@ -36,3 +36,17 @@
 - Alertes auth failures, cross-tenant denies, 403/429, queue, drift, provider failure et intégrité traduction.
 
 Chaque case cochée dans un handoff référence un test ou une décision, jamais une simple affirmation.
+## Contrôles STAGE 06 — artifacts et cross-Guild
+
+- [x] Artifact strict/versionné, champs inconnus et schémas futurs refusés.
+- [x] Taille brute 2 000 000 octets, 1 000 ressources, 5 000 edges, profondeur 12 et strings 16 384 octets.
+- [x] Compression et `Content-Encoding` refusés; aucune extraction, symlink, traversal ou archive imbriquée.
+- [x] Parser pur sans `requests`, `aiohttp`, `httpx`, `urlopen` ni fetch URL implicite.
+- [x] Tokens, URLs webhook secrètes, sessions, cookies, capacités, bindings et IDs opérationnels source interdits.
+- [x] AES-256-GCM envelope, AAD owner/identity/schema/version/hash, tamper et mauvaise clé fail-closed.
+- [x] Owner RLS U/V, tenant RLS A/B, FK composite cross-owner et non-disclosure.
+- [x] Autorisation A/B indépendante; aucun artifact ou hash n’est une capability.
+- [x] Même nom et même Snowflake source ne sont jamais une identité destination.
+- [x] Rôles managed, bots, webhooks et principals sensibles exigent mapping explicite/confirmation ou restent impossibles.
+- [x] RECONCILE ne supprime que les ressources du scope explicite et les rend visibles avant confirmation STAGE 05.
+- [x] Quota, TTL, expiration, purge owner et cascade fail-safe des transferts testés.

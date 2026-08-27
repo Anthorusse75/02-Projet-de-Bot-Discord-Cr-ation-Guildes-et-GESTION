@@ -186,6 +186,10 @@ class ChannelSnapshot:
     topic: str | None = None
     nsfw: bool | None = None
     flags: int = 0
+    bitrate: int | None = None
+    user_limit: int | None = None
+    rate_limit_per_user: int | None = None
+    default_auto_archive_duration: int | None = None
 
     def __post_init__(self) -> None:
         if min(self.guild_id, self.channel_id) <= 0:
@@ -194,6 +198,16 @@ class ChannelSnapshot:
             raise ValueError("parent_id must be a positive Snowflake")
         if self.position < 0 or self.flags < 0:
             raise ValueError("channel position cannot be negative")
+        if any(
+            value is not None and value < 0
+            for value in (
+                self.bitrate,
+                self.user_limit,
+                self.rate_limit_per_user,
+                self.default_auto_archive_duration,
+            )
+        ):
+            raise ValueError("channel numeric attributes cannot be negative")
         if self.channel_type == ChannelType.GUILD_CATEGORY and self.parent_id is not None:
             raise ValueError("Discord categories cannot have a parent category")
         if any(

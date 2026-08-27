@@ -295,6 +295,52 @@ class PlanningRepository:
             raise PlanNotFound("plan not found")
         return [dict(row) for row in rows]
 
+    async def verification_operations(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
+        """Return one batch with the exact payload transmitted by the successful attempt."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT operations.*, attempt.outcome_detail->'resolved_payload' "
+                            "AS resolved_payload FROM plan_operations AS operations LEFT JOIN "
+                            "LATERAL (SELECT outcome_detail FROM operation_attempts WHERE "
+                            "guild_id=operations.guild_id AND plan_id=operations.plan_id AND "
+                            "operation_id=operations.id AND status='SUCCEEDED' ORDER BY "
+                            "attempt_number DESC LIMIT 1) AS attempt ON true WHERE "
+                            "operations.guild_id=:guild_id AND operations.plan_id=:plan_id "
+                            "ORDER BY operations.display_order"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if not rows and not await self._exists(guild_id, plan_id):
+            raise PlanNotFound("plan not found")
+        return [dict(row) for row in rows]
+
+    async def symbol_bindings(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT symbol,resource_type,discord_id,status FROM "
+                            "plan_symbol_bindings WHERE guild_id=:guild_id AND plan_id=:plan_id "
+                            "ORDER BY symbol"
+                        ),
+                        {"guild_id": guild_id, "plan_id": plan_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if not rows and not await self._exists(guild_id, plan_id):
+            raise PlanNotFound("plan not found")
+        return [dict(row) for row in rows]
+
     async def integrity_bundle(self, guild_id: int, plan_id: UUID) -> dict[str, Any]:
         """Read every immutable hash input in one tenant transaction."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -866,7 +912,8 @@ class PlanningRepository:
                 await session.execute(
                     text(
                         "UPDATE operation_attempts SET status='FAILED',completed_at=:now,"
-                        "outcome_detail=CAST(:detail AS jsonb) "
+                        "outcome_detail=COALESCE(outcome_detail,'{}'::jsonb) || "
+                        "CAST(:detail AS jsonb) "
                         "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=ANY(:ids)"
                     ),
                     {
@@ -1090,7 +1137,8 @@ class PlanningRepository:
             attempt = await session.scalar(
                 text(
                     "UPDATE operation_attempts SET status='FAILED',completed_at=now(),"
-                    "error_classification=:code,outcome_detail=CAST(:detail AS jsonb) "
+                    "error_classification=:code,outcome_detail="
+                    "COALESCE(outcome_detail,'{}'::jsonb) || CAST(:detail AS jsonb) "
                     "WHERE guild_id=:guild_id AND plan_id=:plan_id AND id=:attempt_id "
                     "AND operation_id=:operation_id AND status='PREPARED' AND "
                     "lease_owner=:owner AND lease_token=:token AND lease_generation="
@@ -1216,7 +1264,8 @@ class PlanningRepository:
                 text(
                     "UPDATE operation_attempts SET status='SUCCEEDED',completed_at=:now,"
                     "discord_status=:discord_status,result_fingerprint=:fingerprint,"
-                    "outcome_detail=CAST(:detail AS jsonb) WHERE guild_id=:guild_id AND "
+                    "outcome_detail=COALESCE(outcome_detail,'{}'::jsonb) || "
+                    "CAST(:detail AS jsonb) WHERE guild_id=:guild_id AND "
                     "plan_id=:plan_id AND operation_id=:operation_id AND id=:attempt_id "
                     "AND status='IN_FLIGHT' AND lease_owner=:owner AND lease_token=:token "
                     "AND lease_generation=:generation RETURNING id"
@@ -1241,6 +1290,7 @@ class PlanningRepository:
             if attempt_updated is None:
                 raise PlanFencingError("attempt fencing token is no longer current")
             resource_id = self._result_resource_id(operation, result_payload)
+            persisted_resource_id = self._persisted_result_resource_id(operation, resource_id)
             await session.execute(
                 text(
                     "UPDATE plan_operations SET status='SUCCEEDED',result_payload="
@@ -1252,7 +1302,7 @@ class PlanningRepository:
                 {
                     "result": json.dumps(result_payload, separators=(",", ":")),
                     "fingerprint": result_fingerprint,
-                    "resource_id": resource_id,
+                    "resource_id": persisted_resource_id,
                     "now": now,
                     "guild_id": guild_id,
                     "plan_id": plan_id,
@@ -1523,6 +1573,7 @@ class PlanningRepository:
                         "deleted": True,
                     }
                 resource_id = self._result_resource_id(operation, resource_payload)
+                persisted_resource_id = self._persisted_result_resource_id(operation, resource_id)
                 fingerprint = canonical_hash(resource_payload)
                 await session.execute(
                     text(
@@ -1535,7 +1586,7 @@ class PlanningRepository:
                     {
                         "payload": json.dumps(resource_payload, separators=(",", ":")),
                         "fingerprint": fingerprint,
-                        "resource_id": resource_id,
+                        "resource_id": persisted_resource_id,
                         "guild_id": guild_id,
                         "plan_id": plan_id,
                         "operation_id": operation_id,
@@ -1981,6 +2032,21 @@ class PlanningRepository:
         if operation_type in {OperationType.UPSERT_OVERWRITE, OperationType.DELETE_OVERWRITE}:
             value = result_payload.get("channel_id") or value
         return int(value) if value is not None else None
+
+    @staticmethod
+    def _persisted_result_resource_id(operation: Any, resource_id: int | None) -> int | None:
+        # CREATE discovers identity; UPDATE/DELETE preserve their existing target
+        # through SQL COALESCE. Bulk reorder and overwrite results name a consumed
+        # channel/role, not the operation's own identity, and must remain NULL.
+        operation_type = OperationType(str(operation["operation_type"]))
+        if operation_type in {
+            OperationType.REORDER_ROLES,
+            OperationType.MOVE_OR_REORDER_CHANNELS,
+            OperationType.UPSERT_OVERWRITE,
+            OperationType.DELETE_OVERWRITE,
+        }:
+            return None
+        return resource_id
 
     @staticmethod
     async def _write_through(

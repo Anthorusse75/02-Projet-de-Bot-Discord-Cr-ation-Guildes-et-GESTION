@@ -156,6 +156,10 @@ class DiffEngine:
                 "topic": channel.topic,
                 "nsfw": channel.nsfw,
                 "flags": channel.flags,
+                "bitrate": channel.bitrate,
+                "user_limit": channel.user_limit,
+                "rate_limit_per_user": channel.rate_limit_per_user,
+                "default_auto_archive_duration": channel.default_auto_archive_duration,
             }
         return None
 

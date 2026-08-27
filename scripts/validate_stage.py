@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -28,6 +29,7 @@ TEST_ENV = {
         "postgresql+asyncpg://did_admin:local_admin_password@localhost:55432/did_test"
     ),
     "DID_REDIS_URL": "redis://localhost:56379/0",
+    "ARTIFACT_ENCRYPTION_KEY": base64.urlsafe_b64encode(os.urandom(32)).decode("ascii"),
 }
 
 
@@ -505,6 +507,166 @@ def stage_05(
     return tuple(base_steps)
 
 
+def stage_06(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    python = sys.executable
+    integration_env = {**TEST_ENV, "DID_RUN_INTEGRATION": "1"}
+    if profile == "security":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "migration STAGE 06 security head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "STAGE 06 hostile artifact crypto mapping and confused-deputy security",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "security and not discord_live",
+                    "backend/tests/unit/test_stage06_portability.py",
+                    "backend/tests/integration/test_stage06_postgres.py",
+                    f"--junitxml={relative_path(evidence_directory / 'stage06-security.xml')}",
+                ),
+                environment=integration_env,
+            ),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step("documentation validation", (python, "scripts/validate_documentation.py")),
+        )
+    if profile == "load":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "STAGE 06 portable graph deterministic load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-s",
+                    "backend/tests/load/test_stage06_portability_load.py",
+                    f"--junitxml={relative_path(evidence_directory / 'stage06-load.xml')}",
+                ),
+                environment={
+                    **TEST_ENV,
+                    "DID_STAGE06_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage06-portability-load.json"
+                    ),
+                },
+            ),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step("documentation validation", (python, "scripts/validate_documentation.py")),
+        )
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    revisions = (
+        ("base", "empty base"),
+        ("0001_stage_01", "STAGE 01"),
+        ("0002_stage_02", "STAGE 02"),
+        ("0003_stage_03", "STAGE 03 schema"),
+        ("0004_stage_03", "STAGE 03 routing"),
+        ("0005_stage_03", "STAGE 03 final"),
+        ("0006_stage_04", "STAGE 04 schema"),
+        ("0007_stage_04", "STAGE 04 final"),
+        ("0008_stage_05", "STAGE 05 schema"),
+        ("0009_stage_05", "STAGE 05 final"),
+    )
+    migrations: list[Step] = []
+    for revision, label in revisions:
+        migrations.extend(
+            (
+                Step(
+                    f"migration downgrade to {label}",
+                    (uv, "run", "alembic", "downgrade", revision),
+                    environment=TEST_ENV,
+                ),
+                Step(
+                    f"migration {label} to STAGE 06 head",
+                    (uv, "run", "alembic", "upgrade", "head"),
+                    environment=TEST_ENV,
+                ),
+            )
+        )
+    migrations.extend(
+        (
+            Step(
+                "migration STAGE 06 downgrade to STAGE 05",
+                (uv, "run", "alembic", "downgrade", "0009_stage_05"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "migration STAGE 05 re-upgrade to STAGE 06",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "single Alembic STAGE 06 head",
+                (uv, "run", "alembic", "heads"),
+                environment=TEST_ENV,
+            ),
+        )
+    )
+    base_steps[migration_index : migration_index + 1] = migrations
+    base_steps.append(
+        Step(
+            "STAGE 06 portability PostgreSQL owner and tenant RLS",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage06_postgres.py",
+                f"--junitxml={relative_path(evidence_directory / 'stage06-integration.xml')}",
+            ),
+            environment=integration_env,
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 06 deterministic portability load",
+            (
+                uv,
+                "run",
+                "pytest",
+                "-s",
+                "backend/tests/load/test_stage06_portability_load.py",
+                f"--junitxml={relative_path(evidence_directory / 'stage06-load.xml')}",
+            ),
+            environment={
+                **TEST_ENV,
+                "DID_STAGE06_LOAD_REPORT": relative_path(
+                    evidence_directory / "stage06-portability-load.json"
+                ),
+            },
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage06.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage06.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step("Discord live STAGE 06 cross-Guild portability", tuple(live_arguments), 1800)
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -562,6 +724,15 @@ STAGES: dict[str, StageDefinition] = {
             "REQ-AUD-001",
             "REQ-AUD-002",
             "REQ-AUD-003",
+        ),
+    ),
+    "06": StageDefinition(
+        steps=stage_06,
+        requirements=(
+            "REQ-TEN-008",
+            *(f"REQ-TEN-{index:03d}" for index in range(11, 15)),
+            *(f"REQ-DUP-{index:03d}" for index in range(1, 20)),
+            "REQ-PERM-009",
         ),
     ),
 }
@@ -730,7 +901,9 @@ def main() -> int:
     parser.add_argument("stage", choices=sorted(STAGES))
     parser.add_argument("--include-discord-live", action="store_true")
     parser.add_argument(
-        "--profile", choices=("default", "load", "failure-injection"), default="default"
+        "--profile",
+        choices=("default", "load", "failure-injection", "security"),
+        default="default",
     )
     arguments = parser.parse_args()
     if arguments.stage not in STAGES:

@@ -22,3 +22,8 @@ Aucun secret réel dans Git, Markdown, prompt, fixture, capture ou log. `.env.lo
 | TLS/DNS/cloud/registry | production | 11 | oui selon type | fournisseurs réels | secret store, jamais fichier repo | GitHub environment prod | runbook STAGE 11 |
 
 Ne demander à l’utilisateur que le sous-ensemble indispensable au moment exact du premier test live. Avant ce point, utiliser ports/fakes contractuels sans valeur réelle. Après chaque test live, vérifier redaction, inventaire et besoin de révocation.
+## Chiffrement des Portable Artifacts STAGE 06
+
+`ARTIFACT_ENCRYPTION_KEY` est un secret backend distinct du token OAuth et de la clé de session. Il contient une clé maître AES-256 encodée en base64 URL-safe, n’est jamais exposé au frontend, loggé, inclus dans une preuve ou committé. La CI génère une valeur éphémère en mémoire dans `validate_stage.py`; le live charge uniquement la configuration locale ignorée par Git.
+
+Chaque artifact possède une DEK aléatoire et deux nonces GCM indépendants : un pour le contenu, un pour le wrapping de la DEK. L’AAD lie `artifact_id`, owner, schema, `key_version` et hash canonique. `ARTIFACT_PREVIOUS_ENCRYPTION_KEYS` peut fournir un keyring JSON secret pour lire les anciennes versions pendant une rotation; la réécriture vers la version courante conserve le hash canonique. Une clé historique absente produit `PORTABLE_KEY_UNAVAILABLE`, jamais une purge ou une corruption déclarée.

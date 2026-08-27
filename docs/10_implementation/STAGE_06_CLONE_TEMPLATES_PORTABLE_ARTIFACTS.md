@@ -37,11 +37,11 @@ Work packages : artifact schema/security ; export authorization ; dependency gra
 ## E. Design d’implémentation détaillé
 
 - `PortableArtifact` versionné, immutable, canonical hash, provenance informative, resource logical keys, no source capability. Chiffrement envelope pour storage user-scopé, authenticated metadata, key_version, size/TTL/quota and owner RLS.
-- Tables `templates`, `user_portable_artifacts`, `cross_guild_transfers`; tenant template private RLS vs user library owner RLS. Import file passe schema/type/size/decompression limits, signature/hash policy et aucune URL fetch implicite (SSRF).
+- Tables `templates`, `user_portable_artifacts`, `cross_guild_transfers`, `portable_clone_bindings`; tenant template private RLS vs user library/transfer/bindings owner RLS. Les quotas count/bytes sont sérialisés par owner en transaction. Import file passe schema/type/size/decompression limits, signature/hash policy et aucune URL fetch implicite (SSRF).
 - Builder termine toutes lectures source sous authorization/export A, produit snapshot, puis aucune relire A pendant plan B. LIVE_CLONE exige source observable ; artifact import non.
 - Dependency graph explicite pour roles, categories/channels, overwrites, bots/webhooks policies and logical groups. Cycles/unknown refs refusés ; historical messages/members/audit/IDs exclus.
 - Mapping decisions `CREATE`, `MAP_EXISTING`, `SKIP`, `UNSUPPORTED`, `MANUAL`; candidates scored mais ambiguïté jamais auto-acceptée. Role/bot/webhook mappings et ACL principals exigent confirmation.
-- Modes : COPY_AS_NEW crée ; MERGE combine sans delete silencieux ; RECONCILE diff et liste chaque delete avant confirmation ; MAXIMUM_COMPATIBLE émet report cloned/remapped/skipped/impossible. Support annoncé seulement par resource type capability.
+- Modes : COPY_AS_NEW crée ; MERGE conserve l'identité B mais applique les propriétés portables désirées ; RECONCILE dérive côté serveur un scope borné par relation de clone et liste chaque delete avant confirmation ; MAXIMUM_COMPATIBLE est report-only (`plan=null`, aucune mutation). Support annoncé par la matrice typée `did-clone-support-v&#50;`.
 - Pipeline unique utilisé par copy/paste, inter-Guild drag semantic endpoint, context clone, library import et template apply. Toutes sorties compilent DSG/plan de STAGE 05 pour B seulement.
 - ACL/policies peuvent transporter définitions, jamais binding user/role source. Translation secrets/provider secrets toujours exclus même avant STAGE 08.
 - Orchestrator Control Plane valide user, source export, destination import/mutate et bot capabilities, persiste transfer, fan-out jobs Guild-scopés ; aucun lock A+B simultané.

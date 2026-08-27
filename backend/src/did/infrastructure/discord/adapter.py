@@ -67,6 +67,12 @@ class DiscordPyStructureAdapter:
                     "position": channel.position,
                     "nsfw": getattr(channel, "nsfw", None),
                     "flags": flags_value,
+                    "bitrate": getattr(channel, "bitrate", None),
+                    "user_limit": getattr(channel, "user_limit", None),
+                    "rate_limit_per_user": getattr(channel, "slowmode_delay", None),
+                    "default_auto_archive_duration": getattr(
+                        channel, "default_auto_archive_duration", None
+                    ),
                     "permission_overwrites": overwrites,
                 }
             )

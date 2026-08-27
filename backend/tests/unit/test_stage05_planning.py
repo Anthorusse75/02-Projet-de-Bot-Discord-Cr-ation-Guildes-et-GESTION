@@ -37,6 +37,7 @@ from did.infrastructure.discord.mutations import (
     RecoveryResult,
     audit_reason,
 )
+from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
 from did.planning.canonical import canonical_hash, canonical_json
@@ -336,6 +337,126 @@ def test_delete_everyone_is_rejected_by_preflight() -> None:
 
     assert not result.allowed
     assert "preflight.default_role_delete_forbidden" in result.errors
+
+
+@pytest.mark.parametrize(
+    ("observability", "expected_error"),
+    [
+        (ObservabilityState.VISIBLE, True),
+        (ObservabilityState.DELETED_CONFIRMED, False),
+    ],
+)
+def test_category_delete_ignores_only_children_confirmed_deleted(
+    observability: ObservabilityState, expected_error: bool
+) -> None:
+    base = current_guild()
+    category = replace(
+        base.channels[0],
+        channel_id=700,
+        channel_type=ChannelType.GUILD_CATEGORY,
+        parent_id=None,
+        name="category",
+    )
+    child = replace(
+        base.channels[0],
+        channel_id=701,
+        parent_id=category.channel_id,
+        name="child",
+        observability=observability,
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="category.deleted",
+                resource_type=ResourceType.CATEGORY,
+                discord_id=category.channel_id,
+                presence=NodePresence.ABSENT,
+            ),
+        ),
+    )
+    errors: list[str] = []
+
+    PreflightEngine._check_topology(graph, replace(base, channels=(category, child)), errors)
+
+    assert ("preflight.category_delete_child_effect_implicit" in errors) is expected_error
+
+
+def test_preflight_accepts_overwrite_on_channel_created_by_the_same_symbolic_plan() -> None:
+    base = current_guild()
+    permissions = DEFAULT_PERMISSION_REGISTRY.value(
+        "MANAGE_CHANNELS"
+    ) | DEFAULT_PERMISSION_REGISTRY.value("MANAGE_ROLES")
+    bot_role = RoleSnapshot(GUILD, 900, "bot", 10, permissions, False, base.freshness)
+    observed = replace(base, roles=(*base.roles, bot_role))
+    bot = MemberSnapshot(GUILD, 999, (GUILD, bot_role.role_id), True, base.freshness, True)
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.future",
+                resource_type=ResourceType.ROLE,
+                symbol="symbol.role.future",
+                properties={"name": "future", "permissions": "0"},
+            ),
+            DesiredNode.build(
+                logical_key="channel.future",
+                resource_type=ResourceType.CHANNEL,
+                symbol="symbol.channel.future",
+                properties={"name": "future", "type": 0},
+            ),
+            DesiredNode.build(
+                logical_key="overwrite.future",
+                resource_type=ResourceType.OVERWRITE,
+                properties={"target_type": 0, "allow": "1024", "deny": "0"},
+                relations={
+                    "channel": ResourceReference(ReferenceKind.LOGICAL, "channel.future"),
+                    "subject": ResourceReference(ReferenceKind.LOGICAL, "role.future"),
+                },
+            ),
+        ),
+    )
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    overwrite = next(
+        operation
+        for operation in operations
+        if operation.operation_type is OperationType.UPSERT_OVERWRITE
+    )
+    assert "symbol.channel.future" in overwrite.consumes_symbols
+
+    result = PreflightEngine().check(
+        graph=graph,
+        operations=operations,
+        context=PreflightContext(
+            guild=observed,
+            bot=bot,
+            installation_active=True,
+            actor_authorization_fresh=True,
+            base_structure_version="same",
+            current_structure_version="same",
+        ),
+        risk=RiskEngine().assess(operations, ImpactSummary(0)),
+    )
+
+    assert result.allowed
+    assert "capability.channel_required" not in result.errors
+
+
+def test_consumed_overwrite_channel_id_is_not_persisted_as_operation_identity() -> None:
+    assert (
+        PlanningRepository._persisted_result_resource_id(
+            {"operation_type": OperationType.UPSERT_OVERWRITE.value},
+            223456789012345678,
+        )
+        is None
+    )
+    assert (
+        PlanningRepository._persisted_result_resource_id(
+            {"operation_type": OperationType.CREATE_CHANNEL.value},
+            223456789012345678,
+        )
+        == 223456789012345678
+    )
 
 
 @pytest.mark.parametrize(

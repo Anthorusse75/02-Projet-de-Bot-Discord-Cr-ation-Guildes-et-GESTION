@@ -375,14 +375,14 @@ class ApplyPlanExecutor:
         plan_id: UUID,
         governor: DiscordWorkloadGovernor | None,
     ) -> bool:
-        rows = await self._repository.operations(guild_id, plan_id)
+        rows = await self._repository.verification_operations(guild_id, plan_id)
         for row in rows:
 
             async def verify(row: dict[str, Any] = row) -> bool:
                 return await self._adapter.verify(
                     guild_id=guild_id,
                     operation_type=OperationType(str(row["operation_type"])),
-                    payload=dict(row["desired_payload"]),
+                    payload=dict(row["resolved_payload"] or row["desired_payload"]),
                     result_payload=(
                         dict(row["result_payload"]) if row["result_payload"] is not None else None
                     ),

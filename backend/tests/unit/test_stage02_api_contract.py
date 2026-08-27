@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -22,6 +24,7 @@ def test_cookie_contract_is_host_only_secure_in_production() -> None:
         discord_oauth_redirect_uri="https://example.test/auth/discord/callback",
         session_secret=SecretStr("x" * 32),
         oauth_token_encryption_key=SecretStr("a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s"),
+        artifact_encryption_key=SecretStr(base64.urlsafe_b64encode(b"a" * 32).decode("ascii")),
     )
     assert session_cookie_name(production) == "__Host-did_session"
     assert oauth_binding_cookie_name(production) == "__Host-did_oauth_binding"
