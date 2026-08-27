@@ -218,6 +218,17 @@ REQUIREMENT_PROGRESS["REQ-BOT-001"] = (
     "IMPLEMENTED",
     "STAGE 02 bot token remains backend-only; frontend scan, redacted adapters and security gates PASS",
 )
+
+for requirement_id in (
+    *(f"REQ-STR-{index:03d}" for index in range(6, 14)),
+    *(f"REQ-UX-{index:03d}" for index in range(1, 8)),
+    *(f"REQ-UX-CTX-{index:03d}" for index in range(1, 6)),
+    *(f"REQ-UI18N-{index:03d}" for index in range(1, 22)),
+):
+    REQUIREMENT_PROGRESS[requirement_id] = (
+        "IMPLEMENTED",
+        "STAGE 07 typed React dashboard, centralized action/gesture model, tenant-keyed cache lifecycle, strict runtime locale catalogue and Playwright accessibility evidence; final transverse verification remains STAGE 10",
+    )
 REQUIREMENT_PROGRESS["REQ-BOT-002"] = (
     "IMPLEMENTED",
     "STAGE 02 install link requests zero bot permissions and bootstrap tests distinguish user ADMINISTRATOR from bot permissions",

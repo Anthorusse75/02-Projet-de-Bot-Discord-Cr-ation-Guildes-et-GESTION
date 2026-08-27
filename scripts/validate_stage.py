@@ -667,6 +667,56 @@ def stage_06(
     return tuple(base_steps)
 
 
+def stage_07(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    del include_discord_live
+    npm = executable("npm")
+    uv = executable("uv")
+    if profile == "e2e":
+        return (
+            Step("frontend lock install", (npm, "ci"), 600, ROOT / "frontend"),
+            Step(
+                "STAGE 07 Playwright dashboard and accessibility",
+                (npm, "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+            ),
+        )
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    base_steps[migration_index : migration_index + 1] = [
+        Step(
+            "migration upgrade STAGE 07 head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration downgrade STAGE 07 to STAGE 06",
+            (uv, "run", "alembic", "downgrade", "0012_stage_06"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration re-upgrade STAGE 06 to STAGE 07",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step("single Alembic STAGE 07 head", (uv, "run", "alembic", "heads"), environment=TEST_ENV),
+    ]
+    build_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "frontend build"
+    )
+    base_steps[build_index:build_index] = [
+        Step("STAGE 07 i18n catalogue gate", (npm, "run", "i18n:check"), cwd=ROOT / "frontend"),
+        Step("STAGE 07 OpenAPI drift gate", (npm, "run", "openapi:check"), cwd=ROOT / "frontend"),
+    ]
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -733,6 +783,15 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-TEN-{index:03d}" for index in range(11, 15)),
             *(f"REQ-DUP-{index:03d}" for index in range(1, 20)),
             "REQ-PERM-009",
+        ),
+    ),
+    "07": StageDefinition(
+        steps=stage_07,
+        requirements=(
+            *(f"REQ-STR-{index:03d}" for index in range(6, 14)),
+            *(f"REQ-UX-{index:03d}" for index in range(1, 8)),
+            *(f"REQ-UX-CTX-{index:03d}" for index in range(1, 6)),
+            *(f"REQ-UI18N-{index:03d}" for index in range(1, 22)),
         ),
     ),
 }
@@ -902,7 +961,7 @@ def main() -> int:
     parser.add_argument("--include-discord-live", action="store_true")
     parser.add_argument(
         "--profile",
-        choices=("default", "load", "failure-injection", "security"),
+        choices=("default", "load", "failure-injection", "security", "e2e"),
         default="default",
     )
     arguments = parser.parse_args()
@@ -929,6 +988,9 @@ def main() -> int:
         return 2
     if arguments.profile == "failure-injection" and stage != "05":
         print("The failure-injection profile is defined only for STAGE 05")
+        return 2
+    if arguments.profile == "e2e" and stage != "07":
+        print("The e2e profile is defined only for STAGE 07")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []
