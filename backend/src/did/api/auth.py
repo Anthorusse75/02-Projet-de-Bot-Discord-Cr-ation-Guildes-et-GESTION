@@ -165,7 +165,7 @@ def problem_response(problem: ApiProblem, request_id: str) -> JSONResponse:
             "error": {
                 "code": problem.code,
                 "message_key": problem.message_key,
-                "params": {},
+                "params": problem.params,
                 "request_id": request_id,
             }
         },
