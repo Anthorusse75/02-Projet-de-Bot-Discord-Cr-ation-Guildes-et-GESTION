@@ -986,6 +986,9 @@ def test_transfer_state_machine_is_explicit_and_does_not_duplicate_plan_apply_st
 
 @pytest.mark.security
 def test_envelope_encryption_detects_tamper_and_supports_key_rotation() -> None:
+    def flip_last_byte(value: bytes) -> bytes:
+        return value[:-1] + bytes((value[-1] ^ 0x01,))
+
     key_v1 = b"1" * 32
     key_v2 = b"2" * 32
     artifact_id = uuid4()
@@ -1011,15 +1014,15 @@ def test_envelope_encryption_detects_tamper_and_supports_key_rotation() -> None:
     assert reencrypted.key_version == 2
     with pytest.raises(ValueError, match="integrity"):
         rotated.decrypt(
-            replace(encrypted, ciphertext=encrypted.ciphertext[:-1] + b"x"),
+            replace(encrypted, ciphertext=flip_last_byte(encrypted.ciphertext)),
             artifact_id=artifact_id,
             owner_user_id=99,
             schema_version=value.schema_version,
         )
     for changed in (
-        replace(encrypted, wrapped_dek=encrypted.wrapped_dek[:-1] + b"x"),
-        replace(encrypted, nonce=b"0" * 12),
-        replace(encrypted, wrap_nonce=b"1" * 12),
+        replace(encrypted, wrapped_dek=flip_last_byte(encrypted.wrapped_dek)),
+        replace(encrypted, nonce=flip_last_byte(encrypted.nonce)),
+        replace(encrypted, wrap_nonce=flip_last_byte(encrypted.wrap_nonce)),
         replace(encrypted, content_hash="0" * 64),
     ):
         with pytest.raises(ValueError, match="integrity"):

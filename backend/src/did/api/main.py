@@ -21,6 +21,7 @@ from did.api.stage04 import router as stage04_router
 from did.api.stage05 import invalid_planning_input
 from did.api.stage05 import router as stage05_router
 from did.api.stage06 import router as stage06_router
+from did.api.stage07 import router as stage07_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
@@ -32,6 +33,7 @@ from did.infrastructure.database import (
     create_session_factory,
     database_is_ready,
 )
+from did.infrastructure.localization_repository import LocalizationRepository
 from did.infrastructure.logging import configure_logging
 from did.infrastructure.planning_repository import (
     ConfirmationInvalid,
@@ -156,6 +158,7 @@ def create_app(
             planning = PlanningService(planning_repository, stage04_repository)
             portability_repository = None
             portability = None
+            localization_repository = LocalizationRepository(session_factory)
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -201,6 +204,7 @@ def create_app(
                 planning=planning,
                 portability_repository=portability_repository,
                 portability=portability,
+                localization_repository=localization_repository,
             )
         try:
             yield
@@ -240,6 +244,7 @@ def create_app(
     application.include_router(stage04_router)
     application.include_router(stage05_router)
     application.include_router(stage06_router)
+    application.include_router(stage07_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)

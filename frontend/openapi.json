@@ -1,0 +1,4547 @@
+{
+  "components": {
+    "schemas": {
+      "ArtifactKind": {
+        "enum": [
+          "CLIPBOARD",
+          "LIBRARY",
+          "EXPORT_BUNDLE",
+          "FILE_IMPORT"
+        ],
+        "title": "ArtifactKind",
+        "type": "string"
+      },
+      "ArtifactType": {
+        "enum": [
+          "CHANNEL",
+          "CATEGORY",
+          "LOGICAL_GROUP",
+          "GUILD_CONFIG",
+          "CUSTOM_BUNDLE"
+        ],
+        "title": "ArtifactType",
+        "type": "string"
+      },
+      "BotOperation": {
+        "enum": [
+          "CREATE_CHANNEL",
+          "MANAGE_CHANNEL",
+          "REORDER_CHANNELS",
+          "MANAGE_OVERWRITES",
+          "CREATE_ROLE",
+          "MANAGE_ROLE",
+          "REORDER_ROLES",
+          "ASSIGN_ROLE",
+          "SEND_MESSAGE",
+          "MANAGE_THREAD"
+        ],
+        "title": "BotOperation",
+        "type": "string"
+      },
+      "ChannelSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Channel Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "channel_ids"
+        ],
+        "title": "ChannelSelection",
+        "type": "object"
+      },
+      "CloneInput": {
+        "additionalProperties": false,
+        "properties": {
+          "destination_guild_id": {
+            "title": "Destination Guild Id",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/MappingInput"
+            },
+            "maxItems": 1000,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloneMode",
+            "default": "COPY_AS_NEW"
+          },
+          "relationship_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship Id"
+          }
+        },
+        "required": [
+          "destination_guild_id"
+        ],
+        "title": "CloneInput",
+        "type": "object"
+      },
+      "CloneMode": {
+        "enum": [
+          "COPY_AS_NEW",
+          "MERGE",
+          "RECONCILE",
+          "MAXIMUM_COMPATIBLE"
+        ],
+        "title": "CloneMode",
+        "type": "string"
+      },
+      "CompileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "format": "uuid",
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/MappingInput"
+            },
+            "maxItems": 1000,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloneMode",
+            "default": "COPY_AS_NEW"
+          },
+          "relationship_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship Id"
+          }
+        },
+        "required": [
+          "artifact_id"
+        ],
+        "title": "CompileInput",
+        "type": "object"
+      },
+      "ConfirmationCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgement": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledgement"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "plan_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Plan Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "plan_hash"
+        ],
+        "title": "ConfirmationCommand",
+        "type": "object"
+      },
+      "DesiredNodeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_id": {
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{0,19}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Id"
+          },
+          "logical_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:-]+$",
+            "title": "Logical Key",
+            "type": "string"
+          },
+          "presence": {
+            "$ref": "#/components/schemas/NodePresence",
+            "default": "PRESENT"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "title": "Properties",
+            "type": "object"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/RelationInput"
+            },
+            "maxItems": 3,
+            "title": "Relations",
+            "type": "array"
+          },
+          "resource_type": {
+            "$ref": "#/components/schemas/ResourceType"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "logical_key",
+          "resource_type"
+        ],
+        "title": "DesiredNodeInput",
+        "type": "object"
+      },
+      "ExportInput": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind",
+            "default": "EXPORT_BUNDLE"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionInput"
+          }
+        },
+        "required": [
+          "selection"
+        ],
+        "title": "ExportInput",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LiveTransferInput": {
+        "additionalProperties": false,
+        "properties": {
+          "destination_guild_id": {
+            "title": "Destination Guild Id",
+            "type": "string"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/MappingInput"
+            },
+            "maxItems": 1000,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloneMode",
+            "default": "COPY_AS_NEW"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "relationship_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship Id"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionInput"
+          },
+          "source_guild_id": {
+            "title": "Source Guild Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_guild_id",
+          "destination_guild_id",
+          "selection"
+        ],
+        "title": "LiveTransferInput",
+        "type": "object"
+      },
+      "LogicalGroupCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/LogicalGroupResourceInput"
+            },
+            "maxItems": 500,
+            "title": "Resources",
+            "type": "array"
+          },
+          "slug": {
+            "maxLength": 128,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "title": "LogicalGroupCreate",
+        "type": "object"
+      },
+      "LogicalGroupPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/LogicalGroupResourceInput"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resources"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "LogicalGroupPatch",
+        "type": "object"
+      },
+      "LogicalGroupResourceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_resource_id": {
+            "title": "Discord Resource Id",
+            "type": "string"
+          },
+          "resource_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL",
+              "ROLE"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "semantic_role": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Role"
+          }
+        },
+        "required": [
+          "resource_type",
+          "discord_resource_id"
+        ],
+        "title": "LogicalGroupResourceInput",
+        "type": "object"
+      },
+      "MappingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "destination_ref": {
+            "title": "Destination Ref",
+            "type": "string"
+          },
+          "resource_type": {
+            "$ref": "#/components/schemas/PortableResourceType"
+          },
+          "source_logical_ref": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Source Logical Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_logical_ref",
+          "destination_ref",
+          "resource_type",
+          "confirmed"
+        ],
+        "title": "MappingInput",
+        "type": "object"
+      },
+      "NodePresence": {
+        "enum": [
+          "PRESENT",
+          "ABSENT"
+        ],
+        "title": "NodePresence",
+        "type": "string"
+      },
+      "OverwriteInput": {
+        "additionalProperties": false,
+        "properties": {
+          "allow": {
+            "title": "Allow",
+            "type": "string"
+          },
+          "deny": {
+            "title": "Deny",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_type": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Target Type",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_id",
+          "target_type",
+          "allow",
+          "deny"
+        ],
+        "title": "OverwriteInput",
+        "type": "object"
+      },
+      "PermissionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "requested_permission": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Permission"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "role_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Id"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "view_as": {
+            "enum": [
+              "VIEW_AS_MEMBER",
+              "VIEW_AS_ROLE",
+              "VIEW_AS_NEWCOMER"
+            ],
+            "title": "View As",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_as"
+        ],
+        "title": "PermissionRequest",
+        "type": "object"
+      },
+      "PlanCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/DesiredNodeInput"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "did-dsg-v1",
+            "default": "did-dsg-v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "PlanCreate",
+        "type": "object"
+      },
+      "PlatformRole": {
+        "enum": [
+          "OWNER",
+          "TENANT_ADMIN",
+          "READ_ONLY"
+        ],
+        "title": "PlatformRole",
+        "type": "string"
+      },
+      "PortableResourceType": {
+        "enum": [
+          "ROLE",
+          "CATEGORY",
+          "CHANNEL",
+          "OVERWRITE",
+          "LOGICAL_GROUP",
+          "POLICY",
+          "SYSTEM_PRINCIPAL",
+          "PRINCIPAL_REQUIREMENT",
+          "BOT_REFERENCE",
+          "WEBHOOK_REFERENCE"
+        ],
+        "title": "PortableResourceType",
+        "type": "string"
+      },
+      "PreferenceUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "ui_locale_override_code": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ui Locale Override Code"
+          }
+        },
+        "title": "PreferenceUpdate",
+        "type": "object"
+      },
+      "PurgeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Channel Ids",
+            "type": "array"
+          },
+          "confirm_local_only": {
+            "title": "Confirm Local Only",
+            "type": "boolean"
+          },
+          "confirm_resource_deleted": {
+            "default": false,
+            "title": "Confirm Resource Deleted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel_ids",
+          "confirm_local_only"
+        ],
+        "title": "PurgeRequest",
+        "type": "object"
+      },
+      "ReferenceKind": {
+        "enum": [
+          "LOGICAL",
+          "DISCORD_ID",
+          "SYMBOL"
+        ],
+        "title": "ReferenceKind",
+        "type": "string"
+      },
+      "RelationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ReferenceKind"
+          },
+          "name": {
+            "enum": [
+              "parent",
+              "channel",
+              "subject"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "value"
+        ],
+        "title": "RelationInput",
+        "type": "object"
+      },
+      "ResourceType": {
+        "enum": [
+          "GUILD",
+          "ROLE",
+          "CATEGORY",
+          "CHANNEL",
+          "OVERWRITE"
+        ],
+        "title": "ResourceType",
+        "type": "string"
+      },
+      "RoleBindingUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_role_id": {
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "title": "Discord Role Id",
+            "type": "string"
+          },
+          "platform_role": {
+            "$ref": "#/components/schemas/PlatformRole"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/ScopeKind"
+          }
+        },
+        "required": [
+          "scope_kind",
+          "scope_id",
+          "discord_role_id",
+          "platform_role"
+        ],
+        "title": "RoleBindingUpdate",
+        "type": "object"
+      },
+      "ScopeKind": {
+        "enum": [
+          "GUILD",
+          "LOGICAL_GROUP",
+          "VISIBILITY_SCOPE"
+        ],
+        "title": "ScopeKind",
+        "type": "string"
+      },
+      "ScopeResolveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "member_id": {
+            "title": "Member Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id"
+        ],
+        "title": "ScopeResolveRequest",
+        "type": "object"
+      },
+      "ScopeRuleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "priority": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rule_type": {
+            "enum": [
+              "DISCORD_ROLE",
+              "ANY_DISCORD_ROLE",
+              "ALL_DISCORD_ROLES",
+              "EXPLICIT_DID_MEMBERSHIP",
+              "CUSTOM"
+            ],
+            "title": "Rule Type",
+            "type": "string"
+          },
+          "status": {
+            "default": "ACTIVE",
+            "enum": [
+              "ACTIVE",
+              "DISABLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_type",
+          "priority"
+        ],
+        "title": "ScopeRuleInput",
+        "type": "object"
+      },
+      "ScopeType": {
+        "enum": [
+          "GLOBAL",
+          "LOGICAL_GROUP",
+          "STAFF",
+          "PROJECT",
+          "CUSTOM"
+        ],
+        "title": "ScopeType",
+        "type": "string"
+      },
+      "SelectionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_type": {
+            "$ref": "#/components/schemas/ArtifactType"
+          },
+          "category_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Category Ids",
+            "type": "array"
+          },
+          "channel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Channel Ids",
+            "type": "array"
+          },
+          "logical_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Group Id"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Role Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "artifact_type"
+        ],
+        "title": "SelectionInput",
+        "type": "object"
+      },
+      "SimpleCompileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "concepts": {
+            "items": {
+              "$ref": "#/components/schemas/SimplePermissionConcept"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Concepts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "concepts"
+        ],
+        "title": "SimpleCompileRequest",
+        "type": "object"
+      },
+      "SimplePermissionConcept": {
+        "enum": [
+          "VIEW",
+          "WRITE",
+          "MANAGE",
+          "VOICE_JOIN",
+          "VOICE_SPEAK",
+          "VOICE_STREAM"
+        ],
+        "title": "SimplePermissionConcept",
+        "type": "string"
+      },
+      "SimulationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "proposed_overwrites": {
+            "items": {
+              "$ref": "#/components/schemas/OverwriteInput"
+            },
+            "maxItems": 1000,
+            "title": "Proposed Overwrites",
+            "type": "array"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "subject_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Subject Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resource_id",
+          "subject_ids",
+          "proposed_overwrites"
+        ],
+        "title": "SimulationRequest",
+        "type": "object"
+      },
+      "TemplateApplyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/MappingInput"
+            },
+            "maxItems": 1000,
+            "title": "Mappings",
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CloneMode",
+            "default": "COPY_AS_NEW"
+          }
+        },
+        "title": "TemplateApplyInput",
+        "type": "object"
+      },
+      "TemplateCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "format": "uuid",
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "name"
+        ],
+        "title": "TemplateCreateInput",
+        "type": "object"
+      },
+      "UserAccessUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_user_id": {
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "title": "Discord User Id",
+            "type": "string"
+          },
+          "platform_role": {
+            "$ref": "#/components/schemas/PlatformRole"
+          },
+          "revoked": {
+            "default": false,
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/ScopeKind"
+          }
+        },
+        "required": [
+          "scope_kind",
+          "scope_id",
+          "discord_user_id",
+          "platform_role"
+        ],
+        "title": "UserAccessUpdate",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VersionCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "VersionCommand",
+        "type": "object"
+      },
+      "VisibilityScopeCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "explicit_member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Explicit Member Ids",
+            "type": "array"
+          },
+          "logical_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Group Id"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeRuleInput"
+            },
+            "maxItems": 100,
+            "title": "Rules",
+            "type": "array"
+          },
+          "scope_key": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]+$",
+            "title": "Scope Key",
+            "type": "string"
+          },
+          "scope_type": {
+            "$ref": "#/components/schemas/ScopeType"
+          }
+        },
+        "required": [
+          "scope_type",
+          "scope_key",
+          "name"
+        ],
+        "title": "VisibilityScopeCreate",
+        "type": "object"
+      },
+      "VisibilityScopePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "explicit_member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Explicit Member Ids",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeRuleInput"
+            },
+            "maxItems": 100,
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "VisibilityScopePatch",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Discord Infrastructure Designer",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/guilds": {
+      "get": {
+        "operationId": "guilds_api_v1_guilds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Guilds Api V1 Guilds Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Guilds",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/audit": {
+      "get": {
+        "operationId": "list_audit_api_v1_guilds__guild_id__audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Audit Api V1 Guilds  Guild Id  Audit Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Audit",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/bootstrap": {
+      "post": {
+        "operationId": "bootstrap_api_v1_guilds__guild_id__bootstrap_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bootstrap Api V1 Guilds  Guild Id  Bootstrap Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bootstrap",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/cache/channels/purge": {
+      "post": {
+        "operationId": "purge_channels_api_v1_guilds__guild_id__cache_channels_purge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Purge Channels Api V1 Guilds  Guild Id  Cache Channels Purge Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Purge Channels",
+        "tags": [
+          "runtime-cache"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/cache/channels/purge/preview": {
+      "post": {
+        "operationId": "preview_channel_purge_api_v1_guilds__guild_id__cache_channels_purge_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Channel Purge Api V1 Guilds  Guild Id  Cache Channels Purge Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Channel Purge",
+        "tags": [
+          "runtime-cache"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/cache/channels/refresh": {
+      "post": {
+        "operationId": "enqueue_channel_refresh_api_v1_guilds__guild_id__cache_channels_refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Enqueue Channel Refresh Api V1 Guilds  Guild Id  Cache Channels Refresh Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Channel Refresh",
+        "tags": [
+          "runtime-cache"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/capabilities": {
+      "get": {
+        "operationId": "capabilities_api_v1_guilds__guild_id__capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operation",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BotOperation",
+              "default": "MANAGE_CHANNEL"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channel_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Channel Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_role_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Capabilities Api V1 Guilds  Guild Id  Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capabilities",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/channels": {
+      "get": {
+        "operationId": "cached_channels_api_v1_guilds__guild_id__channels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_hidden_deleted",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Hidden Deleted",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cached Channels Api V1 Guilds  Guild Id  Channels Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cached Channels",
+        "tags": [
+          "runtime-cache"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/coverage": {
+      "get": {
+        "operationId": "coverage_api_v1_guilds__guild_id__coverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Coverage Api V1 Guilds  Guild Id  Coverage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Coverage",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/dashboard-capabilities": {
+      "get": {
+        "description": "Aggregate existing authorization and cached bot checks for the dashboard.\n\nThis endpoint is deliberately read-only and cache-first.  It does not grant\nauthority: every command endpoint remains responsible for its own final\nauthorization and preflight checks.",
+        "operationId": "dashboard_capabilities_api_v1_guilds__guild_id__dashboard_capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_role_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Capabilities Api V1 Guilds  Guild Id  Dashboard Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard Capabilities",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/exports/portable": {
+      "post": {
+        "operationId": "export_portable_api_v1_guilds__guild_id__exports_portable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Export Portable Api V1 Guilds  Guild Id  Exports Portable Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Portable",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/imports/plan": {
+      "post": {
+        "operationId": "import_plan_api_v1_guilds__guild_id__imports_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Plan Api V1 Guilds  Guild Id  Imports Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Plan",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/imports/preview": {
+      "post": {
+        "operationId": "import_preview_api_v1_guilds__guild_id__imports_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Preview Api V1 Guilds  Guild Id  Imports Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Preview",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/installation": {
+      "delete": {
+        "operationId": "uninstall_api_v1_guilds__guild_id__installation_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Uninstall",
+        "tags": [
+          "guilds"
+        ]
+      },
+      "get": {
+        "operationId": "installation_api_v1_guilds__guild_id__installation_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Installation Api V1 Guilds  Guild Id  Installation Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Installation",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/logical-groups": {
+      "get": {
+        "operationId": "logical_groups_api_v1_guilds__guild_id__logical_groups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Logical Groups Api V1 Guilds  Guild Id  Logical Groups Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logical Groups",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      },
+      "post": {
+        "operationId": "create_logical_group_api_v1_guilds__guild_id__logical_groups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalGroupCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Create Logical Group Api V1 Guilds  Guild Id  Logical Groups Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Logical Group",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/logical-groups/{group_id}": {
+      "delete": {
+        "operationId": "delete_logical_group_api_v1_guilds__guild_id__logical_groups__group_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Logical Group",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_logical_group_api_v1_guilds__guild_id__logical_groups__group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogicalGroupPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Logical Group",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/permissions/evaluate": {
+      "post": {
+        "operationId": "evaluate_permission_api_v1_guilds__guild_id__permissions_evaluate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Evaluate Permission Api V1 Guilds  Guild Id  Permissions Evaluate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Permission",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/permissions/explain": {
+      "post": {
+        "operationId": "explain_permission_api_v1_guilds__guild_id__permissions_explain_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Explain Permission Api V1 Guilds  Guild Id  Permissions Explain Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Explain Permission",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/permissions/simple/compile": {
+      "post": {
+        "operationId": "simple_compile_api_v1_guilds__guild_id__permissions_simple_compile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimpleCompileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Simple Compile Api V1 Guilds  Guild Id  Permissions Simple Compile Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simple Compile",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/permissions/simulate": {
+      "post": {
+        "operationId": "simulate_permission_api_v1_guilds__guild_id__permissions_simulate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Simulate Permission Api V1 Guilds  Guild Id  Permissions Simulate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Permission",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans": {
+      "get": {
+        "operationId": "list_plans_api_v1_guilds__guild_id__plans_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Plans Api V1 Guilds  Guild Id  Plans Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Plans",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      },
+      "post": {
+        "operationId": "create_plan_api_v1_guilds__guild_id__plans_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Plan Api V1 Guilds  Guild Id  Plans Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}": {
+      "get": {
+        "operationId": "get_plan_api_v1_guilds__guild_id__plans__plan_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Plan Api V1 Guilds  Guild Id  Plans  Plan Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/apply": {
+      "post": {
+        "operationId": "apply_plan_api_v1_guilds__guild_id__plans__plan_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Apply Plan Api V1 Guilds  Guild Id  Plans  Plan Id  Apply Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/cancel": {
+      "post": {
+        "operationId": "cancel_plan_api_v1_guilds__guild_id__plans__plan_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Plan Api V1 Guilds  Guild Id  Plans  Plan Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/confirm": {
+      "post": {
+        "operationId": "confirm_plan_api_v1_guilds__guild_id__plans__plan_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Confirm Plan Api V1 Guilds  Guild Id  Plans  Plan Id  Confirm Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/operations": {
+      "get": {
+        "operationId": "plan_operations_api_v1_guilds__guild_id__plans__plan_id__operations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Plan Operations Api V1 Guilds  Guild Id  Plans  Plan Id  Operations Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Operations",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/progress": {
+      "get": {
+        "operationId": "plan_progress_api_v1_guilds__guild_id__plans__plan_id__progress_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Plan Progress Api V1 Guilds  Guild Id  Plans  Plan Id  Progress Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Progress",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/plans/{plan_id}/validate": {
+      "post": {
+        "operationId": "validate_plan_api_v1_guilds__guild_id__plans__plan_id__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Validate Plan Api V1 Guilds  Guild Id  Plans  Plan Id  Validate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Plan",
+        "tags": [
+          "stage-05-plans"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/rbac/roles": {
+      "put": {
+        "operationId": "set_role_binding_api_v1_guilds__guild_id__rbac_roles_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleBindingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Role Binding Api V1 Guilds  Guild Id  Rbac Roles Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Role Binding",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/rbac/roles/{discord_role_id}": {
+      "delete": {
+        "operationId": "delete_role_binding_api_v1_guilds__guild_id__rbac_roles__discord_role_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "discord_role_id",
+            "required": true,
+            "schema": {
+              "title": "Discord Role Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope_id",
+            "required": true,
+            "schema": {
+              "title": "Scope Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Role Binding",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/rbac/users": {
+      "put": {
+        "operationId": "set_user_access_api_v1_guilds__guild_id__rbac_users_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserAccessUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set User Access Api V1 Guilds  Guild Id  Rbac Users Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set User Access",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/roles": {
+      "get": {
+        "operationId": "roles_api_v1_guilds__guild_id__roles_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Roles Api V1 Guilds  Guild Id  Roles Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Roles",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/select": {
+      "post": {
+        "operationId": "select_guild_api_v1_guilds__guild_id__select_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Select Guild Api V1 Guilds  Guild Id  Select Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Select Guild",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/structure": {
+      "get": {
+        "operationId": "structure_api_v1_guilds__guild_id__structure_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_hidden_deleted",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Hidden Deleted",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Structure Api V1 Guilds  Guild Id  Structure Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Structure",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/templates": {
+      "get": {
+        "operationId": "list_templates_api_v1_guilds__guild_id__templates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Templates Api V1 Guilds  Guild Id  Templates Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates",
+        "tags": [
+          "stage-06-portability"
+        ]
+      },
+      "post": {
+        "operationId": "create_template_api_v1_guilds__guild_id__templates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Template Api V1 Guilds  Guild Id  Templates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Template",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/templates/{template_id}/apply": {
+      "post": {
+        "operationId": "apply_template_api_v1_guilds__guild_id__templates__template_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateApplyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Apply Template Api V1 Guilds  Guild Id  Templates  Template Id  Apply Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Template",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility-scopes": {
+      "get": {
+        "operationId": "visibility_scopes_api_v1_guilds__guild_id__visibility_scopes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Visibility Scopes Api V1 Guilds  Guild Id  Visibility Scopes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Visibility Scopes",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      },
+      "post": {
+        "operationId": "create_visibility_scope_api_v1_guilds__guild_id__visibility_scopes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisibilityScopeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Create Visibility Scope Api V1 Guilds  Guild Id  Visibility Scopes Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Visibility Scope",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility-scopes/{scope_id}": {
+      "delete": {
+        "operationId": "delete_visibility_scope_api_v1_guilds__guild_id__visibility_scopes__scope_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Scope Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Visibility Scope",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_visibility_scope_api_v1_guilds__guild_id__visibility_scopes__scope_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Scope Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisibilityScopePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Visibility Scope",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility-scopes/{scope_id}/resolve": {
+      "post": {
+        "operationId": "resolve_visibility_scope_api_v1_guilds__guild_id__visibility_scopes__scope_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Scope Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopeResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Visibility Scope Api V1 Guilds  Guild Id  Visibility Scopes  Scope Id  Resolve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Visibility Scope",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "me_api_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Me Api V1 Me Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/oauth/discord/revoke": {
+      "post": {
+        "operationId": "revoke_discord_api_v1_me_oauth_discord_revoke_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Revoke Discord",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/me/portable-artifacts": {
+      "get": {
+        "operationId": "list_portable_artifacts_api_v1_me_portable_artifacts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Portable Artifacts Api V1 Me Portable Artifacts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Portable Artifacts",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/me/portable-artifacts/import": {
+      "post": {
+        "operationId": "import_portable_file_api_v1_me_portable_artifacts_import_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Artifact-Name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 160,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Artifact-Name"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Portable File Api V1 Me Portable Artifacts Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Portable File",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/me/portable-artifacts/{artifact_id}": {
+      "delete": {
+        "operationId": "delete_portable_artifact_api_v1_me_portable_artifacts__artifact_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Portable Artifact",
+        "tags": [
+          "stage-06-portability"
+        ]
+      },
+      "get": {
+        "operationId": "get_portable_artifact_api_v1_me_portable_artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Portable Artifact Api V1 Me Portable Artifacts  Artifact Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Portable Artifact",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/me/portable-artifacts/{artifact_id}/clone": {
+      "post": {
+        "operationId": "clone_portable_artifact_api_v1_me_portable_artifacts__artifact_id__clone_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Clone Portable Artifact Api V1 Me Portable Artifacts  Artifact Id  Clone Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Portable Artifact",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/me/portable-artifacts/{artifact_id}/file": {
+      "get": {
+        "operationId": "export_portable_file_api_v1_me_portable_artifacts__artifact_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Portable File",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/me/preferences": {
+      "get": {
+        "operationId": "preferences_api_v1_me_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Preferences Api V1 Me Preferences Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Preferences",
+        "tags": [
+          "me"
+        ]
+      },
+      "patch": {
+        "operationId": "update_preferences_api_v1_me_preferences_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Update Preferences Api V1 Me Preferences Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Preferences",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/portability/support-matrix": {
+      "get": {
+        "operationId": "portability_support_matrix_api_v1_portability_support_matrix_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Portability Support Matrix Api V1 Portability Support Matrix Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Portability Support Matrix",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/transfers": {
+      "post": {
+        "operationId": "create_live_transfer_api_v1_transfers_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveTransferInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Live Transfer Api V1 Transfers Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Live Transfer",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/transfers/{transfer_id}": {
+      "get": {
+        "operationId": "get_transfer_api_v1_transfers__transfer_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transfer_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transfer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Transfer Api V1 Transfers  Transfer Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Transfer",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/transfers/{transfer_id}/finalize": {
+      "post": {
+        "operationId": "finalize_transfer_api_v1_transfers__transfer_id__finalize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transfer_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transfer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Finalize Transfer Api V1 Transfers  Transfer Id  Finalize Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finalize Transfer",
+        "tags": [
+          "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/ui/catalog/version": {
+      "get": {
+        "operationId": "ui_catalog_version_api_v1_ui_catalog_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ui Catalog Version",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
+    "/api/v1/ui/locales": {
+      "get": {
+        "operationId": "ui_locales_api_v1_ui_locales_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ui Locales",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
+    "/api/v1/ui/locales/{locale}/catalog/{catalog_version}": {
+      "get": {
+        "operationId": "ui_locale_catalog_api_v1_ui_locales__locale__catalog__catalog_version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "locale",
+            "required": true,
+            "schema": {
+              "title": "Locale",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "catalog_version",
+            "required": true,
+            "schema": {
+              "title": "Catalog Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ui Locale Catalog",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
+    "/auth/discord/callback": {
+      "get": {
+        "operationId": "discord_callback_auth_discord_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Callback",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/discord/login": {
+      "get": {
+        "operationId": "discord_login_auth_discord_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "return_to",
+            "required": false,
+            "schema": {
+              "default": "/",
+              "title": "Return To",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Live Health Live Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ready Health Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

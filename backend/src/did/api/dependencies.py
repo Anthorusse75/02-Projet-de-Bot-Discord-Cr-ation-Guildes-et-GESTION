@@ -15,10 +15,18 @@ from did.settings import AppEnvironment, Settings
 
 
 class ApiProblem(RuntimeError):
-    def __init__(self, *, status_code: int, code: str, message_key: str) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message_key: str,
+        params: dict[str, str | int] | None = None,
+    ) -> None:
         self.status_code = status_code
         self.code = code
         self.message_key = message_key
+        self.params = params or {}
         super().__init__(code)
 
 
@@ -38,6 +46,7 @@ class ServiceContainer:
     planning: Any = None
     portability_repository: Any = None
     portability: Any = None
+    localization_repository: Any = None
 
 
 def services(request: Request) -> ServiceContainer:

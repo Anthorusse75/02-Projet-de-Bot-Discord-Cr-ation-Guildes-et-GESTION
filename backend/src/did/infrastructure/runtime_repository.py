@@ -37,6 +37,27 @@ class RuntimeRepository:
         self._application_id = application_id
         self._bot_user_id = bot_user_id
 
+    async def audit_events(self, guild_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 200:
+            raise ValueError("audit list limit must be between 1 and 200")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id,event_type,target_type,target_id,result_state,"
+                            "occurred_at,plan_id,correlation_id FROM internal_audit_events "
+                            "WHERE guild_id=:guild_id ORDER BY occurred_at DESC,id DESC "
+                            "LIMIT :limit"
+                        ),
+                        {"guild_id": guild_id, "limit": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def ingest_gateway_event(self, envelope: EventEnvelope) -> bool:
         async with tenant_transaction(self._factory, TenantContext(envelope.guild_id)) as session:
             # The inbox is deliberately FK-bound to an installation. A brand-new guild is

@@ -266,6 +266,25 @@ class PlanningRepository:
             raise PlanNotFound("plan not found")
         return dict(row)
 
+    async def list_plans(self, guild_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 200:
+            raise ValueError("plan list limit must be between 1 and 200")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM plans WHERE guild_id=:guild_id "
+                            "ORDER BY created_at DESC,id DESC LIMIT :limit"
+                        ),
+                        {"guild_id": guild_id, "limit": limit},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def operations(self, guild_id: int, plan_id: UUID) -> list[dict[str, Any]]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             rows = (
