@@ -5,9 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VISIBLE_TEXT = re.compile(
-    r"<([A-Za-z][\w.]*)\b[^>]*>\s*([^<>{}\n]*[A-Za-z][^<>{}\n]*)\s*</\1\s*>"
-)
+VISIBLE_TEXT = re.compile(r"<([A-Za-z][\w.]*)\b[^>]*>\s*([^<>{}\n]*[A-Za-z][^<>{}\n]*)\s*</\1\s*>")
 VISIBLE_ATTRIBUTE = re.compile(
     r"\b(?:aria-label|alt|placeholder|title)\s*=\s*[\"']([A-Za-z][^\"']*)[\"']"
 )

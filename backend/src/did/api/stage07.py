@@ -146,9 +146,7 @@ async def dashboard_capabilities(
     user = {
         item.value: {
             "outcome": (
-                CapabilityOutcome.CAN.value
-                if item in granted
-                else CapabilityOutcome.CANNOT.value
+                CapabilityOutcome.CAN.value if item in granted else CapabilityOutcome.CANNOT.value
             ),
             "scope_kind": authorization.scope.kind.value,
             "scope_id": authorization.scope.scope_id,
