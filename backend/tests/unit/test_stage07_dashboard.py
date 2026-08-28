@@ -23,6 +23,58 @@ async def test_public_catalog_contract_and_etag() -> None:
     assert cached.status_code == 304
 
 
+async def test_locale_list_etag_covers_every_ordered_runtime_locale() -> None:
+    class Repository:
+        first_hash = "a" * 64
+
+        async def active_locales(self, _: str) -> list[dict[str, object]]:
+            return [
+                {
+                    "locale_code": "it",
+                    "display_name": "Italiano",
+                    "flag_code": "it",
+                    "direction": "ltr",
+                    "catalog_version": CATALOG_VERSION,
+                    "status": "ACTIVE",
+                    "coverage_count": 244,
+                    "coverage_percent": 100,
+                    "content_hash": self.first_hash,
+                },
+                {
+                    "locale_code": "nl",
+                    "display_name": "Nederlands",
+                    "flag_code": "nl",
+                    "direction": "ltr",
+                    "catalog_version": CATALOG_VERSION,
+                    "status": "ACTIVE",
+                    "coverage_count": 244,
+                    "coverage_percent": 100,
+                    "content_hash": "b" * 64,
+                },
+            ]
+
+    repository = Repository()
+    app = create_app()
+    app.state.services = SimpleNamespace(localization_repository=repository)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/api/v1/ui/locales")
+        repository.first_hash = "c" * 64
+        second = await client.get("/api/v1/ui/locales")
+        stale = await client.get(
+            "/api/v1/ui/locales", headers={"If-None-Match": first.headers["etag"]}
+        )
+    assert [item["locale_code"] for item in first.json()["locales"]] == [
+        "de",
+        "en",
+        "es",
+        "fr",
+        "it",
+        "nl",
+    ]
+    assert first.headers["etag"] != second.headers["etag"]
+    assert stale.status_code == 200
+
+
 def test_stage07_routes_and_application_command_scope_are_explicit() -> None:
     paths = create_app().openapi()["paths"]
     assert "/api/v1/ui/locales" in paths

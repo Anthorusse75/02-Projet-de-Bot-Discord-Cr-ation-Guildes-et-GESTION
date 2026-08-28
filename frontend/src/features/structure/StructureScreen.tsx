@@ -3,10 +3,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../../api/client'
-import { useDashboardCapabilities, useStructure } from '../../api/queries'
+import { useDashboardCapabilities, useGuildDashboardCapabilities, useStructure } from '../../api/queries'
+import { queryKeys } from '../../api/queryKeys'
 import type { Channel, DashboardCapabilities } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
-import { Badge, Button, Dialog, EmptyState, ErrorState, Input, Menu, MenuItem, Skeleton, Tree, TreeItem } from '../../shared/components/ui'
+import { Badge, Button, Dialog, EmptyState, ErrorState, Input, Menu, MenuItem, Select, Skeleton, Toast, Tree, TreeItem } from '../../shared/components/ui'
 import { useInteractionStore } from '../../shared/state/interaction'
 import { actions, resolveActions, type ActionContext, type ResourceRef } from '../interaction/actions'
 import { createActionIntent, dispatchAction } from '../interaction/dispatcher'
@@ -27,11 +28,25 @@ export function StructureScreen() {
   const previewIntent = useInteractionStore((state) => state.previewIntent); const setPreview = useInteractionStore((state) => state.setPreview); const announce = useInteractionStore((state) => state.announce)
   const scoped = useDashboardCapabilities(me.user.discord_user_id, guild.guild_id, selection.length === 1 ? selection[0]?.id : undefined)
   const capabilities = scoped.data ?? globalCapabilities ?? emptyCapabilities
+  const destinationGuilds = guilds.filter((item) => item.guild_id !== guild.guild_id)
+  const destinationQueries = useGuildDashboardCapabilities(me.user.discord_user_id, destinationGuilds.map((item) => item.guild_id))
+  const destinationCapabilities = new Map(destinationGuilds.map((item, index) => [item.guild_id, destinationQueries[index]?.data]))
+  const [feedbackKey, setFeedbackKey] = useState<'actions.export.saved'|null>(null)
   const all = useMemo(() => query.data ? [...query.data.categories.flatMap((category) => [category, ...category.channels.flatMap((channel) => [channel, ...(channel.threads ?? [])])]), ...query.data.root_channels] : [], [query.data])
   const visible = (item: Channel) => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())
 
   useEffect(() => { const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape' && manager.current.cancel()) { announce(t('gesture.cancelled')); setContext(null) } }; document.addEventListener('keydown', cancel); return () => document.removeEventListener('keydown', cancel) }, [announce, setContext, t])
-  function actionContext(source = selection, destination?: ResourceRef): ActionContext { return { source, ...(destination ? { destination } : {}), userCapabilities: capabilities.user_capabilities, botCapabilities: capabilities.bot_operations } }
+  function actionContext(source = selection, destination?: ResourceRef): ActionContext {
+    const destinationGuild = destination ? guilds.find((item) => item.guild_id === destination.guildId) : undefined
+    const destinationCapability = destination?.guildId === guild.guild_id ? capabilities : destination ? destinationCapabilities.get(destination.guildId) : undefined
+    return {
+      source, ...(destination ? { destination } : {}),
+      sourceUserCapabilities: capabilities.user_capabilities,
+      sourceBotCapabilities: capabilities.bot_operations,
+      ...(destinationCapability ? { destinationUserCapabilities: destinationCapability.user_capabilities, destinationBotCapabilities: destinationCapability.bot_operations } : {}),
+      ...(destinationGuild ? { destinationInstallationStatus: destinationGuild.installation_status } : {}),
+    }
+  }
   function openMenu(source: ResourceRef[], x: number, y: number, kind: 'object'|'drop', destination?: ResourceRef) { setSelection(source); setContext({ ...actionContext(source, destination), x, y, kind }) }
   function pointerDown(event: ReactPointerEvent, source: ResourceRef) { manager.current.start(event.nativeEvent, source); event.currentTarget.setPointerCapture(event.pointerId); announce(t('a11y.dragStarted', { name: source.name })) }
   function pointerMove(event: ReactPointerEvent) { manager.current.move(event.nativeEvent) }
@@ -39,7 +54,7 @@ export function StructureScreen() {
   function pointerUp(event: ReactPointerEvent) {
     const result = manager.current.finish(event.nativeEvent); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     if (!result || result.kind === 'cancel') return
-    if (result.kind === 'context') { openMenu([result.source], result.x, result.y, 'object'); return }
+    if (result.kind === 'context') { const chosen = selection.some((item) => item.id === result.source.id) ? selection : [result.source]; openMenu(chosen, result.x, result.y, 'object'); return }
     const element = document.elementFromPoint(result.x, result.y)?.closest<HTMLElement>('[data-drop-id]'); const destinationId = element?.dataset.dropId; const destinationGuild = element?.dataset.dropGuild
     const destination = destinationId && destinationGuild ? { id: destinationId, name: element.dataset.dropName ?? destinationId, type: element.dataset.dropType as ResourceRef['type'], guildId: destinationGuild as ResourceRef['guildId'] } : undefined
     const resolution = resolveDropTarget(actionContext([result.source], destination)); if (!resolution.valid) { announce(t('gesture.invalid')); return }
@@ -47,10 +62,37 @@ export function StructureScreen() {
     else { const action = resolution.actions.find((item) => item.enabled); if (action) { setPreview(createActionIntent(action.action.id, [result.source], destination)); announce(t(resolution.crossGuild ? 'gesture.copyPreview' : 'gesture.movePreview')) } }
   }
   function choose(actionId: string) { if (!context) return; const intent = createActionIntent(actionId, context.source, context.destination); setContext(null); if (actionId === 'open' || actionId === 'explain') void execute(intent); else setPreview(intent) }
-  async function execute(intent = previewIntent) { if (!intent) return; setProblemKey(null); try { const result = await dispatchAction(intent, guild.guild_id, 'PREVIEW'); if (!(result.kind === 'ROUTE' && result.path.endsWith('/clone'))) setPreview(null); await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id] }); navigate(result.path) } catch (error) { setProblemKey(error instanceof ApiError && error.status === 403 ? 'errors.authorization.denied' : 'errors.generic'); await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'dashboard-capabilities'] }) } }
+  async function execute(intent = previewIntent) {
+    if (!intent) return
+    const availability = resolveActions(actionContext(intent.source, intent.destination)).find((item) => item.action.id === intent.actionId)
+    if (!availability?.enabled) { setProblemKey('errors.authorization.denied'); return }
+    setProblemKey(null); setFeedbackKey(null)
+    try {
+      const result = await dispatchAction(intent, guild.guild_id, 'PREVIEW')
+      if (!(result.kind === 'ROUTE' && result.path.endsWith('/clone'))) setPreview(null)
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id] })
+      if (result.kind === 'EXPORT') {
+        await client.invalidateQueries({ queryKey: queryKeys.library(me.user.discord_user_id) })
+        setFeedbackKey('actions.export.saved'); announce(t('actions.export.saved')); return
+      }
+      navigate(result.path)
+    } catch (error) {
+      setProblemKey(error instanceof ApiError && error.status === 403 ? 'errors.authorization.denied' : 'errors.generic')
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'dashboard-capabilities'] })
+      const destinationGuildId = intent.destination?.guildId
+      if (destinationGuildId && destinationGuildId !== guild.guild_id) await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, destinationGuildId, 'dashboard-capabilities'] })
+    }
+  }
+  const previewAction = previewIntent ? actions.find((action) => action.id === previewIntent.actionId) : undefined
+  const targetCandidates: ResourceRef[] = previewIntent && previewAction?.requiresTarget ? [
+    ...(previewAction.guildMode !== 'CROSS' && previewAction.id !== 'bulk' ? [{ id: guild.guild_id, name: guild.name, type: 'GUILD' as const, guildId: guild.guild_id }] : []),
+    ...(previewAction.guildMode !== 'CROSS' ? (query.data?.categories ?? []).map(ref) : []),
+    ...(previewAction.guildMode !== 'SAME' ? destinationGuilds.map((item) => ({ id: item.guild_id, name: item.name, type: 'GUILD' as const, guildId: item.guild_id })) : []),
+  ] : []
+  const previewAvailability = previewIntent ? resolveActions(actionContext(previewIntent.source, previewIntent.destination)).find((item) => item.action.id === previewIntent.actionId) : undefined
   if (query.isLoading) return <Skeleton />
   if (query.isError) return <ErrorState retry={() => void query.refetch()} />
-  return <section><div className="page-heading"><div><p className="eyebrow">{guild.name}</p><h1>{t('structure.title')}</h1></div><Input labelKey="common.search" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{all.length === 0 && <EmptyState messageKey="structure.empty" />}<div className="structure-grid"><Tree>{query.data?.categories.filter(visible).map((category) => <ResourceItem key={category.id} item={category} selected={selection.some((item) => item.id === category.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>{category.channels.filter(visible).map((channel) => <ResourceItem key={channel.id} item={channel} level={2} selected={selection.some((item) => item.id === channel.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>{channel.threads?.filter(visible).map((thread) => <ResourceItem key={thread.id} item={thread} level={3} selected={selection.some((item) => item.id === thread.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}</ResourceItem>)}</ResourceItem>)}{query.data?.root_channels.filter(visible).map((channel) => <ResourceItem key={channel.id} item={channel} selected={selection.some((item) => item.id === channel.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}</Tree><aside className="properties"><h2>{t('structure.properties')}</h2>{selection.map((item) => <div key={item.id}><strong>{item.name}</strong><Badge>{t(`resource.${item.type.toLowerCase()}` as 'resource.channel')}</Badge></div>)}<h2>{t('guilds.browser')}</h2>{guilds.filter((item) => item.guild_id !== guild.guild_id).map((item) => <button type="button" key={item.guild_id} className="drop-guild" data-drop-id={item.guild_id} data-drop-guild={item.guild_id} data-drop-name={item.name} data-drop-type="GUILD">{item.name}</button>)}</aside></div>{context && <Menu labelKey={context.kind === 'drop' ? 'context.dropTitle' : 'context.title'} style={{ left: context.x, top: context.y }} onClose={() => setContext(null)}>{resolveActions(context).map(({action,enabled,reasonKey}) => <MenuItem key={action.id} disabled={!enabled} disabledReasonKey={reasonKey} onSelect={() => choose(action.id)}>{t(action.labelKey)}</MenuItem>)}</Menu>}<Dialog open={previewIntent !== null} titleKey="dialog.previewTitle" onClose={() => { setPreview(null); setProblemKey(null) }}><p>{t('dialog.noMutation')}</p><p>{previewIntent ? t(actions.find((action) => action.id === previewIntent.actionId)?.descriptionKey ?? 'actions.move.description') : null}</p>{problemKey && <p role="alert">{t(problemKey, { requestId: 'unknown' })}</p>}<Button labelKey="common.preview" variant="primary" onClick={() => void execute()} /></Dialog></section>
+  return <section><div className="page-heading"><div><p className="eyebrow">{guild.name}</p><h1>{t('structure.title')}</h1></div><Input labelKey="common.search" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{feedbackKey && <Toast>{t(feedbackKey)}</Toast>}{all.length === 0 && <EmptyState messageKey="structure.empty" />}<div className="structure-grid"><Tree>{query.data?.categories.filter(visible).map((category) => <ResourceItem key={category.id} item={category} selected={selection.some((item) => item.id === category.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>{category.channels.filter(visible).map((channel) => <ResourceItem key={channel.id} item={channel} level={2} selected={selection.some((item) => item.id === channel.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>{channel.threads?.filter(visible).map((thread) => <ResourceItem key={thread.id} item={thread} level={3} selected={selection.some((item) => item.id === thread.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}</ResourceItem>)}</ResourceItem>)}{query.data?.root_channels.filter(visible).map((channel) => <ResourceItem key={channel.id} item={channel} selected={selection.some((item) => item.id === channel.id)} onSelect={setSelection} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}</Tree><aside className="properties"><h2>{t('structure.properties')}</h2>{selection.map((item) => <div key={item.id}><strong>{item.name}</strong><Badge>{t(`resource.${item.type.toLowerCase()}` as 'resource.channel')}</Badge></div>)}<h2>{t('guilds.browser')}</h2>{destinationGuilds.map((item) => <button type="button" key={item.guild_id} className="drop-guild" data-drop-id={item.guild_id} data-drop-guild={item.guild_id} data-drop-name={item.name} data-drop-type="GUILD">{item.name}</button>)}</aside></div>{context && <Menu labelKey={context.kind === 'drop' ? 'context.dropTitle' : 'context.title'} style={{ left: context.x, top: context.y }} onClose={() => setContext(null)}>{resolveActions(context).map(({action,enabled,reasonKey}) => <MenuItem key={action.id} disabled={!enabled} disabledReasonKey={reasonKey} onSelect={() => choose(action.id)}>{t(action.labelKey)}</MenuItem>)}</Menu>}<Dialog open={previewIntent !== null} titleKey="dialog.previewTitle" onClose={() => { setPreview(null); setProblemKey(null) }}><p>{t('dialog.noMutation')}</p><p>{previewAction ? t(previewAction.descriptionKey) : null}</p>{previewAction?.requiresTarget && !previewIntent?.destination && <Select labelKey="actions.target" value="" onChange={(event) => { const target = targetCandidates.find((item) => item.id === event.target.value); if (target && previewIntent) setPreview(createActionIntent(previewIntent.actionId, previewIntent.source, target)) }}><option value="">{t('actions.target.choose')}</option>{targetCandidates.map((item) => <option key={`${item.guildId}:${item.id}`} value={item.id}>{item.name}</option>)}</Select>}{problemKey && <p role="alert">{t(problemKey, { requestId: 'unknown' })}</p>}<Button labelKey="common.preview" variant="primary" disabled={!previewAvailability?.enabled || Boolean(previewAction?.requiresTarget && !previewIntent?.destination)} disabledReasonKey={previewAvailability?.reasonKey ?? 'actions.disabled.target'} onClick={() => void execute()} /></Dialog></section>
 }
 
 type ResourceItemProps = { item: Channel; level?: number; selected: boolean; children?: React.ReactNode; onSelect:(value:ResourceRef[])=>void; onPointerDown:(event:ReactPointerEvent,source:ResourceRef)=>void; onPointerMove:(event:ReactPointerEvent)=>void; onPointerUp:(event:ReactPointerEvent)=>void; onPointerCancel:()=>void }

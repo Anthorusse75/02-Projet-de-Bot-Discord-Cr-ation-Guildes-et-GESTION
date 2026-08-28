@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
@@ -47,13 +49,24 @@ async def ui_locales(request: Request, response: Response) -> dict[str, Any] | R
     repository = getattr(container, "localization_repository", None)
     if repository is not None:
         runtime = await repository.active_locales(CATALOG_VERSION)
-    content_hash = CATALOG_CONTENT_HASH if not runtime else str(runtime[-1]["content_hash"])
+    known = {str(item["locale_code"]): dict(item) for item in BOOTSTRAP_LOCALES}
+    known.update({str(item["locale_code"]): item for item in runtime})
+    locales = [known[locale] for locale in sorted(known)]
+    representation = json.dumps(
+        {
+            "catalog_version": CATALOG_VERSION,
+            "catalog_hash": CATALOG_CONTENT_HASH,
+            "locales": locales,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    content_hash = hashlib.sha256(representation).hexdigest()
     if request.headers.get("if-none-match") == _etag(content_hash):
         return Response(status_code=304, headers=_cache_headers(content_hash))
     response.headers.update(_cache_headers(content_hash))
-    known = {str(item["locale_code"]): dict(item) for item in BOOTSTRAP_LOCALES}
-    known.update({str(item["locale_code"]): item for item in runtime})
-    return {"catalog_version": CATALOG_VERSION, "locales": list(known.values())}
+    return {"catalog_version": CATALOG_VERSION, "locales": locales}
 
 
 @router.get("/api/v1/ui/locales/{locale}/catalog/{catalog_version}", response_model=None)

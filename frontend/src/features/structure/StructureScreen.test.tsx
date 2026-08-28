@@ -12,7 +12,8 @@ const capability = { outcome: 'CAN' as const, causes: [], remediations: [] }
 
 vi.mock('../../api/queries', () => ({
   useStructure: () => ({ data: { categories: [category], root_channels: [channel] }, isLoading: false, isError: false, refetch: vi.fn() }),
-  useDashboardCapabilities: () => ({ data: { guild_id: A, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: { 'structure.write': capability, 'plans.create': capability }, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: {} }, bot_operations: { REORDER_CHANNELS: capability, CREATE_CHANNEL: capability }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }),
+  useDashboardCapabilities: () => ({ data: { guild_id: A, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: { 'structure.read': capability, 'structure.write': capability, 'plans.create': capability, 'permissions.read': capability }, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: {} }, bot_operations: { REORDER_CHANNELS: capability, CREATE_CHANNEL: capability }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }),
+  useGuildDashboardCapabilities: () => [],
 }))
 
 function Harness() {

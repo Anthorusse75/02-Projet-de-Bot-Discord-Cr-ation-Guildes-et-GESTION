@@ -1,5 +1,5 @@
 import { bootstrapPacks, en, type MessageKey } from './catalog'
-import { resolveLocale, validatePack } from './runtime'
+import { activationCandidates, resolveLocale, validatePack } from './runtime'
 
 const params = (value: string) => [...value.matchAll(/{{\s*([A-Za-z0-9_.-]+)\s*}}/g)].map((match) => match[1]).sort()
 
@@ -21,6 +21,7 @@ describe('STAGE 07 locale catalogue', () => {
     expect(resolveLocale(['de-DE'])).toBe('de')
     expect(resolveLocale(['pt-BR'])).toBe('en')
     expect(resolveLocale(['fr'], ['en', 'de'])).toBe('en')
+    expect(activationCandidates('it', ['de-DE'], ['en','fr','de','it'])).toEqual(['it','de','en'])
   })
 
   it('rejects partial, executable and parameter-incompatible runtime packs atomically', () => {

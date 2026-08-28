@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
@@ -34,9 +34,13 @@ export const usePlans = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(t
 export const useAudit = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{events:AuditEvent[]}>(u,g,'audit',`/api/v1/guilds/${g}/audit`))
 export const useTemplates = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{templates:Template[]}>(u,g,'templates',`/api/v1/guilds/${g}/templates`))
 export const useLibrary = (u: DiscordSnowflake) => useQuery({ queryKey: queryKeys.library(u), queryFn: () => apiRequest<{artifacts:PortableArtifact[]}>('/api/v1/me/portable-artifacts') })
-export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => useQuery({
+export const dashboardCapabilitiesOptions = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => ({
   queryKey: queryKeys.tenant(u, g, 'dashboard-capabilities', ...(resourceId ? [resourceId] : [])),
   queryFn: () => apiRequest<DashboardCapabilities>(`/api/v1/guilds/${g}/dashboard-capabilities${resourceId ? `?resource_id=${encodeURIComponent(resourceId)}` : ''}`, { signal: tenantSignal(g) }),
+})
+export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => useQuery(dashboardCapabilitiesOptions(u, g, resourceId))
+export const useGuildDashboardCapabilities = (u: DiscordSnowflake, guildIds: readonly DiscordSnowflake[]) => useQueries({
+  queries: guildIds.map((guildId) => dashboardCapabilitiesOptions(u, guildId)),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

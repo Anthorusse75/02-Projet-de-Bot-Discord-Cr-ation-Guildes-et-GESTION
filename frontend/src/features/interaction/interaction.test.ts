@@ -4,10 +4,10 @@ import { useInteractionStore } from '../../shared/state/interaction'
 import { leaveTenant, tenantSignal } from '../../api/tenantLifecycle'
 import { queryKeys } from '../../api/queryKeys'
 import { reconnectDelay, resolveGuildEvent } from '../../api/useGuildSocket'
-import { resolveActions, type ActionContext, type ResourceRef } from './actions'
+import { actions, resolveActions, type ActionContext, type ResourceRef } from './actions'
 import { resolveDropTarget } from './dropTarget'
 import { DRAG_THRESHOLDS, PointerGestureManager } from './gestures'
-import { createActionIntent, dispatchAction, transferBody } from './dispatcher'
+import { createActionIntent, dispatchAction, exportBody, handledActionIds, transferBody } from './dispatcher'
 import { useSessionStore } from '../../shared/state/session'
 
 const guildA = discordSnowflake('100000000000000001')
@@ -17,8 +17,11 @@ const categoryA: ResourceRef = { id: 'ca', name: 'A', type: 'CATEGORY', guildId:
 const categoryB: ResourceRef = { id: 'cb', name: 'B', type: 'CATEGORY', guildId: guildB }
 const context = (source = [channel], destination?: ResourceRef): ActionContext => ({
   source, ...(destination ? { destination } : {}),
-  userCapabilities: { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'permissions.read': { outcome: 'CAN', causes: [], remediations: [] } },
-  botCapabilities: { REORDER_CHANNELS: { outcome: 'CAN', causes: [], remediations: [] }, CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
+  sourceUserCapabilities: { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'permissions.read': { outcome: 'CAN', causes: [], remediations: [] } },
+  sourceBotCapabilities: { REORDER_CHANNELS: { outcome: 'CAN', causes: [], remediations: [] }, CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
+  destinationUserCapabilities: { 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] } },
+  destinationBotCapabilities: { CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
+  destinationInstallationStatus: 'ACTIVE',
 })
 
 describe('STAGE 07 shared interaction model', () => {
@@ -29,13 +32,40 @@ describe('STAGE 07 shared interaction model', () => {
     const cross = resolveDropTarget(context([channel], categoryB))
     expect(cross.crossGuild).toBe(true)
     expect(cross.actions.map((item) => item.action.id)).toContain('copy')
-    const unknown = resolveDropTarget({ ...context([channel], categoryA), botCapabilities: {} })
+    const unknown = resolveDropTarget({ ...context([channel], categoryA), sourceBotCapabilities: {} })
     expect(unknown.actions.find((item) => item.action.id === 'move')).toMatchObject({ enabled: false, reasonKey: 'actions.disabled.unknown' })
   })
 
   it('preserves exact cross-Guild selection in the portable payload', () => {
     const intent = createActionIntent('copy', [channel], categoryB)
     expect(transferBody(intent)).toMatchObject({ source_guild_id: guildA, destination_guild_id: guildB, selection: { artifact_type: 'CHANNEL', channel_ids: ['c1'], category_ids: [] }, mode: 'COPY_AS_NEW' })
+  })
+
+  it('uses source read and independent destination write authority for cross-Guild copy', () => {
+    const sourceReadOnly = context([channel], categoryB)
+    sourceReadOnly.sourceUserCapabilities = { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CANNOT', causes: [], remediations: [] } }
+    expect(resolveActions(sourceReadOnly).find((item) => item.action.id === 'copy')).toMatchObject({ enabled: true })
+
+    const destinationReadOnly = context([channel], categoryB)
+    destinationReadOnly.destinationUserCapabilities = { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CANNOT', causes: [], remediations: [] } }
+    expect(resolveActions(destinationReadOnly).find((item) => item.action.id === 'copy')).toMatchObject({ enabled: false, reasonKey: 'actions.disabled.capability' })
+
+    const botDenied = context([channel], categoryB)
+    botDenied.destinationBotCapabilities = { CREATE_CHANNEL: { outcome: 'CANNOT', causes: [], remediations: [] } }
+    expect(resolveActions(botDenied).find((item) => item.action.id === 'copy')).toMatchObject({ enabled: false })
+
+    const botUnknown = context([channel], categoryB)
+    botUnknown.destinationBotCapabilities = {}
+    expect(resolveActions(botUnknown).find((item) => item.action.id === 'copy')).toMatchObject({ enabled: false, reasonKey: 'actions.disabled.unknown' })
+
+    const inactive = context([channel], categoryB)
+    inactive.destinationInstallationStatus = 'UNINSTALLED'
+    expect(resolveActions(inactive).find((item) => item.action.id === 'copy')).toMatchObject({ enabled: false })
+  })
+
+  it('maps portable export exactly and gives every registry action a handler', () => {
+    expect(exportBody(createActionIntent('export', [channel]))).toEqual({ selection: { artifact_type: 'CHANNEL', category_ids: [], channel_ids: ['c1'], role_ids: [] }, kind: 'LIBRARY' })
+    expect(actions.every((action) => handledActionIds.has(action.id))).toBe(true)
   })
 
   it('treats backend 403 as final authority after an enabled preview', async () => {

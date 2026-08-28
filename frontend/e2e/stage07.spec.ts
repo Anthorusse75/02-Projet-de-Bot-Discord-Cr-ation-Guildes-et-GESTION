@@ -1,9 +1,11 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { en } from '../src/localization/catalog'
 
 const A = '700000000000000001'; const B = '700000000000000002'; const USER = '700000000000000003'
 const can = { outcome: 'CAN', causes: [], remediations: [] }
-function capabilityPayload(guildId = A) { const user = { 'structure.read': can, 'structure.write': can, 'plans.create': can, 'permissions.read': can }; return { guild_id: guildId, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: user, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: user }, bot_operations: { REORDER_CHANNELS: can, CREATE_CHANNEL: can }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }
+function capabilityPayload(guildId = A) { const user = { 'structure.read': can, 'structure.write': can, 'plans.create': can, 'plans.apply': can, 'permissions.read': can }; return { guild_id: guildId, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: user, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: user }, bot_operations: { REORDER_CHANNELS: can, CREATE_CHANNEL: can }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }
+function planFixture(overrides: Record<string, unknown> = {}) { return { id: '11111111-1111-4111-8111-111111111111', guild_id: A, status: 'DRAFT', state_version: 5, plan_hash: 'a'.repeat(64), risk_level: 'MEDIUM', impact: {}, reinforced_confirmation_required: false, created_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', error_code: null, ...overrides } }
 
 async function mockDashboard(page: Page) {
   await page.route('**/api/v1/**', async (route) => {
@@ -148,4 +150,95 @@ test('backend 403 is final authority and refreshes the capability registry', asy
 test('an invalid active runtime catalog falls back atomically', async ({ page }) => {
   await mockDashboard(page); await page.route('**/api/v1/ui/locales', (route) => route.fulfill({ json: { locales: [{ locale_code: 'en', display_name: 'English', flag_code: 'gb', direction: 'ltr' }, { locale_code: 'it', display_name: 'Italiano', flag_code: 'it', direction: 'ltr' }] } })); await page.route('**/api/v1/ui/locales/it/catalog/*', (route) => route.fulfill({ json: { catalog_version: 'did-ui-v1', payload: { 'app.title': '<script>bad</script>' } } })); await page.route('**/api/v1/me/preferences', (route) => route.fulfill({ json: { ui_locale_override_code: 'it', timezone: null } }))
   await page.goto(`/guild/${A}/structure`); await expect(page.locator('html')).toHaveAttribute('lang', 'en'); await expect(page.getByRole('heading', { name: 'Discord structure' })).toBeVisible(); await expect(page.getByText('<script>bad</script>')).toHaveCount(0)
+})
+
+test('source read-only and destination writable enables cross-server copy', async ({ page }) => {
+  await mockDashboard(page)
+  await page.route('**/api/v1/guilds/*/dashboard-capabilities*', (route) => {
+    const guildId = new URL(route.request().url()).pathname.split('/')[4] ?? A; const payload = capabilityPayload(guildId); const cannot = { outcome: 'CANNOT', causes: ['capability.user.not_granted'], remediations: [] }
+    if (guildId === A) payload.user_capabilities['plans.create'] = cannot
+    return route.fulfill({ json: payload })
+  })
+  await page.goto(`/guild/${A}/structure`); await page.locator('[data-drop-name="general"]').dragTo(page.locator('[data-drop-name="Beta"]')); await expect(page.getByRole('dialog', { name: 'Review proposed action' })).toBeVisible()
+})
+
+test('source writable and destination read-only disables cross-server copy before transfer', async ({ page }) => {
+  await mockDashboard(page); let transfers = 0
+  await page.route('**/api/v1/transfers', (route) => { transfers += 1; return route.fulfill({ status: 500 }) })
+  await page.route('**/api/v1/guilds/*/dashboard-capabilities*', (route) => {
+    const guildId = new URL(route.request().url()).pathname.split('/')[4] ?? A; const payload = capabilityPayload(guildId); const cannot = { outcome: 'CANNOT', causes: ['capability.user.not_granted'], remediations: [] }
+    if (guildId === B) payload.user_capabilities['plans.create'] = cannot
+    return route.fulfill({ json: payload })
+  })
+  await page.goto(`/guild/${A}/structure`); await page.locator('[data-drop-name="general"]').dragTo(page.locator('[data-drop-name="Beta"]')); await expect(page.getByRole('dialog', { name: 'Review proposed action' })).toHaveCount(0); expect(transfers).toBe(0)
+})
+
+test('destination bot CREATE_CHANNEL denial disables cross-server copy', async ({ page }) => {
+  await mockDashboard(page)
+  await page.route('**/api/v1/guilds/*/dashboard-capabilities*', (route) => {
+    const guildId = new URL(route.request().url()).pathname.split('/')[4] ?? A; const payload = capabilityPayload(guildId); if (guildId === B) payload.bot_operations.CREATE_CHANNEL = { outcome: 'CANNOT', causes: ['capability.bot.missing_permission'], remediations: [] }; return route.fulfill({ json: payload })
+  })
+  await page.goto(`/guild/${A}/structure`); await page.locator('[data-drop-name="general"]').dragTo(page.locator('[data-drop-name="Beta"]')); await expect(page.getByRole('dialog', { name: 'Review proposed action' })).toHaveCount(0)
+})
+
+test('Validate then Confirm uses the returned version and Apply waits for durable success', async ({ page }) => {
+  await mockDashboard(page); let plan = planFixture(); let applied = false; let progressCalls = 0
+  await page.route(/\/api\/v1\/guilds\/[^/]+\/plans(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const path = new URL(route.request().url()).pathname; const method = route.request().method()
+    if (path.endsWith('/plans') && method === 'GET') return route.fulfill({ json: { guild_id: A, plans: [plan] } })
+    if (path.endsWith('/validate') && method === 'POST') { expect(route.request().postDataJSON()).toEqual({ expected_version: 5 }); plan = planFixture({ status: 'VALIDATED', state_version: 6 }); return route.fulfill({ json: { plan, preflight: { allowed: true, errors: [], warnings: [], checked_capabilities: [] } } }) }
+    if (path.endsWith('/confirm') && method === 'POST') { expect(route.request().postDataJSON().expected_version).toBe(6); plan = planFixture({ status: 'CONFIRMED', state_version: 7 }); return route.fulfill({ json: plan }) }
+    if (path.endsWith('/apply') && method === 'POST') { applied = true; return route.fulfill({ status: 202, json: { guild_id: A, plan_id: plan.id, job_id: '44444444-4444-4444-8444-444444444444' } }) }
+    if (path.endsWith('/progress')) { if (!applied) return route.fulfill({ json: { events: [] } }); progressCalls += 1; return route.fulfill({ json: { events: progressCalls > 1 ? [{ sequence: 1, plan_status: 'APPLYING', completed_operations: 1, total_operations: 2, message_key: 'plans.progress.applying', params: {} }, { sequence: 2, plan_status: 'SUCCEEDED', completed_operations: 2, total_operations: 2, message_key: 'plans.progress.succeeded', params: {} }] : [{ sequence: 1, plan_status: 'APPLYING', completed_operations: 1, total_operations: 2, message_key: 'plans.progress.applying', params: {} }] } }) }
+    return route.fallback()
+  })
+  await page.goto(`/guild/${A}/plans`); await page.locator('.plan-card').click(); await page.getByRole('button', { name: 'Run preflight' }).click(); await page.getByRole('button', { name: 'Confirm plan' }).click(); await page.getByRole('button', { name: 'Queue apply' }).click(); await expect(page.getByText('Apply was accepted and is waiting for durable completion.')).toBeVisible(); await expect(page.getByText('Plan applied and verified.')).toBeVisible({ timeout: 4_000 })
+})
+
+test('stale Confirm is localized, refetches the plan and never reports success', async ({ page }) => {
+  await mockDashboard(page); let plan = planFixture(); let listCalls = 0; const confirmVersions: number[] = []
+  await page.route(/\/api\/v1\/guilds\/[^/]+\/plans(?:\/.*)?(?:\?.*)?$/, (route) => {
+    const path = new URL(route.request().url()).pathname; const method = route.request().method()
+    if (path.endsWith('/plans') && method === 'GET') { listCalls += 1; if (listCalls > 1) plan = planFixture({ status: 'VALIDATED', state_version: 7 }); return route.fulfill({ json: { guild_id: A, plans: [plan] } }) }
+    if (path.endsWith('/validate') && method === 'POST') { plan = planFixture({ status: 'VALIDATED', state_version: 6 }); return route.fulfill({ json: { plan, preflight: { allowed: true, errors: [], warnings: [], checked_capabilities: [] } } }) }
+    if (path.endsWith('/confirm') && method === 'POST') { confirmVersions.push(route.request().postDataJSON().expected_version); return route.fulfill({ status: 409, json: { error: { code: 'PLAN_CONFLICT', message_key: 'errors.plans.conflict', params: {}, request_id: 'stale' } } }) }
+    if (path.endsWith('/progress')) return route.fulfill({ json: { events: [] } })
+    return route.fallback()
+  })
+  await page.goto(`/guild/${A}/plans`); await page.locator('.plan-card').click(); await page.getByRole('button', { name: 'Run preflight' }).click(); await page.getByRole('button', { name: 'Confirm plan' }).click(); await expect(page.getByRole('alert')).toHaveText('The plan changed. Reload its current version.'); await expect(page.getByText('Plan applied and verified.')).toHaveCount(0); await page.getByRole('button', { name: 'Confirm plan' }).click(); expect(confirmVersions).toEqual([6,7])
+})
+
+test('Save to my library executes an exact portable export and refreshes Library', async ({ page }) => {
+  await mockDashboard(page); let libraryCalls = 0; let created = false
+  await page.route('**/api/v1/me/portable-artifacts', (route) => { libraryCalls += 1; return route.fulfill({ json: { artifacts: created ? [{ id: '55555555-5555-4555-8555-555555555555', artifact_type: 'CHANNEL', kind: 'LIBRARY', name: 'general', content_hash: 'c'.repeat(64), created_at: '2026-08-28T00:00:00Z', expires_at: null }] : [] } }) })
+  await page.route(`**/api/v1/guilds/${A}/exports/portable`, (route) => { expect(route.request().postDataJSON()).toEqual({ selection: { artifact_type: 'CHANNEL', category_ids: [], channel_ids: [`${A.slice(0,-1)}5`], role_ids: [] }, kind: 'LIBRARY' }); created = true; return route.fulfill({ status: 201, json: { created: true, artifact: { id: '55555555-5555-4555-8555-555555555555' } } }) })
+  await page.goto(`/guild/${A}/library`); await expect(page.getByText('Your library is empty.')).toBeVisible(); await page.getByRole('link', { name: 'Structure' }).click(); await page.locator('[data-drop-name="general"]').click(); await page.locator('[data-drop-name="general"]').click({ button: 'right' }); await page.getByRole('menuitem', { name: 'Save to my library' }).click(); await page.getByRole('button', { name: 'Preview' }).click(); await expect(page.getByRole('status')).toContainText('The selection was saved to your library.'); await page.getByRole('link', { name: 'My library' }).click(); await expect(page).toHaveURL(new RegExp(`/guild/${A}/library$`)); await expect(page.locator('.card-grid article strong')).toHaveText('general'); await expect.poll(()=>libraryCalls).toBeGreaterThan(1)
+})
+
+test('bulk multi-channel selection produces one real multi-node Stage 05 plan', async ({ page }) => {
+  await mockDashboard(page)
+  await page.route(`**/api/v1/guilds/${A}/structure`, (route) => route.fulfill({ json: { guild_id: A, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ guild_id: A, id: `${A.slice(0,-1)}4`, type: 4, name: 'Operations', position: 0, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', channels: [] }], root_channels: [5,6].map((suffix,index) => ({ guild_id: A, id: `${A.slice(0,-1)}${suffix}`, type: 0, name: `channel-${suffix}`, position: index, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] })) } }))
+  await page.goto(`/guild/${A}/structure`); const first = page.locator('[data-drop-name="channel-5"]'); const second = page.locator('[data-drop-name="channel-6"]'); await first.click(); await second.click({ modifiers: ['Control'] }); await second.click({ button: 'right' }); await page.getByRole('menuitem', { name: 'Bulk preview' }).click(); await page.getByLabel('Action destination').selectOption({ label: 'Operations' }); const request = page.waitForRequest((value)=>value.url().endsWith(`/guilds/${A}/plans`)&&value.method()==='POST'); await page.getByRole('button', { name: 'Preview' }).click(); const graph = (await request).postDataJSON(); expect(graph.schema_version).toBe('did-dsg-v1'); expect(graph.nodes).toHaveLength(2); expect(graph.nodes.map((node: {properties:{parent_id:string}})=>node.properties.parent_id)).toEqual([`${A.slice(0,-1)}4`,`${A.slice(0,-1)}4`])
+})
+
+test('invalid persisted Italian runtime pack falls from previous French to complete browser German and can reactivate', async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem('did.uiLocaleOverride','it'); Object.defineProperty(navigator,'languages',{configurable:true,get:()=>['de-DE']}) })
+  await mockDashboard(page); let valid = false; const italian = { ...en, 'structure.title': 'Struttura Discord' }
+  await page.route('**/api/v1/ui/locales', (route) => route.fulfill({ json: { catalog_version: 'did-ui-v1', locales: [{ locale_code: 'en', display_name: 'English', flag_code: 'gb', direction: 'ltr' }, { locale_code: 'fr', display_name: 'Français', flag_code: 'fr', direction: 'ltr' }, { locale_code: 'de', display_name: 'Deutsch', flag_code: 'de', direction: 'ltr' }, { locale_code: 'it', display_name: 'Italiano', flag_code: 'it', direction: 'ltr' }] } }))
+  await page.route('**/api/v1/ui/locales/it/catalog/*', (route) => route.fulfill({ json: { catalog_version: 'did-ui-v1', payload: valid ? italian : { 'app.title': '<script>bad</script>' } } }))
+  await page.route('**/api/v1/me/preferences', (route) => route.fulfill({ json: { ui_locale_override_code: 'it', timezone: null } }))
+  await page.goto(`/guild/${A}/structure`); await expect(page.locator('html')).toHaveAttribute('lang','de'); await expect(page.getByRole('heading',{name:'Discord-Struktur'})).toBeVisible(); expect(await page.evaluate(()=>localStorage.getItem('did.uiLocaleOverride'))).toBe('it'); valid = true; await page.reload(); await expect(page.locator('html')).toHaveAttribute('lang','it'); await expect(page.getByRole('heading',{name:'Struttura Discord'})).toBeVisible(); expect(await page.evaluate(()=>localStorage.getItem('did.uiLocaleOverride'))).toBe('it')
+})
+
+test('PLANS_CREATE without PLANS_APPLY keeps validate available and disables confirm apply cancel', async ({ page }) => {
+  await mockDashboard(page)
+  await page.route('**/api/v1/guilds/*/dashboard-capabilities*', (route) => { const payload = capabilityPayload(A); payload.user_capabilities['plans.apply'] = { outcome: 'CANNOT', causes: ['capability.user.not_granted'], remediations: [] }; return route.fulfill({ json: payload }) })
+  await page.goto(`/guild/${A}/plans`); await page.locator('.plan-card').click(); await expect(page.getByRole('button',{name:'Run preflight'})).toBeEnabled(); await expect(page.getByRole('button',{name:'Confirm plan'})).toBeDisabled(); await expect(page.getByRole('button',{name:'Queue apply'})).toBeDisabled(); await expect(page.getByRole('button',{name:'Cancel plan'})).toBeDisabled()
+})
+
+test('cross-server backend revoke returns localized 403, refreshes B and preserves source A', async ({ page }) => {
+  await mockDashboard(page); let revoked = false
+  await page.route('**/api/v1/guilds/*/dashboard-capabilities*', (route) => { const guildId = new URL(route.request().url()).pathname.split('/')[4] ?? A; const payload = capabilityPayload(guildId); if (guildId===B&&revoked) payload.user_capabilities['plans.create'] = { outcome: 'CANNOT', causes: ['capability.user.not_granted'], remediations: [] }; return route.fulfill({ json: payload }) })
+  await page.route('**/api/v1/transfers', (route) => { revoked = true; return route.fulfill({ status:403, json:{ error:{ code:'AUTHORIZATION_DENIED', message_key:'errors.authorization.denied', params:{}, request_id:'revoked-b' } } }) })
+  await page.goto(`/guild/${A}/structure`); await page.locator('[data-drop-name="general"]').dragTo(page.locator('[data-drop-name="Beta"]')); await page.getByRole('button',{name:'Preview'}).click(); const source = page.getByLabel('Discord resource ID'); await expect(source).toHaveValue(`${A.slice(0,-1)}5`); await page.getByRole('button',{name:'Preview'}).click(); await expect(page.getByRole('alert')).toHaveText('You are not allowed to perform this action.'); await expect(page.getByText('Transfer preview created.')).toHaveCount(0); await expect(source).toHaveValue(`${A.slice(0,-1)}5`); await expect(page.getByRole('button',{name:'Preview'})).toBeDisabled()
 })
