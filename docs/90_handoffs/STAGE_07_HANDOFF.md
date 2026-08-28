@@ -5,7 +5,7 @@
 | Date | `2026-08-28` |
 | Base main | `d644015903953ef1dc46626562004746f2208c1c` |
 | Branche | `stage/07-dashboard` |
-| Code testé | `9220921314489eb59a90b33bc50e9a78793c6874` |
+| Code testé | `3b81127fa5504ae9e0ad0a75e57da4b5d2362332` |
 | Migration | `0013_stage_07` après `0012_stage_06`; tête unique |
 | PR | [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), Draft, non mergée |
 | Statut | `STAGE_07_COMPLETE_DRAFT_PR_OPEN` |
@@ -91,17 +91,18 @@ localisation de commande Discord ni aucun travail Stage 08 n'a été commencé.
 
 - Correctif Stage 06 `94ad842` : altération déterministe du dernier octet crypto ; test ciblé répété
   100 fois.
-- Stage 07 : 266 unitaires, 77 intégrations, RLS catalogue, migrations, 22 tests frontend dans 6
+- Stage 07 : 267 unitaires, 77 intégrations, RLS catalogue, migrations, 24 tests frontend dans 6
   fichiers, MSW 200/401/403/404/409/422/offline/session/in-flight, cache A/B, WebSocket tenant/version/gap, gestes et
   20 000 résolutions d'actions sous 500 ms.
-- E2E : 21 Playwright PASS, EN/FR/DE/ES fonctionnels, axe sans violation serious/critical, menus/Tree/Dialog
+- E2E : 31 Playwright PASS, EN/FR/DE/ES fonctionnels, axe sans violation serious/critical, menus/Tree/Dialog
   clavier, drag gauche/droit/same/cross, Clone prérempli, payload A/B exact, progression longue/succès/échec,
   dérive 403, préférence serveur et rejet atomique d’un pack runtime invalide.
-- Stage 07 principal `20260828T132815447492Z`; E2E `20260828T132943504806Z`, PASS.
-- Régressions : Stage 01 `20260828T131722746925Z`, 02 `20260828T131859038332Z`, 03
-  `20260828T132028730185Z`, 03 load `20260828T132200789993Z`, 04 `20260828T132222994697Z`, 05
-  `20260828T132400072127Z`, failure `20260828T132550907967Z`, load `20260828T132607088033Z`, 06
-  `20260828T132615917382Z`, security `20260828T132802880393Z`; toutes PASS sur `9220921`.
+- Stage 07 principal `20260828T142950693713Z`; E2E `20260828T143123954423Z`, PASS sur `3b81127`.
+- Régressions rejouées sur `3b81127` : Stage 01 `20260828T143953917653Z`, 02
+  `20260828T144118266273Z`, 03 `20260828T144323464420Z`, 03 load `20260828T145025232637Z`, 04
+  `20260828T144524770886Z`, 05 `20260828T144750476310Z`, failure `20260828T144957907018Z`, load
+  `20260828T145012065685Z`, 06 `20260828T145045059899Z`, security `20260828T145016454354Z`;
+  toutes PASS.
 
 Les smokes Discord live restent sans nouvelle preuve Stage 07 : opt-in sandbox non demandé et aucune nouvelle
 capacité Discord. Les 246 REQ et 35 ADR sont tracés. `REQ-STR-006..013`, `REQ-UX-001..007`,
