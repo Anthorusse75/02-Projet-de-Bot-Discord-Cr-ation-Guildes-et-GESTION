@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 from did.infrastructure.database import create_database_engine, tenant_transaction
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
     Stage08Conflict,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
@@ -47,7 +48,11 @@ CLEANUP_STATEMENTS = (
     "DELETE FROM language_profiles WHERE guild_id IN (:a,:b)",
 )
 RLS_COUNT_STATEMENTS = (
+    "SELECT count(*) FROM language_profiles WHERE guild_id=:guild_id",
+    "SELECT count(*) FROM member_visible_languages WHERE guild_id=:guild_id",
+    "SELECT count(*) FROM resource_language_policies WHERE guild_id=:guild_id",
     "SELECT count(*) FROM translation_groups WHERE guild_id=:guild_id",
+    "SELECT count(*) FROM translation_group_languages WHERE guild_id=:guild_id",
     "SELECT count(*) FROM translation_category_variants WHERE guild_id=:guild_id",
     "SELECT count(*) FROM translation_channel_groups WHERE guild_id=:guild_id",
     "SELECT count(*) FROM translation_channel_variants WHERE guild_id=:guild_id",
@@ -250,6 +255,7 @@ async def test_rls_hides_variants_routes_provider_and_scope_bindings() -> None:
     languages = LanguageProfileRepository(factory)
     groups = TranslationGroupRepository(factory)
     providers = TranslationProviderBindingRepository(factory)
+    policies = ResourceLanguagePolicyRepository(factory)
     scope_id = uuid4()
     try:
         async with admin_engine.begin() as connection:
@@ -280,6 +286,11 @@ async def test_rls_hides_variants_routes_provider_and_scope_bindings() -> None:
             guild_id=GUILD_B,
             translation_group_id=group_b["id"],
             language_profile_id=language_b["id"],
+        )
+        await groups.add_language(
+            guild_id=GUILD_B,
+            translation_group_id=group_b["id"],
+            language_profile_id=destination_b["id"],
         )
         channel_group_b = await groups.create_channel_group(
             guild_id=GUILD_B,
@@ -312,22 +323,34 @@ async def test_rls_hides_variants_routes_provider_and_scope_bindings() -> None:
             language_profile_id=language_b["id"],
             discord_role_id=880000203,
         )
+        await languages.set_member_languages(
+            guild_id=GUILD_B,
+            discord_user_id=USER_ID,
+            language_profile_ids=(language_b["id"],),
+        )
+        await policies.upsert(
+            guild_id=GUILD_B,
+            resource_type="CHANNEL",
+            discord_resource_id=880000204,
+        )
         async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
             for statement in RLS_COUNT_STATEMENTS:
                 result = await session.execute(
                     text(statement),
-                    {"guild_id": GUILD_A},
+                    {"guild_id": GUILD_B},
                 )
                 assert result.scalar_one() == 0
         async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
-            await session.execute(
+            update_result = await session.execute(
                 text("UPDATE translation_groups SET name='forbidden' WHERE guild_id=:guild_id"),
                 {"guild_id": GUILD_B},
             )
-            await session.execute(
+            delete_result = await session.execute(
                 text("DELETE FROM translation_routes WHERE guild_id=:guild_id"),
                 {"guild_id": GUILD_B},
             )
+            assert getattr(update_result, "rowcount", 0) == 0
+            assert getattr(delete_result, "rowcount", 0) == 0
         async with admin_engine.connect() as connection:
             assert (
                 await connection.scalar(
@@ -365,7 +388,9 @@ async def test_database_uniqueness_constraints_resolve_concurrent_creates() -> N
             return_exceptions=True,
         )
         assert sum(isinstance(result, dict) for result in duplicate_language_results) == 1
-        assert sum(isinstance(result, DBAPIError) for result in duplicate_language_results) == 1
+        assert (
+            sum(isinstance(result, Stage08Conflict) for result in duplicate_language_results) == 1
+        )
 
         language_a = await languages.create(guild_id=GUILD_A, code="nl", display_name="Dutch")
         duplicate_member_results = await asyncio.gather(
@@ -382,7 +407,7 @@ async def test_database_uniqueness_constraints_resolve_concurrent_creates() -> N
             return_exceptions=True,
         )
         assert sum(result is None for result in duplicate_member_results) == 1
-        assert sum(isinstance(result, DBAPIError) for result in duplicate_member_results) == 1
+        assert sum(isinstance(result, Stage08Conflict) for result in duplicate_member_results) == 1
 
         language_b = await languages.create(guild_id=GUILD_A, code="sv", display_name="Swedish")
         group = await groups.create(
@@ -417,7 +442,7 @@ async def test_database_uniqueness_constraints_resolve_concurrent_creates() -> N
             return_exceptions=True,
         )
         assert sum(isinstance(result, dict) for result in duplicate_route_results) == 1
-        assert sum(isinstance(result, DBAPIError) for result in duplicate_route_results) == 1
+        assert sum(isinstance(result, Stage08Conflict) for result in duplicate_route_results) == 1
 
         async with admin_engine.begin() as connection:
             await connection.execute(
@@ -444,7 +469,7 @@ async def test_database_uniqueness_constraints_resolve_concurrent_creates() -> N
             return_exceptions=True,
         )
         assert sum(isinstance(result, dict) for result in duplicate_binding_results) == 1
-        assert sum(isinstance(result, DBAPIError) for result in duplicate_binding_results) == 1
+        assert sum(isinstance(result, Stage08Conflict) for result in duplicate_binding_results) == 1
 
         duplicate_provider_results = await asyncio.gather(
             providers.create(
@@ -462,9 +487,118 @@ async def test_database_uniqueness_constraints_resolve_concurrent_creates() -> N
             return_exceptions=True,
         )
         assert sum(isinstance(result, dict) for result in duplicate_provider_results) == 1
-        assert sum(isinstance(result, DBAPIError) for result in duplicate_provider_results) == 1
+        assert (
+            sum(isinstance(result, Stage08Conflict) for result in duplicate_provider_results) == 1
+        )
     finally:
         await app_engine.dispose()
+        await admin_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_group_membership_fks_reject_cross_group_languages_and_categories() -> None:
+    engine = create_database_engine(APP_URL, pool_size=2)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    languages = LanguageProfileRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    try:
+        fr = await languages.create(guild_id=GUILD_A, code="fr", display_name="French")
+        en = await languages.create(guild_id=GUILD_A, code="en", display_name="English")
+        de = await languages.create(guild_id=GUILD_A, code="de", display_name="German")
+        group_a = await groups.create(
+            guild_id=GUILD_A,
+            name="A",
+            root_kind="CHANNEL_SET",
+            routing_mode="HUB_AND_SPOKE",
+        )
+        group_b = await groups.create(
+            guild_id=GUILD_A,
+            name="B",
+            root_kind="CATEGORY_SET",
+            routing_mode="HUB_AND_SPOKE",
+        )
+        for language in (fr, en):
+            await groups.add_language(
+                guild_id=GUILD_A,
+                translation_group_id=group_a["id"],
+                language_profile_id=language["id"],
+            )
+        await groups.add_language(
+            guild_id=GUILD_A,
+            translation_group_id=group_b["id"],
+            language_profile_id=de["id"],
+        )
+        await groups.create_route(
+            guild_id=GUILD_A,
+            translation_group_id=group_a["id"],
+            source_language_profile_id=fr["id"],
+            destination_language_profile_id=en["id"],
+        )
+        with pytest.raises(DBAPIError):
+            await groups.create_route(
+                guild_id=GUILD_A,
+                translation_group_id=group_a["id"],
+                source_language_profile_id=fr["id"],
+                destination_language_profile_id=de["id"],
+            )
+        category_b = await groups.create_category_variant(
+            guild_id=GUILD_A,
+            translation_group_id=group_b["id"],
+            language_profile_id=de["id"],
+            discord_category_id=880000401,
+        )
+        channel_group_a = await groups.create_channel_group(
+            guild_id=GUILD_A,
+            translation_group_id=group_a["id"],
+            logical_key=f"a-{uuid4()}",
+            source_language_profile_id=fr["id"],
+        )
+        with pytest.raises(DBAPIError):
+            await groups.create_channel_variant(
+                guild_id=GUILD_A,
+                translation_group_id=group_a["id"],
+                translation_channel_group_id=channel_group_a["id"],
+                language_profile_id=fr["id"],
+                discord_channel_id=880000402,
+                translation_category_variant_id=category_b["id"],
+            )
+        with pytest.raises(DBAPIError):
+            await groups.create_channel_group(
+                guild_id=GUILD_A,
+                translation_group_id=group_a["id"],
+                logical_key=f"bad-{uuid4()}",
+                source_language_profile_id=de["id"],
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_provider_binding_defaults_to_unknown() -> None:
+    admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+    try:
+        binding_id = uuid4()
+        async with admin_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO translation_provider_bindings "
+                    "(id,guild_id,provider_type,provider_instance_key,capabilities_json) "
+                    "VALUES (:id,:guild_id,'existing_translation_bot',:instance_key,'{}'::jsonb)"
+                ),
+                {
+                    "id": binding_id,
+                    "guild_id": GUILD_A,
+                    "instance_key": f"default-{binding_id}",
+                },
+            )
+            assert (
+                await connection.scalar(
+                    text("SELECT status FROM translation_provider_bindings WHERE id=:id"),
+                    {"id": binding_id},
+                )
+                == "UNKNOWN"
+            )
+    finally:
         await admin_engine.dispose()
 
 

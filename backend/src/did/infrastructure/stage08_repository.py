@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from did.infrastructure.database import tenant_transaction
@@ -20,10 +21,40 @@ class Stage08Conflict(RuntimeError):
     pass
 
 
+KNOWN_UNIQUENESS_CONSTRAINTS = {
+    "uq_language_profiles_code",
+    "pk_member_visible_languages",
+    "uq_translation_channel_group_key",
+    "uq_translation_category_variants_group_language",
+    "uq_translation_channel_variants_group_language",
+    "uq_translation_routes_group_language_pair",
+    "uq_translation_provider_bindings_key",
+    "uq_visibility_scope_language_roles_scope_language",
+}
+
+
+def _raise_known_conflict(error: IntegrityError) -> None:
+    constraint_name = getattr(error.orig, "constraint_name", None)
+    sqlstate = getattr(error.orig, "sqlstate", None)
+    if constraint_name in KNOWN_UNIQUENESS_CONSTRAINTS or sqlstate == "23505":
+        raise Stage08Conflict(f"Stage 08 uniqueness conflict: {constraint_name}") from error
+    raise error
+
+
+async def _execute(session: AsyncSession, statement: Any, parameters: dict[str, Any]) -> Any:
+    try:
+        return await session.execute(statement, parameters)
+    except IntegrityError as error:
+        _raise_known_conflict(error)
+
+
 async def _fetch_one(
     session: AsyncSession, statement: str, parameters: dict[str, Any]
 ) -> dict[str, Any]:
-    row = (await session.execute(text(statement), parameters)).mappings().one_or_none()
+    try:
+        row = (await session.execute(text(statement), parameters)).mappings().one_or_none()
+    except IntegrityError as error:
+        _raise_known_conflict(error)
     if row is None:
         raise Stage08NotFound("Stage 08 record was not found")
     return dict(row)
@@ -69,7 +100,8 @@ class LanguageProfileRepository:
                 if enabled_only
                 else "SELECT * FROM language_profiles WHERE guild_id=:guild_id ORDER BY code"
             )
-            result = await session.execute(
+            result = await _execute(
+                session,
                 text(statement),
                 {"guild_id": guild_id},
             )
@@ -85,7 +117,8 @@ class LanguageProfileRepository:
     ) -> None:
         language_ids = tuple(dict.fromkeys(language_profile_ids))
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            await _execute(
+                session,
                 text(
                     "DELETE FROM member_visible_languages "
                     "WHERE guild_id=:guild_id AND discord_user_id=:user_id"
@@ -93,7 +126,8 @@ class LanguageProfileRepository:
                 {"guild_id": guild_id, "user_id": discord_user_id},
             )
             for language_id in language_ids:
-                await session.execute(
+                await _execute(
+                    session,
                     text(
                         "INSERT INTO member_visible_languages "
                         "(guild_id,discord_user_id,language_profile_id,source) "
@@ -116,7 +150,8 @@ class LanguageProfileRepository:
         source: str = "EXPLICIT",
     ) -> None:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            await _execute(
+                session,
                 text(
                     "INSERT INTO member_visible_languages "
                     "(guild_id,discord_user_id,language_profile_id,source) "
@@ -132,7 +167,8 @@ class LanguageProfileRepository:
 
     async def member_languages(self, guild_id: int, discord_user_id: int) -> list[dict[str, Any]]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            result = await session.execute(
+            result = await _execute(
+                session,
                 text(
                     "SELECT * FROM member_visible_languages "
                     "WHERE guild_id=:guild_id AND discord_user_id=:user_id "
@@ -184,7 +220,8 @@ class TranslationGroupRepository:
         self, *, guild_id: int, group_id: UUID, expected_version: int, name: str
     ) -> dict[str, Any]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            result = await session.execute(
+            result = await _execute(
+                session,
                 text(
                     "UPDATE translation_groups SET name=:name, version=version+1, "
                     "updated_at=now() WHERE guild_id=:guild_id AND id=:id "
@@ -214,7 +251,8 @@ class TranslationGroupRepository:
         self, *, guild_id: int, translation_group_id: UUID, language_profile_id: UUID
     ) -> None:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            await session.execute(
+            await _execute(
+                session,
                 text(
                     "INSERT INTO translation_group_languages "
                     "(guild_id,translation_group_id,language_profile_id) "
@@ -233,6 +271,7 @@ class TranslationGroupRepository:
         guild_id: int,
         translation_group_id: UUID,
         logical_key: str,
+        source_language_profile_id: UUID | None = None,
         config: dict[str, Any] | None = None,
         channel_group_id: UUID | None = None,
     ) -> dict[str, Any]:
@@ -241,13 +280,16 @@ class TranslationGroupRepository:
             return await _fetch_one(
                 session,
                 "INSERT INTO translation_channel_groups "
-                "(id,guild_id,translation_group_id,logical_key,config_json) "
-                "VALUES (:id,:guild_id,:group_id,:logical_key,CAST(:config AS jsonb)) RETURNING *",
+                "(id,guild_id,translation_group_id,logical_key,source_language_profile_id,"
+                "config_json) "
+                "VALUES (:id,:guild_id,:group_id,:logical_key,:language_id,CAST(:config AS jsonb)) "
+                "RETURNING *",
                 {
                     "id": record_id,
                     "guild_id": guild_id,
                     "group_id": translation_group_id,
                     "logical_key": logical_key,
+                    "language_id": source_language_profile_id,
                     "config": json.dumps(config or {}, separators=(",", ":")),
                 },
             )
@@ -448,7 +490,8 @@ class VisibilityScopeLanguageRepository:
 
     async def list_bindings(self, guild_id: int) -> list[dict[str, Any]]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
-            result = await session.execute(
+            result = await _execute(
+                session,
                 text(
                     "SELECT * FROM visibility_scope_language_roles "
                     "WHERE guild_id=:guild_id ORDER BY visibility_scope_id, language_profile_id"

@@ -8,6 +8,7 @@
 | Migration | `0014_stage_08` après `0013_stage_07` |
 | Statut | `STAGE_08_IMPLEMENTATION_IN_PROGRESS` |
 | PR | `draft retained, not complete and not ready for merge` |
+| WP1.1 | `corrective persistence isolation pass; 7 PostgreSQL tests passed; not WP2` |
 
 ## Scope livré
 
@@ -33,6 +34,10 @@ Les fichiers principaux sont `backend/src/did/domain/translation_topology.py` et
 - Deux groupes partageant les mêmes langues restent indépendants, sans route ni variante implicite partagée.
 - Les bindings provider et les variants channel/category sont protégés par des FKs composites tenant-safe.
 - Toutes les nouvelles tables ont RLS activé et forcé avec `USING` et `WITH CHECK` sur `guild_id`.
+- Les routes exigent désormais l’appartenance source et destination à `translation_group_languages`.
+- Les catégories parentes et langues source des channel groups sont contraintes au même Translation Group.
+- Les violations d’unicité connues retournent `Stage08Conflict`; les erreurs DB inattendues restent visibles.
+- Le statut provider par défaut est `UNKNOWN`, jamais `READY` avant validation.
 - L’état courant du document n’annonce plus une candidate complète ni une validation terminée.
 
 ## Blocages restants
@@ -55,6 +60,8 @@ python scripts/validate_stage.py 08
 ```
 
 Résultat courant : Stage 01 PASS, Stage 07 PASS, Stage 08 PASS, dont le gate PostgreSQL WP1 et la rehearsal Alembic `0013 -> 0014 -> 0013 -> 0014` ; ce n’est pas une validation de fin de Stage 08.
+
+WP1.1 ajoute les FK composites de membership langue/groupe pour les routes, les FK same-group des variants category/channel et la langue source des channel groups. Les lectures RLS testent explicitement des lignes Guild B sous contexte Guild A pour les onze tables tenant-scoped; UPDATE/DELETE inter-tenant affectent zéro ligne. Les courses d’unicité connues sont traduites en `Stage08Conflict`, tandis que les erreurs FK inattendues restent des erreurs DB. Le default provider durable est `UNKNOWN`.
 
 ## Fichiers ajoutés / modifiés
 

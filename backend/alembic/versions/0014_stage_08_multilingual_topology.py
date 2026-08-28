@@ -283,6 +283,12 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "guild_id",
             "translation_group_id",
+            "id",
+            name="uq_translation_category_variants_group_id",
+        ),
+        sa.UniqueConstraint(
+            "guild_id",
+            "translation_group_id",
             "language_profile_id",
             name="uq_translation_category_variants_group_language",
         ),
@@ -314,7 +320,17 @@ def upgrade() -> None:
             ["guild_id", "source_language_profile_id"],
             ["language_profiles.guild_id", "language_profiles.id"],
             name="fk_translation_channel_groups_language",
-            ondelete="SET NULL",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "source_language_profile_id"],
+            [
+                "translation_group_languages.guild_id",
+                "translation_group_languages.translation_group_id",
+                "translation_group_languages.language_profile_id",
+            ],
+            name="fk_translation_channel_groups_source_group_language",
+            ondelete="RESTRICT",
         ),
         sa.CheckConstraint(
             "length(trim(logical_key)) > 0", name="ck_translation_channel_groups_key"
@@ -381,7 +397,17 @@ def upgrade() -> None:
             ["guild_id", "translation_category_variant_id"],
             ["translation_category_variants.guild_id", "translation_category_variants.id"],
             name="fk_translation_channel_variants_category",
-            ondelete="SET NULL",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "translation_category_variant_id"],
+            [
+                "translation_category_variants.guild_id",
+                "translation_category_variants.translation_group_id",
+                "translation_category_variants.id",
+            ],
+            name="fk_translation_channel_variants_category_same_group",
+            ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["guild_id", "translation_group_id", "language_profile_id"],
@@ -445,6 +471,26 @@ def upgrade() -> None:
             name="fk_translation_routes_destination_language",
             ondelete="CASCADE",
         ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "source_language_profile_id"],
+            [
+                "translation_group_languages.guild_id",
+                "translation_group_languages.translation_group_id",
+                "translation_group_languages.language_profile_id",
+            ],
+            name="fk_translation_routes_source_group_language",
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "destination_language_profile_id"],
+            [
+                "translation_group_languages.guild_id",
+                "translation_group_languages.translation_group_id",
+                "translation_group_languages.language_profile_id",
+            ],
+            name="fk_translation_routes_destination_group_language",
+            ondelete="RESTRICT",
+        ),
         sa.PrimaryKeyConstraint("id", name="pk_translation_routes"),
         sa.UniqueConstraint(
             "guild_id",
@@ -466,7 +512,7 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.String(length=32),
-            server_default="READY",
+            server_default="UNKNOWN",
             nullable=False,
         ),
         sa.Column("last_validated_at", sa.DateTime(timezone=True), nullable=True),
