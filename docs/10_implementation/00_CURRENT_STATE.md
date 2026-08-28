@@ -5,16 +5,16 @@
 | Current stage | `STAGE_07_COMPLETE_DRAFT_PR_OPEN` |
 | Last completed stage | `STAGE_07_DASHBOARD_RUNTIME_UI_LOCALIZATION` |
 | Base main | `d644015903953ef1dc46626562004746f2208c1c` |
-| STAGE 07 tested code | `50832be79c390d03f2bdb62570f61ccd2835925e` |
+| STAGE 07 tested code | `9220921314489eb59a90b33bc50e9a78793c6874` |
 | Branch | `stage/07-dashboard` |
 | Last migration | `0013_stage_07`; parent `0012_stage_06`; une seule tête |
-| Implementation | Dashboard React des capacités Stage 01–06; client OpenAPI généré; Query tenant-keyed; purge fail-closed au switch; WebSocket version/séquence/tenant; ActionRegistry partagé; context menu, Left/Right Drag et alternatives clavier; plans/jobs sans succès optimiste. |
-| UI localization | Catalogue `did-ui-v&#49;`, 153 clés, packs EN/FR/DE/ES complets, AUTO_BROWSER BCP-47, override owner, packs runtime PostgreSQL en lecture publique avec ETag, validation exacte/atomique et rejet HTML/script. Application Commands : `NOT_APPLICABLE`, 0 commande. |
-| Tests status | PASS sur `50832be` : Stage 07 (264 unitaires, 77 intégrations, migrations 0013, frontend 14 tests, OpenAPI/i18n/build), E2E 5/5 quatre langues et axe, puis régressions Stage 01–06 et profils load/failure/security. |
-| Traceability | 246/246 REQ et 35 ADR. REQ Stage 07 `IMPLEMENTED`; vérification transverse finale Stage 10. Les `REQ-I18N-*` Stage 08 ne sont pas touchées. |
+| Implementation | Dashboard React des capacités Stage 01–06; endpoint de capacités réelles user/bot cache-first; dispatcher ActionRegistry partagé; move via DSG + plan/preflight Stage 05; cross-Guild via prévisualisation + transfert Stage 06 exact; Query tenant-keyed; progression REST durable; purge/replay fail-closed; context menu, Left/Right Drag et alternatives clavier; aucun succès optimiste. |
+| UI localization | Catalogue `did-ui-v&#49;`, 239 clés, packs EN/FR/DE/ES indépendamment complets au compile-time, scanner réel `*.ts/*.tsx`, AUTO_BROWSER BCP-47, préférence owner authentifiée, packs runtime avec ETag, validation exacte/atomique et rejet HTML/script. Application Commands : `NOT_APPLICABLE`, 0 commande. |
+| Tests status | PASS sur `9220921` : Stage 07 (266 unitaires, 77 intégrations, migrations 0013, frontend 22 tests, OpenAPI/i18n/build), E2E 21/21 dont quatre langues fonctionnelles et axe, puis régressions Stage 01–06 et profils load/failure/security. |
+| Traceability | 246/246 REQ et 35 ADR. Les 41 REQ Stage 07 ont été ré-auditées et disposent chacune d’une preuve `IMPLEMENTED`; vérification transverse finale Stage 10. Les `REQ-I18N-*` Stage 08 ne sont pas touchées. |
 | Discord live status | `SKIPPED_NOT_VERIFIED` : opt-in sandbox non demandé; aucun REST/mutation Discord ajouté par Stage 07. |
 | GitHub publication | Draft PR [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), ouverte et non mergée. |
-| Known limitations | Provisioning packs runtime réservé opérateur backend/DB, sans endpoint admin public; smokes Discord live non rejoués; termes Discord bruts conservés dans les vues expert; aucune Application Command utilisateur. |
+| Known limitations | Provisioning packs runtime réservé opérateur backend/DB, sans endpoint admin public; smokes Discord live non rejoués; aucune Application Command utilisateur. |
 | Next stage | Revue externe de STAGE 07; `STAGE_08_NOT_STARTED` |
 
 Le détail est dans [`STAGE_07_HANDOFF.md`](../90_handoffs/STAGE_07_HANDOFF.md). Stage 07 est publiée en Draft PR, non mergée, et attend la revue externe. Stage 08 n'est pas commencée.

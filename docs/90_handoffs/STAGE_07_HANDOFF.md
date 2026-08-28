@@ -5,7 +5,7 @@
 | Date | `2026-08-28` |
 | Base main | `d644015903953ef1dc46626562004746f2208c1c` |
 | Branche | `stage/07-dashboard` |
-| Code testé | `50832be79c390d03f2bdb62570f61ccd2835925e` |
+| Code testé | `9220921314489eb59a90b33bc50e9a78793c6874` |
 | Migration | `0013_stage_07` après `0012_stage_06`; tête unique |
 | PR | [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), Draft, non mergée |
 | Statut | `STAGE_07_COMPLETE_DRAFT_PR_OPEN` |
@@ -23,6 +23,11 @@ Le client OpenAPI est généré depuis FastAPI dans `frontend/openapi.json` et
 `frontend/src/api/openapi.d.ts`; `scripts/check_openapi.py` bloque toute dérive. Toutes les mutations
 cookie-authenticated utilisent CSRF. Un `401` efface la session et les enveloppes
 `code/message_key/params/request_id` restent typées.
+
+`GET /api/v1/guilds/{id}/dashboard-capabilities` agrège l’autorité utilisateur réellement résolue et
+les diagnostics bot Stage 04 depuis le cache local. Les décisions sont explicites (`CAN`, `CANNOT`,
+`UNKNOWN`), globales et liées à la ressource quand elle est fournie. La route est read-only,
+cache-first, effectue zéro REST Discord et ne remplace jamais l’autorisation finale des commandes.
 
 | Écran | Routes principales | Sémantique |
 |---|---|---|
@@ -53,12 +58,25 @@ Left Drag et annulation. Left Drag same-Guild propose move ; cross-Guild propose
 la source ; Right Drag ouvre les actions valides. Menus, dialogues et `Ctrl/Cmd+K` sont les alternatives
 clavier.
 
+Le dispatcher commun conserve l’intention complète source/destination. Un move same-Guild crée un vrai
+DSG `did-dsg-v&#49;`, crée le plan Stage 05 puis lance son preflight avant navigation. Un drop cross-Guild
+préremplit Clone et n’envoie le transfert Stage 06 qu’après validation de la prévisualisation. Un `403`
+backend reste l’autorité finale : aucun succès n’est affiché et le contexte de capacités est invalidé.
+La progression provient du journal REST durable `/progress`, avec polling jusqu’à un état terminal et
+relecture complète après reconnexion/trou de séquence WebSocket.
+
 ## Localisation UI
 
-Le catalogue immutable `did-ui-v&#49;` contient 153 clés et quatre packs bootstrap EN/FR/DE/ES complets.
+Le catalogue immutable `did-ui-v&#49;` contient 239 clés et quatre packs bootstrap EN/FR/DE/ES complets.
 La résolution BCP-47 suit l'override puis `navigator.languages`, avec EN déterministe. Le changement de
 langue navigateur est suivi seulement en AUTO ; la locale Discord est indépendante. Login et dashboard
 utilisent le même catalogue.
+
+Les quatre objets bootstrap sont désormais exigés comme `MessagePack` complets au compile-time : aucun
+spread anglais ne peut masquer une traduction absente. Le scanner `scripts/check_frontend_i18n.py`
+parcourt réellement les `*.ts` et `*.tsx`; un test injectant `<button>Delete now</button>` prouve que la
+CI échoue sur une chaîne visible hardcodée. Les enums, clés techniques et raisons backend sont rendus
+via des allowlists de présentation localisées avec fallback humain fermé.
 
 Les packs runtime publics ont ETag/cache-control et proviennent de `ui_catalog_versions` et
 `ui_locale_packs`. Activation atomique seulement si version, couverture exacte, valeurs, paramètres et
@@ -73,17 +91,19 @@ localisation de commande Discord ni aucun travail Stage 08 n'a été commencé.
 
 - Correctif Stage 06 `94ad842` : altération déterministe du dernier octet crypto ; test ciblé répété
   100 fois.
-- Stage 07 : 264 unitaires, 77 intégrations, RLS catalogue, migrations, 14 tests frontend dans 5
-  fichiers, MSW 200/401/403/404/409/422/offline, cache A/B, WebSocket tenant/version/gap, gestes et
+- Stage 07 : 266 unitaires, 77 intégrations, RLS catalogue, migrations, 22 tests frontend dans 6
+  fichiers, MSW 200/401/403/404/409/422/offline/session/in-flight, cache A/B, WebSocket tenant/version/gap, gestes et
   20 000 résolutions d'actions sous 500 ms.
-- E2E : 5 Playwright PASS, EN/FR/DE/ES, axe sans violation serious/critical, contexte, palette, langue
-  et switch A/B.
-- Stage 07 principal `20260827T061400436298Z`; E2E `20260827T061540292917Z`, PASS.
-- Régressions : Stage 01 `20260828T071516042704Z`, 02 `071636393675Z`, 03 `071803634463Z`, 03 load
-  `071927903446Z`, 04 `071946070510Z`, 05 `072109881090Z`, failure `072243274173Z`, load
-  `072255467506Z`, 06 `072257952506Z`, security `072437423798Z`; toutes PASS sur `50832be`.
+- E2E : 21 Playwright PASS, EN/FR/DE/ES fonctionnels, axe sans violation serious/critical, menus/Tree/Dialog
+  clavier, drag gauche/droit/same/cross, Clone prérempli, payload A/B exact, progression longue/succès/échec,
+  dérive 403, préférence serveur et rejet atomique d’un pack runtime invalide.
+- Stage 07 principal `20260828T132815447492Z`; E2E `20260828T132943504806Z`, PASS.
+- Régressions : Stage 01 `20260828T131722746925Z`, 02 `20260828T131859038332Z`, 03
+  `20260828T132028730185Z`, 03 load `20260828T132200789993Z`, 04 `20260828T132222994697Z`, 05
+  `20260828T132400072127Z`, failure `20260828T132550907967Z`, load `20260828T132607088033Z`, 06
+  `20260828T132615917382Z`, security `20260828T132802880393Z`; toutes PASS sur `9220921`.
 
-Les smokes Discord live sont `SKIPPED_NOT_VERIFIED` : opt-in sandbox non demandé et aucune nouvelle
+Les smokes Discord live restent sans nouvelle preuve Stage 07 : opt-in sandbox non demandé et aucune nouvelle
 capacité Discord. Les 246 REQ et 35 ADR sont tracés. `REQ-STR-006..013`, `REQ-UX-001..007`,
-`REQ-UX-CTX-001..005`, `REQ-UI18N-001..021` sont `IMPLEMENTED`; vérification finale Stage 10. Les
+`REQ-UX-CTX-001..005`, `REQ-UI18N-001..021` sont individuellement auditées et `IMPLEMENTED`; vérification finale Stage 10. Les
 `REQ-I18N-*` restent Stage 08 et ne sont pas modifiées. Stage 08 n'est pas commencée.
