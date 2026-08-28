@@ -157,6 +157,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/dashboard-capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Capabilities
+         * @description Aggregate existing authorization and cached bot checks for the dashboard.
+         *
+         *     This endpoint is deliberately read-only and cache-first.  It does not grant
+         *     authority: every command endpoint remains responsible for its own final
+         *     authorization and preflight checks.
+         */
+        get: operations["dashboard_capabilities_api_v1_guilds__guild_id__dashboard_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/exports/portable": {
         parameters: {
             query?: never;
@@ -1691,6 +1715,42 @@ export interface operations {
     coverage_api_v1_guilds__guild_id__coverage_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dashboard_capabilities_api_v1_guilds__guild_id__dashboard_capabilities_get: {
+        parameters: {
+            query?: {
+                resource_id?: string | null;
+                target_role_id?: string | null;
+            };
             header?: never;
             path: {
                 guild_id: string;

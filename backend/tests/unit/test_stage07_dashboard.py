@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from httpx import ASGITransport, AsyncClient
 
 from did.api.main import create_app
-from did.api.stage07 import application_commands_localization_status
+from did.api.stage07 import application_commands_localization_status, dashboard_capabilities
+from did.domain.auth import AuthorizationScope, Capability
 from did.localization import CATALOG_VERSION, LocalePackInvalid, LocalePackValidator
 
 
@@ -26,6 +29,7 @@ def test_stage07_routes_and_application_command_scope_are_explicit() -> None:
     assert "/api/v1/ui/locales/{locale}/catalog/{catalog_version}" in paths
     assert "get" in paths["/api/v1/guilds/{guild_id}/plans"]
     assert "/api/v1/guilds/{guild_id}/audit" in paths
+    assert "/api/v1/guilds/{guild_id}/dashboard-capabilities" in paths
     assert application_commands_localization_status() == {
         "status": "NOT_APPLICABLE",
         "command_count": 0,
@@ -48,3 +52,31 @@ def test_runtime_pack_validator_is_fail_closed() -> None:
             pass
         else:
             raise AssertionError("invalid locale pack was accepted")
+
+
+async def test_dashboard_capabilities_use_resolved_authority_and_fail_closed_bot_state() -> None:
+    class Authorization:
+        async def authorize(self, **_: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                capabilities=frozenset({Capability.TENANT_READ, Capability.STRUCTURE_READ}),
+                scope=AuthorizationScope.guild(),
+            )
+
+    class Repository:
+        async def bot_identity(self, _: int) -> tuple[None, str]:
+            return None, "ACTIVE"
+
+    response = await dashboard_capabilities(
+        "700000000000000001",
+        SimpleNamespace(discord_user_id=700000000000000002),
+        SimpleNamespace(
+            authorization=Authorization(),
+            stage04_repository=Repository(),
+            runtime_repository=SimpleNamespace(metrics=SimpleNamespace()),
+        ),
+    )
+    assert response["discord_rest_calls"] == 0
+    assert response["user_capabilities"]["structure.read"]["outcome"] == "CAN"
+    assert response["user_capabilities"]["structure.write"]["outcome"] == "CANNOT"
+    assert response["bot_operations"]["CREATE_CHANNEL"]["outcome"] == "UNKNOWN"
+    assert response["scoped_capabilities"]["scope_kind"] == "GUILD"

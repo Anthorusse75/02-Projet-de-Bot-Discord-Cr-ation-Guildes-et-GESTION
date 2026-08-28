@@ -11,3 +11,17 @@ export type Plan = { id: string; guild_id: DiscordSnowflake; status: string; sta
 export type AuditEvent = { id: string; event_type: string; target_type: string; target_id: string | null; result_state: string; occurred_at: string; plan_id: string | null; correlation_id: string }
 export type PortableArtifact = { id: string; artifact_type: string; kind: string; name: string | null; content_hash: string; created_at: string; expires_at: string | null }
 export type Template = { id: string; name: string; artifact_type: string; created_at: string; updated_at: string }
+export type CapabilityOutcome = 'CAN' | 'CANNOT' | 'UNKNOWN'
+export type CapabilityDecision = { outcome: CapabilityOutcome; causes: string[]; remediations: string[]; warnings?: string[]; scope_kind?: string; scope_id?: string }
+export type DashboardCapabilities = {
+  guild_id: DiscordSnowflake
+  source: 'AUTHORIZATION_AND_LOCAL_CACHE'
+  discord_rest_calls: 0
+  user_capabilities: Record<string, CapabilityDecision>
+  scoped_capabilities: { scope_kind: string; scope_id: string; capabilities: Record<string, CapabilityDecision> }
+  bot_operations: Record<string, CapabilityDecision & { operation: string; required_permissions: string[] }>
+  coverage: string
+  completeness: string
+  freshness: string
+}
+export type PlanProgressEvent = { sequence: number; plan_status: string; message_key: string; completed_operations?: number; total_operations?: number; params?: Record<string, string | number> }

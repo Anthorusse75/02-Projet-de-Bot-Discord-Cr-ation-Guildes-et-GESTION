@@ -219,16 +219,51 @@ REQUIREMENT_PROGRESS["REQ-BOT-001"] = (
     "STAGE 02 bot token remains backend-only; frontend scan, redacted adapters and security gates PASS",
 )
 
-for requirement_id in (
-    *(f"REQ-STR-{index:03d}" for index in range(6, 14)),
-    *(f"REQ-UX-{index:03d}" for index in range(1, 8)),
-    *(f"REQ-UX-CTX-{index:03d}" for index in range(1, 6)),
-    *(f"REQ-UI18N-{index:03d}" for index in range(1, 22)),
-):
-    REQUIREMENT_PROGRESS[requirement_id] = (
-        "IMPLEMENTED",
-        "STAGE 07 typed React dashboard, centralized action/gesture model, tenant-keyed cache lifecycle, strict runtime locale catalogue and Playwright accessibility evidence; final transverse verification remains STAGE 10",
-    )
+STAGE07_REQUIREMENT_PROGRESS = {
+    "REQ-STR-006": ("IMPLEMENTED", "ActionRegistry shared by object/drop menus and command palette; Playwright context-menu flow"),
+    "REQ-STR-007": ("IMPLEMENTED", "StructureScreen creates a DSG plan then validates preflight; mounted/E2E drag asserts no direct Discord mutation"),
+    "REQ-STR-008": ("IMPLEMENTED", "Cross-Guild drop routes to CloneScreen and exact Stage 06 transfer COPY_AS_NEW payload; E2E A/B proof"),
+    "REQ-STR-009": ("IMPLEMENTED", "Mounted and Playwright right-drag tests assert filtered Drop Context Menu on release"),
+    "REQ-STR-010": ("IMPLEMENTED", "Menu/dialog/CommandPalette keyboard alternatives plus Tree/Menu/Dialog keyboard E2E"),
+    "REQ-STR-011": ("IMPLEMENTED", "Cross-Guild left-drag preserves source/destination intent and emits COPY_AS_NEW only; exact payload test"),
+    "REQ-STR-012": ("IMPLEMENTED", "PointerGestureManager thresholds plus mounted right-click/right-drag/cancel tests"),
+    "REQ-STR-013": ("IMPLEMENTED", "Cross-server browser destination, real capability context and backend A/B authorization on transfer"),
+    "REQ-UX-001": ("IMPLEMENTED", "resolveActions distinguishes CANNOT/UNKNOWN localized reasons; final backend 403 drift E2E"),
+    "REQ-UX-002": ("IMPLEMENTED", "Simple permission view and presentation allowlists render localized human labels, never backend enums"),
+    "REQ-UX-003": ("IMPLEMENTED", "Expert permission view exposes exact effective bits and localized ordered permission rationale"),
+    "REQ-UX-004": ("IMPLEMENTED", "Structure actions are available through mounted left/right drag and context menus"),
+    "REQ-UX-005": ("IMPLEMENTED", "Ctrl/Cmd+K CommandPalette uses the same capability-filtered ActionRegistry; keyboard E2E"),
+    "REQ-UX-006": ("IMPLEMENTED", "Durable GET plan progress polling renders localized events and real operation counts; evolving E2E"),
+    "REQ-UX-007": ("IMPLEMENTED", "No optimistic success; terminal success and verification-failure E2E use backend plan state"),
+    "REQ-UX-CTX-001": ("IMPLEMENTED", "GlobalContextMenuBoundary capture listener covers the full application provider tree"),
+    "REQ-UX-CTX-002": ("IMPLEMENTED", "Global capture-phase contextmenu preventDefault plus application resource handler"),
+    "REQ-UX-CTX-003": ("IMPLEMENTED", "Mounted right-click routes through PointerGestureManager to DID menu only"),
+    "REQ-UX-CTX-004": ("IMPLEMENTED", "resolveActions filters resource type, cardinality, target, user authority and cached bot outcomes"),
+    "REQ-UX-CTX-005": ("IMPLEMENTED", "Object menu, Drop Context Menu and palette call the same resolveActions registry"),
+    "REQ-UI18N-001": ("IMPLEMENTED", "Real *.ts/*.tsx visible-literal scanner; deliberate Delete-now fixture proves failure"),
+    "REQ-UI18N-002": ("IMPLEMENTED", "Typed MessageKey catalogue covers menus, dialogs, errors, badges, placeholders, ARIA and plan states"),
+    "REQ-UI18N-003": ("IMPLEMENTED", "Exact compile-time-complete EN/FR/DE/ES MessagePack objects and four functional E2E flows"),
+    "REQ-UI18N-004": ("IMPLEMENTED", "Active locale discovery and exact runtime catalogue fetch/activation without frontend rebuild"),
+    "REQ-UI18N-005": ("IMPLEMENTED", "validatePack requires exact key topology and compatible interpolation before atomic activation"),
+    "REQ-UI18N-006": ("IMPLEMENTED", "Bootstrap packs are independently complete; invalid runtime packs retain the previous complete locale atomically"),
+    "REQ-UI18N-007": ("IMPLEMENTED", "UI locale store is separate from all Discord/Guild language data"),
+    "REQ-UI18N-008": ("IMPLEMENTED", "Typed API error envelope preserves code/message_key/params/request_id for localized rendering"),
+    "REQ-UI18N-009": ("IMPLEMENTED", "Intl DateTimeFormat/NumberFormat and i18next plural forms use the active UI locale"),
+    "REQ-UI18N-010": ("IMPLEMENTED", "CI i18n check validates literals, exact keys, pack safety and interpolation topology"),
+    "REQ-UI18N-011": ("IMPLEMENTED", "Playwright executes functional localized context-menu flows plus axe in EN/FR/DE/ES"),
+    "REQ-UI18N-012": ("IMPLEMENTED", "Unicode-safe UTF-8 catalog and LocaleFlag normalized CSS/runtime fallback component"),
+    "REQ-UI18N-013": ("IMPLEMENTED", "resolveLocale tests navigator.languages BCP-47 matching and deterministic en fallback"),
+    "REQ-UI18N-014": ("IMPLEMENTED", "LanguageSelector AUTO option removes the persisted override and PATCHes null"),
+    "REQ-UI18N-015": ("IMPLEMENTED", "OAuth Discord locale is not consumed by LocalizationProvider"),
+    "REQ-UI18N-016": ("IMPLEMENTED", "LocalizationProvider wraps AuthGate, so the pre-authentication screen uses browser resolution"),
+    "REQ-UI18N-017": ("IMPLEMENTED", "Four exact local bootstrap packs initialize before locale API availability"),
+    "REQ-UI18N-018": ("IMPLEMENTED", "Disabled/incompatible override resolves to browser/bootstrap without partial activation; E2E invalid pack"),
+    "REQ-UI18N-019": ("IMPLEMENTED", "Bundled en is always active and deterministic when no other complete active pack resolves"),
+    "REQ-UI18N-020": ("IMPLEMENTED", "Runtime validation rejects HTML/script/event attributes and React escapes interpolations"),
+    "REQ-UI18N-021": ("IMPLEMENTED", "No user-facing Discord Application Command is registered; explicit NOT_APPLICABLE/zero-command contract test"),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE07_REQUIREMENT_PROGRESS)
 REQUIREMENT_PROGRESS["REQ-BOT-002"] = (
     "IMPLEMENTED",
     "STAGE 02 install link requests zero bot permissions and bootstrap tests distinguish user ADMINISTRATOR from bot permissions",

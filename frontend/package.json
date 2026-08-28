@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "openapi:generate": "uv run python ../scripts/export_openapi.py openapi.json && openapi-typescript openapi.json -o src/api/openapi.d.ts",
     "openapi:check": "uv run python ../scripts/check_openapi.py",
-    "i18n:check": "vitest run src/localization/catalog.test.ts",
+    "i18n:check": "python ../scripts/check_frontend_i18n.py && vitest run src/localization/catalog.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:a11y": "playwright test --grep @a11y"
   },

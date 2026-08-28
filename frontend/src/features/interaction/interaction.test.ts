@@ -7,6 +7,8 @@ import { reconnectDelay, resolveGuildEvent } from '../../api/useGuildSocket'
 import { resolveActions, type ActionContext, type ResourceRef } from './actions'
 import { resolveDropTarget } from './dropTarget'
 import { DRAG_THRESHOLDS, PointerGestureManager } from './gestures'
+import { createActionIntent, dispatchAction, transferBody } from './dispatcher'
+import { useSessionStore } from '../../shared/state/session'
 
 const guildA = discordSnowflake('100000000000000001')
 const guildB = discordSnowflake('100000000000000002')
@@ -15,8 +17,8 @@ const categoryA: ResourceRef = { id: 'ca', name: 'A', type: 'CATEGORY', guildId:
 const categoryB: ResourceRef = { id: 'cb', name: 'B', type: 'CATEGORY', guildId: guildB }
 const context = (source = [channel], destination?: ResourceRef): ActionContext => ({
   source, ...(destination ? { destination } : {}),
-  userCapabilities: new Set(['STRUCTURE_READ', 'STRUCTURE_WRITE', 'PLANS_CREATE', 'PERMISSIONS_READ']),
-  botCapabilities: new Set(['MANAGE_CHANNEL']),
+  userCapabilities: { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'permissions.read': { outcome: 'CAN', causes: [], remediations: [] } },
+  botCapabilities: { REORDER_CHANNELS: { outcome: 'CAN', causes: [], remediations: [] }, CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
 })
 
 describe('STAGE 07 shared interaction model', () => {
@@ -27,6 +29,19 @@ describe('STAGE 07 shared interaction model', () => {
     const cross = resolveDropTarget(context([channel], categoryB))
     expect(cross.crossGuild).toBe(true)
     expect(cross.actions.map((item) => item.action.id)).toContain('copy')
+    const unknown = resolveDropTarget({ ...context([channel], categoryA), botCapabilities: {} })
+    expect(unknown.actions.find((item) => item.action.id === 'move')).toMatchObject({ enabled: false, reasonKey: 'actions.disabled.unknown' })
+  })
+
+  it('preserves exact cross-Guild selection in the portable payload', () => {
+    const intent = createActionIntent('copy', [channel], categoryB)
+    expect(transferBody(intent)).toMatchObject({ source_guild_id: guildA, destination_guild_id: guildB, selection: { artifact_type: 'CHANNEL', channel_ids: ['c1'], category_ids: [] }, mode: 'COPY_AS_NEW' })
+  })
+
+  it('treats backend 403 as final authority after an enabled preview', async () => {
+    useSessionStore.getState().setMe({ authenticated: true, user: { discord_user_id: guildA, username: 'owner', global_name: null }, active_guild_id: guildA, csrf_token: 'csrf', policy_version: 1 })
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { code: 'CAPABILITY_REQUIRED', message_key: 'errors.authorization.denied', params: {}, request_id: 'drift' } }, { status: 403 })))
+    await expect(dispatchAction(createActionIntent('move', [channel], categoryA), guildA)).rejects.toMatchObject({ status: 403 })
   })
 
   it('distinguishes right click, right drag, left drag and cancellation at deterministic thresholds', () => {

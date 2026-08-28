@@ -3,7 +3,8 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Guild, Me, Plan, PortableArtifact, Roles, Structure, Template } from './types'
+import type { AuditEvent, DashboardCapabilities, Guild, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template } from './types'
+import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
   const setMe = useSessionStore((state) => state.setMe)
@@ -24,7 +25,7 @@ export function useGuilds(userId: DiscordSnowflake | undefined) {
 }
 
 function tenantQuery<T>(userId: DiscordSnowflake, guildId: DiscordSnowflake, feature: string, path: string) {
-  return { queryKey: queryKeys.tenant(userId, guildId, feature), queryFn: () => apiRequest<T>(path) }
+  return { queryKey: queryKeys.tenant(userId, guildId, feature), queryFn: () => apiRequest<T>(path, { signal: tenantSignal(guildId) }) }
 }
 export const useStructure = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Structure>(u,g,'structure',`/api/v1/guilds/${g}/structure`))
 export const useRoles = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Roles>(u,g,'roles',`/api/v1/guilds/${g}/roles`))
@@ -33,4 +34,17 @@ export const usePlans = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(t
 export const useAudit = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{events:AuditEvent[]}>(u,g,'audit',`/api/v1/guilds/${g}/audit`))
 export const useTemplates = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{templates:Template[]}>(u,g,'templates',`/api/v1/guilds/${g}/templates`))
 export const useLibrary = (u: DiscordSnowflake) => useQuery({ queryKey: queryKeys.library(u), queryFn: () => apiRequest<{artifacts:PortableArtifact[]}>('/api/v1/me/portable-artifacts') })
-
+export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => useQuery({
+  queryKey: queryKeys.tenant(u, g, 'dashboard-capabilities', ...(resourceId ? [resourceId] : [])),
+  queryFn: () => apiRequest<DashboardCapabilities>(`/api/v1/guilds/${g}/dashboard-capabilities${resourceId ? `?resource_id=${encodeURIComponent(resourceId)}` : ''}`, { signal: tenantSignal(g) }),
+})
+const terminalPlanStates = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
+export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({
+  enabled: Boolean(planId), queryKey: queryKeys.tenant(u, g, 'plans', planId ?? 'none', 'progress'),
+  queryFn: () => apiRequest<{events: PlanProgressEvent[]}>(`/api/v1/guilds/${g}/plans/${planId}/progress`, { signal: tenantSignal(g) }),
+  refetchInterval: (query) => {
+    const events = query.state.data?.events ?? []
+    const status = events.at(-1)?.plan_status
+    return status && terminalPlanStates.has(status) ? false : 1_000
+  },
+})

@@ -1,9 +1,11 @@
+import { useEffect } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ApiError } from '../../api/client'
+import { ApiError, apiRequest } from '../../api/client'
 import { useMe } from '../../api/queries'
 import { LanguageSelector } from '../guilds/LanguageSelector'
 import { ErrorState, Skeleton } from '../../shared/components/ui'
+import { useLocale } from '../../localization/runtime'
 
 export function LoginPage() {
   const { t } = useTranslation(); const me = useMe()
@@ -14,9 +16,9 @@ export function LoginPage() {
 }
 
 export function AuthGate() {
-  const me = useMe()
+  const me = useMe(); const locale = useLocale()
+  useEffect(() => { if (!me.data) return; let current = true; void apiRequest<{ui_locale_override_code:string|null}>('/api/v1/me/preferences').then((preference) => { if (current) locale.hydrateServerPreference(preference.ui_locale_override_code) }).catch(() => undefined); return () => { current = false } }, [me.data?.user.discord_user_id])
   if (me.isLoading) return <main className="shell"><Skeleton /></main>
   if (!me.data) return <Navigate to="/login" replace />
   return <Outlet context={me.data} />
 }
-

@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../api/client'
-import { useGuilds } from '../api/queries'
-import type { Guild, Me } from '../api/types'
+import { useDashboardCapabilities, useGuilds } from '../api/queries'
+import type { DashboardCapabilities, Guild, Me } from '../api/types'
 import { leaveTenant } from '../api/tenantLifecycle'
 import { useGuildSocket } from '../api/useGuildSocket'
 import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
@@ -14,7 +14,7 @@ import { useSessionStore } from '../shared/state/session'
 import { LanguageSelector } from '../features/guilds/LanguageSelector'
 import { CommandPalette } from '../features/search/CommandPalette'
 
-export type DashboardContext = { me: Me; guild: Guild; guilds: Guild[]; connection: 'live'|'reconnecting' }
+export type DashboardContext = { me: Me; guild: Guild; guilds: Guild[]; connection: 'live'|'reconnecting'; capabilities: DashboardCapabilities | undefined }
 const sections = ['structure','roles','permissions','plans','diagnostics','audit','templates','library','clone'] as const
 
 export function AppShell() {
@@ -30,6 +30,7 @@ export function AppShell() {
   if (!parsedGuild) return <Navigate to="/guilds" replace />
   const currentGuildId = parsedGuild
   const guild = guilds.data?.find((item) => item.guild_id === currentGuildId)
+  const capabilityQuery = useDashboardCapabilities(me.user.discord_user_id, currentGuildId)
   if (!guilds.data) return <main className="shell"><Status>{t('common.loading')}</Status></main>
   if (!guild) return <Navigate to="/guilds" replace />
   async function switchGuild(next: DiscordSnowflake) {
@@ -40,5 +41,5 @@ export function AppShell() {
     setMe(updated); queryClient.setQueryData(['did','identity'], updated)
     const section = location.pathname.split('/').at(-1) ?? 'structure'; navigate(`/guild/${next}/${section}`)
   }
-  return <div className="app-layout"><a href="#main" className="skip-link">{t('app.skip')}</a><aside className="sidebar"><div className="brand"><span className="brand-mark">DID</span><strong>{t('app.title')}</strong></div><Select labelKey="guilds.switch" value={currentGuildId} onChange={(event) => void switchGuild(discordSnowflake(event.target.value))}>{guilds.data.map((item) => <option key={item.guild_id} value={item.guild_id}>{item.name}</option>)}</Select><nav>{sections.map((section) => <NavLink key={section} to={`/guild/${currentGuildId}/${section}`}>{t(`nav.${section}`)}</NavLink>)}</nav><button type="button" className="command-trigger" onClick={() => setCommandOpen(true)}>{t('nav.commands')} <kbd>Ctrl K</kbd></button></aside><div className="workspace"><header className="topbar"><div><strong>{guild.name}</strong><Badge tone={connection === 'live' ? 'ok' : 'warning'}>{t(connection === 'live' ? 'connection.live' : 'connection.reconnecting')}</Badge></div><LanguageSelector /></header><main id="main" className="content"><Outlet context={{ me, guild, guilds: guilds.data, connection } satisfies DashboardContext} /></main></div><CommandPalette guildId={currentGuildId} /></div>
+  return <div className="app-layout"><a href="#main" className="skip-link">{t('app.skip')}</a><aside className="sidebar"><div className="brand"><span className="brand-mark">DID</span><strong>{t('app.title')}</strong></div><Select labelKey="guilds.switch" value={currentGuildId} onChange={(event) => void switchGuild(discordSnowflake(event.target.value))}>{guilds.data.map((item) => <option key={item.guild_id} value={item.guild_id}>{item.name}</option>)}</Select><nav>{sections.map((section) => <NavLink key={section} to={`/guild/${currentGuildId}/${section}`}>{t(`nav.${section}`)}</NavLink>)}</nav><button type="button" className="command-trigger" onClick={() => setCommandOpen(true)}>{t('nav.commands')} <kbd>Ctrl K</kbd></button></aside><div className="workspace"><header className="topbar"><div><strong>{guild.name}</strong><Badge tone={connection === 'live' ? 'ok' : 'warning'}>{t(connection === 'live' ? 'connection.live' : 'connection.reconnecting')}</Badge></div><LanguageSelector /></header><main id="main" className="content"><Outlet context={{ me, guild, guilds: guilds.data, connection, capabilities: capabilityQuery.data } satisfies DashboardContext} /></main></div><CommandPalette guild={guild} capabilities={capabilityQuery.data} /></div>
 }

@@ -1682,6 +1682,83 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/dashboard-capabilities": {
+      "get": {
+        "description": "Aggregate existing authorization and cached bot checks for the dashboard.\n\nThis endpoint is deliberately read-only and cache-first.  It does not grant\nauthority: every command endpoint remains responsible for its own final\nauthorization and preflight checks.",
+        "operationId": "dashboard_capabilities_api_v1_guilds__guild_id__dashboard_capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_role_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Role Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Capabilities Api V1 Guilds  Guild Id  Dashboard Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard Capabilities",
+        "tags": [
+          "stage-07-dashboard"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/exports/portable": {
       "post": {
         "operationId": "export_portable_api_v1_guilds__guild_id__exports_portable_post",
