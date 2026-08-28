@@ -7,4 +7,3 @@ type SessionStore = {
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({ me: null, setMe: (me) => set({ me }) }))
-

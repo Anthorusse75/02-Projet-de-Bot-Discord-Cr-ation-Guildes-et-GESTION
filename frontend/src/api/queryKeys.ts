@@ -7,4 +7,3 @@ export const queryKeys = {
     ['did', userId, guildId, feature, ...detail] as const,
   library: (userId: DiscordSnowflake) => ['did', userId, 'user-control-plane', 'library'] as const,
 }
-

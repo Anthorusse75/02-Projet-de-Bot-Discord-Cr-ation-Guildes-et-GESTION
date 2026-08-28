@@ -24,10 +24,11 @@ Le client OpenAPI est généré depuis FastAPI dans `frontend/openapi.json` et
 cookie-authenticated utilisent CSRF. Un `401` efface la session et les enveloppes
 `code/message_key/params/request_id` restent typées.
 
-`GET /api/v&#49;/guilds/{id}/dashboard-capabilities` agrège l’autorité utilisateur réellement résolue et
-les diagnostics bot Stage 04 depuis le cache local. Les décisions sont explicites (`CAN`, `CANNOT`,
-`UNKNOWN`), globales et liées à la ressource quand elle est fournie. La route est read-only,
-cache-first, effectue zéro REST Discord et ne remplace jamais l’autorisation finale des commandes.
+`GET /api/v&#49;/guilds/{id}/dashboard-capabilities` expose les user capabilities comme l’autorité DID
+résolue au scope Guild pour les commandes STAGE 07 concernées. Les diagnostics de bot peuvent être
+contextualisés par `resource_id` / `target_role_id`. Les décisions sont explicites (`CAN`, `CANNOT`,
+`UNKNOWN`). La route est read-only, cache-first, effectue zéro REST Discord et le backend command
+endpoint reste l’autorité finale.
 
 | Écran | Routes principales | Sémantique |
 |---|---|---|

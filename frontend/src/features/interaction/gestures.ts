@@ -31,4 +31,3 @@ export class PointerGestureManager {
     return { kind: 'cancel', source: value.source, x: value.x, y: value.y }
   }
 }
-
