@@ -7,8 +7,12 @@
 | Branche | `stage/07-dashboard` |
 | Code testé | `3b81127fa5504ae9e0ad0a75e57da4b5d2362332` |
 | Migration | `0013_stage_07` après `0012_stage_06`; tête unique |
-| PR | [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), Draft, non mergée |
-| Statut | `STAGE_07_COMPLETE_DRAFT_PR_OPEN` |
+| PR | [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), merged |
+| Statut | `STAGE_07_INTEGRATED_IN_MAIN` |
+| Functional tested code | `3b81127fa5504ae9e0ad0a75e57da4b5d2362332` |
+| Approved final head | `117b9a519e5edd4ff2f40d7d6e388693230ef595` |
+| Merge commit | `215bdefeafee5f89c3db9d0817fa64e733e5ec61` |
+| Tag | `stage-07-complete` -> `215bdefeafee5f89c3db9d0817fa64e733e5ec61` |
 
 ## Architecture et API
 
