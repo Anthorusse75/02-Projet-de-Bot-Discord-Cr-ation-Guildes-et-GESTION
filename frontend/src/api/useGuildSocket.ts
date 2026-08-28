@@ -7,6 +7,10 @@ type Connection = 'live' | 'reconnecting'
 export type GuildEvent = { guild_id?: string; sequence?: number; version?: number; type?: string }
 export type GuildEventDecision = { kind: 'ignore' | 'full' | 'feature'; feature?: 'plans' | 'audit' | 'structure'; nextSequence: number }
 
+export function reconnectDelay(attempt: number): number {
+  return Math.min(30_000, 500 * 2 ** Math.min(Math.max(attempt, 0), 6))
+}
+
 export function resolveGuildEvent(event: GuildEvent, guildId: string, lastSequence: number): GuildEventDecision {
   if (event.guild_id !== guildId || (event.version !== undefined && event.version !== 1)) return { kind: 'ignore', nextSequence: lastSequence }
   const nextSequence = event.sequence ?? lastSequence
@@ -19,18 +23,27 @@ export function useGuildSocket(queryClient: QueryClient, userId: DiscordSnowflak
   const [connection, setConnection] = useState<Connection>('reconnecting')
   useEffect(() => {
     let current = true; let lastSequence = 0
+    let socket: WebSocket | null = null; let retryTimer: number | undefined; let attempt = 0
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${location.host}/ws/v1/guilds/${guildId}`)
-    socket.onopen = () => current && setConnection('live')
-    socket.onclose = () => current && setConnection('reconnecting')
-    socket.onmessage = (message) => {
+    function connect() {
       if (!current) return
-      const decision = resolveGuildEvent(JSON.parse(String(message.data)) as GuildEvent, guildId, lastSequence)
-      lastSequence = decision.nextSequence
-      if (decision.kind === 'full') void queryClient.invalidateQueries({ queryKey: ['did', userId, guildId] })
-      if (decision.kind === 'feature' && decision.feature) void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(userId, guildId, decision.feature) })
+      socket = new WebSocket(`${protocol}//${location.host}/ws/v1/guilds/${guildId}`)
+      socket.onopen = () => { if (current) { attempt = 0; setConnection('live') } }
+      socket.onclose = () => {
+        if (!current) return
+        setConnection('reconnecting')
+        retryTimer = window.setTimeout(connect, reconnectDelay(attempt)); attempt += 1
+      }
+      socket.onmessage = (message) => {
+        if (!current) return
+        const decision = resolveGuildEvent(JSON.parse(String(message.data)) as GuildEvent, guildId, lastSequence)
+        lastSequence = decision.nextSequence
+        if (decision.kind === 'full') void queryClient.invalidateQueries({ queryKey: ['did', userId, guildId] })
+        if (decision.kind === 'feature' && decision.feature) void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(userId, guildId, decision.feature) })
+      }
     }
-    return () => { current = false; socket.close(1000, 'tenant-change') }
+    connect()
+    return () => { current = false; if (retryTimer !== undefined) window.clearTimeout(retryTimer); socket?.close(1000, 'tenant-change') }
   }, [guildId, queryClient, userId])
   return connection
 }

@@ -3,7 +3,7 @@ import { discordSnowflake } from '../../shared/discord-id'
 import { useInteractionStore } from '../../shared/state/interaction'
 import { leaveTenant, tenantSignal } from '../../api/tenantLifecycle'
 import { queryKeys } from '../../api/queryKeys'
-import { resolveGuildEvent } from '../../api/useGuildSocket'
+import { reconnectDelay, resolveGuildEvent } from '../../api/useGuildSocket'
 import { resolveActions, type ActionContext, type ResourceRef } from './actions'
 import { resolveDropTarget } from './dropTarget'
 import { DRAG_THRESHOLDS, PointerGestureManager } from './gestures'
@@ -61,6 +61,7 @@ describe('STAGE 07 shared interaction model', () => {
     expect(resolveGuildEvent({ guild_id: guildA, sequence: 2, version: 2 }, guildA, 1).kind).toBe('ignore')
     expect(resolveGuildEvent({ guild_id: guildA, sequence: 3, version: 1 }, guildA, 1).kind).toBe('full')
     expect(resolveGuildEvent({ guild_id: guildA, sequence: 2, version: 1, type: 'plan.updated' }, guildA, 1)).toMatchObject({ kind: 'feature', feature: 'plans' })
+    expect([0, 1, 2, 10].map(reconnectDelay)).toEqual([500, 1_000, 2_000, 30_000])
   })
 
   it('resolves a large action matrix within the dashboard interaction budget', () => {
