@@ -771,6 +771,20 @@ def stage_08(
             environment=TEST_ENV,
         )
     )
+    base_steps.append(
+        Step(
+            "STAGE 08 persistence PostgreSQL tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage08_persistence.py",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage08-persistence.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
     return tuple(base_steps)
 
 

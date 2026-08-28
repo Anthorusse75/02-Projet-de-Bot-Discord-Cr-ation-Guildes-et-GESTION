@@ -10,6 +10,13 @@ from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
+)
 from did.oauth.stores import RedisSessionStore, SessionData
 from did.settings import AppEnvironment, Settings
 
@@ -47,6 +54,11 @@ class ServiceContainer:
     portability_repository: Any = None
     portability: Any = None
     localization_repository: Any = None
+    stage08_language_repository: LanguageProfileRepository | None = None
+    stage08_policy_repository: ResourceLanguagePolicyRepository | None = None
+    stage08_group_repository: TranslationGroupRepository | None = None
+    stage08_provider_repository: TranslationProviderBindingRepository | None = None
+    stage08_visibility_repository: VisibilityScopeLanguageRepository | None = None
 
 
 def services(request: Request) -> ServiceContainer:

@@ -6,10 +6,10 @@
 | Last completed/integrated stage | `STAGE_07_REACT_DASHBOARD_I18N_AND_INTERACTIONS` |
 | Base main | `252a4661195a3868acd04a2987453e23fc6ee4ff` |
 | Branch | `stage/08-multilingual-topology` |
-| Last migration | `0014_stage_08`; parent `0013_stage_07`; migration corrected for composite-FK tenant-safe constraints and group-scoped validation remains incomplete. |
-| Implementation | Stage 08 currently contains an initial domain model and migration scaffold only. The implementation is still in progress and does not yet satisfy the full Stage 08 scope. |
-| Data model | `language_profiles`, `member_visible_languages`, `resource_language_policies`, `translation_groups`, category/channel variants/groups, `translation_routes`, `translation_provider_bindings`, and `visibility_scope_language_roles` are present, but must still complete the full service/repository/API/provider/visibility/budget/live surface. |
-| Tests status | Local Stage 08 unit proof is partial and intentionally not claimed as complete. The migration and route isolation regressions have been corrected locally; full Stage 08 completion remains pending. |
+| Last migration | `0014_stage_08`; parent `0013_stage_07`; composite tenant FKs, group-language membership, RLS and reversible downgrade are validated in PostgreSQL. |
+| Implementation | WP1 persistence/repository foundation is delivered; Stage 08 remains in progress and does not yet satisfy the full scope. |
+| Data model | Stage 08 tables now include durable `translation_group_languages`, explicit group-scoped variants, provider binding linkage, and tenant-safe constraints; API/provider/visibility/budget/live surface remains open. |
+| Tests status | 11 focused unit tests and 5 real PostgreSQL WP1 tests pass; full Stage 08 completion remains pending. |
 | Traceability | `REQ-I18N-001..042` + `REQ-I18N-026A` are tracked as not yet all implemented until code, tests, and live evidence exist. The validator and requirement list are still a work-in-progress. |
 | Discord live status | `NOT_RUN` / `BLOCKED_LIVE_CREDENTIALS` for Stage 08 until real Discord sandbox credentials and the Stage 08 live gate are prepared. |
 | GitHub publication | Draft PR remains in progress; no claim of full Stage 08 completion or green CI is made. |

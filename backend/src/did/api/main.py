@@ -52,6 +52,13 @@ from did.infrastructure.redis import create_redis_client, redis_is_ready
 from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
+)
 from did.oauth.crypto import TokenCipher, decode_encryption_key
 from did.oauth.discord import (
     DiscordMemberClient,
@@ -159,6 +166,11 @@ def create_app(
             portability_repository = None
             portability = None
             localization_repository = LocalizationRepository(session_factory)
+            stage08_language_repository = LanguageProfileRepository(session_factory)
+            stage08_policy_repository = ResourceLanguagePolicyRepository(session_factory)
+            stage08_group_repository = TranslationGroupRepository(session_factory)
+            stage08_provider_repository = TranslationProviderBindingRepository(session_factory)
+            stage08_visibility_repository = VisibilityScopeLanguageRepository(session_factory)
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -205,6 +217,11 @@ def create_app(
                 portability_repository=portability_repository,
                 portability=portability,
                 localization_repository=localization_repository,
+                stage08_language_repository=stage08_language_repository,
+                stage08_policy_repository=stage08_policy_repository,
+                stage08_group_repository=stage08_group_repository,
+                stage08_provider_repository=stage08_provider_repository,
+                stage08_visibility_repository=stage08_visibility_repository,
             )
         try:
             yield

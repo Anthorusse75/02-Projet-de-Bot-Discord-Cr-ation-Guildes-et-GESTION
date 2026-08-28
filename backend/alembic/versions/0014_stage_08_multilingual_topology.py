@@ -206,6 +206,30 @@ def upgrade() -> None:
         sa.UniqueConstraint("guild_id", "id", name="uq_translation_groups_guild_id"),
     )
     op.create_table(
+        "translation_group_languages",
+        sa.Column("guild_id", sa.BigInteger(), nullable=False),
+        sa.Column("translation_group_id", sa.Uuid(), nullable=False),
+        sa.Column("language_profile_id", sa.Uuid(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id"],
+            ["translation_groups.guild_id", "translation_groups.id"],
+            name="fk_translation_group_languages_group",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "language_profile_id"],
+            ["language_profiles.guild_id", "language_profiles.id"],
+            name="fk_translation_group_languages_language",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint(
+            "guild_id",
+            "translation_group_id",
+            "language_profile_id",
+            name="pk_translation_group_languages",
+        ),
+    )
+    op.create_table(
         "translation_category_variants",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("guild_id", sa.BigInteger(), nullable=False),
@@ -235,6 +259,16 @@ def upgrade() -> None:
             ["guild_id", "language_profile_id"],
             ["language_profiles.guild_id", "language_profiles.id"],
             name="fk_translation_category_variants_language",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "language_profile_id"],
+            [
+                "translation_group_languages.guild_id",
+                "translation_group_languages.translation_group_id",
+                "translation_group_languages.language_profile_id",
+            ],
+            name="fk_translation_category_variants_group_language",
             ondelete="CASCADE",
         ),
         sa.CheckConstraint(
@@ -293,11 +327,18 @@ def upgrade() -> None:
             "logical_key",
             name="uq_translation_channel_group_key",
         ),
+        sa.UniqueConstraint(
+            "guild_id",
+            "translation_group_id",
+            "id",
+            name="uq_translation_channel_groups_group_id",
+        ),
     )
     op.create_table(
         "translation_channel_variants",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("guild_id", sa.BigInteger(), nullable=False),
+        sa.Column("translation_group_id", sa.Uuid(), nullable=False),
         sa.Column("translation_channel_group_id", sa.Uuid(), nullable=False),
         sa.Column("language_profile_id", sa.Uuid(), nullable=False),
         sa.Column("discord_channel_id", sa.BigInteger(), nullable=False),
@@ -321,6 +362,16 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "translation_channel_group_id"],
+            [
+                "translation_channel_groups.guild_id",
+                "translation_channel_groups.translation_group_id",
+                "translation_channel_groups.id",
+            ],
+            name="fk_translation_channel_variants_group_channel_group",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
             ["guild_id", "language_profile_id"],
             ["language_profiles.guild_id", "language_profiles.id"],
             name="fk_translation_channel_variants_language",
@@ -332,6 +383,16 @@ def upgrade() -> None:
             name="fk_translation_channel_variants_category",
             ondelete="SET NULL",
         ),
+        sa.ForeignKeyConstraint(
+            ["guild_id", "translation_group_id", "language_profile_id"],
+            [
+                "translation_group_languages.guild_id",
+                "translation_group_languages.translation_group_id",
+                "translation_group_languages.language_profile_id",
+            ],
+            name="fk_translation_channel_variants_group_language",
+            ondelete="CASCADE",
+        ),
         sa.CheckConstraint(
             "discord_channel_id > 0", name="ck_translation_channel_variants_channel"
         ),
@@ -342,6 +403,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_translation_channel_variants"),
         sa.UniqueConstraint(
             "guild_id",
+            "translation_group_id",
             "translation_channel_group_id",
             "language_profile_id",
             name="uq_translation_channel_variants_group_language",
@@ -490,6 +552,7 @@ def upgrade() -> None:
     tables = (
         "language_profiles",
         "member_visible_languages",
+        "translation_group_languages",
         "resource_language_policies",
         "translation_groups",
         "translation_category_variants",
@@ -506,11 +569,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("visibility_scope_language_roles")
+    op.drop_constraint(
+        "fk_translation_groups_provider_binding", "translation_groups", type_="foreignkey"
+    )
     op.drop_table("translation_provider_bindings")
     op.drop_table("translation_routes")
     op.drop_table("translation_channel_variants")
     op.drop_table("translation_channel_groups")
     op.drop_table("translation_category_variants")
+    op.execute("DROP TABLE IF EXISTS translation_group_languages")
     op.drop_table("translation_groups")
     op.drop_table("resource_language_policies")
     op.drop_table("member_visible_languages")

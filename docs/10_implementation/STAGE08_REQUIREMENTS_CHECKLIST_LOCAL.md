@@ -11,10 +11,10 @@
 
 | REQ ID | Comportement requis | Couche d’implémentation | Test nécessaire | État actuel réel |
 |---|---|---|---|---|
-| REQ-I18N-001 | langue, group et scope distincts | domain + schema | unit/db | PARTIAL |
-| REQ-I18N-002 | `translation_group_id` unique par tenant | schema + repo | db + test | PARTIAL |
-| REQ-I18N-003 | groupes identiques ne partagent jamais routes/variants implicites | domain + validation | unit/db | PARTIAL |
-| REQ-I18N-004 | `Translation Channel Group` stable et indépendant du nom | domain + schema | unit/db | PARTIAL |
+| REQ-I18N-001 | langue, group et scope distincts | domain + schema | unit/db | DONE (WP1) |
+| REQ-I18N-002 | `translation_group_id` unique par tenant | schema + repo | db + test | DONE (WP1) |
+| REQ-I18N-003 | groupes identiques ne partagent jamais routes/variants implicites | domain + validation | unit/db | DONE (WP1) |
+| REQ-I18N-004 | `Translation Channel Group` stable et indépendant du nom | domain + schema | unit/db | DONE (WP1) |
 | REQ-I18N-005 | héritage catégorie/salon et override explicite | domain + resolver | unit | PARTIAL |
 | REQ-I18N-006 | salons dans catégories différentes | domain + API | unit/application | NOT_STARTED |
 | REQ-I18N-007 | topologies `HUB_AND_SPOKE` et `CUSTOM`; `FULL_MESH` conditionné provider | domain + provider | unit + plan | PARTIAL |
