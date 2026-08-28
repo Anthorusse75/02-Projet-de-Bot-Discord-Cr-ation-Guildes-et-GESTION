@@ -7,7 +7,8 @@
 | Branche | `stage/07-dashboard` |
 | Code testé | `50832be79c390d03f2bdb62570f61ccd2835925e` |
 | Migration | `0013_stage_07` après `0012_stage_06`; tête unique |
-| Statut | `STAGE_07_COMPLETE_DRAFT_PR_PENDING` |
+| PR | [#7](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/7), Draft, non mergée |
+| Statut | `STAGE_07_COMPLETE_DRAFT_PR_OPEN` |
 
 ## Architecture et API
 
