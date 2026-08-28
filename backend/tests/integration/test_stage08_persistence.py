@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 
 from did.infrastructure.database import create_database_engine, tenant_transaction
@@ -18,6 +18,7 @@ from did.infrastructure.stage08_repository import (
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
     VisibilityScopeLanguageRepository,
+    _execute,
 )
 from did.tenancy import TenantContext
 
@@ -33,6 +34,7 @@ ADMIN_URL = os.environ.get(
 GUILD_A = 880000001
 GUILD_B = 880000002
 USER_ID = 880000101
+UNALLOWLISTED_GUILD = 880000701
 CLEANUP_STATEMENTS = (
     "DELETE FROM translation_channel_variants WHERE guild_id IN (:a,:b)",
     "DELETE FROM translation_category_variants WHERE guild_id IN (:a,:b)",
@@ -600,6 +602,42 @@ async def test_provider_binding_defaults_to_unknown() -> None:
             )
     finally:
         await admin_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unallowlisted_unique_violation_remains_an_integrity_error() -> None:
+    engine = create_database_engine(APP_URL, pool_size=1)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with tenant_transaction(factory, TenantContext(UNALLOWLISTED_GUILD)) as session:
+            parameters = {
+                "guild_id": UNALLOWLISTED_GUILD,
+                "name": "Unexpected unique probe",
+                "owner_id": USER_ID,
+                "application_id": 880000501,
+            }
+            await _execute(
+                session,
+                text(
+                    "INSERT INTO guild_installations "
+                    "(guild_id,name,owner_id,application_id,installation_status) "
+                    "VALUES (:guild_id,:name,:owner_id,:application_id,'ACTIVE')"
+                ),
+                parameters,
+            )
+            with pytest.raises(IntegrityError) as error_info:
+                await _execute(
+                    session,
+                    text(
+                        "INSERT INTO guild_installations "
+                        "(guild_id,name,owner_id,application_id,installation_status) "
+                        "VALUES (:guild_id,:name,:owner_id,:application_id,'ACTIVE')"
+                    ),
+                    parameters,
+                )
+            assert not isinstance(error_info.value, Stage08Conflict)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

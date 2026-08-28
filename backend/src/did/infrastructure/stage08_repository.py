@@ -34,9 +34,10 @@ KNOWN_UNIQUENESS_CONSTRAINTS = {
 
 
 def _raise_known_conflict(error: IntegrityError) -> None:
-    constraint_name = getattr(error.orig, "constraint_name", None)
-    sqlstate = getattr(error.orig, "sqlstate", None)
-    if constraint_name in KNOWN_UNIQUENESS_CONSTRAINTS or sqlstate == "23505":
+    constraint_name = getattr(error.orig, "constraint_name", None) or getattr(
+        getattr(error.orig, "__cause__", None), "constraint_name", None
+    )
+    if constraint_name in KNOWN_UNIQUENESS_CONSTRAINTS:
         raise Stage08Conflict(f"Stage 08 uniqueness conflict: {constraint_name}") from error
     raise error
 
