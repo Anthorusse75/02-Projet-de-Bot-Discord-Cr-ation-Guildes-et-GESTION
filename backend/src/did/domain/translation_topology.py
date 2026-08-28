@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 
@@ -34,6 +34,168 @@ class TranslationProviderStatus(StrEnum):
     DISABLED = "DISABLED"
     UNKNOWN = "UNKNOWN"
     MANUAL_CONFIGURATION_REQUIRED = "MANUAL_CONFIGURATION_REQUIRED"
+
+
+class ProviderConfigurationMode(StrEnum):
+    AUTOMATIC = "AUTOMATIC"
+    MANUAL_CONFIGURATION_REQUIRED = "MANUAL_CONFIGURATION_REQUIRED"
+    OBSERVATION_ONLY = "OBSERVATION_ONLY"
+
+
+@runtime_checkable
+class TranslationProvider(Protocol):
+    async def capabilities(self, guild_id: int) -> TranslationProviderCapabilities: ...
+    async def validate_group(self, desired_group: Any) -> list[dict[str, Any]]: ...
+    async def prepare_configuration(self, desired_group: Any) -> dict[str, Any]: ...
+    async def observe_health(self, guild_id: int) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeLanguageBinding:
+    guild_id: int
+    scope_id: UUID
+    language_profile_id: UUID
+    discord_role_id: int | None = None
+    binding_key: str = ""
+
+    def __post_init__(self) -> None:
+        if self.guild_id <= 0:
+            raise ValueError("guild_id must be positive")
+        if not self.binding_key:
+            object.__setattr__(
+                self,
+                "binding_key",
+                resolve_scope_language_role_key(self.scope_id, self.language_profile_id),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeLanguageRoleDecision:
+    guild_id: int
+    scope_id: UUID
+    visibility_policy: VisibilityPolicy
+    requires_explicit_binding: bool
+    required_bindings: tuple[ScopeLanguageBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TranslationChannelGroup:
+    id: UUID
+    guild_id: int
+    name: str
+    logical_group_key: str
+    category_discord_id: int | None = None
+    status: str = "ACTIVE"
+
+    def __post_init__(self) -> None:
+        if self.guild_id <= 0:
+            raise ValueError("guild_id must be positive")
+        if not self.name or not self.name.strip():
+            raise ValueError("translation channel group name must be present")
+        if not self.logical_group_key or not self.logical_group_key.strip():
+            raise ValueError("logical_group_key must be present")
+        if self.category_discord_id is not None and self.category_discord_id <= 0:
+            raise ValueError("category_discord_id must be positive")
+
+    def renamed(self, name: str) -> TranslationChannelGroup:
+        if not name or not name.strip():
+            raise ValueError("translation channel group name must be present")
+        return TranslationChannelGroup(
+            id=self.id,
+            guild_id=self.guild_id,
+            name=name,
+            logical_group_key=self.logical_group_key,
+            category_discord_id=self.category_discord_id,
+            status=self.status,
+        )
+
+
+class TranslationProviderRegistry:
+    def __init__(self) -> None:
+        self._providers: dict[str, TranslationProvider] = {}
+
+    def register(self, key: str, provider: TranslationProvider) -> None:
+        if not key or not key.strip():
+            raise ValueError("provider key must be present")
+        self._providers[key] = provider
+
+    def get(self, key: str) -> TranslationProvider:
+        try:
+            return self._providers[key]
+        except KeyError as exc:  # pragma: no cover - defensive branch
+            raise KeyError(f"unknown translation provider: {key}") from exc
+
+    async def capabilities(self, key: str, guild_id: int) -> TranslationProviderCapabilities:
+        provider = self.get(key)
+        capabilities = await provider.capabilities(guild_id)
+        if (
+            capabilities.configuration_mode
+            is ProviderConfigurationMode.MANUAL_CONFIGURATION_REQUIRED
+        ):
+            return TranslationProviderCapabilities(
+                supports_hub_and_spoke=capabilities.supports_hub_and_spoke,
+                supports_full_mesh=capabilities.supports_full_mesh,
+                supports_custom=capabilities.supports_custom,
+                supports_message_edits=capabilities.supports_message_edits,
+                supports_message_deletes=capabilities.supports_message_deletes,
+                supports_attachments=capabilities.supports_attachments,
+                supports_embeds=capabilities.supports_embeds,
+                supports_threads=capabilities.supports_threads,
+                max_languages_per_group=capabilities.max_languages_per_group,
+                configuration_mode=ProviderConfigurationMode.MANUAL_CONFIGURATION_REQUIRED,
+                supports_automatic_configuration=capabilities.supports_automatic_configuration,
+                requires_manual_configuration=True,
+                health=capabilities.health,
+                discord_bot_present=capabilities.discord_bot_present,
+                bot_permissions=capabilities.bot_permissions,
+            )
+        return capabilities
+
+
+def compile_scope_language_roles(
+    *,
+    guild_id: int,
+    scope_id: UUID,
+    member_language_ids: Iterable[UUID],
+    visibility_policy: VisibilityPolicy,
+) -> ScopeLanguageRoleDecision:
+    if guild_id <= 0:
+        raise ValueError("guild_id must be positive")
+    if visibility_policy in {
+        VisibilityPolicy.OPEN_ALL,
+        VisibilityPolicy.LANGUAGE_FILTERED,
+        VisibilityPolicy.CUSTOM,
+    }:
+        return ScopeLanguageRoleDecision(
+            guild_id=guild_id,
+            scope_id=scope_id,
+            visibility_policy=visibility_policy,
+            requires_explicit_binding=False,
+            required_bindings=(),
+        )
+    ordered_languages = tuple(dict.fromkeys(member_language_ids))
+    if not ordered_languages:
+        return ScopeLanguageRoleDecision(
+            guild_id=guild_id,
+            scope_id=scope_id,
+            visibility_policy=visibility_policy,
+            requires_explicit_binding=False,
+            required_bindings=(),
+        )
+    return ScopeLanguageRoleDecision(
+        guild_id=guild_id,
+        scope_id=scope_id,
+        visibility_policy=visibility_policy,
+        requires_explicit_binding=True,
+        required_bindings=tuple(
+            ScopeLanguageBinding(
+                guild_id=guild_id,
+                scope_id=scope_id,
+                language_profile_id=language_profile_id,
+            )
+            for language_profile_id in ordered_languages
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +264,13 @@ class TranslationProviderCapabilities:
     supports_hub_and_spoke: bool = False
     supports_full_mesh: bool = False
     supports_custom: bool = False
+    supports_message_edits: bool = False
+    supports_message_deletes: bool = False
+    supports_attachments: bool = False
+    supports_embeds: bool = False
+    supports_threads: bool = False
+    max_languages_per_group: int | None = None
+    configuration_mode: ProviderConfigurationMode = ProviderConfigurationMode.OBSERVATION_ONLY
     supports_automatic_configuration: bool = False
     requires_manual_configuration: bool = False
     health: str = TranslationProviderStatus.UNKNOWN.value
@@ -202,8 +371,14 @@ def validate_translation_routes(
     for index, route in enumerate(routes):
         source = route.get("source_language_profile_id")
         destination = route.get("destination_language_profile_id")
+        mapped_group_id = route.get("translation_group_id")
         if not isinstance(source, UUID) or not isinstance(destination, UUID):
             raise RouteValidationError(f"route[{index}] missing valid language ids")
+        if mapped_group_id != group_id:
+            raise RouteValidationError(
+                f"route[{index}] declares translation_group_id={mapped_group_id} but expected "
+                f"{group_id}"
+            )
         if source not in set(language_ids) or destination not in set(language_ids):
             raise RouteValidationError(f"route[{index}] references language outside the group")
         if source == destination:
@@ -211,11 +386,14 @@ def validate_translation_routes(
         if (source, destination) in seen_routes:
             raise RouteValidationError(f"route[{index}] is a duplicate route")
         seen_routes.add((source, destination))
+
         source_variant = next(
             (
                 item
                 for item in variants.values()
-                if item.get("guild_id") == guild_id and item.get("language_profile_id") == source
+                if item.get("guild_id") == guild_id
+                and item.get("translation_group_id") == group_id
+                and item.get("language_profile_id") == source
             ),
             None,
         )
@@ -224,17 +402,22 @@ def validate_translation_routes(
                 item
                 for item in variants.values()
                 if item.get("guild_id") == guild_id
+                and item.get("translation_group_id") == group_id
                 and item.get("language_profile_id") == destination
             ),
             None,
         )
         if source_variant is None or destination_variant is None:
-            raise RouteValidationError(f"route[{index}] points to a missing variant")
+            raise RouteValidationError(
+                f"route[{index}] points to a missing variant for translation_group_id={group_id}"
+            )
         if (
             int(source_variant.get("guild_id", -1)) != guild_id
             or int(destination_variant.get("guild_id", -1)) != guild_id
+            or source_variant.get("translation_group_id") != group_id
+            or destination_variant.get("translation_group_id") != group_id
         ):
-            raise RouteValidationError(f"route[{index}] crosses a tenant boundary")
+            raise RouteValidationError(f"route[{index}] crosses a tenant or group boundary")
         accepted.append(
             TranslationRoute(
                 guild_id=guild_id,

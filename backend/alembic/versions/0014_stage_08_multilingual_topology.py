@@ -47,6 +47,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("length(trim(code)) > 0", name="ck_language_profiles_code"),
         sa.PrimaryKeyConstraint("id", name="pk_language_profiles"),
+        sa.UniqueConstraint("guild_id", "id", name="uq_language_profiles_guild_id"),
         sa.UniqueConstraint("guild_id", "code", name="uq_language_profiles_code"),
     )
     op.create_table(
@@ -244,6 +245,7 @@ def upgrade() -> None:
             name="ck_translation_category_variants_state",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_translation_category_variants"),
+        sa.UniqueConstraint("guild_id", "id", name="uq_translation_category_variants_guild_id"),
         sa.UniqueConstraint(
             "guild_id",
             "translation_group_id",
@@ -284,6 +286,7 @@ def upgrade() -> None:
             "length(trim(logical_key)) > 0", name="ck_translation_channel_groups_key"
         ),
         sa.PrimaryKeyConstraint("id", name="pk_translation_channel_groups"),
+        sa.UniqueConstraint("guild_id", "id", name="uq_translation_channel_groups_guild_id"),
         sa.UniqueConstraint(
             "guild_id",
             "translation_group_id",
@@ -422,6 +425,7 @@ def upgrade() -> None:
             name="ck_translation_provider_bindings_status",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_translation_provider_bindings"),
+        sa.UniqueConstraint("guild_id", "id", name="uq_translation_provider_bindings_guild_id"),
         sa.UniqueConstraint(
             "guild_id", "provider_instance_key", name="uq_translation_provider_bindings_key"
         ),
@@ -473,6 +477,14 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "guild_id", "discord_role_id", name="uq_visibility_scope_language_roles_role"
         ),
+    )
+    op.create_foreign_key(
+        "fk_translation_groups_provider_binding",
+        "translation_groups",
+        "translation_provider_bindings",
+        ["guild_id", "provider_binding_id"],
+        ["guild_id", "id"],
+        ondelete="SET NULL",
     )
 
     tables = (
