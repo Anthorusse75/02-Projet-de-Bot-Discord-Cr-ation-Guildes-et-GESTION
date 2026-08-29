@@ -38,6 +38,101 @@
         "title": "BotOperation",
         "type": "string"
       },
+      "CapacityInput": {
+        "additionalProperties": false,
+        "properties": {
+          "current_overwrites": {
+            "minimum": 0.0,
+            "title": "Current Overwrites",
+            "type": "integer"
+          },
+          "current_roles": {
+            "minimum": 0.0,
+            "title": "Current Roles",
+            "type": "integer"
+          },
+          "proposed_overwrite_delta": {
+            "title": "Proposed Overwrite Delta",
+            "type": "integer"
+          },
+          "required_bindings": {
+            "minimum": 0.0,
+            "title": "Required Bindings",
+            "type": "integer"
+          },
+          "reusable_bindings": {
+            "minimum": 0.0,
+            "title": "Reusable Bindings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_roles",
+          "required_bindings",
+          "reusable_bindings",
+          "current_overwrites",
+          "proposed_overwrite_delta"
+        ],
+        "title": "CapacityInput",
+        "type": "object"
+      },
+      "ChannelGroupInput": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "logical_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Logical Key",
+            "type": "string"
+          },
+          "source_language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Language Profile Id"
+          }
+        },
+        "required": [
+          "logical_key"
+        ],
+        "title": "ChannelGroupInput",
+        "type": "object"
+      },
+      "ChannelGroupRenameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ChannelGroupRenameInput",
+        "type": "object"
+      },
       "ChannelSelection": {
         "additionalProperties": false,
         "properties": {
@@ -241,6 +336,67 @@
         "title": "DesiredNodeInput",
         "type": "object"
       },
+      "DriftInput": {
+        "additionalProperties": false,
+        "properties": {
+          "current_state": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Current State",
+            "type": "string"
+          },
+          "discord_resource_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Resource Present"
+          },
+          "evidence": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "variant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant Id"
+          },
+          "variant_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CATEGORY",
+                  "CHANNEL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant Type"
+          }
+        },
+        "required": [
+          "current_state",
+          "evidence"
+        ],
+        "title": "DriftInput",
+        "type": "object"
+      },
       "ExportInput": {
         "additionalProperties": false,
         "properties": {
@@ -271,6 +427,54 @@
         "title": "ExportInput",
         "type": "object"
       },
+      "GroupLanguageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "destructive_discord_delete": {
+            "default": false,
+            "title": "Destructive Discord Delete",
+            "type": "boolean"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "language_profile_id": {
+            "format": "uuid",
+            "title": "Language Profile Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "language_profile_id"
+        ],
+        "title": "GroupLanguageInput",
+        "type": "object"
+      },
+      "GroupRenameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "name"
+        ],
+        "title": "GroupRenameInput",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -282,6 +486,84 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LanguageCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Code",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "emoji": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emoji"
+          }
+        },
+        "required": [
+          "code",
+          "display_name"
+        ],
+        "title": "LanguageCreateInput",
+        "type": "object"
+      },
+      "LanguageUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "emoji": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emoji"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "title": "LanguageUpdateInput",
         "type": "object"
       },
       "LiveTransferInput": {
@@ -506,6 +788,163 @@
         "title": "MappingInput",
         "type": "object"
       },
+      "MemberLanguageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "language_profile_id": {
+            "format": "uuid",
+            "title": "Language Profile Id",
+            "type": "string"
+          },
+          "source": {
+            "default": "EXPLICIT",
+            "enum": [
+              "EXPLICIT",
+              "ONBOARDING",
+              "SYNC",
+              "MANUAL"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language_profile_id"
+        ],
+        "title": "MemberLanguageInput",
+        "type": "object"
+      },
+      "MemberLanguagesInput": {
+        "additionalProperties": false,
+        "properties": {
+          "language_profile_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Language Profile Ids",
+            "type": "array"
+          },
+          "source": {
+            "default": "EXPLICIT",
+            "enum": [
+              "EXPLICIT",
+              "ONBOARDING",
+              "SYNC",
+              "MANUAL"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "title": "MemberLanguagesInput",
+        "type": "object"
+      },
+      "MemberRoleReconcileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "bindings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Bindings",
+            "type": "object"
+          },
+          "current_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 250,
+            "title": "Current Role Ids",
+            "type": "array"
+          },
+          "member_scope_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Member Scope Ids",
+            "type": "array"
+          },
+          "required_pairs": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 4096,
+            "title": "Required Pairs",
+            "type": "array"
+          },
+          "visible_language_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Visible Language Ids",
+            "type": "array"
+          }
+        },
+        "title": "MemberRoleReconcileInput",
+        "type": "object"
+      },
+      "MultilingualCloneInput": {
+        "additionalProperties": false,
+        "properties": {
+          "destination_guild_id": {
+            "title": "Destination Guild Id",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Groups",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Languages",
+            "type": "array"
+          },
+          "provider_requirements": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "maxItems": 64,
+            "title": "Provider Requirements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "destination_guild_id",
+          "languages",
+          "groups"
+        ],
+        "title": "MultilingualCloneInput",
+        "type": "object"
+      },
       "NodePresence": {
         "enum": [
           "PRESENT",
@@ -692,6 +1131,85 @@
         "title": "PreferenceUpdate",
         "type": "object"
       },
+      "ProviderAccessInput": {
+        "additionalProperties": false,
+        "properties": {
+          "bot_present": {
+            "title": "Bot Present",
+            "type": "boolean"
+          },
+          "effective_permissions_by_variant": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Effective Permissions By Variant",
+            "type": "object"
+          },
+          "require_attachments": {
+            "default": false,
+            "title": "Require Attachments",
+            "type": "boolean"
+          },
+          "require_embeds": {
+            "default": false,
+            "title": "Require Embeds",
+            "type": "boolean"
+          },
+          "require_threads": {
+            "default": false,
+            "title": "Require Threads",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bot_present"
+        ],
+        "title": "ProviderAccessInput",
+        "type": "object"
+      },
+      "ProviderPrepareInput": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binding Id"
+          },
+          "bot_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Bot Permissions",
+            "type": "array"
+          },
+          "desired_group": {
+            "additionalProperties": true,
+            "title": "Desired Group",
+            "type": "object"
+          },
+          "discord_bot_present": {
+            "default": false,
+            "title": "Discord Bot Present",
+            "type": "boolean"
+          },
+          "observed_capabilities": {
+            "$ref": "#/components/schemas/RouteCompileInput"
+          }
+        },
+        "required": [
+          "observed_capabilities"
+        ],
+        "title": "ProviderPrepareInput",
+        "type": "object"
+      },
       "PurgeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -760,6 +1278,67 @@
         "title": "RelationInput",
         "type": "object"
       },
+      "ResourcePolicyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "custom_policy": {
+            "additionalProperties": true,
+            "title": "Custom Policy",
+            "type": "object"
+          },
+          "discord_resource_id": {
+            "title": "Discord Resource Id",
+            "type": "string"
+          },
+          "explicit_language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explicit Language Profile Id"
+          },
+          "inherit_language": {
+            "default": false,
+            "title": "Inherit Language",
+            "type": "boolean"
+          },
+          "resource_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "visibility_policy": {
+            "$ref": "#/components/schemas/VisibilityPolicy",
+            "default": "OPEN_ALL"
+          },
+          "visibility_scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility Scope Id"
+          }
+        },
+        "required": [
+          "resource_type",
+          "discord_resource_id"
+        ],
+        "title": "ResourcePolicyInput",
+        "type": "object"
+      },
       "ResourceType": {
         "enum": [
           "GUILD",
@@ -797,6 +1376,188 @@
           "platform_role"
         ],
         "title": "RoleBindingUpdate",
+        "type": "object"
+      },
+      "RouteCompileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "custom_routes": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 4096,
+            "title": "Custom Routes",
+            "type": "array"
+          },
+          "hub_language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub Language Profile Id"
+          },
+          "language_profile_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Language Profile Ids",
+            "type": "array"
+          },
+          "max_languages_per_group": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Languages Per Group"
+          },
+          "provider_health": {
+            "default": "UNKNOWN",
+            "title": "Provider Health",
+            "type": "string"
+          },
+          "supports_custom": {
+            "default": false,
+            "title": "Supports Custom",
+            "type": "boolean"
+          },
+          "supports_full_mesh": {
+            "default": false,
+            "title": "Supports Full Mesh",
+            "type": "boolean"
+          },
+          "supports_hub_and_spoke": {
+            "default": false,
+            "title": "Supports Hub And Spoke",
+            "type": "boolean"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/TranslationGroupTopology"
+          }
+        },
+        "required": [
+          "topology",
+          "language_profile_ids"
+        ],
+        "title": "RouteCompileInput",
+        "type": "object"
+      },
+      "RouteReplaceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "custom_routes": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxItems": 4096,
+            "title": "Custom Routes",
+            "type": "array"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "hub_language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hub Language Profile Id"
+          },
+          "language_profile_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Language Profile Ids",
+            "type": "array"
+          },
+          "max_languages_per_group": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Languages Per Group"
+          },
+          "provider_health": {
+            "default": "UNKNOWN",
+            "title": "Provider Health",
+            "type": "string"
+          },
+          "supports_custom": {
+            "default": false,
+            "title": "Supports Custom",
+            "type": "boolean"
+          },
+          "supports_full_mesh": {
+            "default": false,
+            "title": "Supports Full Mesh",
+            "type": "boolean"
+          },
+          "supports_hub_and_spoke": {
+            "default": false,
+            "title": "Supports Hub And Spoke",
+            "type": "boolean"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/TranslationGroupTopology"
+          }
+        },
+        "required": [
+          "topology",
+          "language_profile_ids",
+          "expected_version"
+        ],
+        "title": "RouteReplaceInput",
         "type": "object"
       },
       "ScopeKind": {
@@ -988,6 +1749,119 @@
         "title": "SimulationRequest",
         "type": "object"
       },
+      "StructuralPlanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/StructuralPlanNodeInput"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "idempotency_key"
+        ],
+        "title": "StructuralPlanInput",
+        "type": "object"
+      },
+      "StructuralPlanNodeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Id"
+          },
+          "logical_key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Logical Key",
+            "type": "string"
+          },
+          "presence": {
+            "default": "PRESENT",
+            "enum": [
+              "PRESENT",
+              "ABSENT"
+            ],
+            "title": "Presence",
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "title": "Properties",
+            "type": "object"
+          },
+          "relations": {
+            "additionalProperties": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "enum": [
+                    "LOGICAL",
+                    "DISCORD_ID",
+                    "SYMBOL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "maxProperties": 8,
+            "title": "Relations",
+            "type": "object"
+          },
+          "resource_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL",
+              "ROLE",
+              "OVERWRITE"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "logical_key",
+          "resource_type"
+        ],
+        "title": "StructuralPlanNodeInput",
+        "type": "object"
+      },
       "TemplateApplyInput": {
         "additionalProperties": false,
         "properties": {
@@ -1028,6 +1902,91 @@
         ],
         "title": "TemplateCreateInput",
         "type": "object"
+      },
+      "TranslationGroupCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "language_profile_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Language Profile Ids",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "provider_binding_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Binding Id"
+          },
+          "root_kind": {
+            "enum": [
+              "CATEGORY_SET",
+              "CHANNEL_SET"
+            ],
+            "title": "Root Kind",
+            "type": "string"
+          },
+          "routing_mode": {
+            "$ref": "#/components/schemas/TranslationGroupTopology"
+          },
+          "source_language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Language Profile Id"
+          },
+          "visibility_scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility Scope Id"
+          }
+        },
+        "required": [
+          "name",
+          "root_kind",
+          "routing_mode",
+          "language_profile_ids"
+        ],
+        "title": "TranslationGroupCreateInput",
+        "type": "object"
+      },
+      "TranslationGroupTopology": {
+        "enum": [
+          "HUB_AND_SPOKE",
+          "FULL_MESH",
+          "CUSTOM"
+        ],
+        "title": "TranslationGroupTopology",
+        "type": "string"
       },
       "UserAccessUpdate": {
         "additionalProperties": false,
@@ -1102,6 +2061,93 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VariantLinkInput": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_explicit_selection": {
+            "title": "Confirmed Explicit Selection",
+            "type": "boolean"
+          },
+          "discord_resource_id": {
+            "title": "Discord Resource Id",
+            "type": "string"
+          },
+          "language_profile_id": {
+            "format": "uuid",
+            "title": "Language Profile Id",
+            "type": "string"
+          },
+          "translation_category_variant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Category Variant Id"
+          },
+          "translation_channel_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Channel Group Id"
+          },
+          "variant_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Variant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language_profile_id",
+          "variant_type",
+          "discord_resource_id",
+          "confirmed_explicit_selection"
+        ],
+        "title": "VariantLinkInput",
+        "type": "object"
+      },
+      "VariantUnlinkInput": {
+        "additionalProperties": false,
+        "properties": {
+          "delete_discord_resource": {
+            "default": false,
+            "title": "Delete Discord Resource",
+            "type": "boolean"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "title": "Variant Id",
+            "type": "string"
+          },
+          "variant_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Variant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variant_id",
+          "variant_type"
+        ],
+        "title": "VariantUnlinkInput",
+        "type": "object"
+      },
       "VersionCommand": {
         "additionalProperties": false,
         "properties": {
@@ -1116,6 +2162,69 @@
         ],
         "title": "VersionCommand",
         "type": "object"
+      },
+      "VisibilityCompileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_role_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binding Role Id"
+          },
+          "custom_policy": {
+            "additionalProperties": true,
+            "title": "Custom Policy",
+            "type": "object"
+          },
+          "language_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Profile Id"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/VisibilityPolicy"
+          },
+          "visibility_scope_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility Scope Id"
+          }
+        },
+        "required": [
+          "policy"
+        ],
+        "title": "VisibilityCompileInput",
+        "type": "object"
+      },
+      "VisibilityPolicy": {
+        "enum": [
+          "OPEN_ALL",
+          "LANGUAGE_FILTERED",
+          "SCOPE_AND_LANGUAGE",
+          "CUSTOM"
+        ],
+        "title": "VisibilityPolicy",
+        "type": "string"
       },
       "VisibilityScopeCreate": {
         "additionalProperties": false,
@@ -2020,6 +3129,166 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/languages": {
+      "get": {
+        "operationId": "list_languages_api_v1_guilds__guild_id__languages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Languages Api V1 Guilds  Guild Id  Languages Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Languages",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "post": {
+        "operationId": "create_language_api_v1_guilds__guild_id__languages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LanguageCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Language Api V1 Guilds  Guild Id  Languages Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/languages/{language_id}": {
+      "patch": {
+        "operationId": "update_language_api_v1_guilds__guild_id__languages__language_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "language_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Language Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LanguageUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Language Api V1 Guilds  Guild Id  Languages  Language Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/logical-groups": {
       "get": {
         "operationId": "logical_groups_api_v1_guilds__guild_id__logical_groups_get",
@@ -2213,6 +3482,352 @@
         "summary": "Patch Logical Group",
         "tags": [
           "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/members/technical-roles/reconcile": {
+      "post": {
+        "operationId": "reconcile_member_roles_api_v1_guilds__guild_id__members_technical_roles_reconcile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRoleReconcileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reconcile Member Roles Api V1 Guilds  Guild Id  Members Technical Roles Reconcile Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reconcile Member Roles",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/members/{user_id}/languages": {
+      "get": {
+        "operationId": "get_member_languages_api_v1_guilds__guild_id__members__user_id__languages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Member Languages Api V1 Guilds  Guild Id  Members  User Id  Languages Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Member Languages",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "post": {
+        "operationId": "add_member_language_api_v1_guilds__guild_id__members__user_id__languages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberLanguageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Member Language Api V1 Guilds  Guild Id  Members  User Id  Languages Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Member Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "put": {
+        "operationId": "set_member_languages_api_v1_guilds__guild_id__members__user_id__languages_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberLanguagesInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Member Languages Api V1 Guilds  Guild Id  Members  User Id  Languages Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Member Languages",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/members/{user_id}/languages/{language_profile_id}": {
+      "delete": {
+        "operationId": "remove_member_language_api_v1_guilds__guild_id__members__user_id__languages__language_profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "language_profile_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Language Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Remove Member Language Api V1 Guilds  Guild Id  Members  User Id  Languages  Language Profile Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Member Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/multilingual-clone/preview": {
+      "post": {
+        "operationId": "multilingual_clone_preview_api_v1_guilds__guild_id__multilingual_clone_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultilingualCloneInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Multilingual Clone Preview Api V1 Guilds  Guild Id  Multilingual Clone Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Multilingual Clone Preview",
+        "tags": [
+          "stage-08-multilingual-topology"
         ]
       }
     },
@@ -3141,6 +4756,129 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/resource-language-policies": {
+      "put": {
+        "operationId": "upsert_resource_policy_api_v1_guilds__guild_id__resource_language_policies_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourcePolicyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upsert Resource Policy Api V1 Guilds  Guild Id  Resource Language Policies Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Resource Policy",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/resources/{channel_id}/effective-language": {
+      "get": {
+        "operationId": "effective_language_api_v1_guilds__guild_id__resources__channel_id__effective_language_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Effective Language Api V1 Guilds  Guild Id  Resources  Channel Id  Effective Language Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Effective Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/roles": {
       "get": {
         "operationId": "roles_api_v1_guilds__guild_id__roles_get",
@@ -3454,6 +5192,1446 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/translation-drift/observe": {
+      "post": {
+        "operationId": "observe_drift_api_v1_guilds__guild_id__translation_drift_observe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Observe Drift Api V1 Guilds  Guild Id  Translation Drift Observe Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Observe Drift",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups": {
+      "get": {
+        "operationId": "list_translation_groups_api_v1_guilds__guild_id__translation_groups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Translation Groups Api V1 Guilds  Guild Id  Translation Groups Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Translation Groups",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "post": {
+        "operationId": "create_translation_group_api_v1_guilds__guild_id__translation_groups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslationGroupCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Translation Group Api V1 Guilds  Guild Id  Translation Groups Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Translation Group",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}": {
+      "get": {
+        "operationId": "get_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Translation Group Api V1 Guilds  Guild Id  Translation Groups  Group Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Translation Group",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupRenameInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rename Translation Group Api V1 Guilds  Guild Id  Translation Groups  Group Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Translation Group",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/channel-groups": {
+      "post": {
+        "operationId": "create_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelGroupInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Translation Channel Group Api V1 Guilds  Guild Id  Translation Groups  Group Id  Channel Groups Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Translation Channel Group",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/channel-groups/{channel_group_id}": {
+      "patch": {
+        "operationId": "rename_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups__channel_group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "channel_group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Channel Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelGroupRenameInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rename Translation Channel Group Api V1 Guilds  Guild Id  Translation Groups  Group Id  Channel Groups  Channel Group Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Translation Channel Group",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/languages": {
+      "delete": {
+        "operationId": "remove_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupLanguageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Remove Group Language Api V1 Guilds  Guild Id  Translation Groups  Group Id  Languages Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Group Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      },
+      "post": {
+        "operationId": "add_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupLanguageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Group Language Api V1 Guilds  Guild Id  Translation Groups  Group Id  Languages Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Group Language",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link": {
+      "post": {
+        "operationId": "link_existing_variant_api_v1_guilds__guild_id__translation_groups__group_id__link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantLinkInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Link Existing Variant Api V1 Guilds  Guild Id  Translation Groups  Group Id  Link Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Existing Variant",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__link_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Link Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__provider_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Provider Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Repair Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes": {
+      "put": {
+        "operationId": "replace_group_routes_api_v1_guilds__guild_id__translation_groups__group_id__routes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteReplaceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Replace Group Routes Api V1 Guilds  Guild Id  Translation Groups  Group Id  Routes Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Group Routes",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__routes_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Routes Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/structural-plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__structural_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Structural Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink": {
+      "post": {
+        "operationId": "unlink_variant_api_v1_guilds__guild_id__translation_groups__group_id__unlink_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantUnlinkInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Unlink Variant Api V1 Guilds  Guild Id  Translation Groups  Group Id  Unlink Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlink Variant",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__unlink_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Unlink Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/variants/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Variants Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/visibility/plan": {
+      "post": {
+        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StructuralPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Visibility Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Structural Plan",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-providers/access-preflight": {
+      "post": {
+        "operationId": "provider_access_preflight_api_v1_guilds__guild_id__translation_providers_access_preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderAccessInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Provider Access Preflight Api V1 Guilds  Guild Id  Translation Providers Access Preflight Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Access Preflight",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-providers/prepare": {
+      "post": {
+        "operationId": "prepare_provider_configuration_api_v1_guilds__guild_id__translation_providers_prepare_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderPrepareInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Prepare Provider Configuration Api V1 Guilds  Guild Id  Translation Providers Prepare Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prepare Provider Configuration",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-routes/compile": {
+      "post": {
+        "operationId": "compile_routes_api_v1_guilds__guild_id__translation_routes_compile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteCompileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Compile Routes Api V1 Guilds  Guild Id  Translation Routes Compile Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compile Routes",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-workspace": {
+      "get": {
+        "operationId": "translation_workspace_api_v1_guilds__guild_id__translation_workspace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Translation Workspace Api V1 Guilds  Guild Id  Translation Workspace Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Translation Workspace",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/visibility-scopes": {
       "get": {
         "operationId": "visibility_scopes_api_v1_guilds__guild_id__visibility_scopes_get",
@@ -3711,6 +6889,114 @@
         "summary": "Resolve Visibility Scope",
         "tags": [
           "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility/capacity": {
+      "post": {
+        "operationId": "capacity_preflight_api_v1_guilds__guild_id__visibility_capacity_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Capacity Preflight Api V1 Guilds  Guild Id  Visibility Capacity Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capacity Preflight",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility/compile": {
+      "post": {
+        "operationId": "compile_visibility_api_v1_guilds__guild_id__visibility_compile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisibilityCompileInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Compile Visibility Api V1 Guilds  Guild Id  Visibility Compile Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compile Visibility",
+        "tags": [
+          "stage-08-multilingual-topology"
         ]
       }
     },

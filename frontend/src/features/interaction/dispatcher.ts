@@ -15,7 +15,7 @@ export type DispatchResult =
   | { kind: 'TRANSFER'; transferStatus: string; planId?: string; path: string }
   | { kind: 'EXPORT'; artifactId: string; path: string }
 
-export const handledActionIds = new Set<ActionId>(['open','move','copy','clone','export','explain','bulk'])
+export const handledActionIds = new Set<ActionId>(['open','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
 
 export function createActionIntent(actionId: string, source: ResourceRef[], destination?: ResourceRef): ActionIntent {
   if (!actions.some((action) => action.id === actionId)) throw new Error('ACTION_UNKNOWN')
@@ -77,6 +77,10 @@ async function createAndValidatePlan(intent: ActionIntent, guildId: DiscordSnowf
 
 export async function dispatchAction(intent: ActionIntent, activeGuildId: DiscordSnowflake, phase: 'PREVIEW'|'EXECUTE' = 'EXECUTE'): Promise<DispatchResult> {
   switch (intent.actionId) {
+    case 'PREVIEW': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/translations` }
+    case 'CREATE_VARIANT':
+    case 'LINK_EXISTING_VARIANT': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/translations` }
+    case 'CLONE_UNLINKED': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/clone` }
     case 'explain': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/permissions` }
     case 'open': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/structure` }
     case 'move':
