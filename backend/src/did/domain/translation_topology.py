@@ -42,6 +42,18 @@ class ProviderConfigurationMode(StrEnum):
     OBSERVATION_ONLY = "OBSERVATION_ONLY"
 
 
+class CapabilitySupport(StrEnum):
+    SUPPORTED = "SUPPORTED"
+    UNSUPPORTED = "UNSUPPORTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class EffectiveLanguageSource(StrEnum):
+    SELF = "SELF"
+    CATEGORY = "CATEGORY"
+    NONE = "NONE"
+
+
 @runtime_checkable
 class TranslationProvider(Protocol):
     async def capabilities(self, guild_id: int) -> TranslationProviderCapabilities: ...
@@ -141,6 +153,7 @@ class TranslationProviderRegistry:
                 supports_attachments=capabilities.supports_attachments,
                 supports_embeds=capabilities.supports_embeds,
                 supports_threads=capabilities.supports_threads,
+                requires_message_content=capabilities.requires_message_content,
                 max_languages_per_group=capabilities.max_languages_per_group,
                 configuration_mode=ProviderConfigurationMode.MANUAL_CONFIGURATION_REQUIRED,
                 supports_automatic_configuration=capabilities.supports_automatic_configuration,
@@ -269,6 +282,7 @@ class TranslationProviderCapabilities:
     supports_attachments: bool = False
     supports_embeds: bool = False
     supports_threads: bool = False
+    requires_message_content: bool = False
     max_languages_per_group: int | None = None
     configuration_mode: ProviderConfigurationMode = ProviderConfigurationMode.OBSERVATION_ONLY
     supports_automatic_configuration: bool = False
@@ -277,14 +291,23 @@ class TranslationProviderCapabilities:
     discord_bot_present: bool = False
     bot_permissions: tuple[str, ...] = ()
 
+    def support_for(self, topology: TranslationGroupTopology) -> CapabilitySupport:
+        supported = {
+            TranslationGroupTopology.HUB_AND_SPOKE: self.supports_hub_and_spoke,
+            TranslationGroupTopology.FULL_MESH: self.supports_full_mesh,
+            TranslationGroupTopology.CUSTOM: self.supports_custom,
+        }[topology]
+        if supported:
+            return CapabilitySupport.SUPPORTED
+        # A negative boolean is deliberately not treated as authoritative.  An
+        # adapter must advertise a known healthy capability set before a
+        # routing mode can be enabled; this keeps FULL_MESH fail-closed.
+        if self.health == TranslationProviderStatus.READY.value:
+            return CapabilitySupport.UNSUPPORTED
+        return CapabilitySupport.UNKNOWN
+
     def is_capable_for(self, topology: TranslationGroupTopology) -> bool:
-        if topology is TranslationGroupTopology.HUB_AND_SPOKE:
-            return self.supports_hub_and_spoke
-        if topology is TranslationGroupTopology.FULL_MESH:
-            return self.supports_full_mesh
-        if topology is TranslationGroupTopology.CUSTOM:
-            return self.supports_custom
-        raise ValueError(f"unsupported topology: {topology}")
+        return self.support_for(topology) is CapabilitySupport.SUPPORTED
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,12 +356,17 @@ class ResourceLanguageResolver:
         *,
         channel_language: LanguageProfile | None,
         category_language: LanguageProfile | None,
+        channel_policy: ResourceLanguagePolicy | None = None,
     ) -> tuple[UUID | None, str]:
         if channel_language is not None:
-            return channel_language.id, "SELF"
-        if category_language is not None:
-            return category_language.id, "CATEGORY"
-        return None, "NONE"
+            if not channel_language.enabled:
+                return None, EffectiveLanguageSource.NONE.value
+            return channel_language.id, EffectiveLanguageSource.SELF.value
+        if channel_policy is not None and not channel_policy.inherit_language:
+            return None, EffectiveLanguageSource.NONE.value
+        if category_language is not None and category_language.enabled:
+            return category_language.id, EffectiveLanguageSource.CATEGORY.value
+        return None, EffectiveLanguageSource.NONE.value
 
 
 def member_language_set_is_valid(languages: Iterable[str]) -> bool:

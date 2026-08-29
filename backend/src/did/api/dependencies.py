@@ -6,6 +6,7 @@ from fastapi import Depends, Request
 
 from did.application.auth.service import AuthorizationService, AuthService
 from did.application.installations.service import InstallationService
+from did.application.translation import LanguageProfileService, TranslationTopologyService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
@@ -13,6 +14,7 @@ from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     ResourceLanguagePolicyRepository,
+    Stage08AuditRepository,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
     VisibilityScopeLanguageRepository,
@@ -59,6 +61,9 @@ class ServiceContainer:
     stage08_group_repository: TranslationGroupRepository | None = None
     stage08_provider_repository: TranslationProviderBindingRepository | None = None
     stage08_visibility_repository: VisibilityScopeLanguageRepository | None = None
+    stage08_languages: LanguageProfileService | None = None
+    stage08_topology: TranslationTopologyService | None = None
+    stage08_audit_repository: Stage08AuditRepository | None = None
 
 
 def services(request: Request) -> ServiceContainer:

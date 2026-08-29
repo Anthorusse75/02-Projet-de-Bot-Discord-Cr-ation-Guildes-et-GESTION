@@ -53,10 +53,16 @@ class PlanningService:
         actor_user_id: int,
         idempotency_key: str,
         correlation_id: UUID,
+        operation_order_policy: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         guild, _ = await self._read_models.guild_snapshot(graph.guild_id, actor_user_id)
         plan_id = uuid4()
-        operations = self._ordered(self._compiler.compile(guild, graph, plan_id=plan_id))
+        compiled = self._compiler.compile(guild, graph, plan_id=plan_id)
+        if operation_order_policy is not None:
+            if operation_order_policy != "STAGE08_STRUCTURAL":
+                raise ValueError("unsupported operation order policy")
+            compiled = self._stage08_structural_order(compiled)
+        operations = self._ordered(compiled)
         impact = await self._impact(guild, operations)
         risk = self._risk.assess(operations, impact)
         snapshot = self.snapshot_payload(guild)
@@ -443,6 +449,45 @@ class PlanningService:
     def _ordered(operations: tuple[PlanOperation, ...]) -> tuple[PlanOperation, ...]:
         by_id = {operation.operation_id: operation for operation in operations}
         return tuple(by_id[operation_id] for operation_id in topological_order(operations))
+
+    @classmethod
+    def _stage08_structural_order(
+        cls, operations: tuple[PlanOperation, ...]
+    ) -> tuple[PlanOperation, ...]:
+        """Serialize STAGE 08 structural phases without changing worker semantics."""
+        forward = {
+            ResourceType.GUILD: -1,
+            ResourceType.CATEGORY: 0,
+            ResourceType.CHANNEL: 1,
+            ResourceType.ROLE: 2,
+            ResourceType.OVERWRITE: 3,
+        }
+        delete_types = {
+            OperationType.DELETE_OVERWRITE,
+            OperationType.DELETE_ROLE,
+            OperationType.DELETE_CHANNEL,
+        }
+        base_order = cls._ordered(operations)
+
+        def phase(operation: PlanOperation) -> tuple[int, int]:
+            index = forward[operation.resource_type]
+            if operation.operation_type in delete_types:
+                return (1, -index)
+            return (0, index)
+
+        sequenced = sorted(enumerate(base_order), key=lambda item: (phase(item[1]), item[0]))
+        result: list[PlanOperation] = []
+        previous: UUID | None = None
+        for _, operation in sequenced:
+            predecessors = set(operation.predecessors)
+            if previous is not None:
+                predecessors.add(previous)
+            operation = replace(operation, predecessors=tuple(sorted(predecessors, key=str)))
+            result.append(operation)
+            previous = operation.operation_id
+        materialized = tuple(result)
+        topological_order(materialized)
+        return materialized
 
     @staticmethod
     def _operations_from_rows(rows: list[dict[str, Any]]) -> tuple[PlanOperation, ...]:
