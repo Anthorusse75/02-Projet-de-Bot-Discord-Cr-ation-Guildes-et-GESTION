@@ -33,3 +33,6 @@ All 43 IDs `REQ-I18N-001..042` plus `REQ-I18N-026A` are tracked as `IMPLEMENTED`
 - no secret, sandbox Discord ID or member PII committed;
 - provider bot integration remains non-invasive and uses `MANUAL_CONFIGURATION_REQUIRED` when automation is unsafe;
 - PR intentionally remains Draft; no merge and no STAGE 09 work.
+> **Deep review corrective work in progress.** The evidence attached to `f538105` was not sufficient for
+> merge approval. PR #8 remains Draft and must not be merged or marked ready until all corrective findings
+> have integrated and live proof.

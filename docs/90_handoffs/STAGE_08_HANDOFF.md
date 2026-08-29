@@ -1,5 +1,10 @@
 # Handoff STAGE 08 — Contenu multilingue et topologie de traduction
 
+> **Statut réouvert après deep review :** les preuves de la candidate `f538105` sont insuffisantes pour
+> plusieurs comportements intégrés. STAGE 08 est `STAGE_08_IMPLEMENTATION_IN_PROGRESS`, la PR #8 reste
+> Draft et non mergée, et les affirmations de clôture ci-dessous sont historiques jusqu'à leur remplacement
+> par les preuves correctives.
+
 | Champ | Valeur |
 |---|---|
 | Date | `2026-08-29` |

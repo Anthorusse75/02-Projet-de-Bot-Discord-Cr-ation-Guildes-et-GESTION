@@ -858,6 +858,18 @@ STAGE08_REQUIREMENT_PROGRESS = {
     ),
 }
 
+# The external deep review invalidated the integrated proof level for every
+# STAGE 08 requirement. Keep the previously recorded evidence visible for the
+# corrective audit, but do not present any item as complete until the findings
+# are closed and the evidence descriptions below are rewritten.
+STAGE08_REQUIREMENT_PROGRESS = {
+    requirement_id: (
+        "IN_PROGRESS",
+        f"Deep-review correction in progress; prior proof under re-evaluation: {evidence}",
+    )
+    for requirement_id, (_, evidence) in STAGE08_REQUIREMENT_PROGRESS.items()
+}
+
 REQUIREMENT_PROGRESS.update(STAGE08_REQUIREMENT_PROGRESS)
 
 
