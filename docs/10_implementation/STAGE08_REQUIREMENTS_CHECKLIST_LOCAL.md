@@ -1,62 +1,65 @@
-# Checklist locale STAGE 08 — REQ-I18N-001..042 + REQ-I18N-026A
+# Checklist locale STAGE 08 — 43 exigences
 
-## État de référence
+## État de la candidate
 
-- Statut global : `STAGE_08_IMPLEMENTATION_IN_PROGRESS`
-- Base main : `252a4661195a3868acd04a2987453e23fc6ee4ff`
-- Stage 09 : `FORBIDDEN`
-- Règle de traceability : aucune exigence n’est `IMPLEMENTED` tant que code + test + preuve réelle ne sont pas présents.
+- Statut global : `STAGE_08_COMPLETE_DRAFT_PR_OPEN`.
+- Base `main` : `252a4661195a3868acd04a2987453e23fc6ee4ff`.
+- Branche : `stage/08-multilingual-topology` ; PR #8 conservée en Draft.
+- Les 43 IDs sont `IMPLEMENTED`. Ils ne sont pas promus à `VERIFIED`, statut réservé à la qualification transverse prévue par la politique du dépôt.
+- STAGE 09 : `NOT_STARTED` et interdit avant merge de STAGE 08.
 
-## Matrice 43 IDs
+## Matrice des 43 IDs
 
-| REQ ID | Comportement requis | Couche d’implémentation | Test nécessaire | État actuel réel |
-|---|---|---|---|---|
-| REQ-I18N-001 | langue, group et scope distincts | domain + schema | unit/db | DONE (WP1) |
-| REQ-I18N-002 | `translation_group_id` unique par tenant | schema + repo | db + test | DONE (WP1) |
-| REQ-I18N-003 | groupes identiques ne partagent jamais routes/variants implicites | domain + validation | unit/db | DONE (WP1) |
-| REQ-I18N-004 | `Translation Channel Group` stable et indépendant du nom | domain + schema | unit/db | PARTIAL (WP1.1: schema stable, persistence rename proof remains open) |
-| REQ-I18N-005 | héritage catégorie/salon et override explicite | domain + resolver | unit | PARTIAL |
-| REQ-I18N-006 | salons dans catégories différentes | domain + API | unit/application | NOT_STARTED |
-| REQ-I18N-007 | topologies `HUB_AND_SPOKE` et `CUSTOM`; `FULL_MESH` conditionné provider | domain + provider | unit + plan | PARTIAL |
-| REQ-I18N-008 | clone multilingue pipeline complet | application + clone | integration + plan | NOT_STARTED |
-| REQ-I18N-009 | ajout de langue ne recrée pas les variantes valides | application + plan | unit/integration | NOT_STARTED |
-| REQ-I18N-010 | retrait de langue ne supprime pas Discord sans confirmation | plan + API | integration | NOT_STARTED |
-| REQ-I18N-011 | dissociation sans suppression Discord | application + API | integration | NOT_STARTED |
-| REQ-I18N-012 | liaison automatique confirmable uniquement | application + plan | integration | NOT_STARTED |
-| REQ-I18N-013 | Right Drag actions `CREATE_VARIANT`, `LINK_EXISTING_VARIANT`, `CLONE_UNLINKED`, `PREVIEW` | frontend + action registry | e2e + unit | NOT_STARTED |
-| REQ-I18N-014 | déclaration de langue n’active pas la restriction de visibilité | domain + policy | unit | PARTIAL |
-| REQ-I18N-015 | `OPEN_ALL`, `LANGUAGE_FILTERED`, `SCOPE_AND_LANGUAGE`, `CUSTOM` | visibility compiler | unit + API | PARTIAL |
-| REQ-I18N-016 | jamais compiler `Scope + Language` comme `AND` implicite | visibility compiler | unit | NOT_STARTED |
-| REQ-I18N-017 | rôle technique explicite `Scope × Language` | visibility compiler + role reconciler | unit + db | NOT_STARTED |
-| REQ-I18N-018 | réutilisation des rôles techniques via binding durable | db + reconciler | postgres + plan | NOT_STARTED |
-| REQ-I18N-019 | rôle technique DID sans permissions dangereuses | role compiler | unit + sandbox | NOT_STARTED |
-| REQ-I18N-020 | budget de rôles avant création | optimizer + plan | unit + db | NOT_STARTED |
-| REQ-I18N-021 | budget d’overwrites / blocage 1000 | optimizer + plan | unit + db | NOT_STARTED |
-| REQ-I18N-022 | pas d’overwrites membre comme stratégie standard | visibility policy | unit | NOT_STARTED |
-| REQ-I18N-023 | visible languages seulement dans scopes réellement joinables | member reconciliation | unit + db | NOT_STARTED |
-| REQ-I18N-024 | aucun `ALL_LANGUAGES` bypass | member reconciliation | unit + security | NOT_STARTED |
-| REQ-I18N-025 | abstraction `TranslationProvider` port | provider port | unit + interface | PARTIAL |
-| REQ-I18N-026 | capacités provider connues/testées, adapter bot existant non invasif | provider adapter + preflight | unit + api | PARTIAL |
-| REQ-I18N-026A | `MANUAL_CONFIGURATION_REQUIRED` sans API/modif bot externe | provider adapter + docs | unit + provider check | PARTIAL |
-| REQ-I18N-027 | pas de `MESSAGE_CONTENT` requis pour la topologie | provider + gateway | unit | PARTIAL |
-| REQ-I18N-028 | exigence `MESSAGE_CONTENT` est portée par le provider | provider contract | unit | NOT_STARTED |
-| REQ-I18N-029 | variante supprimée = `MISSING` sans pertes | drift + reconcile | integration | NOT_STARTED |
-| REQ-I18N-030 | drift visible et réparable sans propagation destructive | drift projector + plan | integration | NOT_STARTED |
-| REQ-I18N-031 | clone A→B crée nouveau groupe indépendant | clone expansion + DB | integration | NOT_STARTED |
-| REQ-I18N-032 | aucun secret provider dans artifact portable | clone artifact | unit + security | NOT_STARTED |
-| REQ-I18N-033 | config provider partiellement appliquée diagnostiquable | provider lifecycle | integration | NOT_STARTED |
-| REQ-I18N-034 | Translation Workspace arbre explicit | frontend + api | e2e | NOT_STARTED |
-| REQ-I18N-035 | audit interne trace toutes modifications | audit + repository | integration | NOT_STARTED |
-| REQ-I18N-036 | preflight provider sur présence/permissions | provider capability + plan | unit + live | NOT_STARTED |
-| REQ-I18N-037 | pas de recommandation `ADMINISTRATOR` | provider policy | unit + security | NOT_STARTED |
-| REQ-I18N-038 | rôles humains `LANG_*` / `Scope × Language` ne servent pas au bot provider | visibility policy | unit + plan | NOT_STARTED |
-| REQ-I18N-039 | choix langue utilisateur ne donne pas de scope supplémentaire | member reconciliation | unit + policy | NOT_STARTED |
-| REQ-I18N-040 | onboarding bridge + réconciliation des rôles techniques | onboarding + reconciliation | integration | NOT_STARTED |
-| REQ-I18N-041 | aucun `primary` obligatoire pour langue visible | member model | unit + db | PARTIAL |
-| REQ-I18N-042 | disable/suppression ne choisit pas de fallback implicite | member reconciliation | unit + db | PARTIAL |
+| REQ ID | Implémentation principale | Test / preuve | Statut |
+|---|---|---|---|
+| REQ-I18N-001 | `translation_topology.py`, migration `0014_stage_08` : identités Language/Group/Scope séparées | `test_stage08_translation_topology.py`, PostgreSQL A/B | IMPLEMENTED |
+| REQ-I18N-002 | `translation_groups` tenant-scoped, clés composites et RLS | `test_stage08_persistence.py` | IMPLEMENTED |
+| REQ-I18N-003 | variants/routes liés au groupe, aucune association implicite | unitaires + preuve PostgreSQL de deux groupes FR/EN indépendants | IMPLEMENTED |
+| REQ-I18N-004 | `translation_channel_groups.id` stable ; `display_name` renommable via migration `0015_stage_08` | `test_stage08_application_postgres.py` | IMPLEMENTED |
+| REQ-I18N-005 | `ResourceLanguageResolver` SELF/CATEGORY/NONE, override explicite | `test_inheritance_requires_intent_and_never_returns_a_disabled_profile` + E2E | IMPLEMENTED |
+| REQ-I18N-006 | liaison explicite de variants indépendante du parent category | FKs same-group PostgreSQL et API `link` | IMPLEMENTED |
+| REQ-I18N-007 | `TranslationRouteCompiler` HUB/CUSTOM/FULL_MESH conditionné | tests topologies et capability unknown/unsupported | IMPLEMENTED |
+| REQ-I18N-008 | `TranslationCloneExpander` avec pipeline portable en sept phases | test clone unitaire + Playwright A→B | IMPLEMENTED |
+| REQ-I18N-009 | `add_language_delta` transactionnel, sans recréation | test application PostgreSQL | IMPLEMENTED |
+| REQ-I18N-010 | retrait de langue non destructif par défaut | service/API + test PostgreSQL | IMPLEMENTED |
+| REQ-I18N-011 | `unlink_variant` retire uniquement l’association logique | service/API + test PostgreSQL | IMPLEMENTED |
+| REQ-I18N-012 | `link_existing_variant` exige `confirmed_explicit_selection` | test application et schéma API | IMPLEMENTED |
+| REQ-I18N-013 | ActionRegistry : CREATE_VARIANT/LINK_EXISTING_VARIANT/CLONE_UNLINKED/PREVIEW | tests composant et Playwright Right Drag/clavier | IMPLEMENTED |
+| REQ-I18N-014 | déclaration de langue séparée de la visibilité, défaut OPEN_ALL | tests resolver/compiler | IMPLEMENTED |
+| REQ-I18N-015 | compiler OPEN_ALL/LANGUAGE_FILTERED/SCOPE_AND_LANGUAGE/CUSTOM explicite | `test_visibility_compiler_*` | IMPLEMENTED |
+| REQ-I18N-016 | aucune approximation Discord « rôle Scope + rôle Language = AND » | test exact des deux overwrites et du rôle dérivé unique | IMPLEMENTED |
+| REQ-I18N-017 | binding durable Visibility Scope × Language | migration `0014`, repository et tests RLS | IMPLEMENTED |
+| REQ-I18N-018 | unicité/réutilisation du binding indépendante du Translation Group | tests optimizer, concurrence PostgreSQL et live | IMPLEMENTED |
+| REQ-I18N-019 | rôle technique `permissions=0`, `hoist=false`, `mentionable=false` | test unitaire et validator live | IMPLEMENTED |
+| REQ-I18N-020 | `RoleOptimizer` et `RoleCapacityEngine` pré-plan | tests limite et limite+1 | IMPLEMENTED |
+| REQ-I18N-021 | budget d’overwrites par salon, blocage au-delà de 1000 | tests limite et live counts | IMPLEMENTED |
+| REQ-I18N-022 | aucun member overwrite comme stratégie standard | test `MemberTechnicalRoleReconciler.diff` | IMPLEMENTED |
+| REQ-I18N-023 | intersection langues visibles × scopes réellement acquis | test reconciler | IMPLEMENTED |
+| REQ-I18N-024 | aucun rôle universel ALL_LANGUAGES | test reconciler et scan de sortie | IMPLEMENTED |
+| REQ-I18N-025 | port abstrait `TranslationProvider` et registry | `translation_provider.py`, tests de contrat | IMPLEMENTED |
+| REQ-I18N-026 | capacités connues/inconnues/supportées/non supportées et health | tests provider/route preflight | IMPLEMENTED |
+| REQ-I18N-026A | adapter bot existant non invasif, sans token/API/schema ; mode manuel | test `NonInvasiveExistingBotProvider` | IMPLEMENTED |
+| REQ-I18N-027 | topologie DID sans intent MESSAGE_CONTENT | validator live : `message_content_intent=0` | IMPLEMENTED |
+| REQ-I18N-028 | `requires_message_content` appartient aux capacités provider | test provider non invasif | IMPLEMENTED |
+| REQ-I18N-029 | MISSING seulement sur preuve positive de suppression | test drift GATEWAY_DELETE vs omission | IMPLEMENTED |
+| REQ-I18N-030 | drift visible, réparation `PLAN_REQUIRED`, aucune propagation destructive | test drift, UI et route repair/plan | IMPLEMENTED |
+| REQ-I18N-031 | clone A→B avec nouveaux IDs et aucune liaison live | test unitaire, autorisation A/B et Playwright | IMPLEMENTED |
+| REQ-I18N-032 | aucun token/secret/blob provider dans l’artifact | test inspection artifact + secret scan | IMPLEMENTED |
+| REQ-I18N-033 | état provider partiel diagnostiquable, pas de rollback destructif | tests manual/pending verification et UI | IMPLEMENTED |
+| REQ-I18N-034 | Translation Workspace complète et arborescente | 4 tests composant + 8 scénarios STAGE 08 Playwright | IMPLEMENTED |
+| REQ-I18N-035 | audit création/link/unlink/routes/langues/visibilité/provider | routes Stage 08 + `Stage08AuditRepository` | IMPLEMENTED |
+| REQ-I18N-036 | preflight présence et permissions effectives de chaque variant | test provider + live sur 4 variants | IMPLEMENTED |
+| REQ-I18N-037 | ADMINISTRATOR jamais recommandé, seulement signalé | test `PROVIDER_HAS_ADMINISTRATOR` | IMPLEMENTED |
+| REQ-I18N-038 | accès bot provider séparé des rôles d’audience humaine | coordinator/compiler séparés + tests | IMPLEMENTED |
+| REQ-I18N-039 | choix de langue incapable d’accorder un scope métier | test intersection du reconciler | IMPLEMENTED |
+| REQ-I18N-040 | source ONBOARDING persistée et réconciliation déterministe | services member languages + tests PostgreSQL | IMPLEMENTED |
+| REQ-I18N-041 | ensemble de zéro/une/plusieurs langues, aucun primary | tests unitaires, PostgreSQL et E2E API | IMPLEMENTED |
+| REQ-I18N-042 | disable/retrait sans fallback ni changement silencieux des autres langues | tests application PostgreSQL | IMPLEMENTED |
 
-## Notes de travail
+## Gates de candidate
 
-- Les IDs marquées `PARTIAL` ne sont pas encore considérées comme `IMPLEMENTED`.
-- Les IDs `NOT_STARTED` doivent être traitées comme des travaux ouverts, sans autoconsommation ni documentation trompeuse.
-- L’implémentation ne doit pas avancer vers Stage 09.
+- `python scripts/validate_stage.py 08` : PASS.
+- `python scripts/validate_stage.py 08 --profile e2e` : PASS, 39 scénarios cumulés dont 8 propres à STAGE 08.
+- `python scripts/validate_stage.py 08 --include-discord-live` : PASS avec Guild A/B réelles, sans secret ni identifiant Discord dans la preuve.
+- Migration réversible `0013_stage_07 → 0014_stage_08 → 0015_stage_08 → 0013_stage_07 → head` : PASS.
+- Secret scan, docs, Ruff, format, MyPy, frontend lint/typecheck/build/i18n/OpenAPI : PASS.

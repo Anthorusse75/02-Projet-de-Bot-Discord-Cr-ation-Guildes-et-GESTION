@@ -30,3 +30,11 @@ pour créer et nettoyer les fixtures `DID-STAGE06-TEST-`. Il vérifie COPY_AS_NE
 source inchangée, zéro mutation A, mapping explicite et artifact stocké sans relecture source. Son
 statut et son run représentatif sont consignés dans le handoff et la preuve live STAGE 06 ; aucune
 revocation de permission humaine ni fixture bot/webhook risquée n'est provoquée.
+
+Pour STAGE 08, `validate_discord_live_stage08.py --include` observe les deux Guilds A/B avec l'intent
+`GUILDS` uniquement. Il contrôle les budgets de rôles/overwrites sur les comptes live, compile les
+attributs sûrs et la réutilisation Scope × Language, vérifie les permissions provider sur chaque salon
+échantillonné ainsi que l'absence du provider, et développe deux groupes FR/EN vers des identités B
+indépendantes sans secret ni lien live. Le rapport est expurgé : aucun identifiant Discord, secret ou PII,
+zéro `MESSAGE_CONTENT` et zéro mutation directe. Toute mutation/cleanup structurel reste exclusivement
+du ressort du Plan Engine STAGE 05 déjà qualifié sur sandbox.

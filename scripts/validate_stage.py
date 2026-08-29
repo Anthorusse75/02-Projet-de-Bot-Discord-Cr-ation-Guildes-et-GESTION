@@ -722,7 +722,6 @@ def stage_08(
     include_discord_live: bool = False,
     profile: str = "default",
 ) -> tuple[Step, ...]:
-    del include_discord_live
     uv = executable("uv")
     npm = executable("npm")
     if profile == "e2e":
@@ -765,6 +764,7 @@ def stage_08(
                 "run",
                 "pytest",
                 "backend/tests/unit/test_stage08_translation_topology.py",
+                "backend/tests/unit/test_stage08_services.py",
                 "-q",
                 f"--junitxml={relative_path(evidence_directory / 'stage08-unit.xml')}",
             ),
@@ -779,11 +779,25 @@ def stage_08(
                 "run",
                 "pytest",
                 "backend/tests/integration/test_stage08_persistence.py",
+                "backend/tests/integration/test_stage08_application_postgres.py",
                 "-q",
                 f"--junitxml={relative_path(evidence_directory / 'stage08-persistence.xml')}",
             ),
             environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
         )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage08.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage08.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step("Discord live STAGE 08 multilingual topology", tuple(live_arguments), 600)
     )
     return tuple(base_steps)
 
@@ -1067,8 +1081,8 @@ def main() -> int:
     if arguments.profile == "failure-injection" and stage != "05":
         print("The failure-injection profile is defined only for STAGE 05")
         return 2
-    if arguments.profile == "e2e" and stage != "07":
-        print("The e2e profile is defined only for STAGE 07")
+    if arguments.profile == "e2e" and stage not in {"07", "08"}:
+        print("The e2e profile is defined only for STAGE 07 and STAGE 08")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []

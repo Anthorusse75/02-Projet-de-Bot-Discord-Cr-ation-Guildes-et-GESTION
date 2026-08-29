@@ -220,47 +220,170 @@ REQUIREMENT_PROGRESS["REQ-BOT-001"] = (
 )
 
 STAGE07_REQUIREMENT_PROGRESS = {
-    "REQ-STR-006": ("IMPLEMENTED", "ActionRegistry shared by object/drop menus and command palette; Playwright context-menu flow"),
-    "REQ-STR-007": ("IMPLEMENTED", "StructureScreen creates a DSG plan then validates preflight; mounted/E2E drag asserts no direct Discord mutation"),
-    "REQ-STR-008": ("IMPLEMENTED", "Cross-Guild drop routes to CloneScreen and exact Stage 06 transfer COPY_AS_NEW payload; E2E A/B proof"),
-    "REQ-STR-009": ("IMPLEMENTED", "Mounted and Playwright right-drag tests assert filtered Drop Context Menu on release"),
-    "REQ-STR-010": ("IMPLEMENTED", "Menu/dialog/CommandPalette keyboard alternatives plus Tree/Menu/Dialog keyboard E2E"),
-    "REQ-STR-011": ("IMPLEMENTED", "Cross-Guild left-drag preserves source/destination intent and emits COPY_AS_NEW only; exact payload test"),
-    "REQ-STR-012": ("IMPLEMENTED", "PointerGestureManager thresholds plus mounted right-click/right-drag/cancel tests"),
-    "REQ-STR-013": ("IMPLEMENTED", "Cross-server browser destination, real capability context and backend A/B authorization on transfer"),
-    "REQ-UX-001": ("IMPLEMENTED", "resolveActions distinguishes CANNOT/UNKNOWN localized reasons; final backend 403 drift E2E"),
-    "REQ-UX-002": ("IMPLEMENTED", "Simple permission view and presentation allowlists render localized human labels, never backend enums"),
-    "REQ-UX-003": ("IMPLEMENTED", "Expert permission view exposes exact effective bits and localized ordered permission rationale"),
-    "REQ-UX-004": ("IMPLEMENTED", "Structure actions are available through mounted left/right drag and context menus"),
-    "REQ-UX-005": ("IMPLEMENTED", "Ctrl/Cmd+K CommandPalette uses the same capability-filtered ActionRegistry; keyboard E2E"),
-    "REQ-UX-006": ("IMPLEMENTED", "Durable GET plan progress polling renders localized events and real operation counts; evolving E2E"),
-    "REQ-UX-007": ("IMPLEMENTED", "No optimistic success; terminal success and verification-failure E2E use backend plan state"),
-    "REQ-UX-CTX-001": ("IMPLEMENTED", "GlobalContextMenuBoundary capture listener covers the full application provider tree"),
-    "REQ-UX-CTX-002": ("IMPLEMENTED", "Global capture-phase contextmenu preventDefault plus application resource handler"),
-    "REQ-UX-CTX-003": ("IMPLEMENTED", "Mounted right-click routes through PointerGestureManager to DID menu only"),
-    "REQ-UX-CTX-004": ("IMPLEMENTED", "resolveActions filters resource type, cardinality, target, user authority and cached bot outcomes"),
-    "REQ-UX-CTX-005": ("IMPLEMENTED", "Object menu, Drop Context Menu and palette call the same resolveActions registry"),
-    "REQ-UI18N-001": ("IMPLEMENTED", "Real *.ts/*.tsx visible-literal scanner; deliberate Delete-now fixture proves failure"),
-    "REQ-UI18N-002": ("IMPLEMENTED", "Typed MessageKey catalogue covers menus, dialogs, errors, badges, placeholders, ARIA and plan states"),
-    "REQ-UI18N-003": ("IMPLEMENTED", "Exact compile-time-complete EN/FR/DE/ES MessagePack objects and four functional E2E flows"),
-    "REQ-UI18N-004": ("IMPLEMENTED", "Active locale discovery and exact runtime catalogue fetch/activation without frontend rebuild"),
-    "REQ-UI18N-005": ("IMPLEMENTED", "validatePack requires exact key topology and compatible interpolation before atomic activation"),
-    "REQ-UI18N-006": ("IMPLEMENTED", "Bootstrap packs are independently complete; invalid runtime packs retain the previous complete locale atomically"),
-    "REQ-UI18N-007": ("IMPLEMENTED", "UI locale store is separate from all Discord/Guild language data"),
-    "REQ-UI18N-008": ("IMPLEMENTED", "Typed API error envelope preserves code/message_key/params/request_id for localized rendering"),
-    "REQ-UI18N-009": ("IMPLEMENTED", "Intl DateTimeFormat/NumberFormat and i18next plural forms use the active UI locale"),
-    "REQ-UI18N-010": ("IMPLEMENTED", "CI i18n check validates literals, exact keys, pack safety and interpolation topology"),
-    "REQ-UI18N-011": ("IMPLEMENTED", "Playwright executes functional localized context-menu flows plus axe in EN/FR/DE/ES"),
-    "REQ-UI18N-012": ("IMPLEMENTED", "Unicode-safe UTF-8 catalog and LocaleFlag normalized CSS/runtime fallback component"),
-    "REQ-UI18N-013": ("IMPLEMENTED", "resolveLocale tests navigator.languages BCP-47 matching and deterministic en fallback"),
-    "REQ-UI18N-014": ("IMPLEMENTED", "LanguageSelector AUTO option removes the persisted override and PATCHes null"),
-    "REQ-UI18N-015": ("IMPLEMENTED", "OAuth Discord locale is not consumed by LocalizationProvider"),
-    "REQ-UI18N-016": ("IMPLEMENTED", "LocalizationProvider wraps AuthGate, so the pre-authentication screen uses browser resolution"),
-    "REQ-UI18N-017": ("IMPLEMENTED", "Four exact local bootstrap packs initialize before locale API availability"),
-    "REQ-UI18N-018": ("IMPLEMENTED", "Disabled/incompatible override resolves to browser/bootstrap without partial activation; E2E invalid pack"),
-    "REQ-UI18N-019": ("IMPLEMENTED", "Bundled en is always active and deterministic when no other complete active pack resolves"),
-    "REQ-UI18N-020": ("IMPLEMENTED", "Runtime validation rejects HTML/script/event attributes and React escapes interpolations"),
-    "REQ-UI18N-021": ("IMPLEMENTED", "No user-facing Discord Application Command is registered; explicit NOT_APPLICABLE/zero-command contract test"),
+    "REQ-STR-006": (
+        "IMPLEMENTED",
+        "ActionRegistry shared by object/drop menus and command palette; Playwright context-menu flow",
+    ),
+    "REQ-STR-007": (
+        "IMPLEMENTED",
+        "StructureScreen creates a DSG plan then validates preflight; mounted/E2E drag asserts no direct Discord mutation",
+    ),
+    "REQ-STR-008": (
+        "IMPLEMENTED",
+        "Cross-Guild drop routes to CloneScreen and exact Stage 06 transfer COPY_AS_NEW payload; E2E A/B proof",
+    ),
+    "REQ-STR-009": (
+        "IMPLEMENTED",
+        "Mounted and Playwright right-drag tests assert filtered Drop Context Menu on release",
+    ),
+    "REQ-STR-010": (
+        "IMPLEMENTED",
+        "Menu/dialog/CommandPalette keyboard alternatives plus Tree/Menu/Dialog keyboard E2E",
+    ),
+    "REQ-STR-011": (
+        "IMPLEMENTED",
+        "Cross-Guild left-drag preserves source/destination intent and emits COPY_AS_NEW only; exact payload test",
+    ),
+    "REQ-STR-012": (
+        "IMPLEMENTED",
+        "PointerGestureManager thresholds plus mounted right-click/right-drag/cancel tests",
+    ),
+    "REQ-STR-013": (
+        "IMPLEMENTED",
+        "Cross-server browser destination, real capability context and backend A/B authorization on transfer",
+    ),
+    "REQ-UX-001": (
+        "IMPLEMENTED",
+        "resolveActions distinguishes CANNOT/UNKNOWN localized reasons; final backend 403 drift E2E",
+    ),
+    "REQ-UX-002": (
+        "IMPLEMENTED",
+        "Simple permission view and presentation allowlists render localized human labels, never backend enums",
+    ),
+    "REQ-UX-003": (
+        "IMPLEMENTED",
+        "Expert permission view exposes exact effective bits and localized ordered permission rationale",
+    ),
+    "REQ-UX-004": (
+        "IMPLEMENTED",
+        "Structure actions are available through mounted left/right drag and context menus",
+    ),
+    "REQ-UX-005": (
+        "IMPLEMENTED",
+        "Ctrl/Cmd+K CommandPalette uses the same capability-filtered ActionRegistry; keyboard E2E",
+    ),
+    "REQ-UX-006": (
+        "IMPLEMENTED",
+        "Durable GET plan progress polling renders localized events and real operation counts; evolving E2E",
+    ),
+    "REQ-UX-007": (
+        "IMPLEMENTED",
+        "No optimistic success; terminal success and verification-failure E2E use backend plan state",
+    ),
+    "REQ-UX-CTX-001": (
+        "IMPLEMENTED",
+        "GlobalContextMenuBoundary capture listener covers the full application provider tree",
+    ),
+    "REQ-UX-CTX-002": (
+        "IMPLEMENTED",
+        "Global capture-phase contextmenu preventDefault plus application resource handler",
+    ),
+    "REQ-UX-CTX-003": (
+        "IMPLEMENTED",
+        "Mounted right-click routes through PointerGestureManager to DID menu only",
+    ),
+    "REQ-UX-CTX-004": (
+        "IMPLEMENTED",
+        "resolveActions filters resource type, cardinality, target, user authority and cached bot outcomes",
+    ),
+    "REQ-UX-CTX-005": (
+        "IMPLEMENTED",
+        "Object menu, Drop Context Menu and palette call the same resolveActions registry",
+    ),
+    "REQ-UI18N-001": (
+        "IMPLEMENTED",
+        "Real *.ts/*.tsx visible-literal scanner; deliberate Delete-now fixture proves failure",
+    ),
+    "REQ-UI18N-002": (
+        "IMPLEMENTED",
+        "Typed MessageKey catalogue covers menus, dialogs, errors, badges, placeholders, ARIA and plan states",
+    ),
+    "REQ-UI18N-003": (
+        "IMPLEMENTED",
+        "Exact compile-time-complete EN/FR/DE/ES MessagePack objects and four functional E2E flows",
+    ),
+    "REQ-UI18N-004": (
+        "IMPLEMENTED",
+        "Active locale discovery and exact runtime catalogue fetch/activation without frontend rebuild",
+    ),
+    "REQ-UI18N-005": (
+        "IMPLEMENTED",
+        "validatePack requires exact key topology and compatible interpolation before atomic activation",
+    ),
+    "REQ-UI18N-006": (
+        "IMPLEMENTED",
+        "Bootstrap packs are independently complete; invalid runtime packs retain the previous complete locale atomically",
+    ),
+    "REQ-UI18N-007": (
+        "IMPLEMENTED",
+        "UI locale store is separate from all Discord/Guild language data",
+    ),
+    "REQ-UI18N-008": (
+        "IMPLEMENTED",
+        "Typed API error envelope preserves code/message_key/params/request_id for localized rendering",
+    ),
+    "REQ-UI18N-009": (
+        "IMPLEMENTED",
+        "Intl DateTimeFormat/NumberFormat and i18next plural forms use the active UI locale",
+    ),
+    "REQ-UI18N-010": (
+        "IMPLEMENTED",
+        "CI i18n check validates literals, exact keys, pack safety and interpolation topology",
+    ),
+    "REQ-UI18N-011": (
+        "IMPLEMENTED",
+        "Playwright executes functional localized context-menu flows plus axe in EN/FR/DE/ES",
+    ),
+    "REQ-UI18N-012": (
+        "IMPLEMENTED",
+        "Unicode-safe UTF-8 catalog and LocaleFlag normalized CSS/runtime fallback component",
+    ),
+    "REQ-UI18N-013": (
+        "IMPLEMENTED",
+        "resolveLocale tests navigator.languages BCP-47 matching and deterministic en fallback",
+    ),
+    "REQ-UI18N-014": (
+        "IMPLEMENTED",
+        "LanguageSelector AUTO option removes the persisted override and PATCHes null",
+    ),
+    "REQ-UI18N-015": (
+        "IMPLEMENTED",
+        "OAuth Discord locale is not consumed by LocalizationProvider",
+    ),
+    "REQ-UI18N-016": (
+        "IMPLEMENTED",
+        "LocalizationProvider wraps AuthGate, so the pre-authentication screen uses browser resolution",
+    ),
+    "REQ-UI18N-017": (
+        "IMPLEMENTED",
+        "Four exact local bootstrap packs initialize before locale API availability",
+    ),
+    "REQ-UI18N-018": (
+        "IMPLEMENTED",
+        "Disabled/incompatible override resolves to browser/bootstrap without partial activation; E2E invalid pack",
+    ),
+    "REQ-UI18N-019": (
+        "IMPLEMENTED",
+        "Bundled en is always active and deterministic when no other complete active pack resolves",
+    ),
+    "REQ-UI18N-020": (
+        "IMPLEMENTED",
+        "Runtime validation rejects HTML/script/event attributes and React escapes interpolations",
+    ),
+    "REQ-UI18N-021": (
+        "IMPLEMENTED",
+        "No user-facing Discord Application Command is registered; explicit NOT_APPLICABLE/zero-command contract test",
+    ),
 }
 
 REQUIREMENT_PROGRESS.update(STAGE07_REQUIREMENT_PROGRESS)
@@ -574,6 +697,168 @@ STAGE06_REQUIREMENT_PROGRESS = {
 }
 
 REQUIREMENT_PROGRESS.update(STAGE06_REQUIREMENT_PROGRESS)
+
+STAGE08_REQUIREMENT_PROGRESS = {
+    "REQ-I18N-001": (
+        "IMPLEMENTED",
+        "Distinct LanguageProfile, TranslationGroup and VisibilityScope identities; unit and PostgreSQL A/B proofs",
+    ),
+    "REQ-I18N-002": (
+        "IMPLEMENTED",
+        "Tenant-scoped translation_group_id schema, composite keys and RLS tests",
+    ),
+    "REQ-I18N-003": (
+        "IMPLEMENTED",
+        "Group-scoped variants/routes and independent same-language group PostgreSQL proof",
+    ),
+    "REQ-I18N-004": (
+        "IMPLEMENTED",
+        "Stable TranslationChannelGroup ID plus migration 0015 rename proof",
+    ),
+    "REQ-I18N-005": (
+        "IMPLEMENTED",
+        "Explicit SELF/CATEGORY/NONE resolver with override, inheritance and disabled-profile tests",
+    ),
+    "REQ-I18N-006": (
+        "IMPLEMENTED",
+        "Explicit variant linking is independent of category placement and guarded by group-scoped FKs",
+    ),
+    "REQ-I18N-007": (
+        "IMPLEMENTED",
+        "HUB_AND_SPOKE/CUSTOM/FULL_MESH route compiler with fail-closed provider capability tests",
+    ),
+    "REQ-I18N-008": (
+        "IMPLEMENTED",
+        "Versioned seven-phase multilingual portable expansion and clone unit/E2E proofs",
+    ),
+    "REQ-I18N-009": (
+        "IMPLEMENTED",
+        "Atomic add-language delta preserves existing variants; PostgreSQL application test",
+    ),
+    "REQ-I18N-010": (
+        "IMPLEMENTED",
+        "Language removal is non-destructive by default and rejects implicit Discord deletion",
+    ),
+    "REQ-I18N-011": (
+        "IMPLEMENTED",
+        "Unlink removes only logical association and returns delete_discord_resource=false",
+    ),
+    "REQ-I18N-012": (
+        "IMPLEMENTED",
+        "Existing variant link requires confirmed explicit selection; no name inference",
+    ),
+    "REQ-I18N-013": (
+        "IMPLEMENTED",
+        "Four localized multilingual ActionRegistry actions with mounted and Playwright right-drag/keyboard proofs",
+    ),
+    "REQ-I18N-014": (
+        "IMPLEMENTED",
+        "Language policy defaults OPEN_ALL; declaration never enables filtering",
+    ),
+    "REQ-I18N-015": (
+        "IMPLEMENTED",
+        "Visibility compiler covers OPEN_ALL, LANGUAGE_FILTERED, SCOPE_AND_LANGUAGE and explicit CUSTOM",
+    ),
+    "REQ-I18N-016": (
+        "IMPLEMENTED",
+        "Compiler emits one derived intersection role, never a Discord role-AND approximation",
+    ),
+    "REQ-I18N-017": (
+        "IMPLEMENTED",
+        "Durable VisibilityScope x Language binding and exact overwrite compiler",
+    ),
+    "REQ-I18N-018": (
+        "IMPLEMENTED",
+        "Binding uniqueness/reuse is group-independent; optimizer and PostgreSQL concurrency proofs",
+    ),
+    "REQ-I18N-019": (
+        "IMPLEMENTED",
+        "Technical role specs default to permissions=0, hoist=false, mentionable=false; unit/live proof",
+    ),
+    "REQ-I18N-020": (
+        "IMPLEMENTED",
+        "Role optimizer/capacity preflight reports current, delta, reuse and overflow boundaries",
+    ),
+    "REQ-I18N-021": ("IMPLEMENTED", "Per-channel overwrite budget blocks limit+1 before a plan"),
+    "REQ-I18N-022": ("IMPLEMENTED", "Member reconciler emits no member-specific overwrites"),
+    "REQ-I18N-023": (
+        "IMPLEMENTED",
+        "Member role reconciliation intersects visible languages with already-authorized scopes",
+    ),
+    "REQ-I18N-024": ("IMPLEMENTED", "No ALL_LANGUAGES role exists in compiler/reconciler output"),
+    "REQ-I18N-025": (
+        "IMPLEMENTED",
+        "TranslationProvider protocol/registry and non-invasive adapter contract tests",
+    ),
+    "REQ-I18N-026": (
+        "IMPLEMENTED",
+        "Observed known/unknown/supported/unsupported provider capabilities and health state",
+    ),
+    "REQ-I18N-026A": (
+        "IMPLEMENTED",
+        "Existing-bot adapter requires no API/token/schema change and returns exact manual state/instructions",
+    ),
+    "REQ-I18N-027": (
+        "IMPLEMENTED",
+        "DID topology keeps MESSAGE_CONTENT disabled; live validator confirms zero intent",
+    ),
+    "REQ-I18N-028": (
+        "IMPLEMENTED",
+        "requires_message_content is owned and surfaced by provider capabilities",
+    ),
+    "REQ-I18N-029": ("IMPLEMENTED", "Only positive deletion evidence marks one variant MISSING"),
+    "REQ-I18N-030": (
+        "IMPLEMENTED",
+        "Visible drift yields PLAN_REQUIRED repair without destructive propagation",
+    ),
+    "REQ-I18N-031": (
+        "IMPLEMENTED",
+        "A-to-B clone generates independent destination group IDs and no live source link",
+    ),
+    "REQ-I18N-032": (
+        "IMPLEMENTED",
+        "Recursive secret stripping plus artifact/E2E and repository secret-scan proofs",
+    ),
+    "REQ-I18N-033": (
+        "IMPLEMENTED",
+        "Provider manual/failure state is diagnosable with pending verification and no rollback",
+    ),
+    "REQ-I18N-034": (
+        "IMPLEMENTED",
+        "Translation Workspace exposes group/language/hierarchy/routes/scope/drift/provider/capacity; component/E2E",
+    ),
+    "REQ-I18N-035": (
+        "IMPLEMENTED",
+        "Tenant audit events cover language, route, link/unlink, visibility and provider changes",
+    ),
+    "REQ-I18N-036": (
+        "IMPLEMENTED",
+        "Provider preflight checks presence and effective minimum access for every variant",
+    ),
+    "REQ-I18N-037": (
+        "IMPLEMENTED",
+        "ADMINISTRATOR is warned, never recommended; minimum permission tests/live evidence",
+    ),
+    "REQ-I18N-038": (
+        "IMPLEMENTED",
+        "Provider access preflight is separate from human language/audience role bindings",
+    ),
+    "REQ-I18N-039": ("IMPLEMENTED", "Language selection cannot create business-scope membership"),
+    "REQ-I18N-040": (
+        "IMPLEMENTED",
+        "Member language source tracks ONBOARDING and feeds deterministic technical-role reconciliation",
+    ),
+    "REQ-I18N-041": (
+        "IMPLEMENTED",
+        "Member visible languages are a zero/one/many set with no primary field/fallback",
+    ),
+    "REQ-I18N-042": (
+        "IMPLEMENTED",
+        "Disable/removal preserves remaining set and never selects an implicit fallback",
+    ),
+}
+
+REQUIREMENT_PROGRESS.update(STAGE08_REQUIREMENT_PROGRESS)
 
 
 def escape_cell(value: str) -> str:
