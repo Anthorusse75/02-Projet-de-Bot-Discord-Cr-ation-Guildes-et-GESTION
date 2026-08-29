@@ -706,7 +706,10 @@ async def unlink_variant(
     _, topology = _require(container)
     await topology.get_group(guild_id=parsed, group_id=group_id)
     row = await topology.unlink_variant(
-        guild_id=parsed, variant_id=body.variant_id, variant_type=body.variant_type
+        guild_id=parsed,
+        group_id=group_id,
+        variant_id=body.variant_id,
+        variant_type=body.variant_type,
     )
     await _audit(
         container,

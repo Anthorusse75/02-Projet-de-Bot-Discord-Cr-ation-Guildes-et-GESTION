@@ -166,6 +166,25 @@ def test_visibility_compiler_materializes_scope_language_intersection() -> None:
         == ()
     )
 
+    language_filtered = compiler.compile(
+        policy=VisibilityPolicy.LANGUAGE_FILTERED,
+        guild_id=GUILD,
+        language_profile_id=language,
+        scope_id=None,
+        binding_role_id=None,
+    )
+    assert language_filtered.roles_to_create[0].scope_id is None
+    assert "LANG" in language_filtered.roles_to_create[0].name
+    language_filtered_bound = compiler.compile(
+        policy=VisibilityPolicy.LANGUAGE_FILTERED,
+        guild_id=GUILD,
+        language_profile_id=language,
+        scope_id=uuid4(),
+        binding_role_id=43,
+    )
+    assert language_filtered_bound.reused_role_ids == (43,)
+    assert [item.target_id for item in language_filtered_bound.overwrites] == [GUILD, 43]
+
 
 def test_custom_visibility_requires_explicit_semantics() -> None:
     with pytest.raises(ValueError, match="explicit"):
@@ -275,6 +294,22 @@ def test_drift_needs_positive_deletion_evidence_and_is_non_destructive() -> None
 
 def test_multilingual_clone_creates_independent_group_ids_and_strips_secrets() -> None:
     expander = TranslationCloneExpander()
+    hostile = {
+        "type": "bot",
+        "nested": {
+            "Access_Token": "one",
+            "client_secret": "two",
+            "api-key": "three",
+            "Credentials": {"password": "four"},
+        },
+    }
+    with pytest.raises(ValueError, match="secret-bearing"):
+        expander.export(
+            source_guild_id=GUILD,
+            languages=("fr", "en"),
+            groups=({"id": "group-hostile", "languages": ["fr", "en"]},),
+            provider_requirements=(hostile,),
+        )
     artifact = expander.export(
         source_guild_id=GUILD,
         languages=("fr", "en"),
@@ -282,14 +317,29 @@ def test_multilingual_clone_creates_independent_group_ids_and_strips_secrets() -
             {"id": "group-a", "languages": ["fr", "en"]},
             {"id": "group-b", "languages": ["fr", "en"]},
         ),
-        provider_requirements=({"type": "bot", "secret": "never"},),
+        provider_requirements=(
+            {
+                "type": "bot",
+                "required_capabilities": ["HUB_AND_SPOKE"],
+                "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
+            },
+        ),
     )
     expanded = expander.expand_for_destination(
         artifact=artifact, destination_guild_id=700000000000000002
     )
     ids = [item["destination_translation_group_id"] for item in expanded["group_mappings"]]
     assert len(ids) == len(set(ids)) == 2
-    assert "never" not in repr(artifact.to_dict())
+    serialized = artifact.to_dict()
+    assert "provider_binding" not in repr(serialized).lower()
+    assert serialized["multilingual"]["provider_requirements"] == [
+        {
+            "provider_type": "bot",
+            "required_capabilities": ["HUB_AND_SPOKE"],
+            "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
+            "requires_message_content": False,
+        }
+    ]
     assert expanded["provider_bindings_omitted"] is True
     assert expanded["source_unchanged"] is True
 

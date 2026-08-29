@@ -532,16 +532,23 @@ class TranslationGroupRepository:
             return dict(updated)
 
     async def detach_variant(
-        self, *, guild_id: int, variant_id: UUID, variant_type: str
+        self,
+        *,
+        guild_id: int,
+        translation_group_id: UUID,
+        variant_id: UUID,
+        variant_type: str,
     ) -> dict[str, Any]:
         statements = {
             "CATEGORY": (
                 "UPDATE translation_category_variants SET state='DETACHED', updated_at=now() "
-                "WHERE guild_id=:guild_id AND id=:id RETURNING *"
+                "WHERE guild_id=:guild_id AND translation_group_id=:group_id "
+                "AND id=:id RETURNING *"
             ),
             "CHANNEL": (
                 "UPDATE translation_channel_variants SET state='DETACHED', updated_at=now() "
-                "WHERE guild_id=:guild_id AND id=:id RETURNING *"
+                "WHERE guild_id=:guild_id AND translation_group_id=:group_id "
+                "AND id=:id RETURNING *"
             ),
         }
         statement = statements.get(variant_type)
@@ -551,7 +558,46 @@ class TranslationGroupRepository:
             return await _fetch_one(
                 session,
                 statement,
-                {"guild_id": guild_id, "id": variant_id},
+                {"guild_id": guild_id, "group_id": translation_group_id, "id": variant_id},
+            )
+
+    async def get_channel_group(
+        self, *, guild_id: int, translation_group_id: UUID, channel_group_id: UUID
+    ) -> dict[str, Any]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            return await _fetch_one(
+                session,
+                "SELECT * FROM translation_channel_groups WHERE guild_id=:guild_id "
+                "AND translation_group_id=:group_id AND id=:id",
+                {"guild_id": guild_id, "group_id": translation_group_id, "id": channel_group_id},
+            )
+
+    async def get_variant(
+        self,
+        *,
+        guild_id: int,
+        translation_group_id: UUID,
+        variant_id: UUID,
+        variant_type: str,
+    ) -> dict[str, Any]:
+        statements = {
+            "CATEGORY": (
+                "SELECT * FROM translation_category_variants WHERE guild_id=:guild_id "
+                "AND translation_group_id=:group_id AND id=:id"
+            ),
+            "CHANNEL": (
+                "SELECT * FROM translation_channel_variants WHERE guild_id=:guild_id "
+                "AND translation_group_id=:group_id AND id=:id"
+            ),
+        }
+        statement = statements.get(variant_type)
+        if statement is None:
+            raise ValueError("variant_type must be CATEGORY or CHANNEL")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            return await _fetch_one(
+                session,
+                statement,
+                {"guild_id": guild_id, "group_id": translation_group_id, "id": variant_id},
             )
 
     async def mark_variant_missing(
@@ -707,6 +753,15 @@ class TranslationGroupRepository:
     ) -> dict[str, Any]:
         """Attach one language and advance the group CAS in one transaction."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            enabled = await session.scalar(
+                text(
+                    "SELECT enabled FROM language_profiles "
+                    "WHERE guild_id=:guild_id AND id=:language_id FOR SHARE"
+                ),
+                {"guild_id": guild_id, "language_id": language_profile_id},
+            )
+            if enabled is not True:
+                raise ValueError("translation groups require enabled tenant language profiles")
             result = await _execute(
                 session,
                 text(
@@ -823,15 +878,26 @@ class TranslationGroupRepository:
             )
 
     async def rename_channel_group(
-        self, *, guild_id: int, channel_group_id: UUID, display_name: str
+        self,
+        *,
+        guild_id: int,
+        translation_group_id: UUID,
+        channel_group_id: UUID,
+        display_name: str,
     ) -> dict[str, Any]:
         """Rename the presentation key without changing stable identity or variants."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             return await _fetch_one(
                 session,
                 "UPDATE translation_channel_groups SET display_name=:display_name, "
-                "updated_at=now() WHERE guild_id=:guild_id AND id=:id RETURNING *",
-                {"guild_id": guild_id, "id": channel_group_id, "display_name": display_name},
+                "updated_at=now() WHERE guild_id=:guild_id "
+                "AND translation_group_id=:group_id AND id=:id RETURNING *",
+                {
+                    "guild_id": guild_id,
+                    "group_id": translation_group_id,
+                    "id": channel_group_id,
+                    "display_name": display_name,
+                },
             )
 
     async def create_category_variant(

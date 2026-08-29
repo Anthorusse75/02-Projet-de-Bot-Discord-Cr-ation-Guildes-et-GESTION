@@ -19,6 +19,7 @@ from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     ResourceLanguagePolicyRepository,
     Stage08Conflict,
+    Stage08NotFound,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
     VisibilityScopeLanguageRepository,
@@ -213,6 +214,15 @@ async def test_stable_channel_group_rename_independent_groups_and_atomic_delta_c
         provider_binding_id=None,
     )
     assert left["id"] != right["id"]
+    with pytest.raises(ValueError, match="enabled"):
+        await topology.add_language_delta(
+            guild_id=GUILD_A,
+            group_id=left["id"],
+            language_id=disabled["id"],
+            expected_version=1,
+        )
+    unchanged = await groups.get(GUILD_A, left["id"])
+    assert unchanged["version"] == 1
     channel_group = await topology.create_channel_group(
         guild_id=GUILD_A,
         group_id=left["id"],
@@ -260,6 +270,115 @@ async def test_stable_channel_group_rename_independent_groups_and_atomic_delta_c
         len(groups_by_id[left["id"]]["languages"]) == 3
         and len(groups_by_id[right["id"]]["languages"]) == 2
     )
+
+
+@pytest.mark.asyncio
+async def test_same_guild_nested_children_cannot_cross_translation_group_boundary(
+    repositories: tuple[
+        LanguageProfileRepository,
+        ResourceLanguagePolicyRepository,
+        TranslationGroupRepository,
+        TranslationProviderBindingRepository,
+        VisibilityScopeLanguageRepository,
+    ],
+) -> None:
+    profiles, _, groups, providers, visibility = repositories
+    topology = TranslationTopologyService(groups, providers, visibility)
+    fr = await profiles.create(guild_id=GUILD_A, code="fr", display_name="French")
+    group_a = await topology.create_group(
+        guild_id=GUILD_A,
+        name="A",
+        root_kind="CHANNEL_SET",
+        routing_mode="HUB_AND_SPOKE",
+        language_ids=(fr["id"],),
+        visibility_scope_id=None,
+        source_language_profile_id=fr["id"],
+        provider_binding_id=None,
+    )
+    group_b = await topology.create_group(
+        guild_id=GUILD_A,
+        name="B",
+        root_kind="CHANNEL_SET",
+        routing_mode="HUB_AND_SPOKE",
+        language_ids=(fr["id"],),
+        visibility_scope_id=None,
+        source_language_profile_id=fr["id"],
+        provider_binding_id=None,
+    )
+    channel_group_b = await topology.create_channel_group(
+        guild_id=GUILD_A,
+        group_id=group_b["id"],
+        logical_key="b.general",
+        display_name="B General",
+        source_language_id=fr["id"],
+    )
+    category_b = await groups.create_category_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group_b["id"],
+        language_profile_id=fr["id"],
+        discord_category_id=881000301,
+    )
+    channel_b = await groups.create_channel_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group_b["id"],
+        translation_channel_group_id=channel_group_b["id"],
+        language_profile_id=fr["id"],
+        discord_channel_id=881000302,
+        translation_category_variant_id=category_b["id"],
+    )
+
+    with pytest.raises(Stage08NotFound):
+        await topology.rename_channel_group(
+            guild_id=GUILD_A,
+            group_id=group_a["id"],
+            channel_group_id=channel_group_b["id"],
+            display_name="Compromised",
+        )
+    with pytest.raises(Stage08NotFound):
+        await topology.unlink_variant(
+            guild_id=GUILD_A,
+            group_id=group_a["id"],
+            variant_id=category_b["id"],
+            variant_type="CATEGORY",
+        )
+    with pytest.raises(Stage08NotFound):
+        await topology.unlink_variant(
+            guild_id=GUILD_A,
+            group_id=group_a["id"],
+            variant_id=channel_b["id"],
+            variant_type="CHANNEL",
+        )
+    with pytest.raises(Stage08NotFound):
+        await topology.link_existing_variant(
+            guild_id=GUILD_A,
+            group_id=group_a["id"],
+            language_id=fr["id"],
+            variant_type="CHANNEL",
+            discord_resource_id=881000303,
+            confirmed_explicit_selection=True,
+            channel_group_id=channel_group_b["id"],
+        )
+
+    preserved_channel_group = await groups.get_channel_group(
+        guild_id=GUILD_A,
+        translation_group_id=group_b["id"],
+        channel_group_id=channel_group_b["id"],
+    )
+    preserved_category = await groups.get_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group_b["id"],
+        variant_id=category_b["id"],
+        variant_type="CATEGORY",
+    )
+    preserved_channel = await groups.get_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group_b["id"],
+        variant_id=channel_b["id"],
+        variant_type="CHANNEL",
+    )
+    assert preserved_channel_group["display_name"] == "B General"
+    assert preserved_category["state"] == "ACTIVE"
+    assert preserved_channel["state"] == "ACTIVE"
 
 
 @pytest.mark.asyncio

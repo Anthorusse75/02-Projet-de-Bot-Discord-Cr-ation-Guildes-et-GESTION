@@ -46,7 +46,7 @@ class DiscordOverwrite:
 
 @dataclass(frozen=True, slots=True)
 class TechnicalRoleSpec:
-    scope_id: UUID
+    scope_id: UUID | None
     language_profile_id: UUID
     name: str
     permissions: int = 0
@@ -149,13 +149,20 @@ class LanguageVisibilityCompiler:
             return VisibilityCompilation(policy, overwrites, custom_semantics=custom)
         if language_profile_id is None:
             raise ValueError("language-filtered visibility requires an enabled language")
-        if scope_id is None:
-            raise ValueError("visibility binding scope must be explicit")
-        role_spec = TechnicalRoleSpec(
-            scope_id=scope_id,
-            language_profile_id=language_profile_id,
-            name=f"DID·{str(scope_id)[:8]}·{str(language_profile_id)[:8]}",
-        )
+        if policy is VisibilityPolicy.LANGUAGE_FILTERED:
+            role_spec = TechnicalRoleSpec(
+                scope_id=None,
+                language_profile_id=language_profile_id,
+                name=f"DID·LANG·{str(language_profile_id)[:8]}",
+            )
+        else:
+            if scope_id is None:
+                raise ValueError("scope-and-language visibility requires an explicit scope")
+            role_spec = TechnicalRoleSpec(
+                scope_id=scope_id,
+                language_profile_id=language_profile_id,
+                name=f"DID·{str(scope_id)[:8]}·{str(language_profile_id)[:8]}",
+            )
         if binding_role_id is None:
             return VisibilityCompilation(policy, (), roles_to_create=(role_spec,))
         # @everyone deny + exactly one derived audience role allow.  For
@@ -425,12 +432,141 @@ class TranslationDriftDetector:
 
 
 @dataclass(frozen=True, slots=True)
+class PortableProviderRequirement:
+    """Allowlisted provider metadata that is safe to serialize and transfer."""
+
+    provider_type: str
+    required_capabilities: tuple[str, ...] = ()
+    configuration_mode: str = "MANUAL_CONFIGURATION_REQUIRED"
+    requires_message_content: bool = False
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any]) -> PortableProviderRequirement:
+        _reject_secret_material(value)
+        allowed = {
+            "provider_type",
+            "type",
+            "required_capabilities",
+            "configuration_mode",
+            "requires_message_content",
+        }
+        unknown = {str(key) for key in value} - allowed
+        if unknown:
+            raise ValueError("unsupported portable provider requirement fields")
+        provider_type = str(value.get("provider_type") or value.get("type") or "").strip()
+        if not provider_type:
+            raise ValueError("portable provider_type must be present")
+        raw_capabilities = value.get("required_capabilities", ())
+        if not isinstance(raw_capabilities, list | tuple):
+            raise ValueError("required_capabilities must be an array")
+        capabilities = tuple(dict.fromkeys(str(item).strip() for item in raw_capabilities))
+        if any(not item for item in capabilities):
+            raise ValueError("required_capabilities cannot contain empty values")
+        return cls(
+            provider_type=provider_type,
+            required_capabilities=capabilities,
+            configuration_mode=str(
+                value.get("configuration_mode", "MANUAL_CONFIGURATION_REQUIRED")
+            ),
+            requires_message_content=bool(value.get("requires_message_content", False)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider_type": self.provider_type,
+            "required_capabilities": list(self.required_capabilities),
+            "configuration_mode": self.configuration_mode,
+            "requires_message_content": self.requires_message_content,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PortableTranslationGroup:
+    """Portable translation metadata without provider bindings or opaque configuration."""
+
+    source_logical_id: str
+    languages: tuple[str, ...]
+    name: str | None = None
+    root_kind: str | None = None
+    routing_mode: str | None = None
+    visibility_policy: str | None = None
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any]) -> PortableTranslationGroup:
+        _reject_secret_material(value)
+        source_id = str(value.get("logical_id") or value.get("id") or "").strip()
+        if not source_id:
+            raise ValueError("portable translation group requires a logical id")
+        raw_languages = value.get("languages", ())
+        if not isinstance(raw_languages, list | tuple):
+            raise ValueError("portable translation group languages must be an array")
+        return cls(
+            source_logical_id=source_id,
+            languages=tuple(dict.fromkeys(str(item) for item in raw_languages)),
+            name=str(value["name"]) if value.get("name") is not None else None,
+            root_kind=str(value["root_kind"]) if value.get("root_kind") is not None else None,
+            routing_mode=(
+                str(value["routing_mode"]) if value.get("routing_mode") is not None else None
+            ),
+            visibility_policy=(
+                str(value["visibility_policy"])
+                if value.get("visibility_policy") is not None
+                else None
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "logical_id": self.source_logical_id,
+            "languages": list(self.languages),
+        }
+        for key in ("name", "root_kind", "routing_mode", "visibility_policy"):
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = value
+        return result
+
+
+def _reject_secret_material(value: Any) -> None:
+    secret_keys = {
+        "token",
+        "accesstoken",
+        "refreshtoken",
+        "secret",
+        "clientsecret",
+        "apisecret",
+        "providersecret",
+        "apikey",
+        "credential",
+        "credentials",
+        "authorization",
+        "password",
+        "configencrypted",
+    }
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = "".join(
+                character for character in str(key).lower() if character.isalnum()
+            )
+            if (
+                normalized in secret_keys
+                or normalized.endswith("token")
+                or normalized.endswith("secret")
+            ):
+                raise ValueError("secret-bearing fields are forbidden in portable artifacts")
+            _reject_secret_material(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            _reject_secret_material(item)
+
+
+@dataclass(frozen=True, slots=True)
 class MultilingualPortableArtifact:
     schema_version: str
     source_guild_id: int
     languages: tuple[str, ...]
-    groups: tuple[dict[str, Any], ...]
-    provider_requirements: tuple[dict[str, Any], ...]
+    groups: tuple[PortableTranslationGroup, ...]
+    provider_requirements: tuple[PortableProviderRequirement, ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -438,8 +574,8 @@ class MultilingualPortableArtifact:
             "source_guild_id": str(self.source_guild_id),
             "multilingual": {
                 "languages": list(self.languages),
-                "translation_groups": list(self.groups),
-                "provider_requirements": list(self.provider_requirements),
+                "translation_groups": [group.to_dict() for group in self.groups],
+                "provider_requirements": [item.to_dict() for item in self.provider_requirements],
             },
         }
 
@@ -454,12 +590,9 @@ class TranslationCloneExpander:
         provider_requirements: tuple[dict[str, Any], ...] = (),
     ) -> MultilingualPortableArtifact:
         safe_requirements = tuple(
-            TranslationProviderCoordinator._without_secrets(value)
-            for value in provider_requirements
+            PortableProviderRequirement.from_mapping(value) for value in provider_requirements
         )
-        safe_groups = tuple(
-            TranslationProviderCoordinator._without_secrets(value) for value in groups
-        )
+        safe_groups = tuple(PortableTranslationGroup.from_mapping(value) for value in groups)
         return MultilingualPortableArtifact(
             "did-portable-multilingual-v1",
             source_guild_id,
@@ -475,7 +608,7 @@ class TranslationCloneExpander:
             raise ValueError("multilingual clone requires a distinct positive destination guild")
         mappings = []
         for group in artifact.groups:
-            source_id = str(group.get("logical_id") or group.get("id") or uuid4())
+            source_id = group.source_logical_id
             mappings.append(
                 {
                     "source_logical_id": source_id,
@@ -784,6 +917,18 @@ class TranslationTopologyService:
                 discord_category_id=discord_resource_id,
             )
         if variant_type == "CHANNEL" and channel_group_id is not None:
+            await self._groups.get_channel_group(
+                guild_id=guild_id,
+                translation_group_id=group_id,
+                channel_group_id=channel_group_id,
+            )
+            if category_variant_id is not None:
+                await self._groups.get_variant(
+                    guild_id=guild_id,
+                    translation_group_id=group_id,
+                    variant_id=category_variant_id,
+                    variant_type="CATEGORY",
+                )
             return await self._groups.create_channel_variant(
                 guild_id=guild_id,
                 translation_group_id=group_id,
@@ -818,6 +963,7 @@ class TranslationTopologyService:
         await self._groups.get(guild_id, group_id)
         return await self._groups.rename_channel_group(
             guild_id=guild_id,
+            translation_group_id=group_id,
             channel_group_id=channel_group_id,
             display_name=display_name.strip(),
         )
@@ -932,9 +1078,12 @@ class TranslationTopologyService:
         return {**result, "discord_resources_deleted": False}
 
     async def unlink_variant(
-        self, *, guild_id: int, variant_id: UUID, variant_type: str
+        self, *, guild_id: int, group_id: UUID, variant_id: UUID, variant_type: str
     ) -> dict[str, Any]:
         row = await self._groups.detach_variant(
-            guild_id=guild_id, variant_id=variant_id, variant_type=variant_type
+            guild_id=guild_id,
+            translation_group_id=group_id,
+            variant_id=variant_id,
+            variant_type=variant_type,
         )
         return {**row, "discord_resource_deleted": False}
