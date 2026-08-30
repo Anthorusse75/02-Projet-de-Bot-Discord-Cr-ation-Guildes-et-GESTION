@@ -203,7 +203,7 @@ class Stage08StructuralPlanningService:
         )
         if len(channel.overwrites) + additions > DISCORD_OVERWRITE_LIMIT:
             raise ValueError("OVERWRITE_CAPACITY_EXCEEDED")
-        plan, replayed = await self._planning.create(
+        plan, created = await self._planning.create(
             graph=DesiredStateGraph(guild_id, tuple(nodes)),
             actor_user_id=actor_user_id,
             idempotency_key=f"stage08:visibility:{group_id}:{idempotency_key}",
@@ -228,7 +228,7 @@ class Stage08StructuralPlanningService:
             )
         return (
             plan,
-            replayed,
+            not created,
             {
                 "source": "TRUSTED_CACHE_AND_DURABLE_TOPOLOGY",
                 "role_count": len(guild.roles),
@@ -269,11 +269,16 @@ class Stage08StructuralPlanningService:
             raise ValueError("technical role is absent from the trusted Discord cache")
         if role.managed or role.permissions != 0 or role.hoist or role.mentionable:
             raise ValueError("technical role attributes are not safe for automatic cleanup")
-        if any(not channel.overwrites_complete for channel in guild.channels):
+        active_channels = tuple(
+            channel
+            for channel in guild.channels
+            if channel.observability is not ObservabilityState.DELETED_CONFIRMED
+        )
+        if any(not channel.overwrites_complete for channel in active_channels):
             raise ValueError("complete overwrite coverage is required")
         if any(
             overwrite.target_type == 0 and overwrite.target_id == role_id
-            for channel in guild.channels
+            for channel in active_channels
             for overwrite in channel.overwrites
         ):
             raise ValueError("technical role is still referenced by Discord topology")
@@ -297,7 +302,7 @@ class Stage08StructuralPlanningService:
             discord_id=role_id,
             presence=NodePresence.ABSENT,
         )
-        plan, replayed = await self._planning.create(
+        plan, created = await self._planning.create(
             graph=DesiredStateGraph(guild_id, (node,)),
             actor_user_id=actor_user_id,
             idempotency_key=f"stage08:scope-role-cleanup:{binding_id}:{idempotency_key}",
@@ -314,7 +319,7 @@ class Stage08StructuralPlanningService:
         )
         return (
             plan,
-            replayed,
+            not created,
             {
                 "source": "TRUSTED_COMPLETE_CACHE_AND_DURABLE_TOPOLOGY",
                 "binding_id": str(binding_id),
@@ -395,7 +400,7 @@ class Stage08StructuralPlanningService:
             for assigned, role_ids in ((True, assign), (False, remove))
             for role_id in role_ids
         )
-        plan, replayed = await self._planning.create(
+        plan, created = await self._planning.create(
             graph=DesiredStateGraph(guild_id, nodes),
             actor_user_id=actor_user_id,
             idempotency_key=f"stage08:member-roles:{member_id}:{idempotency_key}",
@@ -404,7 +409,7 @@ class Stage08StructuralPlanningService:
         )
         return (
             plan,
-            replayed,
+            not created,
             {
                 "source": "TRUSTED_CACHE_SCOPE_RESOLVER_AND_DURABLE_LANGUAGES",
                 "member_id": str(member_id),
@@ -565,7 +570,7 @@ class Stage08StructuralPlanningService:
                 ),
             ),
         )
-        plan, replayed = await self._planning.create(
+        plan, created = await self._planning.create(
             graph=graph,
             actor_user_id=actor_user_id,
             idempotency_key=f"stage08:variant:{group_id}:{idempotency_key}",
@@ -609,7 +614,7 @@ class Stage08StructuralPlanningService:
             )
         return (
             plan,
-            replayed,
+            not created,
             {
                 "source": "BUSINESS_INTENT_AND_TRUSTED_CACHE",
                 "variant_id": str(variant_id),

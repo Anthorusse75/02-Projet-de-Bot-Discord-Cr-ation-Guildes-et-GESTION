@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -98,7 +99,7 @@ def service(
     planning = AsyncMock()
     planning.create.return_value = (
         {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
-        False,
+        True,
     )
     read_models = AsyncMock()
     read_models.guild_snapshot.return_value = (guild, SimpleNamespace())
@@ -235,7 +236,7 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     planning = AsyncMock()
     planning.create.return_value = (
         {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
-        False,
+        True,
     )
     read_models = AsyncMock()
     read_models.guild_snapshot.return_value = (guild, member)
@@ -346,6 +347,48 @@ async def test_scope_role_cleanup_compiles_verified_delete_only_from_complete_un
     assert proof["member_assignees"] == 0
 
 
+async def test_scope_role_cleanup_ignores_confirmed_deleted_channel_coverage() -> None:
+    guild = snapshot(
+        role_count=2,
+        overwrite_count=0,
+        protected_targets=(),
+        members_complete=True,
+    )
+    guild = replace(
+        guild,
+        channels=(
+            replace(
+                guild.channels[0],
+                observability=ObservabilityState.DELETED_CONFIRMED,
+                overwrites_complete=False,
+            ),
+        ),
+    )
+    role_id = guild.roles[-1].role_id
+    authority, spies = service(guild)
+    authority._scope_roles.get_binding.return_value = {
+        "id": BINDING,
+        "visibility_scope_id": SCOPE,
+        "language_profile_id": LANGUAGE,
+        "discord_role_id": role_id,
+        "managed_by_did": True,
+        "role_state": "ACTIVE",
+    }
+    authority._policies.list_policies.return_value = []
+    authority._read_models.member_ids_with_role.return_value = ()
+
+    _, replayed, _ = await authority.create_scope_role_cleanup_plan(
+        guild_id=GUILD,
+        binding_id=BINDING,
+        actor_user_id=ACTOR,
+        idempotency_key="deleted-channel",
+        correlation_id=uuid4(),
+    )
+
+    assert not replayed
+    spies.planning.create.assert_awaited_once()
+
+
 @pytest.mark.parametrize("blocker", ["coverage", "policy", "member", "overwrite"])
 async def test_scope_role_cleanup_fails_closed_when_unused_cannot_be_proven(
     blocker: str,
@@ -440,7 +483,7 @@ async def test_variant_plan_compiles_business_intent_and_defers_materialization(
     authority, spies = service(snapshot(role_count=1, overwrite_count=0, protected_targets=()))
     spies.planning.create.return_value = (
         {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
-        False,
+        True,
     )
     spies.lifecycle.add_plan_intent = AsyncMock()
     provider_binding_id = uuid4()

@@ -1,0 +1,18 @@
+{
+  "stage": "08",
+  "profile": "discord-live-multilingual-topology",
+  "status": "BLOCKED_CAPABILITY_CONFIGURATION",
+  "generated_at": "2026-08-30T19:48:09.417175+00:00",
+  "checks": [
+    "live sandbox configuration failed closed"
+  ],
+  "missing_variable_names": [],
+  "counts": {},
+  "evidence_hashes": {},
+  "blocker": "required Discord privileged intent or permissions are unavailable",
+  "resource_prefix_family": "DID-STAGE08-TEST-",
+  "secrets_recorded": false,
+  "discord_identifiers_recorded": false,
+  "message_content_intent_enabled": false,
+  "discord_structural_mutations_direct": 0
+}

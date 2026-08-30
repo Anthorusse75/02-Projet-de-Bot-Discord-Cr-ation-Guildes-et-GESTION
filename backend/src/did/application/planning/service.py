@@ -491,11 +491,17 @@ class PlanningService:
         }
         base_order = cls._ordered(operations)
 
-        def phase(operation: PlanOperation) -> tuple[int, int]:
+        def phase(operation: PlanOperation) -> tuple[int, int, int]:
             index = forward[operation.resource_type]
             if operation.operation_type in delete_types:
-                return (1, -index)
-            return (0, index)
+                return (1, -index, 0)
+            overwrite_order = 0
+            if operation.operation_type is OperationType.UPSERT_OVERWRITE:
+                payload = thaw_json_object(operation.desired_payload)
+                allow = int(payload.get("allow", 0))
+                deny = int(payload.get("deny", 0))
+                overwrite_order = 0 if allow and not deny else 2 if deny and not allow else 1
+            return (0, index, overwrite_order)
 
         sequenced = sorted(enumerate(base_order), key=lambda item: (phase(item[1]), item[0]))
         result: list[PlanOperation] = []

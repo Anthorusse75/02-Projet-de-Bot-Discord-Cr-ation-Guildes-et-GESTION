@@ -155,13 +155,9 @@ class PortabilityService:
             guild_id=source_guild_id,
             group_id=translation_group_id,
         )
-        policies = tuple(
-            await self._translation_policies.list_policies(source_guild_id)
-        )
+        policies = tuple(await self._translation_policies.list_policies(source_guild_id))
         language_bindings = tuple(
-            await self._translation_lifecycle.list_language_bindings(
-                guild_id=source_guild_id
-            )
+            await self._translation_lifecycle.list_language_bindings(guild_id=source_guild_id)
         )
         provider_requirement: dict[str, Any] | None = None
         provider_binding_id = group.get("provider_binding_id")
@@ -190,9 +186,7 @@ class PortabilityService:
             provider_requirement=provider_requirement,
         )
         if self._metrics is not None:
-            self._metrics.artifact_built(
-                perf_counter() - started, len(artifact_to_bytes(artifact))
-            )
+            self._metrics.artifact_built(perf_counter() - started, len(artifact_to_bytes(artifact)))
         metadata, created = await self.repository.create_artifact(
             owner_user_id=actor_user_id,
             kind=kind.value,
@@ -440,6 +434,14 @@ class PortabilityService:
             actor_user_id=actor_user_id,
             idempotency_key=planning_key,
             correlation_id=correlation_id,
+            operation_order_policy=(
+                "STAGE08_STRUCTURAL"
+                if any(
+                    resource.resource_type is PortableResourceType.TRANSLATION_GROUP
+                    for resource in artifact.resources
+                )
+                else None
+            ),
         )
         if self._metrics is not None:
             self._metrics.portability_outcome(
@@ -866,9 +868,7 @@ class PortabilityService:
             return None
         if len(translation_groups) != 1 or self._translation_groups is None:
             raise ValueError("portable translation topology is unavailable or ambiguous")
-        dependencies = {
-            (edge.source, edge.relation): edge.target for edge in artifact.dependencies
-        }
+        dependencies = {(edge.source, edge.relation): edge.target for edge in artifact.dependencies}
 
         def identity(logical_ref: str, kind: str) -> UUID:
             return uuid5(

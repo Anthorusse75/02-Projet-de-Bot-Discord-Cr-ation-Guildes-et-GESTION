@@ -327,13 +327,17 @@ def test_stage08_openapi_exposes_workspace_lifecycle_plans_and_clone() -> None:
 
 
 def test_stage08_plan_policy_orders_create_phases_and_reverses_safe_deletes() -> None:
-    def operation(resource: ResourceType, operation_type: OperationType) -> PlanOperation:
+    def operation(
+        resource: ResourceType,
+        operation_type: OperationType,
+        payload: dict[str, int] | None = None,
+    ) -> PlanOperation:
         return PlanOperation(
             uuid4(),
             operation_type,
             resource,
             f"stage08.{resource.value.lower()}.{operation_type.value.lower()}",
-            freeze_json_object({}),
+            freeze_json_object(payload or {}),
             freeze_json_object({}),
             (),
             CompensationClass.REVERSIBLE,
@@ -355,6 +359,24 @@ def test_stage08_plan_policy_orders_create_phases_and_reverses_safe_deletes() ->
         ResourceType.CHANNEL,
         ResourceType.ROLE,
         ResourceType.OVERWRITE,
+    ]
+
+    deny_everyone = operation(
+        ResourceType.OVERWRITE,
+        OperationType.UPSERT_OVERWRITE,
+        {"allow": 0, "deny": 1024},
+    )
+    grant_role = operation(
+        ResourceType.OVERWRITE,
+        OperationType.UPSERT_OVERWRITE,
+        {"allow": 1024, "deny": 0},
+    )
+    ordered_overwrites = PlanningService._ordered(
+        PlanningService._stage08_structural_order((deny_everyone, grant_role))
+    )
+    assert [item.operation_id for item in ordered_overwrites] == [
+        grant_role.operation_id,
+        deny_everyone.operation_id,
     ]
 
     deletes = (
