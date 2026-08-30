@@ -989,6 +989,13 @@ class TranslationGroupRepository:
                 },
             )
 
+    async def materialize_portable_topology(
+        self, *, guild_id: int, topology: dict[str, Any]
+    ) -> dict[str, Any]:
+        return await _PortableTopologyMaterializer(
+            self._factory
+        ).materialize_portable_topology(guild_id=guild_id, topology=topology)
+
 
 class TranslationProviderBindingRepository:
     def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
@@ -1072,6 +1079,341 @@ class TranslationProviderBindingRepository:
                     "verified": verified,
                 },
             )
+
+class _PortableTopologyMaterializer:
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+
+    async def materialize_portable_topology(
+        self, *, guild_id: int, topology: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Atomically persist verified clone metadata using destination-only identities."""
+
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            language_ids: dict[str, UUID] = {}
+            for language in topology["languages"]:
+                await session.execute(
+                    text(
+                        "INSERT INTO language_profiles (id,guild_id,code,display_name) "
+                        "VALUES (:id,:guild_id,:code,:display_name) ON CONFLICT DO NOTHING"
+                    ),
+                    {"guild_id": guild_id, **language},
+                )
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT id,display_name,enabled FROM language_profiles "
+                                "WHERE guild_id=:guild_id AND code=:code FOR SHARE"
+                            ),
+                            {"guild_id": guild_id, "code": language["code"]},
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None or not bool(row["enabled"]):
+                    raise Stage08Conflict("portable language is unavailable in destination")
+                language_ids[str(language["code"])] = UUID(str(row["id"]))
+
+            group = dict(topology["group"])
+            source_code = group.pop("source_language_code", None)
+            source_language_id = (
+                language_ids[str(source_code)] if source_code is not None else None
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO translation_groups "
+                    "(id,guild_id,name,root_kind,routing_mode,source_language_profile_id) "
+                    "VALUES (:id,:guild_id,:name,:root_kind,:routing_mode,:source_id) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "source_id": source_language_id,
+                    **group,
+                },
+            )
+            persisted_group = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM translation_groups WHERE guild_id=:guild_id "
+                            "AND id=:id FOR SHARE"
+                        ),
+                        {"guild_id": guild_id, "id": group["id"]},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if persisted_group is None or any(
+                str(persisted_group[key]) != str(group[key])
+                for key in ("name", "root_kind", "routing_mode")
+            ):
+                raise Stage08Conflict("portable translation group identity conflicts")
+            for language_id in language_ids.values():
+                await session.execute(
+                    text(
+                        "INSERT INTO translation_group_languages "
+                        "(guild_id,translation_group_id,language_profile_id) "
+                        "VALUES (:guild_id,:group_id,:language_id) ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "group_id": group["id"],
+                        "language_id": language_id,
+                    },
+                )
+
+            channel_group_ids: dict[str, UUID] = {}
+            for channel_group in topology["channel_groups"]:
+                source_code = channel_group.get("source_language_code")
+                await session.execute(
+                    text(
+                        "INSERT INTO translation_channel_groups "
+                        "(id,guild_id,translation_group_id,logical_key,display_name,"
+                        "source_language_profile_id,config_json) VALUES "
+                        "(:id,:guild_id,:group_id,:logical_key,:display_name,:source_id,'{}') "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "id": channel_group["id"],
+                        "guild_id": guild_id,
+                        "group_id": group["id"],
+                        "logical_key": channel_group["logical_key"],
+                        "display_name": channel_group["display_name"],
+                        "source_id": (
+                            language_ids[str(source_code)]
+                            if source_code is not None
+                            else None
+                        ),
+                    },
+                )
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT id FROM translation_channel_groups "
+                                "WHERE guild_id=:guild_id AND translation_group_id=:group_id "
+                                "AND id=:id FOR SHARE"
+                            ),
+                            {
+                                "guild_id": guild_id,
+                                "group_id": group["id"],
+                                "id": channel_group["id"],
+                            },
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None:
+                    raise Stage08Conflict("portable channel group identity conflicts")
+                channel_group_ids[str(channel_group["logical_ref"])] = UUID(str(row["id"]))
+
+            category_variant_ids: dict[str, UUID] = {}
+            for variant in topology["category_variants"]:
+                await session.execute(
+                    text(
+                        "INSERT INTO translation_category_variants "
+                        "(id,guild_id,translation_group_id,language_profile_id,"
+                        "discord_category_id,is_source,state) VALUES "
+                        "(:id,:guild_id,:group_id,:language_id,:resource_id,:is_source,'ACTIVE') "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "id": variant["id"],
+                        "guild_id": guild_id,
+                        "group_id": group["id"],
+                        "language_id": language_ids[str(variant["language_code"])],
+                        "resource_id": variant["discord_resource_id"],
+                        "is_source": variant["is_source"],
+                    },
+                )
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT id,discord_category_id FROM translation_category_variants "
+                                "WHERE guild_id=:guild_id AND translation_group_id=:group_id "
+                                "AND id=:id FOR SHARE"
+                            ),
+                            {
+                                "guild_id": guild_id,
+                                "group_id": group["id"],
+                                "id": variant["id"],
+                            },
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None or int(row["discord_category_id"]) != int(
+                    variant["discord_resource_id"]
+                ):
+                    raise Stage08Conflict("portable category variant identity conflicts")
+                category_variant_ids[str(variant["logical_ref"])] = UUID(str(row["id"]))
+                await self._upsert_portable_policy(
+                    session,
+                    guild_id=guild_id,
+                    resource_type="CATEGORY",
+                    resource_id=int(variant["discord_resource_id"]),
+                    language_id=language_ids[str(variant["language_code"])],
+                    visibility_policy=str(variant["visibility_policy"]),
+                    inherit_language=bool(variant["inherit_language"]),
+                    policy_id=UUID(str(variant["policy_id"])),
+                )
+
+            for variant in topology["channel_variants"]:
+                category_ref = variant.get("translation_category_variant_ref")
+                await session.execute(
+                    text(
+                        "INSERT INTO translation_channel_variants "
+                        "(id,guild_id,translation_group_id,translation_channel_group_id,"
+                        "language_profile_id,discord_channel_id,"
+                        "translation_category_variant_id,state) VALUES "
+                        "(:id,:guild_id,:group_id,:channel_group_id,:language_id,"
+                        ":resource_id,:category_id,'ACTIVE') ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "id": variant["id"],
+                        "guild_id": guild_id,
+                        "group_id": group["id"],
+                        "channel_group_id": channel_group_ids[
+                            str(variant["translation_channel_group_ref"])
+                        ],
+                        "language_id": language_ids[str(variant["language_code"])],
+                        "resource_id": variant["discord_resource_id"],
+                        "category_id": (
+                            category_variant_ids[str(category_ref)]
+                            if category_ref is not None
+                            else None
+                        ),
+                    },
+                )
+                row = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT id,discord_channel_id FROM translation_channel_variants "
+                                "WHERE guild_id=:guild_id AND translation_group_id=:group_id "
+                                "AND id=:id FOR SHARE"
+                            ),
+                            {
+                                "guild_id": guild_id,
+                                "group_id": group["id"],
+                                "id": variant["id"],
+                            },
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None or int(row["discord_channel_id"]) != int(
+                    variant["discord_resource_id"]
+                ):
+                    raise Stage08Conflict("portable channel variant identity conflicts")
+                await self._upsert_portable_policy(
+                    session,
+                    guild_id=guild_id,
+                    resource_type="CHANNEL",
+                    resource_id=int(variant["discord_resource_id"]),
+                    language_id=language_ids[str(variant["language_code"])],
+                    visibility_policy=str(variant["visibility_policy"]),
+                    inherit_language=bool(variant["inherit_language"]),
+                    policy_id=UUID(str(variant["policy_id"])),
+                )
+
+            for route in topology["routes"]:
+                await session.execute(
+                    text(
+                        "INSERT INTO translation_routes "
+                        "(id,guild_id,translation_group_id,source_language_profile_id,"
+                        "destination_language_profile_id) VALUES "
+                        "(:id,:guild_id,:group_id,:source_id,:destination_id) "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "id": route["id"],
+                        "guild_id": guild_id,
+                        "group_id": group["id"],
+                        "source_id": language_ids[str(route["source_language_code"])],
+                        "destination_id": language_ids[
+                            str(route["destination_language_code"])
+                        ],
+                    },
+                )
+            for binding in topology["language_roles"]:
+                language_id = language_ids[str(binding["language_code"])]
+                await session.execute(
+                    text(
+                        "INSERT INTO language_profile_roles "
+                        "(id,guild_id,language_profile_id,discord_role_id,"
+                        "managed_by_did,role_state) VALUES "
+                        "(:id,:guild_id,:language_id,:role_id,true,'ACTIVE') "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "id": binding["id"],
+                        "guild_id": guild_id,
+                        "language_id": language_id,
+                        "role_id": binding["discord_role_id"],
+                    },
+                )
+                role_id = await session.scalar(
+                    text(
+                        "SELECT discord_role_id FROM language_profile_roles "
+                        "WHERE guild_id=:guild_id AND language_profile_id=:language_id"
+                    ),
+                    {"guild_id": guild_id, "language_id": language_id},
+                )
+                if role_id is None or int(role_id) != int(binding["discord_role_id"]):
+                    raise Stage08Conflict("portable language role conflicts with destination")
+            return {
+                "translation_group_id": str(group["id"]),
+                "language_profile_ids": {
+                    code: str(language_id) for code, language_id in language_ids.items()
+                },
+                "provider_bindings_omitted": True,
+            }
+
+    @staticmethod
+    async def _upsert_portable_policy(
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        resource_type: str,
+        resource_id: int,
+        language_id: UUID,
+        visibility_policy: str,
+        inherit_language: bool,
+        policy_id: UUID,
+    ) -> None:
+        await session.execute(
+            text(
+                "INSERT INTO resource_language_policies "
+                "(id,guild_id,resource_type,discord_resource_id,"
+                "explicit_language_profile_id,inherit_language,visibility_policy,"
+                "visibility_scope_id,custom_policy_json) VALUES "
+                "(:id,:guild_id,:resource_type,:resource_id,:language_id,:inherit,"
+                ":visibility,NULL,'{}') ON CONFLICT "
+                "(guild_id,resource_type,discord_resource_id) DO UPDATE SET "
+                "explicit_language_profile_id=EXCLUDED.explicit_language_profile_id,"
+                "inherit_language=EXCLUDED.inherit_language,"
+                "visibility_policy=EXCLUDED.visibility_policy,visibility_scope_id=NULL,"
+                "custom_policy_json='{}',updated_at=now()"
+            ),
+            {
+                "id": policy_id,
+                "guild_id": guild_id,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "language_id": language_id,
+                "inherit": inherit_language,
+                "visibility": visibility_policy,
+            },
+        )
 
 
 class ResourceLanguagePolicyRepository:

@@ -374,7 +374,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/guilds/{guild_id}/multilingual-clone/preview": {
+    "/api/v1/guilds/{guild_id}/multilingual-clone/plan": {
         parameters: {
             query?: never;
             header?: never;
@@ -383,8 +383,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Multilingual Clone Preview */
-        post: operations["multilingual_clone_preview_api_v1_guilds__guild_id__multilingual_clone_preview_post"];
+        /** Multilingual Clone Plan */
+        post: operations["multilingual_clone_plan_api_v1_guilds__guild_id__multilingual_clone_plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1747,16 +1747,19 @@ export interface components {
         MultilingualCloneInput: {
             /** Destination Guild Id */
             destination_guild_id: string;
-            /** Groups */
-            groups: {
-                [key: string]: unknown;
-            }[];
-            /** Languages */
-            languages: string[];
-            /** Provider Requirements */
-            provider_requirements?: {
-                [key: string]: unknown;
-            }[];
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Mode
+             * @default COPY_AS_NEW
+             * @constant
+             */
+            mode: "COPY_AS_NEW";
+            /**
+             * Translation Group Id
+             * Format: uuid
+             */
+            translation_group_id: string;
         };
         /**
          * NodePresence
@@ -1813,7 +1816,7 @@ export interface components {
          * PortableResourceType
          * @enum {string}
          */
-        PortableResourceType: "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "LOGICAL_GROUP" | "POLICY" | "SYSTEM_PRINCIPAL" | "PRINCIPAL_REQUIREMENT" | "BOT_REFERENCE" | "WEBHOOK_REFERENCE";
+        PortableResourceType: "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "LOGICAL_GROUP" | "POLICY" | "SYSTEM_PRINCIPAL" | "PRINCIPAL_REQUIREMENT" | "BOT_REFERENCE" | "WEBHOOK_REFERENCE" | "LANGUAGE_PROFILE" | "TRANSLATION_GROUP" | "TRANSLATION_CHANNEL_GROUP" | "TRANSLATION_CATEGORY_VARIANT" | "TRANSLATION_CHANNEL_VARIANT" | "TRANSLATION_ROUTE" | "TRANSLATION_LANGUAGE_ROLE" | "PROVIDER_REQUIREMENT";
         /** PreferenceUpdate */
         PreferenceUpdate: {
             /** Timezone */
@@ -3207,7 +3210,7 @@ export interface operations {
             };
         };
     };
-    multilingual_clone_preview_api_v1_guilds__guild_id__multilingual_clone_preview_post: {
+    multilingual_clone_plan_api_v1_guilds__guild_id__multilingual_clone_plan_post: {
         parameters: {
             query?: never;
             header?: never;

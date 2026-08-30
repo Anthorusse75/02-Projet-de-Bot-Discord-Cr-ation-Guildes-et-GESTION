@@ -869,39 +869,28 @@
             "title": "Destination Guild Id",
             "type": "string"
           },
-          "groups": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "maxItems": 256,
-            "minItems": 1,
-            "title": "Groups",
-            "type": "array"
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
           },
-          "languages": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 64,
-            "minItems": 1,
-            "title": "Languages",
-            "type": "array"
+          "mode": {
+            "const": "COPY_AS_NEW",
+            "default": "COPY_AS_NEW",
+            "title": "Mode",
+            "type": "string"
           },
-          "provider_requirements": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "maxItems": 64,
-            "title": "Provider Requirements",
-            "type": "array"
+          "translation_group_id": {
+            "format": "uuid",
+            "title": "Translation Group Id",
+            "type": "string"
           }
         },
         "required": [
           "destination_guild_id",
-          "languages",
-          "groups"
+          "translation_group_id",
+          "idempotency_key"
         ],
         "title": "MultilingualCloneInput",
         "type": "object"
@@ -1056,7 +1045,15 @@
           "SYSTEM_PRINCIPAL",
           "PRINCIPAL_REQUIREMENT",
           "BOT_REFERENCE",
-          "WEBHOOK_REFERENCE"
+          "WEBHOOK_REFERENCE",
+          "LANGUAGE_PROFILE",
+          "TRANSLATION_GROUP",
+          "TRANSLATION_CHANNEL_GROUP",
+          "TRANSLATION_CATEGORY_VARIANT",
+          "TRANSLATION_CHANNEL_VARIANT",
+          "TRANSLATION_ROUTE",
+          "TRANSLATION_LANGUAGE_ROLE",
+          "PROVIDER_REQUIREMENT"
         ],
         "title": "PortableResourceType",
         "type": "string"
@@ -3720,9 +3717,9 @@
         ]
       }
     },
-    "/api/v1/guilds/{guild_id}/multilingual-clone/preview": {
+    "/api/v1/guilds/{guild_id}/multilingual-clone/plan": {
       "post": {
-        "operationId": "multilingual_clone_preview_api_v1_guilds__guild_id__multilingual_clone_preview_post",
+        "operationId": "multilingual_clone_plan_api_v1_guilds__guild_id__multilingual_clone_plan_post",
         "parameters": [
           {
             "in": "path",
@@ -3750,7 +3747,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Multilingual Clone Preview Api V1 Guilds  Guild Id  Multilingual Clone Preview Post",
+                  "title": "Response Multilingual Clone Plan Api V1 Guilds  Guild Id  Multilingual Clone Plan Post",
                   "type": "object"
                 }
               }
@@ -3768,7 +3765,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Multilingual Clone Preview",
+        "summary": "Multilingual Clone Plan",
         "tags": [
           "stage-08-multilingual-topology"
         ]

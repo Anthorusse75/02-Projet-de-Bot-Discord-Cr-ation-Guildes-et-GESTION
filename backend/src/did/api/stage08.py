@@ -8,11 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from did.api.dependencies import ApiProblem, CsrfSessionDep, CurrentSessionDep, ServicesDep
 from did.api.guilds import parse_snowflake
+from did.application.portability import ArtifactKind
 from did.application.translation import (
     LanguageProfileService,
     LanguageVisibilityCompiler,
     RoleCapacityEngine,
-    TranslationCloneExpander,
     TranslationProviderCoordinator,
     TranslationRouteCompiler,
     TranslationTopologyService,
@@ -25,6 +25,7 @@ from did.domain.translation_topology import (
     VisibilityPolicy,
 )
 from did.infrastructure.translation_provider import NonInvasiveExistingBotProvider
+from did.portability import CloneMode
 
 router = APIRouter(tags=["stage-08-multilingual-topology"])
 
@@ -214,9 +215,9 @@ class DriftInput(BaseModel):
 class MultilingualCloneInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     destination_guild_id: str
-    languages: list[str] = Field(min_length=1, max_length=64)
-    groups: list[dict[str, Any]] = Field(min_length=1, max_length=256)
-    provider_requirements: list[dict[str, Any]] = Field(default_factory=list, max_length=64)
+    translation_group_id: UUID
+    mode: Literal["COPY_AS_NEW"] = "COPY_AS_NEW"
+    idempotency_key: str = Field(min_length=1, max_length=160)
 
     @field_validator("destination_guild_id")
     @classmethod
@@ -1195,11 +1196,12 @@ async def observe_drift(
     return result
 
 
-@router.post("/api/v1/guilds/{guild_id}/multilingual-clone/preview")
-async def multilingual_clone_preview(
+@router.post("/api/v1/guilds/{guild_id}/multilingual-clone/plan")
+async def multilingual_clone_plan(
     guild_id: str,
     body: MultilingualCloneInput,
-    session: CurrentSessionDep,
+    request: Request,
+    session: CsrfSessionDep,
     container: ServicesDep,
 ) -> dict[str, Any]:
     source = parse_snowflake(guild_id)
@@ -1207,18 +1209,52 @@ async def multilingual_clone_preview(
     await _authorize(source, session, container, Capability.STRUCTURE_READ)
     await _authorize(destination, session, container, Capability.PLANS_CREATE, sensitive=True)
     await _authorize(destination, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
-    expander = TranslationCloneExpander()
-    artifact = expander.export(
+    if source == destination:
+        raise ValueError("multilingual clone requires a distinct destination Guild")
+    if container.portability is None:
+        raise ApiProblem(
+            status_code=503,
+            code="PORTABILITY_NOT_CONFIGURED",
+            message_key="errors.portability.notConfigured",
+        )
+    artifact, artifact_created = await container.portability.export_live_translation_group(
         source_guild_id=source,
-        languages=tuple(body.languages),
-        groups=tuple(body.groups),
-        provider_requirements=tuple(body.provider_requirements),
+        translation_group_id=body.translation_group_id,
+        actor_user_id=session.discord_user_id,
+        kind=ArtifactKind.EXPORT_BUNDLE,
+        name=f"translation-group:{body.translation_group_id}",
+        idempotency_key=f"stage08-export:{body.idempotency_key}",
+        correlation_id=_correlation(request),
+    )
+    transfer, plan, plan_created = await container.portability.compile_stored(
+        actor_user_id=session.discord_user_id,
+        artifact_id=UUID(str(artifact["id"])),
+        destination_guild_id=destination,
+        mode=CloneMode(body.mode),
+        explicit_mappings=(),
+        idempotency_key=f"stage08-compile:{body.idempotency_key}",
+        correlation_id=_correlation(request),
+        source_authorized=True,
     )
     return {
-        "artifact": artifact.to_dict(),
-        "preview": expander.expand_for_destination(
-            artifact=artifact, destination_guild_id=destination
-        ),
+        "artifact_id": str(artifact["id"]),
+        "artifact_hash": str(artifact["content_hash"]),
+        "artifact_created": artifact_created,
+        "transfer_id": str(transfer["id"]),
+        "transfer_status": str(transfer["status"]),
+        "destination_plan_id": str(plan["id"]) if plan is not None else None,
+        "destination_plan_status": str(plan["status"]) if plan is not None else None,
+        "plan_created": plan_created,
+        "provider_bindings_omitted": True,
+        "pipeline": [
+            "PORTABLE_SNAPSHOT",
+            "LANGUAGE_EXPANSION",
+            "DEPENDENCY_GRAPH",
+            "VISIBILITY_RESOLVER",
+            "TRANSLATION_TOPOLOGY",
+            "STAGE05_PREFLIGHT",
+            "DESTINATION_PLAN",
+        ],
     }
 
 

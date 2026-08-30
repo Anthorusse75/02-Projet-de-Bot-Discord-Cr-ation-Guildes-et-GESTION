@@ -142,6 +142,156 @@ def live_snapshot(*, visible: bool = True) -> GuildSnapshot:
     return GuildSnapshot(GUILD_A, 9, roles, (category, channel), coverage, fresh)
 
 
+def test_translation_topology_extends_real_portable_graph_and_destination_plan() -> None:
+    language_fr = uuid4()
+    language_en = uuid4()
+    category_variant = uuid4()
+    channel_group = uuid4()
+    group = {
+        "id": uuid4(),
+        "name": "Support",
+        "root_kind": "CATEGORY_SET",
+        "routing_mode": "HUB_AND_SPOKE",
+        "source_language_profile_id": language_fr,
+        "languages": [
+            {
+                "id": language_fr,
+                "code": "fr",
+                "display_name": "Français",
+                "enabled": True,
+            },
+            {
+                "id": language_en,
+                "code": "en",
+                "display_name": "English",
+                "enabled": True,
+            },
+        ],
+        "category_variants": [
+            {
+                "id": category_variant,
+                "language_profile_id": language_fr,
+                "discord_category_id": 323456789012345678,
+                "is_source": True,
+                "state": "ACTIVE",
+            }
+        ],
+        "channel_groups": [
+            {
+                "id": channel_group,
+                "logical_key": "support",
+                "display_name": "Support",
+                "source_language_profile_id": language_fr,
+            }
+        ],
+        "channel_variants": [
+            {
+                "id": uuid4(),
+                "translation_channel_group_id": channel_group,
+                "language_profile_id": language_fr,
+                "discord_channel_id": 423456789012345678,
+                "translation_category_variant_id": category_variant,
+                "state": "ACTIVE",
+            }
+        ],
+        "routes": [
+            {
+                "id": uuid4(),
+                "source_language_profile_id": language_fr,
+                "destination_language_profile_id": language_en,
+            }
+        ],
+    }
+    value = PortableArtifactBuilder().build_live_translation_group(
+        live_snapshot(),
+        group,
+        policies=(
+            {
+                "resource_type": "CATEGORY",
+                "discord_resource_id": 323456789012345678,
+                "visibility_policy": "OPEN_ALL",
+                "inherit_language": False,
+            },
+            {
+                "resource_type": "CHANNEL",
+                "discord_resource_id": 423456789012345678,
+                "visibility_policy": "LANGUAGE_FILTERED",
+                "inherit_language": False,
+            },
+        ),
+        provider_requirement={
+            "provider_type": "existing_translation_bot",
+            "required_capabilities": ["HUB_AND_SPOKE"],
+            "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
+            "requires_message_content": False,
+        },
+    )
+    types = {resource.resource_type for resource in value.resources}
+    assert {
+        PortableResourceType.CATEGORY,
+        PortableResourceType.CHANNEL,
+        PortableResourceType.ROLE,
+        PortableResourceType.OVERWRITE,
+        PortableResourceType.LANGUAGE_PROFILE,
+        PortableResourceType.TRANSLATION_GROUP,
+        PortableResourceType.TRANSLATION_CHANNEL_GROUP,
+        PortableResourceType.TRANSLATION_CATEGORY_VARIANT,
+        PortableResourceType.TRANSLATION_CHANNEL_VARIANT,
+        PortableResourceType.TRANSLATION_ROUTE,
+        PortableResourceType.PROVIDER_REQUIREMENT,
+    } <= types
+    graph = DependencyGraph.build(value)
+    resolutions = MappingResolver().resolve(
+        graph,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.COPY_AS_NEW,
+    )
+    compilation = DestinationPlanCompiler().compile(
+        value,
+        destination_guild_id=GUILD_B,
+        mode=CloneMode.COPY_AS_NEW,
+        resolutions=resolutions,
+    )
+    assert compilation.graph is not None
+    operations = PlanCompiler().compile(
+        destination_snapshot(), compilation.graph, plan_id=uuid4()
+    )
+    assert {operation.operation_type for operation in operations} >= {
+        OperationType.CREATE_ROLE,
+        OperationType.CREATE_CHANNEL,
+        OperationType.UPSERT_OVERWRITE,
+    }
+    assert PortableResourceType.TRANSLATION_GROUP.value in support_matrix()
+    assert "provider_instance_key" not in repr(value.canonical_payload())
+
+
+@pytest.mark.parametrize(
+    "secret_key",
+    (
+        "Access_Token",
+        "refresh-token",
+        "client_secret",
+        "api_key",
+        "api-secret",
+        "provider_secret",
+        "Credentials",
+        "Authorization",
+        "password",
+        "config_encrypted",
+    ),
+)
+def test_portable_nested_secret_variants_are_rejected(secret_key: str) -> None:
+    with pytest.raises(ValueError, match="forbidden portable field"):
+        PortableResource.build(
+            "policy.secret",
+            PortableResourceType.POLICY,
+            {
+                "name": "must-fail",
+                "rules": {"nested": {secret_key: "must-not-survive"}},
+            },
+        )
+
+
 def destination_snapshot() -> GuildSnapshot:
     source = live_snapshot()
     fresh = source.freshness

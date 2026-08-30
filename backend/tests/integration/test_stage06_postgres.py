@@ -6,21 +6,38 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from did.application.portability import PortabilityService
+from did.application.planning import PlanningService
+from did.application.portability import ArtifactKind, PortabilityService
 from did.cloning import DestinationPlanCompiler
-from did.domain.discord_runtime import CoverageMode, FreshnessState
-from did.domain.read_model import CoverageSnapshot, FreshnessSnapshot, GuildSnapshot, RoleSnapshot
+from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
+from did.domain.read_model import (
+    ChannelSnapshot,
+    CoverageSnapshot,
+    FreshnessSnapshot,
+    GuildSnapshot,
+    MemberSnapshot,
+    OverwriteSnapshot,
+    RoleSnapshot,
+)
+from did.domain.read_model.models import ChannelType
 from did.infrastructure.database import (
     create_database_engine,
     create_session_factory,
     tenant_transaction,
 )
+from did.infrastructure.discord.mutations import (
+    MutationResult,
+    PreconditionOutcome,
+    RecoveryOutcome,
+    RecoveryResult,
+)
+from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.portability_repository import (
     PortabilityRepository,
     PortableArtifactNotFound,
@@ -29,6 +46,15 @@ from did.infrastructure.portability_repository import (
     TransferNotFound,
 )
 from did.infrastructure.runtime_metrics import RuntimeMetrics
+from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+)
+from did.planning.models import OperationType
 from did.portability import (
     ArtifactCipher,
     ArtifactType,
@@ -42,6 +68,8 @@ from did.portability import (
     artifact_to_bytes,
 )
 from did.tenancy import TenantContext
+from did.worker.io.governor import DiscordWorkloadGovernor
+from did.worker.io.plan_executor import ApplyPlanExecutor
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]
 
@@ -58,6 +86,12 @@ USER_V = 660606060606060602
 GUILD_A = 660606060606060603
 GUILD_B = 660606060606060604
 BOT = 660606060606060605
+SOURCE_CATEGORY = 660606060606060610
+SOURCE_CHANNEL = 660606060606060611
+SOURCE_ROLE = 660606060606060612
+DESTINATION_CATEGORY = 660606060606060620
+DESTINATION_CHANNEL = 660606060606060621
+DESTINATION_ROLE = 660606060606060622
 
 
 async def seed() -> None:
@@ -137,6 +171,373 @@ def destination_mapping_snapshot(*role_ids: int) -> GuildSnapshot:
         coverage,
         freshness,
     )
+
+
+def translation_source_snapshot() -> GuildSnapshot:
+    now = datetime.now(UTC)
+    fresh = FreshnessSnapshot(FreshnessState.FRESH, "GATEWAY", 1, now, now, now)
+    roles = (
+        RoleSnapshot(GUILD_A, GUILD_A, "@everyone", 0, 0, False, fresh),
+        RoleSnapshot(
+            GUILD_A,
+            SOURCE_ROLE,
+            "DID Language FR",
+            1,
+            0,
+            False,
+            fresh,
+            hoist=False,
+            mentionable=False,
+        ),
+    )
+    category = ChannelSnapshot(
+        GUILD_A,
+        SOURCE_CATEGORY,
+        ChannelType.GUILD_CATEGORY,
+        0,
+        None,
+        "Support FR",
+        (),
+        True,
+        ObservabilityState.VISIBLE,
+        fresh,
+    )
+    channel = ChannelSnapshot(
+        GUILD_A,
+        SOURCE_CHANNEL,
+        ChannelType.GUILD_TEXT,
+        1,
+        SOURCE_CATEGORY,
+        "support-fr",
+        (OverwriteSnapshot(GUILD_A, SOURCE_CHANNEL, SOURCE_ROLE, 0, 1024, 0, now),),
+        True,
+        ObservabilityState.VISIBLE,
+        fresh,
+    )
+    coverage = CoverageSnapshot(
+        GUILD_A,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "GATEWAY",
+        1,
+        known_channels=2,
+        visible_channels=2,
+        known_roles=2,
+        overwrites_complete=True,
+    )
+    return GuildSnapshot(GUILD_A, USER_U, roles, (category, channel), coverage, fresh)
+
+
+def translation_destination_snapshot() -> tuple[GuildSnapshot, MemberSnapshot]:
+    now = datetime.now(UTC)
+    fresh = FreshnessSnapshot(FreshnessState.FRESH, "GATEWAY", 1, now, now, now)
+    admin_role = BOT + 100
+    roles = (
+        RoleSnapshot(GUILD_B, GUILD_B, "@everyone", 0, 0, False, fresh),
+        RoleSnapshot(GUILD_B, admin_role, "DID Bot", 1, 8, False, fresh),
+    )
+    coverage = CoverageSnapshot(
+        GUILD_B,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "GATEWAY",
+        1,
+        known_channels=0,
+        visible_channels=0,
+        known_roles=2,
+        overwrites_complete=True,
+    )
+    guild = GuildSnapshot(GUILD_B, USER_U, roles, (), coverage, fresh)
+    member = MemberSnapshot(GUILD_B, BOT, (GUILD_B, admin_role), True, fresh)
+    return guild, member
+
+
+class PassLock:
+    async def run(self, guild_id: int, operation: Any) -> Any:
+        del guild_id
+        return await operation()
+
+
+class AllowApply:
+    async def authorize_apply(self, *, guild_id: int, actor_user_id: int) -> None:
+        assert guild_id == GUILD_B
+        assert actor_user_id == USER_U
+
+
+class CloneMutationAdapter:
+    def __init__(self) -> None:
+        self.executed: list[tuple[OperationType, dict[str, Any]]] = []
+
+    async def check_preconditions(self, **kwargs: Any) -> PreconditionOutcome:
+        del kwargs
+        return PreconditionOutcome.SATISFIED
+
+    async def execute(self, **kwargs: Any) -> MutationResult:
+        operation_type = OperationType(kwargs["operation_type"])
+        payload = dict(kwargs["payload"])
+        self.executed.append((operation_type, payload))
+        if operation_type is OperationType.CREATE_ROLE:
+            result = {"id": DESTINATION_ROLE, **payload}
+        elif operation_type is OperationType.CREATE_CHANNEL:
+            resource_id = (
+                DESTINATION_CATEGORY if int(payload.get("type", 0)) == 4 else DESTINATION_CHANNEL
+            )
+            result = {"id": resource_id, **payload}
+        else:
+            result = payload
+        return MutationResult(201, result, "c" * 64)
+
+    async def recover(self, **kwargs: Any) -> RecoveryResult:
+        del kwargs
+        return RecoveryResult(RecoveryOutcome.PROVED_ABSENT, None)
+
+    async def verify(self, **kwargs: Any) -> bool:
+        del kwargs
+        return True
+
+
+@pytest.mark.asyncio
+async def test_multilingual_clone_uses_stage06_stage05_and_materializes_after_success() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=4)
+    factory = create_session_factory(engine)
+    languages = LanguageProfileRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    providers = TranslationProviderBindingRepository(factory)
+    policies = ResourceLanguagePolicyRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    planning_repository = PlanningRepository(factory)
+    runtime = RuntimeRepository(factory)
+    portability_repository = PortabilityRepository(
+        factory,
+        ArtifactCipher(InMemoryKeyProvider({1: b"t" * 32}, current_version=1)),
+    )
+    try:
+        fr = await languages.create(guild_id=GUILD_A, code="fr", display_name="French")
+        en = await languages.create(guild_id=GUILD_A, code="en", display_name="English")
+        provider = await providers.create(
+            guild_id=GUILD_A,
+            provider_type="existing_translation_bot",
+            provider_instance_key="source-only-provider",
+            capabilities={
+                "supports_hub_and_spoke": True,
+                "requires_message_content": False,
+            },
+            status="READY",
+        )
+        source_group = await groups.create_with_languages(
+            guild_id=GUILD_A,
+            name="Portable Support",
+            root_kind="CATEGORY_SET",
+            routing_mode="HUB_AND_SPOKE",
+            language_profile_ids=(UUID(str(fr["id"])), UUID(str(en["id"]))),
+            source_language_profile_id=UUID(str(fr["id"])),
+            provider_binding_id=UUID(str(provider["id"])),
+        )
+        category = await groups.create_category_variant(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(source_group["id"])),
+            language_profile_id=UUID(str(fr["id"])),
+            discord_category_id=SOURCE_CATEGORY,
+        )
+        channel_group = await groups.create_channel_group(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(source_group["id"])),
+            logical_key="support",
+            display_name="Support",
+            source_language_profile_id=UUID(str(fr["id"])),
+        )
+        await groups.create_channel_variant(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(source_group["id"])),
+            translation_channel_group_id=UUID(str(channel_group["id"])),
+            language_profile_id=UUID(str(fr["id"])),
+            discord_channel_id=SOURCE_CHANNEL,
+            translation_category_variant_id=UUID(str(category["id"])),
+        )
+        await groups.create_route(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(source_group["id"])),
+            source_language_profile_id=UUID(str(fr["id"])),
+            destination_language_profile_id=UUID(str(en["id"])),
+        )
+        await policies.upsert(
+            guild_id=GUILD_A,
+            resource_type="CATEGORY",
+            discord_resource_id=SOURCE_CATEGORY,
+            explicit_language_profile_id=UUID(str(fr["id"])),
+            visibility_policy="OPEN_ALL",
+        )
+        await policies.upsert(
+            guild_id=GUILD_A,
+            resource_type="CHANNEL",
+            discord_resource_id=SOURCE_CHANNEL,
+            explicit_language_profile_id=UUID(str(fr["id"])),
+            visibility_policy="LANGUAGE_FILTERED",
+        )
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO language_profile_roles "
+                    "(id,guild_id,language_profile_id,discord_role_id) "
+                    "VALUES (:id,:guild_id,:language_id,:role_id)"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": GUILD_A,
+                    "language_id": fr["id"],
+                    "role_id": SOURCE_ROLE,
+                },
+            )
+
+        source_snapshot = translation_source_snapshot()
+        destination_snapshot, bot_member = translation_destination_snapshot()
+
+        async def guild_snapshot(guild_id: int, actor_user_id: int) -> tuple[Any, Any]:
+            del actor_user_id
+            return (
+                (source_snapshot, None)
+                if guild_id == GUILD_A
+                else (destination_snapshot, bot_member)
+            )
+
+        read_models = SimpleNamespace(
+            guild_snapshot=AsyncMock(side_effect=guild_snapshot),
+            cached_member_snapshots=AsyncMock(return_value=[]),
+            bot_identity=AsyncMock(return_value=(BOT, "ACTIVE")),
+        )
+        planning = PlanningService(planning_repository, cast(Any, read_models))
+        portability = PortabilityService(
+            portability_repository,
+            cast(Any, read_models),
+            planning,
+            planning_repository,
+            translation_groups=groups,
+            translation_policies=policies,
+            translation_providers=providers,
+            translation_lifecycle=lifecycle,
+        )
+        artifact, artifact_created = await portability.export_live_translation_group(
+            source_guild_id=GUILD_A,
+            translation_group_id=UUID(str(source_group["id"])),
+            actor_user_id=USER_U,
+            kind=ArtifactKind.EXPORT_BUNDLE,
+            name="stage08-real-clone",
+            idempotency_key="stage08-real-clone-export",
+            correlation_id=uuid4(),
+        )
+        assert artifact_created
+        _, decrypted_artifact = await portability_repository.get_artifact(
+            USER_U, UUID(str(artifact["id"]))
+        )
+        serialized_artifact = repr(decrypted_artifact.canonical_payload())
+        assert "source-only-provider" not in serialized_artifact
+        assert "provider_binding_id" not in serialized_artifact
+        assert "config_encrypted" not in serialized_artifact
+        transfer, plan, plan_created = await portability.compile_stored(
+            actor_user_id=USER_U,
+            artifact_id=UUID(str(artifact["id"])),
+            destination_guild_id=GUILD_B,
+            mode=CloneMode.COPY_AS_NEW,
+            explicit_mappings=(),
+            idempotency_key="stage08-real-clone-compile",
+            correlation_id=uuid4(),
+            source_authorized=True,
+        )
+        assert plan_created and plan is not None and plan["status"] == "DRAFT"
+        plan_id = UUID(str(plan["id"]))
+        validated, preflight = await planning.validate(
+            guild_id=GUILD_B,
+            plan_id=plan_id,
+            actor_user_id=USER_U,
+            expected_version=int(plan["state_version"]),
+            correlation_id=uuid4(),
+            actor_authorization_fresh=True,
+        )
+        assert preflight.allowed
+        confirmed = await planning.confirm(
+            guild_id=GUILD_B,
+            plan_id=plan_id,
+            actor_user_id=USER_U,
+            idempotency_key="stage08-real-clone-confirm",
+            expected_version=int(validated["state_version"]),
+            supplied_plan_hash=str(validated["plan_hash"]),
+            reinforced_acknowledgement=True,
+            correlation_id=uuid4(),
+        )
+        await planning.apply(
+            guild_id=GUILD_B,
+            plan_id=plan_id,
+            actor_user_id=USER_U,
+            correlation_id=uuid4(),
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_B,
+            lease_owner="stage08-real-clone-worker",
+            lease_seconds=30,
+        )
+        assert leased is not None and confirmed["status"] == "CONFIRMED"
+        adapter = CloneMutationAdapter()
+        governor = DiscordWorkloadGovernor()
+        executor = ApplyPlanExecutor(
+            planning_repository,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-real-clone-worker",
+            authorization=AllowApply(),
+            preflight=planning,
+        )
+        await executor.execute_leased(GUILD_B, leased, governor)
+        assert (await planning_repository.get_plan(GUILD_B, plan_id))["status"] == "SUCCEEDED"
+
+        finalized = await portability.finalize_transfer(
+            actor_user_id=USER_U,
+            transfer_id=UUID(str(transfer["id"])),
+            correlation_id=uuid4(),
+        )
+        destination_groups = await groups.workspace(GUILD_B)
+        assert len(destination_groups) == 1
+        destination_group = destination_groups[0]
+        assert destination_group["id"] != source_group["id"]
+        assert int(destination_group["category_variants"][0]["discord_category_id"]) == (
+            DESTINATION_CATEGORY
+        )
+        assert int(destination_group["channel_variants"][0]["discord_channel_id"]) == (
+            DESTINATION_CHANNEL
+        )
+        destination_binding = await lifecycle.language_binding(
+            guild_id=GUILD_B,
+            language_profile_id=UUID(
+                str(
+                    next(
+                        row["id"]
+                        for row in destination_group["languages"]
+                        if row["code"] == "fr"
+                    )
+                )
+            ),
+        )
+        assert destination_binding is not None
+        assert int(destination_binding["discord_role_id"]) == DESTINATION_ROLE
+        assert await providers.list_bindings(GUILD_B) == []
+        source_after = await groups.workspace_group(
+            guild_id=GUILD_A,
+            group_id=UUID(str(source_group["id"])),
+        )
+        assert int(source_after["channel_variants"][0]["discord_channel_id"]) == SOURCE_CHANNEL
+        local_result = dict(finalized["local_result_json"])["translation_topology"]
+        assert local_result["provider_bindings_omitted"] is True
+        assert local_result["source_translation_group_id_propagated"] is False
+        role_payload = next(
+            payload
+            for operation, payload in adapter.executed
+            if operation is OperationType.CREATE_ROLE
+        )
+        assert role_payload["permissions"] == "0"
+        assert role_payload["hoist"] is False
+        assert role_payload["mentionable"] is False
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

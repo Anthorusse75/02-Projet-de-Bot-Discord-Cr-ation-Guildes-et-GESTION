@@ -227,6 +227,10 @@ def create_app(
                     clipboard_ttl_seconds=configured.artifact_clipboard_ttl_seconds,
                     export_ttl_seconds=configured.artifact_export_ttl_seconds,
                     metrics=runtime_repository.metrics,
+                    translation_groups=stage08_group_repository,
+                    translation_policies=stage08_policy_repository,
+                    translation_providers=stage08_provider_repository,
+                    translation_lifecycle=stage08_lifecycle_repository,
                 )
             application.state.services = ServiceContainer(
                 settings=configured,

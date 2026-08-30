@@ -77,6 +77,10 @@ def support_matrix() -> dict[str, dict[str, tuple[str, ...]]]:
         CloneMode.RECONCILE.value: ("CREATE", "MAP_EXISTING", "UPDATE", "DELETE_IN_SCOPE"),
         CloneMode.MAXIMUM_COMPATIBLE.value: ("CREATE", "MAP_EXISTING", "REPORT"),
     }
+    local_translation: dict[str, tuple[str, ...]] = {
+        mode.value: ("CREATE_DID_LOCAL_AFTER_DESTINATION_PLAN", "REPORT")
+        for mode in CloneMode
+    }
     return {
         "version": {"value": ("did-clone-support-v2",)},
         "attribute_schema": {"value": ("did-portable-attributes-v2",)},
@@ -121,6 +125,14 @@ def support_matrix() -> dict[str, dict[str, tuple[str, ...]]]:
         PortableResourceType.WEBHOOK_REFERENCE.value: {
             mode.value: ("MAP_EXISTING_CONFIRMED", "MANUAL", "REPORT") for mode in CloneMode
         },
+        PortableResourceType.LANGUAGE_PROFILE.value: local_translation,
+        PortableResourceType.TRANSLATION_GROUP.value: local_translation,
+        PortableResourceType.TRANSLATION_CHANNEL_GROUP.value: local_translation,
+        PortableResourceType.TRANSLATION_CATEGORY_VARIANT.value: local_translation,
+        PortableResourceType.TRANSLATION_CHANNEL_VARIANT.value: local_translation,
+        PortableResourceType.TRANSLATION_ROUTE.value: local_translation,
+        PortableResourceType.TRANSLATION_LANGUAGE_ROLE.value: local_translation,
+        PortableResourceType.PROVIDER_REQUIREMENT.value: local_translation,
     }
 
 
@@ -202,6 +214,14 @@ class DestinationPlanCompiler:
             if resource.resource_type in {
                 PortableResourceType.LOGICAL_GROUP,
                 PortableResourceType.POLICY,
+                PortableResourceType.LANGUAGE_PROFILE,
+                PortableResourceType.TRANSLATION_GROUP,
+                PortableResourceType.TRANSLATION_CHANNEL_GROUP,
+                PortableResourceType.TRANSLATION_CATEGORY_VARIANT,
+                PortableResourceType.TRANSLATION_CHANNEL_VARIANT,
+                PortableResourceType.TRANSLATION_ROUTE,
+                PortableResourceType.TRANSLATION_LANGUAGE_ROLE,
+                PortableResourceType.PROVIDER_REQUIREMENT,
             }:
                 dependency_resolutions = (
                     resolution_by_ref[edge.target]

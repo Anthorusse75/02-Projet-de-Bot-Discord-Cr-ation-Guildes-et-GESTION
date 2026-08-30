@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from did.api.main import create_app
-from did.api.stage08 import MultilingualCloneInput, multilingual_clone_preview
+from did.api.stage08 import MultilingualCloneInput, multilingual_clone_plan
 from did.application.auth.service import AuthorizationDenied
 from did.application.planning.service import PlanningService
 from did.application.translation import (
@@ -18,7 +18,6 @@ from did.application.translation import (
     MemberTechnicalRoleReconciler,
     RoleCapacityEngine,
     RoleOptimizer,
-    TranslationCloneExpander,
     TranslationDriftDetector,
     TranslationProviderCoordinator,
     TranslationRouteCompiler,
@@ -292,56 +291,17 @@ def test_drift_needs_positive_deletion_evidence_and_is_non_destructive() -> None
     ) == {"state": "MISSING", "drift": "MISSING_VARIANT", "repair": "PLAN_REQUIRED"}
 
 
-def test_multilingual_clone_creates_independent_group_ids_and_strips_secrets() -> None:
-    expander = TranslationCloneExpander()
-    hostile = {
-        "type": "bot",
-        "nested": {
-            "Access_Token": "one",
-            "client_secret": "two",
-            "api-key": "three",
-            "Credentials": {"password": "four"},
-        },
-    }
-    with pytest.raises(ValueError, match="secret-bearing"):
-        expander.export(
-            source_guild_id=GUILD,
-            languages=("fr", "en"),
-            groups=({"id": "group-hostile", "languages": ["fr", "en"]},),
-            provider_requirements=(hostile,),
-        )
-    artifact = expander.export(
-        source_guild_id=GUILD,
-        languages=("fr", "en"),
-        groups=(
-            {"id": "group-a", "languages": ["fr", "en"]},
-            {"id": "group-b", "languages": ["fr", "en"]},
-        ),
-        provider_requirements=(
+def test_multilingual_clone_accepts_only_a_durable_group_business_intent() -> None:
+    with pytest.raises(ValueError):
+        MultilingualCloneInput.model_validate(
             {
-                "type": "bot",
-                "required_capabilities": ["HUB_AND_SPOKE"],
-                "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
-            },
-        ),
-    )
-    expanded = expander.expand_for_destination(
-        artifact=artifact, destination_guild_id=700000000000000002
-    )
-    ids = [item["destination_translation_group_id"] for item in expanded["group_mappings"]]
-    assert len(ids) == len(set(ids)) == 2
-    serialized = artifact.to_dict()
-    assert "provider_binding" not in repr(serialized).lower()
-    assert serialized["multilingual"]["provider_requirements"] == [
-        {
-            "provider_type": "bot",
-            "required_capabilities": ["HUB_AND_SPOKE"],
-            "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
-            "requires_message_content": False,
-        }
-    ]
-    assert expanded["provider_bindings_omitted"] is True
-    assert expanded["source_unchanged"] is True
+                "destination_guild_id": "700000000000000002",
+                "translation_group_id": str(uuid4()),
+                "idempotency_key": "clone",
+                "groups": [{"id": "client-authored-topology"}],
+                "provider_requirements": [{"client_secret": "must-not-enter"}],
+            }
+        )
 
 
 def test_stage08_openapi_exposes_workspace_lifecycle_plans_and_clone() -> None:
@@ -352,7 +312,7 @@ def test_stage08_openapi_exposes_workspace_lifecycle_plans_and_clone() -> None:
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link",
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink",
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan",
-        "/api/v1/guilds/{guild_id}/multilingual-clone/preview",
+        "/api/v1/guilds/{guild_id}/multilingual-clone/plan",
     }
     assert required <= set(paths)
     arbitrary_graph_aliases = {
@@ -413,22 +373,24 @@ def test_stage08_plan_policy_orders_create_phases_and_reverses_safe_deletes() ->
 
 @pytest.mark.asyncio
 @pytest.mark.security
-async def test_multilingual_clone_authorizes_source_then_destination_before_expansion() -> None:
+async def test_multilingual_clone_authorizes_source_then_destination_before_compilation() -> None:
     destination = 700000000000000002
     body = MultilingualCloneInput.model_validate(
         {
             "destination_guild_id": str(destination),
-            "languages": ["fr", "en"],
-            "groups": [{"id": "source-group"}],
+            "translation_group_id": str(uuid4()),
+            "idempotency_key": "clone-authorized",
         }
     )
     session = cast(Any, SimpleNamespace(discord_user_id=99))
+    request = cast(Any, SimpleNamespace(state=SimpleNamespace(correlation_id=uuid4())))
 
     source_denied_authorize = AsyncMock(side_effect=AuthorizationDenied())
     with pytest.raises(AuthorizationDenied):
-        await multilingual_clone_preview(
+        await multilingual_clone_plan(
             str(GUILD),
             body,
+            request,
             session,
             cast(
                 Any,
@@ -444,9 +406,10 @@ async def test_multilingual_clone_authorizes_source_then_destination_before_expa
 
     destination_denied_authorize = AsyncMock(side_effect=deny_destination)
     with pytest.raises(AuthorizationDenied):
-        await multilingual_clone_preview(
+        await multilingual_clone_plan(
             str(GUILD),
             body,
+            request,
             session,
             cast(
                 Any,
@@ -461,16 +424,40 @@ async def test_multilingual_clone_authorizes_source_then_destination_before_expa
     ]
 
     authorize = AsyncMock()
-    result = await multilingual_clone_preview(
+    portability = SimpleNamespace(
+        export_live_translation_group=AsyncMock(
+            return_value=(
+                {"id": uuid4(), "content_hash": "a" * 64},
+                True,
+            )
+        ),
+        compile_stored=AsyncMock(
+            return_value=(
+                {"id": uuid4(), "status": "COMPILED"},
+                {"id": uuid4(), "status": "DRAFT"},
+                True,
+            )
+        ),
+    )
+    result = await multilingual_clone_plan(
         str(GUILD),
         body,
+        request,
         session,
-        cast(Any, SimpleNamespace(authorization=SimpleNamespace(authorize=authorize))),
+        cast(
+            Any,
+            SimpleNamespace(
+                authorization=SimpleNamespace(authorize=authorize),
+                portability=portability,
+            ),
+        ),
     )
     assert [call.kwargs["guild_id"] for call in authorize.await_args_list] == [
         GUILD,
         destination,
         destination,
     ]
-    assert result["preview"]["source_unchanged"] is True
-    assert result["preview"]["provider_bindings_omitted"] is True
+    assert result["destination_plan_status"] == "DRAFT"
+    assert result["provider_bindings_omitted"] is True
+    portability.export_live_translation_group.assert_awaited_once()
+    portability.compile_stored.assert_awaited_once()
