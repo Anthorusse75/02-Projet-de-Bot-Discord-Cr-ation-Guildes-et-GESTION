@@ -438,7 +438,7 @@ async def test_exact_guild_member_inventory_stays_complete_across_add_remove() -
                 "member_count": 2,
                 "members": [
                     {"user": {"id": str(ACTOR)}, "roles": [str(technical_role)]},
-                    {"user": {"id": str(bot_user)}, "roles": []},
+                    {"user": {"id": str(bot_user), "bot": True}, "roles": []},
                 ],
             },
             sequence=1,
@@ -456,6 +456,8 @@ async def test_exact_guild_member_inventory_stays_complete_across_add_remove() -
         assert await repository.ingest_gateway_event(removed) is True
         guild, _ = await read_models.guild_snapshot(GUILD_A, bot_user)
         assert guild.coverage.members_complete is True
+        _, bot_member = await read_models.guild_snapshot(GUILD_A, bot_user)
+        assert bot_member.is_bot is True
         assert await read_models.member_ids_with_role(GUILD_A, technical_role) == ()
 
         added = dispatch(
@@ -470,6 +472,22 @@ async def test_exact_guild_member_inventory_stays_complete_across_add_remove() -
         assert await repository.ingest_gateway_event(added) is True
         guild, _ = await read_models.guild_snapshot(GUILD_A, ACTOR)
         assert guild.coverage.members_complete is True
+
+        count = await repository.apply_complete_rest_member_snapshot(
+            guild_id=GUILD_A,
+            members=(
+                {
+                    "discord_user_id": bot_user,
+                    "role_ids": [GUILD_A, technical_role],
+                    "is_bot": True,
+                },
+            ),
+            correlation_id=uuid4(),
+        )
+        guild, bot_member = await read_models.guild_snapshot(GUILD_A, bot_user)
+        assert count == 1 and guild.coverage.members_complete is True
+        assert bot_member.is_bot is True
+        assert await read_models.member_ids_with_role(GUILD_A, technical_role) == (bot_user,)
     finally:
         await engine.dispose()
 

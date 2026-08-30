@@ -1246,16 +1246,18 @@ class RuntimeRepository:
         await session.execute(
             text(
                 "INSERT INTO discord_member_authorization_cache "
-                "(guild_id, discord_user_id, role_ids, source, validity, observed_at) VALUES "
-                "(:guild_id, :user_id, :role_ids, 'GATEWAY', 'FRESH', :seen_at) "
+                "(guild_id, discord_user_id, role_ids, is_bot, source, validity, observed_at) "
+                "VALUES (:guild_id, :user_id, :role_ids, :is_bot, 'GATEWAY', 'FRESH', :seen_at) "
                 "ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET "
-                "role_ids=EXCLUDED.role_ids, source='GATEWAY', validity='FRESH', "
+                "role_ids=EXCLUDED.role_ids,is_bot=EXCLUDED.is_bot,source='GATEWAY',"
+                "validity='FRESH', "
                 "observed_at=EXCLUDED.observed_at, invalidated_at=NULL, cache_updated_at=now()"
             ).bindparams(bindparam("role_ids")),
             {
                 "guild_id": envelope.guild_id,
                 "user_id": int(envelope.payload["discord_user_id"]),
                 "role_ids": [int(role_id) for role_id in envelope.payload["role_ids"]],
+                "is_bot": bool(envelope.payload.get("is_bot", False)),
                 "seen_at": envelope.received_at,
             },
         )
@@ -1791,6 +1793,78 @@ class RuntimeRepository:
                 correlation_id=correlation_id,
                 causation_id=None,
             )
+
+    async def apply_complete_rest_member_snapshot(
+        self,
+        *,
+        guild_id: int,
+        members: Iterable[dict[str, Any]],
+        correlation_id: UUID,
+        observed_at: datetime | None = None,
+    ) -> int:
+        """Replace member authorization cache after a fully paginated Discord REST listing."""
+        observed = observed_at or datetime.now(UTC)
+        rows = tuple(members)
+        member_ids = [int(row["discord_user_id"]) for row in rows]
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("complete member snapshot contains duplicate users")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": guild_id},
+            )
+            for member in rows:
+                await session.execute(
+                    text(
+                        "INSERT INTO discord_member_authorization_cache "
+                        "(guild_id,discord_user_id,role_ids,is_bot,source,validity,observed_at) "
+                        "VALUES (:guild_id,:user_id,:role_ids,:is_bot,'FULL_REST_LIST','FRESH',"
+                        ":observed_at)"
+                    ).bindparams(bindparam("role_ids")),
+                    {
+                        "guild_id": guild_id,
+                        "user_id": int(member["discord_user_id"]),
+                        "role_ids": sorted({int(value) for value in member.get("role_ids", [])}),
+                        "is_bot": bool(member.get("is_bot", False)),
+                        "observed_at": observed,
+                    },
+                )
+            await session.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id,coverage_mode,freshness_state,known_members,member_count,"
+                    "members_complete,last_full_member_sync_at,last_successful_rest_sync_at) "
+                    "VALUES (:guild_id,'PARTIAL','FRESH',:count,:count,true,:observed_at,"
+                    ":observed_at) ON CONFLICT (guild_id) DO UPDATE SET "
+                    "known_members=:count,member_count=:count,members_complete=true,"
+                    "last_full_member_sync_at=:observed_at,"
+                    "last_successful_rest_sync_at=:observed_at,"
+                    "freshness_state=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED','DISCONNECTED') THEN 'STALE' ELSE 'FRESH' END,"
+                    "state_version=discord_cache_coverage.state_version+1,updated_at=now()"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "count": len(rows),
+                    "observed_at": observed,
+                },
+            )
+            await self._append_outbox(
+                session,
+                guild_id=guild_id,
+                topic="discord.cache.members.reconciled",
+                payload={
+                    "guild_id": str(guild_id),
+                    "resource_type": "members",
+                    "count": len(rows),
+                    "complete": True,
+                },
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+        return len(rows)
 
     async def mark_structure_sync_complete(
         self, guild_id: int, *, completed_at: datetime | None = None

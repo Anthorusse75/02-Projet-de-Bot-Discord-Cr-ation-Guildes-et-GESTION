@@ -913,6 +913,7 @@ class Stage04Repository:
             tuple(int(role_id) for role_id in row["role_ids"]),
             validity in {"FRESH", "STALE"},
             FreshnessSnapshot(freshness, str(row["source"]), 1, row["cache_updated_at"]),
+            is_bot=bool(row.get("is_bot", False)),
             private_thread_memberships=memberships,
             private_thread_membership_known=known,
         )

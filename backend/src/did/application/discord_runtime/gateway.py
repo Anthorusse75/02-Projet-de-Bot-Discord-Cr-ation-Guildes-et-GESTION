@@ -250,6 +250,7 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
         return {
             "discord_user_id": _snowflake(user.get("id"), "member.user.id"),
             "role_ids": [_snowflake(role_id, "member.roles[]") for role_id in roles],
+            "is_bot": bool(user.get("bot", False)),
         }
     if event_type == "GUILD_MEMBER_REMOVE":
         user = data.get("user")
@@ -292,6 +293,7 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
                         "role_ids": [
                             _snowflake(role_id, "member.roles[]") for role_id in member_roles
                         ],
+                        "is_bot": bool(user.get("bot", False)),
                     }
                 )
         return {

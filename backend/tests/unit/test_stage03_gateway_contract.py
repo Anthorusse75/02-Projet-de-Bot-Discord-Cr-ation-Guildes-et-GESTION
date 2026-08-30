@@ -261,6 +261,7 @@ def test_guild_create_proves_member_completeness_only_from_exact_count() -> None
         {
             "discord_user_id": 555555555555555555,
             "role_ids": [444444444444444444],
+            "is_bot": False,
         }
     ]
     assert partial.payload["members_complete"] is False
