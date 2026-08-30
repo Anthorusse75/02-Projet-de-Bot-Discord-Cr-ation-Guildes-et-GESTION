@@ -2,64 +2,64 @@
 
 ## État de la candidate
 
-- Statut global : `STAGE_08_COMPLETE_DRAFT_PR_OPEN`.
+- Statut global : `STAGE_08_IMPLEMENTATION_IN_PROGRESS` — corrections deep-review intégrées et re-qualifiées non-live ; validation live bloquée par un sandbox externe à nettoyer (voir `BLOCKED_SANDBOX_RECOVERY` ci-dessous).
 - Base `main` : `252a4661195a3868acd04a2987453e23fc6ee4ff`.
 - Branche : `stage/08-multilingual-topology` ; PR #8 conservée en Draft.
-- Les 43 IDs sont temporairement `IN_PROGRESS` pendant la correction des findings de deep review. Aucun ne reviendra à `IMPLEMENTED` sans preuve intégrée conforme ; `VERIFIED` reste réservé à la qualification transverse.
+- Les 43 IDs repassent `IMPLEMENTED` avec preuve intégrée réévaluée (fichier:ligne + test) ci-dessous ; `VERIFIED` reste réservé à la qualification transverse.
 - STAGE 09 : `NOT_STARTED` et interdit avant merge de STAGE 08.
 
 ## Matrice des 43 IDs
 
 | REQ ID | Implémentation principale | Test / preuve | Statut |
 |---|---|---|---|
-| REQ-I18N-001 | `translation_topology.py`, migration `0014_stage_08` : identités Language/Group/Scope séparées | preuve à réévaluer | IN_PROGRESS |
-| REQ-I18N-002 | `translation_groups` tenant-scoped, clés composites et RLS | preuve à réévaluer | IN_PROGRESS |
-| REQ-I18N-003 | variants/routes liés au groupe, aucune association implicite | isolation intra-Guild à corriger et prouver | IN_PROGRESS |
-| REQ-I18N-004 | `translation_channel_groups.id` stable ; `display_name` renommable via migration `0015_stage_08` | isolation parent/enfant à corriger et prouver | IN_PROGRESS |
-| REQ-I18N-005 | `ResourceLanguageResolver` SELF/CATEGORY/NONE, override explicite | preuve intégrée à réévaluer | IN_PROGRESS |
-| REQ-I18N-006 | liaison explicite de variants indépendante du parent category | compatibilité et parentage à corriger | IN_PROGRESS |
-| REQ-I18N-007 | `TranslationRouteCompiler` HUB/CUSTOM/FULL_MESH conditionné | autorité backend à corriger | IN_PROGRESS |
-| REQ-I18N-008 | clone intégré au pipeline portable 06→05 | pipeline réel et live A→B requis | IN_PROGRESS |
-| REQ-I18N-009 | `add_language_delta` transactionnel, sans recréation | langue disabled/version atomique à prouver | IN_PROGRESS |
-| REQ-I18N-010 | retrait de langue non destructif par défaut | compiler métier→DSG requis | IN_PROGRESS |
-| REQ-I18N-011 | `unlink_variant` retire uniquement l’association logique | isolation parent/enfant à corriger | IN_PROGRESS |
-| REQ-I18N-012 | liaison manuelle confirmée et compatible | validation backend autoritative requise | IN_PROGRESS |
-| REQ-I18N-013 | ActionRegistry exécute les intents réels | exécution backend et E2E réel requis | IN_PROGRESS |
-| REQ-I18N-014 | déclaration de langue séparée de la visibilité, défaut OPEN_ALL | modèle sémantique unifié à réévaluer | IN_PROGRESS |
-| REQ-I18N-015 | compiler OPEN_ALL/LANGUAGE_FILTERED/SCOPE_AND_LANGUAGE/CUSTOM explicite | contradiction LANGUAGE_FILTERED à corriger | IN_PROGRESS |
-| REQ-I18N-016 | aucune approximation Discord « rôle Scope + rôle Language = AND » | lifecycle réel à prouver | IN_PROGRESS |
-| REQ-I18N-017 | binding durable Visibility Scope × Language | write-through après vérification requis | IN_PROGRESS |
-| REQ-I18N-018 | unicité/réutilisation du binding indépendante du Translation Group | concurrence et rôle réel requis | IN_PROGRESS |
-| REQ-I18N-019 | rôle technique `permissions=0`, `hoist=false`, `mentionable=false` | création/vérification réelle requise | IN_PROGRESS |
-| REQ-I18N-020 | optimizer et capacité protègent les plans réels | preflight autoritatif requis | IN_PROGRESS |
-| REQ-I18N-021 | budget d’overwrites par salon | inventaire cache-first autoritatif requis | IN_PROGRESS |
-| REQ-I18N-022 | aucun member overwrite comme stratégie standard | reconciler applicatif réel requis | IN_PROGRESS |
-| REQ-I18N-023 | intersection langues visibles × scopes réellement acquis | chargement autoritatif requis | IN_PROGRESS |
-| REQ-I18N-024 | aucun rôle universel ALL_LANGUAGES | lifecycle membre à réévaluer | IN_PROGRESS |
-| REQ-I18N-025 | port abstrait `TranslationProvider` et registry | orchestration lifecycle requise | IN_PROGRESS |
-| REQ-I18N-026 | capacités/health provider autoritatives | valeurs client non fiables à retirer | IN_PROGRESS |
-| REQ-I18N-026A | adapter bot existant non invasif ; mode manuel | vérification de transition requise | IN_PROGRESS |
-| REQ-I18N-027 | topologie DID sans intent MESSAGE_CONTENT | preuve live réelle à renouveler | IN_PROGRESS |
-| REQ-I18N-028 | `requires_message_content` appartient aux capacités provider | preuve provider à réévaluer | IN_PROGRESS |
-| REQ-I18N-029 | MISSING seulement sur preuve backend positive | intégration Gateway requise | IN_PROGRESS |
-| REQ-I18N-030 | drift visible et réparation par plan | projector et plan réel requis | IN_PROGRESS |
-| REQ-I18N-031 | clone A→B avec nouveaux IDs et aucune liaison live | clone destination réel requis | IN_PROGRESS |
-| REQ-I18N-032 | aucun secret provider dans l’artifact | DTO allowlist et tests imbriqués requis | IN_PROGRESS |
-| REQ-I18N-033 | état provider partiel diagnostiquable, sans rollback destructif | orchestration post-vérification requise | IN_PROGRESS |
-| REQ-I18N-034 | Translation Workspace complète et arborescente | cibles/actions réelles à corriger | IN_PROGRESS |
-| REQ-I18N-035 | audit des mutations STAGE 08 | nouveaux lifecycles à auditer | IN_PROGRESS |
-| REQ-I18N-036 | preflight présence/permissions effectives provider | autorité cache/read-model requise | IN_PROGRESS |
-| REQ-I18N-037 | ADMINISTRATOR jamais recommandé, seulement signalé | preuve autoritative à réévaluer | IN_PROGRESS |
-| REQ-I18N-038 | accès provider séparé des rôles humains | preuve lifecycle à réévaluer | IN_PROGRESS |
-| REQ-I18N-039 | choix de langue incapable d’accorder un scope métier | reconciler autoritatif requis | IN_PROGRESS |
-| REQ-I18N-040 | source ONBOARDING et réconciliation déterministe | bridge applicatif réel requis | IN_PROGRESS |
-| REQ-I18N-041 | ensemble zéro/une/plusieurs langues, aucun primary | preuve intégrée à réévaluer | IN_PROGRESS |
-| REQ-I18N-042 | disable/retrait sans fallback silencieux | delta disabled/version à prouver | IN_PROGRESS |
+| REQ-I18N-001 | `translation_topology.py`, migration `0014_stage_08` : identités Language/Group/Scope séparées | isolation A/B PostgreSQL prouvée (test_stage08_application_postgres.py:277-382) | IMPLEMENTED |
+| REQ-I18N-002 | `translation_groups` tenant-scoped, clés composites et RLS | RLS + composite keys PostgreSQL (test_postgres_rls.py, test_stage08_persistence.py) | IMPLEMENTED |
+| REQ-I18N-003 | variants/routes liés au groupe, aucune association implicite | test_same_guild_nested_children_cannot_cross_translation_group_boundary (application_postgres.py:277-382) | IMPLEMENTED |
+| REQ-I18N-004 | `translation_channel_groups.id` stable ; `display_name` renommable via migration `0015_stage_08` | migration 0015 rename + isolation A/B (idem REQ-I18N-003) | IMPLEMENTED |
+| REQ-I18N-005 | `ResourceLanguageResolver` SELF/CATEGORY/NONE, override explicite | resolver SELF/CATEGORY/NONE (unit test_stage08_translation_topology.py) | IMPLEMENTED |
+| REQ-I18N-006 | liaison explicite de variants indépendante du parent category | link compatibility service.py:716-729 + FK group-scoped (0014_stage_08) | IMPLEMENTED |
+| REQ-I18N-007 | `TranslationRouteCompiler` HUB/CUSTOM/FULL_MESH conditionné | route compiler unit tests (test_stage08_translation_topology.py) | IMPLEMENTED |
+| REQ-I18N-008 | clone intégré au pipeline portable 06→05 | clone Stage06 reel (test_stage06_postgres.py, test_stage06_portability.py) | IMPLEMENTED |
+| REQ-I18N-009 | `add_language_delta` transactionnel, sans recréation | delta atomique + rejet langue disabled (application_postgres.py:218-226) | IMPLEMENTED |
+| REQ-I18N-010 | retrait de langue non destructif par défaut | unlink non destructif (application_postgres.py) | IMPLEMENTED |
+| REQ-I18N-011 | `unlink_variant` retire uniquement l’association logique | detach_variant isolation logique (idem REQ-I18N-003) | IMPLEMENTED |
+| REQ-I18N-012 | liaison manuelle confirmée et compatible | link explicite requis, pas d'inference nom (api/stage08.py) | IMPLEMENTED |
+| REQ-I18N-013 | ActionRegistry exécute les intents réels | dispatcher.ts:96-141 + stage08.spec.ts:52,63,69 | IMPLEMENTED |
+| REQ-I18N-014 | déclaration de langue séparée de la visibilité, défaut OPEN_ALL | policy OPEN_ALL par defaut (unit test_stage08_authoritative_planning.py) | IMPLEMENTED |
+| REQ-I18N-015 | compiler OPEN_ALL/LANGUAGE_FILTERED/SCOPE_AND_LANGUAGE/CUSTOM explicite | create_visibility_plan 4 politiques (planning.py:86-155) | IMPLEMENTED |
+| REQ-I18N-016 | aucune approximation Discord « rôle Scope + rôle Language = AND » | binding unique derive, jamais deux roles ANDes (planning.py:86-155) | IMPLEMENTED |
+| REQ-I18N-017 | binding durable Visibility Scope × Language | VisibilityScopeLanguageRepository durable (stage08_repository.py:1563+) | IMPLEMENTED |
+| REQ-I18N-018 | unicité/réutilisation du binding indépendante du Translation Group | reuse binding group-independant (test_stage05_postgres.py concurrence) | IMPLEMENTED |
+| REQ-I18N-019 | rôle technique `permissions=0`, `hoist=false`, `mentionable=false` | hoist=False/mentionable=False/permissions=0 (planning.py:167-268) | IMPLEMENTED |
+| REQ-I18N-020 | optimizer et capacité protègent les plans réels | budget role sur cache reel (planning.py:123) | IMPLEMENTED |
+| REQ-I18N-021 | budget d’overwrites par salon | budget overwrite 1000/salon (planning.py:133) | IMPLEMENTED |
+| REQ-I18N-022 | aucun member overwrite comme stratégie standard | aucun member overwrite (planning.py:330-419) | IMPLEMENTED |
+| REQ-I18N-023 | intersection langues visibles × scopes réellement acquis | intersection langues x scopes acquis (planning.py:330-419) | IMPLEMENTED |
+| REQ-I18N-024 | aucun rôle universel ALL_LANGUAGES | aucun role ALL_LANGUAGES (planning.py:86-155) | IMPLEMENTED |
+| REQ-I18N-025 | port abstrait `TranslationProvider` et registry | TranslationProvider Protocol (translation_topology.py:58) | IMPLEMENTED |
+| REQ-I18N-026 | capacités/health provider autoritatives | capacites derivees cache+PermissionEvaluator, jamais client (provider_orchestration.py:36-178) | IMPLEMENTED |
+| REQ-I18N-026A | adapter bot existant non invasif ; mode manuel | PROVIDER_PENDING/APPLIED_WITH_PENDING_PROVIDER (migration 0019) + verify_manual_configuration | IMPLEMENTED |
+| REQ-I18N-027 | topologie DID sans intent MESSAGE_CONTENT | validate_discord_live_stage08.py: intents.members seul, message_content=false | IMPLEMENTED |
+| REQ-I18N-028 | `requires_message_content` appartient aux capacités provider | requires_message_content sur capacites provider (translation_topology.py:276) | IMPLEMENTED |
+| REQ-I18N-029 | MISSING seulement sur preuve backend positive | MISSING sur preuve positive seulement (service.py:432,890) | IMPLEMENTED |
+| REQ-I18N-030 | drift visible et réparation par plan | repair=PLAN_REQUIRED, aucune suppression auto (service.py:432) | IMPLEMENTED |
+| REQ-I18N-031 | clone A→B avec nouveaux IDs et aucune liaison live | nouveaux logical_key destination, live_source_link=false (cloning/builder.py) | IMPLEMENTED |
+| REQ-I18N-032 | aucun secret provider dans l’artifact | allowlist + blacklist recursive (portability/artifact.py:85-411) | IMPLEMENTED |
+| REQ-I18N-033 | état provider partiel diagnostiquable, sans rollback destructif | APPLIED_WITH_PENDING_PROVIDER diagnosticable, pas de rollback auto (migration 0019) | IMPLEMENTED |
+| REQ-I18N-034 | Translation Workspace complète et arborescente | workspace cache-first (service.py:903-918) + stage08.spec.ts:38 | IMPLEMENTED |
+| REQ-I18N-035 | audit des mutations STAGE 08 | internal_audit_events (stage08_repository.py:1667) | IMPLEMENTED |
+| REQ-I18N-036 | preflight présence/permissions effectives provider | access_preflight presence+permissions par variant (provider_orchestration.py:36-178) | IMPLEMENTED |
+| REQ-I18N-037 | ADMINISTRATOR jamais recommandé, seulement signalé | PROVIDER_HAS_ADMINISTRATOR warning seulement (service.py:358-359) | IMPLEMENTED |
+| REQ-I18N-038 | accès provider séparé des rôles humains | preflight provider separe des roles humains (provider_orchestration.py:36-178) | IMPLEMENTED |
+| REQ-I18N-039 | choix de langue incapable d’accorder un scope métier | intersection langues x scopes deja acquis (planning.py:330-419) | IMPLEMENTED |
+| REQ-I18N-040 | source ONBOARDING et réconciliation déterministe | source ONBOARDING + reconciliation deterministe (translation_topology.py) | IMPLEMENTED |
+| REQ-I18N-041 | ensemble zéro/une/plusieurs langues, aucun primary | member_language_set_is_valid zero/un/plusieurs (translation_topology.py:372-377) + stage08.spec.ts:46 | IMPLEMENTED |
+| REQ-I18N-042 | disable/retrait sans fallback silencieux | rejet disabled preserve l'ensemble existant (application_postgres.py:218-226) | IMPLEMENTED |
 
 ## Gates de candidate
 
 - `python scripts/validate_stage.py 08` : PASS.
-- `python scripts/validate_stage.py 08 --profile e2e` : PASS, 39 scénarios cumulés dont 8 propres à STAGE 08.
-- `python scripts/validate_stage.py 08 --include-discord-live` : PASS avec Guild A/B réelles, sans secret ni identifiant Discord dans la preuve.
-- Migration réversible `0013_stage_07 → 0014_stage_08 → 0015_stage_08 → 0013_stage_07 → head` : PASS.
+- `python scripts/validate_stage.py 08 --profile e2e` : PASS, 40 scénarios Playwright cumulés dont 8 propres à STAGE 08.
+- `python scripts/validate_stage.py 08 --include-discord-live` : **BLOCKED_SANDBOX_RECOVERY**. Diagnostic en lecture seule : Guild B sandbox conserve 4 salons `DID-STAGE08-TEST-*` d'une exécution antérieure au correctif d'ordre des overwrites ; 2 d'entre eux (`guides-fr`, `guides-en`) refusent au bot `VIEW_CHANNEL` et `MANAGE_CHANNELS` au niveau du salon. Le pipeline DID ne peut pas les administrer sans preuve de capacité, et `ADMINISTRATOR` n'est pas une solution acceptée. Guild A est propre. Le validateur écrit lui-même `status=BLOCKED_CAPABILITY_CONFIGURATION` (échec fermé), cohérent avec ce diagnostic. Résolution : suppression manuelle des salons `DID-STAGE08-TEST-*` restants dans Guild B, ou fourniture d'une Guild B sandbox neuve.
+- Migration réversible `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08 → 0013_stage_07 → head`, tête unique `0021_stage_08` : PASS.
 - Secret scan, docs, Ruff, format, MyPy, frontend lint/typecheck/build/i18n/OpenAPI : PASS.

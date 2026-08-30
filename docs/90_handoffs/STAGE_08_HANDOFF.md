@@ -1,18 +1,19 @@
 # Handoff STAGE 08 — Contenu multilingue et topologie de traduction
 
-> **Statut réouvert après deep review :** les preuves de la candidate `f538105` sont insuffisantes pour
-> plusieurs comportements intégrés. STAGE 08 est `STAGE_08_IMPLEMENTATION_IN_PROGRESS`, la PR #8 reste
-> Draft et non mergée, et les affirmations de clôture ci-dessous sont historiques jusqu'à leur remplacement
-> par les preuves correctives.
+> **Statut :** corrections de deep review intégrées et re-vérifiées contre le code actuel (voir
+> `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`). STAGE 08 reste
+> `STAGE_08_IMPLEMENTATION_IN_PROGRESS` uniquement parce que la validation live est bloquée par un sandbox
+> Discord externe à nettoyer (`BLOCKED_SANDBOX_RECOVERY`) ; aucun defect fonctionnel ou de sécurité n'est
+> ouvert dans le code. La PR #8 reste Draft et non mergée.
 
 | Champ | Valeur |
 |---|---|
-| Date | `2026-08-29` |
+| Date | `2026-08-30` |
 | Base main | `252a4661195a3868acd04a2987453e23fc6ee4ff` |
 | Branche | `stage/08-multilingual-topology` |
 | PR | `#8`, Draft, non mergée |
-| Migration | `0015_stage_08` après `0014_stage_08` et `0013_stage_07`; tête unique |
-| Statut | `STAGE_08_COMPLETE_DRAFT_PR_OPEN` |
+| Migration | `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08` ; tête unique `0021_stage_08` ; rehearsal down/up validé |
+| Statut | `STAGE_08_IMPLEMENTATION_IN_PROGRESS` (bloqué uniquement par le nettoyage sandbox live) |
 | Dernière étape intégrée | `STAGE_07_REACT_DASHBOARD_I18N_AND_INTERACTIONS` |
 | Étape suivante | `STAGE_09_NOT_STARTED_FORBIDDEN_UNTIL_STAGE08_MERGED` |
 
@@ -21,13 +22,16 @@
 STAGE 08 sépare durablement Language Profile, Translation Group, Translation Channel Group, variant,
 route, Visibility Scope et binding provider. Toutes les entités persistées portent `guild_id`, utilisent
 des clés/FK composites tenant-safe et sont protégées par `ENABLE/FORCE RLS`. Les IDs logiques restent
-stables quand un groupe ou un salon logique est renommé. La migration `0015_stage_08` ajoute précisément
-le `display_name` renommable d’un Translation Channel Group sans changer son identité.
+stables quand un groupe ou un salon logique est renommé. L'isolation intra-Guild entre deux Translation
+Groups (rename, unlink variant/catégorie, link avec groupe étranger) est prouvée par PostgreSQL
+(`backend/tests/integration/test_stage08_application_postgres.py:277-382`).
 
-La couche application fournit les cas d’usage langues, groupes, variants, routes, visibilité, capacité,
+La couche application fournit les cas d'usage langues, groupes, variants, routes, visibilité, capacité,
 provider, drift et clone multilingue. Les routers FastAPI autorisent avant lecture/écriture et délèguent
-aux services/repositories. Le clone inter-Guild exige lecture sur la source puis création et écriture sur
-la destination. Aucun router ou composant frontend n’appelle Discord pour muter la structure.
+aux services/repositories. Aucune route Stage08 n'accepte de DSG arbitraire construit côté client : le
+serveur compile les intents métier lui-même. Le clone inter-Guild exige lecture sur la source puis création
+et écriture sur la destination via le vrai moteur Stage06 (Portable Artifact, Dependency Graph, Clone
+compiler, Planning Service, Destination Plan, matérialisation post-vérification).
 
 Les changements Discord passent par le DSG et le Plan Engine STAGE 05 : plan, preflight, confirmation,
 job durable, worker, governor, adapter, vérification et audit. Les routes de plan couvrent création de
@@ -41,61 +45,84 @@ drift. Les garanties effectively-once, `UNKNOWN_OUTCOME` et récupération reste
   `EXPLICIT`, `ONBOARDING`, `SYNC` ou `MANUAL`, aucun fallback implicite.
 - Résolution ressource : `SELF`, `CATEGORY`, `NONE`; override salon prioritaire, héritage seulement si
   demandé, profil disabled/missing refusé.
-- Groupes : create/read/rename, deux groupes FR/EN restent indépendants.
+- Groupes : create/read/rename, deux groupes FR/EN restent indépendants et isolés (preuve PostgreSQL A/B).
 - Routes : `HUB_AND_SPOKE`, `CUSTOM`, `FULL_MESH` seulement sur capacité provider connue et supportée.
-- Ajout de langue : delta transactionnel ; les variants valides existants sont conservés.
-- Retrait/unlink : non destructif par défaut ; aucune ressource Discord n’est supprimée implicitement.
+- Ajout de langue : delta transactionnel ; une langue désactivée est rejetée avant toute mutation, sans
+  incrément de version CAS ; les variants valides existants sont conservés.
+- Retrait/unlink : non destructif par défaut ; aucune ressource Discord n'est supprimée implicitement ;
+  scopé strictement au groupe propriétaire (isolation A/B).
 - Link : sélection explicite confirmée, aucune inférence silencieuse par nom ou langue.
 - Concurrence : CAS `expected_version` pour mutations groupe/routes et contraintes PostgreSQL pour les
-  courses d’unicité.
+  courses d'unicité.
 - Drift : omission simple = observabilité incertaine ; seule une preuve positive marque le variant
   `MISSING`; la réparation est proposée par plan sans propagation destructive.
 
 ## Visibilité Scope × Language
 
 Discord agrège les overwrites de rôles et ne fournit pas un opérateur logique AND entre deux rôles.
-Le compiler n’utilise donc jamais « Scope Role + Language Role ». `SCOPE_AND_LANGUAGE` matérialise un
+Le compiler n'utilise donc jamais « Scope Role + Language Role ». `SCOPE_AND_LANGUAGE` matérialise un
 binding technique durable `(guild_id, visibility_scope_id, language_profile_id)` réutilisable entre
-Translation Groups. Le salon reçoit un deny `VIEW_CHANNEL` pour `@everyone` et un allow pour ce rôle
-dérivé. `LANGUAGE_FILTERED` utilise le même mécanisme avec son scope explicite ; `OPEN_ALL` n’ajoute
-aucune restriction ; `CUSTOM` exige ses overwrites explicites.
+Translation Groups, via un binding kind `SCOPE_LANGUAGE` distinct. `LANGUAGE_FILTERED` utilise un rôle
+technique global de langue (binding kind `LANGUAGE`), sémantiquement séparé de `SCOPE_AND_LANGUAGE`.
+`OPEN_ALL` n'ajoute aucune restriction ; `CUSTOM` exige ses overwrites explicites.
 
-Un rôle technique lazy possède `permissions=0`, `hoist=false`, `mentionable=false`. Le reconciler ne
-crée que l’intersection entre langues visibles et scopes métier déjà acquis : un choix de langue ne peut
-jamais accorder un scope. Il n’émet ni member overwrite ni rôle `ALL_LANGUAGES`. L’optimizer réutilise
-les bindings et ne propose un cleanup que si le rôle n’est référencé par aucun overwrite ni membre.
+`Stage08StructuralPlanningService` compile ces plans depuis la topologie durable et le cache Discord
+autoritatif : réservation concurrent-safe, rôle lazy, budget rôle (`DISCORD_ROLE_LIMIT` contre le cache
+réel `guild.roles`), budget overwrites (`DISCORD_OVERWRITE_LIMIT` contre le cache réel des overwrites de
+salon), DSG Stage05, plan, matérialisation après vérification, réutilisation, et cleanup fail-closed (le
+cleanup du rôle technique exige une preuve de couverture membre complète — `coverage.mode=FULL`,
+`freshness=FRESH`, `members_complete`/`roles_complete`/`channels_complete` — sinon il échoue fermé sans
+bloquer le reste de la plateforme).
 
-Les preflights exposent compte courant, delta, réutilisation, limite, projection et reste. Le rôle 250+1
-et l’overwrite 1000+1 sont bloqués avant plan.
+Un rôle technique lazy possède `permissions=0`, `hoist=false`, `mentionable=false`. Le reconciler
+(`create_member_role_plan`) recharge les langues visibles durables, résout les scopes via
+`ScopeMembershipResolver`, recharge les bindings techniques et lit les rôles membre depuis le cache Discord
+autoritatif — jamais depuis des données fournies par le client. Il ne crée que l'intersection entre langues
+visibles et scopes métier déjà acquis : un choix de langue ne peut jamais accorder un scope. Il n'émet ni
+member overwrite ni rôle `ALL_LANGUAGES`.
 
 ## Matrice provider
 
 | Situation | Décision |
 |---|---|
-| capacité connue et supportée | topologie autorisée, sous réserve du preflight d’accès |
+| capacité connue et supportée | topologie autorisée, sous réserve du preflight d'accès |
 | capacité inconnue ou non supportée | échec fermé, notamment pour `FULL_MESH` |
 | bot absent | `NOT_INSTALLED`, aucune corruption de topologie |
 | automation sûre disponible | préparation puis `PREPARED_NOT_VERIFIED`; jamais READY avant vérification |
-| bot existant sans interface sûre | `MANUAL_CONFIGURATION_REQUIRED` avec instructions et `PENDING_MANUAL_VERIFICATION` |
-| provider dégradé/échec après structure | état diagnostiquable, aucune suppression/rollback automatique |
+| bot existant sans interface sûre | `MANUAL_CONFIGURATION_REQUIRED` avec instructions et `PENDING_MANUAL_VERIFICATION` / `PROVIDER_PENDING` |
+| provider dégradé/échec après structure | `APPLIED_WITH_PENDING_PROVIDER`, état diagnostiquable, aucune suppression/rollback automatique |
 
-`TranslationProvider` est un port réel. L’adapter du bot de traduction existant est non invasif : aucune
-nouvelle API, aucun changement de schéma externe, aucun partage de token et aucune sérialisation de
-secret. `requires_message_content` appartient aux capacités du provider ; DID n’active pas
-`MESSAGE_CONTENT` pour gérer la topologie. Le preflight vérifie présence et permissions effectives
-minimales sur chaque variant. `ADMINISTRATOR` produit un warning et n’est jamais recommandé. Les rôles
-d’audience humaine ne sont pas utilisés comme accès principal du bot provider.
+`TranslationProvider` est un port réel (`Protocol`). `Stage08ProviderOrchestrationService.access_preflight`
+dérive les capacités/permissions depuis le Translation Group durable, le Provider Binding durable, le cache
+Stage04 et un `PermissionEvaluator` — le navigateur ne peut plus déclarer lui-même des capacités ou
+permissions autoritatives. `READY` reste prouvablement inatteignable avant `verify_manual_configuration`.
+L'adapter du bot de traduction existant est non invasif : aucune nouvelle API, aucun changement de schéma
+externe, aucun partage de token et aucune sérialisation de secret. `requires_message_content` appartient
+aux capacités du provider ; DID n'active pas `MESSAGE_CONTENT` pour gérer la topologie. Le preflight vérifie
+présence et permissions effectives minimales sur chaque variant. `ADMINISTRATOR` produit un warning et
+n'est jamais recommandé. Les rôles d'audience humaine ne sont pas utilisés comme accès principal du bot
+provider.
 
 ## Clone multilingue
 
-Le format `did-portable-multilingual-v&#49;` exécute conceptuellement :
+Le vrai moteur Stage06 exécute :
 
 `PORTABLE_SNAPSHOT → LANGUAGE_EXPANSION → DEPENDENCY_GRAPH → VISIBILITY_RESOLVER → TRANSLATION_TOPOLOGY → PREFLIGHT → DESTINATION_PLAN`.
 
-Chaque groupe source reçoit un nouvel ID de Translation Group destination. Deux groupes source partageant
-FR/EN restent deux groupes distincts. Les mappings sont explicites, `live_source_link=false`, la source
-reste inchangée et les bindings provider sont omis. Le scrub récursif retire token, secret, credential et
-blob chiffré de provider avant toute sérialisation.
+Chaque groupe source reçoit un nouvel ID de Translation Group destination (`cloning/builder.py`). Deux
+groupes source partageant FR/EN restent deux groupes distincts. Les mappings sont explicites,
+`live_source_link=false`, la source reste inchangée et les bindings provider sont omis. Le Portable
+Artifact utilise un schéma allowlist typé par type de ressource et un scrub récursif (`_walk_keys`) qui
+retire token, secret, credential et blob chiffré de provider avant toute sérialisation, y compris dans les
+structures imbriquées.
+
+## Gateway et preuve d'exhaustivité membre
+
+Stage03 Gateway/runtime persiste durablement le fait Discord `user.bot` (migration `0021_stage_08`) et
+suit la complétude membre (`discord_cache_coverage` : `known_members`, `member_count`,
+`members_complete`, migration `0020_stage_08`) pour les opérations qui ont besoin d'une preuve
+exhaustive, notamment le cleanup sûr de rôle technique. Cette exigence de couverture est locale à ce
+chemin d'appel ; le cœur Stage08 ne dépend pas d'un intent `GUILD_MEMBERS` global permanent.
 
 ## API, UI et localisation
 
@@ -103,41 +130,64 @@ Les endpoints couvrent languages, member languages, policies/résolution, worksp
 groups, add/remove/link/unlink, routes, visibilité/capacité, rôles membre, provider, drift, clone preview
 et toutes les entrées de plan. Le snapshot OpenAPI et les types TypeScript sont régénérés.
 
-La Translation Workspace affiche groupes, langues, variants, hiérarchie, routes, scope/policy,
-drift/MISSING, état provider/manual et capacité. Ses queries restent scopées utilisateur+Guild et
-réutilisent le nettoyage tenant de STAGE 07. Le même ActionRegistry expose
-`CREATE_VARIANT`, `LINK_EXISTING_VARIANT`, `CLONE_UNLINKED` et `PREVIEW` dans les menus, Right Drag et
-alternatives clavier. Un drag inter-Guild signifie clone/copy, jamais move.
+La Translation Workspace (lecture cache-first, zéro appel REST Discord par requête) affiche groupes,
+langues, variants, hiérarchie, routes, scope/policy, drift/MISSING, état provider/manual et capacité. Ses
+queries restent scopées utilisateur+Guild et réutilisent le nettoyage tenant de STAGE 07. Le même
+ActionRegistry expose `CREATE_VARIANT` (→ `/variants/plan`), `LINK_EXISTING_VARIANT` (→ `/link`),
+`CLONE_UNLINKED` (→ `/multilingual-clone/plan`) et `PREVIEW` (lecture réelle du groupe) dans les menus,
+Right Drag (avec cibles `LANGUAGE_TARGET` et Guild destination) et alternatives clavier. Un drag inter-Guild
+signifie clone/copy, jamais move.
 
 Le catalogue immutable passe de `did-ui-v&#49;` à `did-ui-v&#50;`. Toutes les nouvelles clés visibles existent
-en EN/FR/DE/ES ; aucun enum interne ni clé brute n’est rendu.
+en EN/FR/DE/ES ; aucun enum interne ni clé brute n'est rendu.
 
 ## Validation et preuves
 
 | Gate | Résultat |
 |---|---|
-| `python scripts/validate_stage.py 08` | PASS : 294 unitaires backend, 88 intégrations PostgreSQL/Redis, 28 frontend, migrations, sécurité et docs |
-| tests ciblés STAGE 08 | PASS : 27 unitaires et 11 PostgreSQL, dont auth A/B et ordre structurel |
-| `python scripts/validate_stage.py 08 --profile e2e` | PASS : 39 Playwright, dont 8 scénarios STAGE 08, axe et EN/FR/DE/ES |
-| `python scripts/validate_stage.py 08 --include-discord-live` | PASS sur deux Guilds sandbox réelles |
+| `python scripts/validate_stage.py 01/03/05/06/07` (régression) | PASS |
+| `python scripts/validate_stage.py 08` | PASS : unitaires backend, intégrations PostgreSQL/Redis, frontend lint/typecheck/build, migrations, sécurité et docs |
+| tests ciblés STAGE 08 | PASS : 27 unitaires (`test_stage08_translation_topology.py`, `test_stage08_services.py`), 14 PostgreSQL (`test_stage08_persistence.py`, `test_stage08_application_postgres.py`), dont isolation A/B et ordre structurel |
+| `python scripts/validate_stage.py 08 --profile e2e` | PASS : 40 Playwright, dont 8 scénarios STAGE 08 (right-drag, ActionRegistry, workspace a11y, member languages), axe et EN/FR/DE/ES |
+| `python scripts/validate_stage.py 08 --include-discord-live` | **BLOCKED_SANDBOX_RECOVERY** : voir section dédiée ci-dessous |
 | qualité | Ruff, format, MyPy, ESLint, TypeScript, build, i18n, OpenAPI et secret scan PASS |
-
-La validation live utilise seulement l’intent `GUILDS`, observe deux Guilds distinctes, vérifie les
-budgets sur les comptes Discord réels, compile le rôle technique sûr et sa réutilisation, vérifie l’accès
-provider sur quatre salons observés, couvre le provider absent, produit deux nouveaux IDs logiques B et
-confirme zéro secret, zéro ID Discord dans le rapport, zéro mutation structurelle directe et zéro
-`MESSAGE_CONTENT`. Le validator reste non destructif ; les mutations et cleanup Discord sont délégués
-au Plan Engine STAGE 05, dont les régressions et preuves live sont conservées.
+| Alembic | rehearsal `0013_stage_07 → head → 0013_stage_07 → head` PASS, tête unique `0021_stage_08` |
 
 La matrice détaillée des 43 exigences se trouve dans
-[`STAGE08_REQUIREMENTS_CHECKLIST_LOCAL.md`](../10_implementation/STAGE08_REQUIREMENTS_CHECKLIST_LOCAL.md).
-Toutes sont `IMPLEMENTED`; aucune n’est promue à `VERIFIED` avant la qualification transverse prévue.
+[`STAGE08_REQUIREMENTS_CHECKLIST_LOCAL.md`](../10_implementation/STAGE08_REQUIREMENTS_CHECKLIST_LOCAL.md)
+et [`00_REQUIREMENTS_TRACEABILITY.md`](../10_implementation/00_REQUIREMENTS_TRACEABILITY.md), avec preuve
+fichier:ligne et test pour chaque ID. Toutes sont `IMPLEMENTED`; aucune n'est promue à `VERIFIED` avant la
+qualification transverse prévue.
+
+## Blocage live : sandbox Guild B à nettoyer
+
+Une exécution live antérieure au correctif d'ordre des overwrites (grant-only avant deny-only) a laissé
+4 salons `DID-STAGE08-TEST-*` dans la Guild B sandbox. Un diagnostic en lecture seule (une seule tentative,
+sans mutation) confirme :
+
+- Guild A (`Serveur de anthorusse75 - French`) : aucune ressource `DID-STAGE08-TEST-*` résiduelle, propre.
+- Guild B (`2nd Serveur de anthorusse75 - French`) : 4 salons résiduels ; 2 (`guides-fr`, `guides-en`) ont
+  un overwrite de salon qui refuse au bot à la fois `VIEW_CHANNEL` et `MANAGE_CHANNELS`, héritage direct du
+  bug d'ordre corrigé depuis. Le bot dispose de `manage_channels`/`manage_roles` au niveau Guild mais pas
+  `Administrator` (conforme à la politique : jamais d'Administrator comme solution) ; l'overwrite de salon
+  prime sur le droit de niveau Guild pour ces deux salons précis.
+
+Le pipeline DID ne peut pas prouver sa capacité à administrer/supprimer ces deux salons et échoue donc
+fermé (`BLOCKED_CAPABILITY_CONFIGURATION`, écrit par `scripts/validate_discord_live_stage08.py`). Aucune
+tentative de contournement (Administrator, mutation directe hors pipeline, nouvelle stratégie de
+récupération) n'a été effectuée, conformément à la discipline demandée.
+
+**Résolution requise (au choix de l'opérateur) :**
+- A. Supprimer manuellement les salons `DID-STAGE08-TEST-*` restants dans Guild B ; ou
+- B. Fournir une nouvelle Guild B sandbox vide.
+
+Une fois l'un des deux réalisé, relancer `python scripts/validate_stage.py 08 --include-discord-live`.
 
 ## État opérationnel et limites
 
 - PostgreSQL/Redis de test peuvent être arrêtés avec `docker compose -f compose.test.yaml down`.
 - Les secrets restent exclusivement dans `.env.local`/secret store ; seuls leurs noms sont documentés.
-- Aucun secret, identifiant sandbox ou PII membre n’est conservé dans les preuves.
-- Le provider existant reste en configuration manuelle tant qu’une interface d’automation sûre n’est pas
-  disponible ; c’est un état supporté et non un blocage de STAGE 08.
-- La candidate n’est pas mergée. Aucun travail STAGE 09 n’a commencé.
+- Aucun secret, identifiant sandbox ou PII membre n'est conservé dans les preuves.
+- Le provider existant reste en configuration manuelle tant qu'une interface d'automation sûre n'est pas
+  disponible ; c'est un état supporté et non un blocage de STAGE 08.
+- La candidate n'est pas mergée. Aucun travail STAGE 09 n'a commencé.
