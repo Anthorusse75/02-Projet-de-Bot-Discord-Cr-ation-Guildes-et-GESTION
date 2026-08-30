@@ -179,6 +179,98 @@ class Stage08LifecycleRepository:
                 },
             )
 
+    async def attach_scope_role_cleanup(
+        self,
+        *,
+        guild_id: int,
+        binding_id: UUID,
+        plan_id: UUID,
+        discord_role_id: int,
+        binding_key: str,
+    ) -> None:
+        """Fence a proven-unused binding and attach its post-verification cleanup."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            binding = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM visibility_scope_language_roles "
+                            "WHERE guild_id=:guild_id AND id=:binding_id FOR UPDATE"
+                        ),
+                        {"guild_id": guild_id, "binding_id": binding_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if binding is None or int(binding["discord_role_id"]) != discord_role_id:
+                raise Stage08LifecycleConflict("technical role binding is unavailable")
+            if str(binding["role_state"]) == "PENDING_DELETE":
+                existing_plan = await session.scalar(
+                    text(
+                        "SELECT plan_id FROM stage08_plan_intents WHERE guild_id=:guild_id "
+                        "AND intent_type='DELETE_SCOPE_LANGUAGE_ROLE_BINDING' "
+                        "AND intent_key=:intent_key"
+                    ),
+                    {"guild_id": guild_id, "intent_key": f"cleanup:{binding_id}"},
+                )
+                if existing_plan == plan_id:
+                    return
+                raise Stage08LifecycleConflict("technical role cleanup is already planned")
+            if str(binding["role_state"]) != "ACTIVE" or not bool(binding["managed_by_did"]):
+                raise Stage08LifecycleConflict("technical role binding is not cleanable")
+            referenced = await session.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM resource_language_policies p "
+                    "WHERE p.guild_id=:guild_id AND p.visibility_policy='SCOPE_AND_LANGUAGE' "
+                    "AND p.visibility_scope_id=:scope_id "
+                    "AND p.explicit_language_profile_id=:language_id)"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "scope_id": binding["visibility_scope_id"],
+                    "language_id": binding["language_profile_id"],
+                },
+            )
+            if bool(referenced):
+                raise Stage08LifecycleConflict("technical role is still required by topology")
+            updated = await session.execute(
+                text(
+                    "UPDATE visibility_scope_language_roles SET role_state='PENDING_DELETE',"
+                    "updated_at=:now WHERE guild_id=:guild_id AND id=:binding_id "
+                    "AND role_state='ACTIVE'"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "binding_id": binding_id,
+                    "now": datetime.now(UTC),
+                },
+            )
+            if getattr(updated, "rowcount", 0) != 1:
+                raise Stage08LifecycleConflict("technical role cleanup lost its reservation")
+            await session.execute(
+                text(
+                    "INSERT INTO stage08_plan_intents "
+                    "(id,guild_id,plan_id,intent_key,intent_type,payload_json) VALUES "
+                    "(:id,:guild_id,:plan_id,:intent_key,"
+                    "'DELETE_SCOPE_LANGUAGE_ROLE_BINDING',CAST(:payload AS jsonb))"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": guild_id,
+                    "plan_id": plan_id,
+                    "intent_key": f"cleanup:{binding_id}",
+                    "payload": json.dumps(
+                        {
+                            "binding_id": str(binding_id),
+                            "binding_key": binding_key,
+                            "discord_role_id": str(discord_role_id),
+                        },
+                        separators=(",", ":"),
+                    ),
+                },
+            )
+
     async def apply_verified_intents(self, *, guild_id: int, plan_id: UUID) -> tuple[int, bool]:
         """Materialize every pending intent in one transaction after targeted REST verification."""
         now = datetime.now(UTC)
@@ -259,6 +351,38 @@ class Stage08LifecycleRepository:
                             "plan_id": plan_id,
                             "role_id": role_id,
                             "now": now,
+                        },
+                    )
+                elif intent_type == "DELETE_SCOPE_LANGUAGE_ROLE_BINDING":
+                    binding_id = UUID(str(payload["binding_id"]))
+                    role_id = int(payload["discord_role_id"])
+                    deleted = await session.execute(
+                        text(
+                            "DELETE FROM visibility_scope_language_roles "
+                            "WHERE guild_id=:guild_id AND id=:binding_id "
+                            "AND discord_role_id=:role_id AND role_state IN "
+                            "('PENDING_DELETE','MISSING')"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "binding_id": binding_id,
+                            "role_id": role_id,
+                        },
+                    )
+                    if getattr(deleted, "rowcount", 0) != 1:
+                        raise Stage08LifecycleConflict(
+                            "verified technical role binding is no longer cleanable"
+                        )
+                    await session.execute(
+                        text(
+                            "DELETE FROM stage08_role_reservations WHERE guild_id=:guild_id "
+                            "AND binding_key=:binding_key AND discord_role_id=:role_id "
+                            "AND status='BOUND'"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "binding_key": str(payload["binding_key"]),
+                            "role_id": role_id,
                         },
                     )
                 elif intent_type == "VERIFY_PROVIDER":
@@ -475,6 +599,17 @@ class Stage08LifecycleRepository:
                 text(
                     "UPDATE stage08_role_reservations SET status='FAILED',updated_at=:now "
                     "WHERE guild_id=:guild_id AND plan_id=:plan_id AND status='PLANNED'"
+                ),
+                {"guild_id": guild_id, "plan_id": plan_id, "now": now},
+            )
+            await session.execute(
+                text(
+                    "UPDATE visibility_scope_language_roles b SET role_state='ACTIVE',"
+                    "updated_at=:now WHERE b.guild_id=:guild_id AND b.role_state='PENDING_DELETE' "
+                    "AND EXISTS (SELECT 1 FROM stage08_plan_intents i "
+                    "WHERE i.guild_id=b.guild_id AND i.plan_id=:plan_id "
+                    "AND i.intent_type='DELETE_SCOPE_LANGUAGE_ROLE_BINDING' "
+                    "AND i.payload_json->>'binding_id'=CAST(b.id AS text))"
                 ),
                 {"guild_id": guild_id, "plan_id": plan_id, "now": now},
             )

@@ -500,8 +500,23 @@ class RuntimeRepository:
         elif event_type == "GUILD_DELETE":
             await self._project_guild_delete(session, envelope)
             return True
-        elif event_type == "GUILD_MEMBER_UPDATE":
+        elif event_type in {"GUILD_MEMBER_ADD", "GUILD_MEMBER_UPDATE"}:
             await self._project_member(session, envelope)
+            if event_type == "GUILD_MEMBER_ADD":
+                await self._refresh_member_coverage(session, envelope, delta=1)
+            return True
+        elif event_type == "GUILD_MEMBER_REMOVE":
+            await session.execute(
+                text(
+                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id "
+                    "AND discord_user_id=:user_id"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "user_id": int(envelope.payload["discord_user_id"]),
+                },
+            )
+            await self._refresh_member_coverage(session, envelope, delta=-1)
             return True
         return False
 
@@ -551,6 +566,47 @@ class RuntimeRepository:
         await self._record_thread_sync_coverage(session, envelope, parent_ids=None)
         for role in payload.get("roles", []):
             await self._project_role(session, envelope, role, audit=False)
+        if bool(payload.get("members_complete")):
+            await session.execute(
+                text(
+                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"
+                ),
+                {"guild_id": envelope.guild_id},
+            )
+            for member in payload.get("members", []):
+                member_envelope = EventEnvelope(
+                    event_id=envelope.event_id,
+                    guild_id=envelope.guild_id,
+                    event_type="GUILD_MEMBER_UPDATE",
+                    discord_sequence=envelope.discord_sequence,
+                    discord_session_id=envelope.discord_session_id,
+                    occurred_at=envelope.occurred_at,
+                    received_at=envelope.received_at,
+                    correlation_id=envelope.correlation_id,
+                    causation_id=envelope.causation_id,
+                    schema_version=envelope.schema_version,
+                    payload=member,
+                    source=envelope.source,
+                    origin=envelope.origin,
+                )
+                await self._project_member(session, member_envelope)
+        known_members = len(payload.get("members", [])) if payload.get("members_complete") else 0
+        await session.execute(
+            text(
+                "UPDATE discord_cache_coverage SET known_members=:known_members,"
+                "member_count=:member_count,members_complete=:members_complete,"
+                "last_full_member_sync_at=CASE WHEN :members_complete "
+                "THEN CAST(:seen_at AS timestamptz) ELSE NULL END,"
+                "state_version=state_version+1,updated_at=now() WHERE guild_id=:guild_id"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "known_members": known_members,
+                "member_count": int(payload.get("member_count", 0)),
+                "members_complete": bool(payload.get("members_complete")),
+                "seen_at": envelope.received_at,
+            },
+        )
         await self._append_audit(
             session,
             envelope,
@@ -1200,6 +1256,25 @@ class RuntimeRepository:
                 "guild_id": envelope.guild_id,
                 "user_id": int(envelope.payload["discord_user_id"]),
                 "role_ids": [int(role_id) for role_id in envelope.payload["role_ids"]],
+                "seen_at": envelope.received_at,
+            },
+        )
+
+    async def _refresh_member_coverage(
+        self, session: AsyncSession, envelope: EventEnvelope, *, delta: int
+    ) -> None:
+        await session.execute(
+            text(
+                "UPDATE discord_cache_coverage SET known_members=(SELECT count(*) FROM "
+                "discord_member_authorization_cache WHERE guild_id=:guild_id),"
+                "member_count=CASE WHEN members_complete THEN (SELECT count(*) FROM "
+                "discord_member_authorization_cache WHERE guild_id=:guild_id) ELSE "
+                "GREATEST(member_count+:delta,0) END,state_version=state_version+1,"
+                "last_gateway_event_at=:seen_at,updated_at=now() WHERE guild_id=:guild_id"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "delta": delta,
                 "seen_at": envelope.received_at,
             },
         )

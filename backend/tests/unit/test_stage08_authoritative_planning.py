@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from did.application.translation.planning import Stage08StructuralPlanningService
+from did.application.translation.service import TranslationTopologyService
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.read_model import (
     ChannelSnapshot,
@@ -28,11 +29,17 @@ ACTOR = 780000000000000002
 CHANNEL = 780000000000000003
 LANGUAGE = UUID("11111111-1111-4111-8111-111111111111")
 GROUP = UUID("22222222-2222-4222-8222-222222222222")
+SCOPE = UUID("33333333-3333-4333-8333-333333333333")
+BINDING = UUID("44444444-4444-4444-8444-444444444444")
 NOW = datetime(2026, 8, 30, tzinfo=UTC)
 
 
 def snapshot(
-    *, role_count: int, overwrite_count: int, protected_targets: tuple[int, ...]
+    *,
+    role_count: int,
+    overwrite_count: int,
+    protected_targets: tuple[int, ...],
+    members_complete: bool = False,
 ) -> GuildSnapshot:
     fresh = FreshnessSnapshot(FreshnessState.FRESH, "GATEWAY", 1, NOW, NOW, NOW)
     roles = tuple(
@@ -77,6 +84,7 @@ def snapshot(
         known_channels=1,
         visible_channels=1,
         known_roles=role_count,
+        members_complete=members_complete,
         overwrites_complete=True,
     )
     return GuildSnapshot(GUILD, ACTOR, roles, (channel,), coverage, fresh)
@@ -290,6 +298,142 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     remove_operations = PlanCompiler().compile(guild, remove_graph, plan_id=uuid4())
     assert len(remove_operations) == 1
     assert remove_operations[0].operation_type is OperationType.REMOVE_MEMBER_ROLE
+
+
+async def test_scope_role_cleanup_compiles_verified_delete_only_from_complete_unused_state(
+) -> None:
+    guild = snapshot(
+        role_count=2,
+        overwrite_count=0,
+        protected_targets=(),
+        members_complete=True,
+    )
+    role_id = guild.roles[-1].role_id
+    authority, spies = service(guild)
+    authority._scope_roles.get_binding.return_value = {
+        "id": BINDING,
+        "visibility_scope_id": SCOPE,
+        "language_profile_id": LANGUAGE,
+        "discord_role_id": role_id,
+        "managed_by_did": True,
+        "role_state": "ACTIVE",
+    }
+    authority._policies.list_policies.return_value = []
+    authority._read_models.member_ids_with_role.return_value = ()
+
+    plan, replayed, proof = await authority.create_scope_role_cleanup_plan(
+        guild_id=GUILD,
+        binding_id=BINDING,
+        actor_user_id=ACTOR,
+        idempotency_key="unused-role",
+        correlation_id=uuid4(),
+    )
+
+    assert not replayed and plan["status"] == "DRAFT"
+    graph = spies.planning.create.await_args.kwargs["graph"]
+    operations = PlanCompiler().compile(guild, graph, plan_id=uuid4())
+    assert len(operations) == 1
+    assert operations[0].operation_type is OperationType.DELETE_ROLE
+    assert operations[0].desired_payload.items
+    spies.lifecycle.attach_scope_role_cleanup.assert_awaited_once_with(
+        guild_id=GUILD,
+        binding_id=BINDING,
+        plan_id=UUID(str(plan["id"])),
+        discord_role_id=role_id,
+        binding_key=f"scope:{SCOPE}:language:{LANGUAGE}",
+    )
+    assert proof["topology_references"] == 0
+    assert proof["member_assignees"] == 0
+
+
+@pytest.mark.parametrize("blocker", ["coverage", "policy", "member", "overwrite"])
+async def test_scope_role_cleanup_fails_closed_when_unused_cannot_be_proven(
+    blocker: str,
+) -> None:
+    role_count = 2
+    role_id = 790000000000000001
+    guild = snapshot(
+        role_count=role_count,
+        overwrite_count=1 if blocker == "overwrite" else 0,
+        protected_targets=(role_id,) if blocker == "overwrite" else (),
+        members_complete=blocker != "coverage",
+    )
+    authority, spies = service(guild)
+    authority._scope_roles.get_binding.return_value = {
+        "id": BINDING,
+        "visibility_scope_id": SCOPE,
+        "language_profile_id": LANGUAGE,
+        "discord_role_id": role_id,
+        "managed_by_did": True,
+        "role_state": "ACTIVE",
+    }
+    authority._policies.list_policies.return_value = (
+        [
+            {
+                "visibility_policy": "SCOPE_AND_LANGUAGE",
+                "visibility_scope_id": SCOPE,
+                "explicit_language_profile_id": LANGUAGE,
+            }
+        ]
+        if blocker == "policy"
+        else []
+    )
+    authority._read_models.member_ids_with_role.return_value = (
+        (ACTOR,) if blocker == "member" else ()
+    )
+
+    with pytest.raises(ValueError):
+        await authority.create_scope_role_cleanup_plan(
+            guild_id=GUILD,
+            binding_id=BINDING,
+            actor_user_id=ACTOR,
+            idempotency_key=f"blocked-{blocker}",
+            correlation_id=uuid4(),
+        )
+    spies.planning.create.assert_not_awaited()
+    spies.lifecycle.attach_scope_role_cleanup.assert_not_awaited()
+
+
+async def test_workspace_joins_durable_topology_to_local_cache_without_rest() -> None:
+    guild = snapshot(role_count=2, overwrite_count=0, protected_targets=())
+    role_id = guild.roles[-1].role_id
+    groups = AsyncMock()
+    groups.workspace.return_value = [
+        {
+            "id": GROUP,
+            "category_variants": [],
+            "channel_variants": [
+                {"id": uuid4(), "discord_channel_id": CHANNEL, "state": "ACTIVE"}
+            ],
+        }
+    ]
+    providers = AsyncMock()
+    providers.list_bindings.return_value = []
+    visibility = AsyncMock()
+    visibility.list_bindings.return_value = [
+        {
+            "id": BINDING,
+            "discord_role_id": role_id,
+            "role_state": "ACTIVE",
+        }
+    ]
+    read_models = AsyncMock()
+    read_models.guild_snapshot.return_value = (guild, SimpleNamespace())
+    topology = TranslationTopologyService(groups, providers, visibility, read_models)
+
+    workspace = await topology.workspace(GUILD, ACTOR)
+
+    assert workspace["source"] == "DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE"
+    assert workspace["discord_rest_calls"] == 0
+    assert workspace["cache_coverage"]["mode"] == "FULL"
+    assert workspace["groups"][0]["channel_variants"][0]["discord_cache"] == {
+        "present": True,
+        "name": "fr-general",
+        "type": 0,
+        "observability": "VISIBLE",
+        "freshness": "FRESH",
+    }
+    assert workspace["visibility_bindings"][0]["discord_cache"]["present"] is True
 
 
 async def test_variant_plan_compiles_business_intent_and_defers_materialization() -> None:

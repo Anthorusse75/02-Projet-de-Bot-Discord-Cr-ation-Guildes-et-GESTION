@@ -1479,6 +1479,25 @@ class ResourceLanguagePolicyRepository:
     ) -> dict[str, Any]:
         record_id = policy_id or uuid4()
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            if (
+                visibility_policy == "SCOPE_AND_LANGUAGE"
+                and visibility_scope_id is not None
+                and explicit_language_profile_id is not None
+            ):
+                binding_state = await session.scalar(
+                    text(
+                        "SELECT role_state FROM visibility_scope_language_roles "
+                        "WHERE guild_id=:guild_id AND visibility_scope_id=:scope_id "
+                        "AND language_profile_id=:language_id FOR SHARE"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "scope_id": visibility_scope_id,
+                        "language_id": explicit_language_profile_id,
+                    },
+                )
+                if binding_state == "PENDING_DELETE":
+                    raise Stage08Conflict("technical role cleanup is in progress")
             return await _fetch_one(
                 session,
                 "INSERT INTO resource_language_policies "
@@ -1582,6 +1601,25 @@ class VisibilityScopeLanguageRepository:
                 {"guild_id": guild_id},
             )
             return [dict(row) for row in result.mappings().all()]
+
+    async def get_binding(self, *, guild_id: int, binding_id: UUID) -> dict[str, Any]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM visibility_scope_language_roles "
+                            "WHERE guild_id=:guild_id AND id=:binding_id"
+                        ),
+                        {"guild_id": guild_id, "binding_id": binding_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise Stage08NotFound("scope-language role binding not found")
+            return dict(row)
 
     async def find_binding(
         self, *, guild_id: int, visibility_scope_id: UUID, language_profile_id: UUID

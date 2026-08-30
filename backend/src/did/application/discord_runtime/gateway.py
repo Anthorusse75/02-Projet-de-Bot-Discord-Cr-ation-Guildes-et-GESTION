@@ -31,6 +31,8 @@ SUPPORTED_DISPATCHES = frozenset(
         "GUILD_ROLE_CREATE",
         "GUILD_ROLE_UPDATE",
         "GUILD_ROLE_DELETE",
+        "GUILD_MEMBER_ADD",
+        "GUILD_MEMBER_REMOVE",
         "GUILD_MEMBER_UPDATE",
     }
 )
@@ -168,6 +170,8 @@ def _guild_id(event_type: str, data: dict[str, Any]) -> int:
         "GUILD_ROLE_CREATE",
         "GUILD_ROLE_UPDATE",
         "GUILD_ROLE_DELETE",
+        "GUILD_MEMBER_ADD",
+        "GUILD_MEMBER_REMOVE",
         "GUILD_MEMBER_UPDATE",
     }:
         return _snowflake(data.get("id"), "guild.id")
@@ -236,7 +240,7 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
         return normalize_role_payload(data.get("role"))
     if event_type == "GUILD_ROLE_DELETE":
         return {"role_id": _snowflake(data.get("role_id"), "role_id")}
-    if event_type == "GUILD_MEMBER_UPDATE":
+    if event_type in {"GUILD_MEMBER_ADD", "GUILD_MEMBER_UPDATE"}:
         user = data.get("user")
         if not isinstance(user, dict):
             raise GatewayContractError("member.user must be an object")
@@ -247,16 +251,49 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
             "discord_user_id": _snowflake(user.get("id"), "member.user.id"),
             "role_ids": [_snowflake(role_id, "member.roles[]") for role_id in roles],
         }
+    if event_type == "GUILD_MEMBER_REMOVE":
+        user = data.get("user")
+        if not isinstance(user, dict):
+            raise GatewayContractError("member.user must be an object")
+        return {"discord_user_id": _snowflake(user.get("id"), "member.user.id")}
     if event_type == "GUILD_CREATE":
         channels = data.get("channels", [])
         threads = data.get("threads", [])
         roles = data.get("roles", [])
+        members = data.get("members", [])
+        raw_member_count = data.get("member_count")
+        member_count = (
+            _integer(raw_member_count, "guild.member_count")
+            if raw_member_count is not None
+            else 0
+        )
         if (
             not isinstance(channels, list)
             or not isinstance(threads, list)
             or not isinstance(roles, list)
+            or not isinstance(members, list)
         ):
-            raise GatewayContractError("GUILD_CREATE channels, threads and roles must be arrays")
+            raise GatewayContractError(
+                "GUILD_CREATE channels, threads, roles and members must be arrays"
+            )
+        members_complete = raw_member_count is not None and len(members) == member_count
+        normalized_guild_members: list[dict[str, Any]] = []
+        if members_complete:
+            for member in members:
+                if not isinstance(member, dict):
+                    raise GatewayContractError("guild member must be an object")
+                user = member.get("user")
+                member_roles = member.get("roles")
+                if not isinstance(user, dict) or not isinstance(member_roles, list):
+                    raise GatewayContractError("guild member user/roles are invalid")
+                normalized_guild_members.append(
+                    {
+                        "discord_user_id": _snowflake(user.get("id"), "member.user.id"),
+                        "role_ids": [
+                            _snowflake(role_id, "member.roles[]") for role_id in member_roles
+                        ],
+                    }
+                )
         return {
             "name": str(data.get("name", "unknown"))[:100],
             "owner_id": _nullable_snowflake(data.get("owner_id"), "guild.owner_id"),
@@ -264,6 +301,9 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
             "channels": [normalize_channel_payload(channel) for channel in channels],
             "threads": [normalize_channel_payload(thread) for thread in threads],
             "roles": [normalize_role_payload(role) for role in roles],
+            "member_count": member_count,
+            "members_complete": members_complete,
+            "members": normalized_guild_members,
         }
     if event_type == "GUILD_UPDATE":
         name = data.get("name")

@@ -26,6 +26,7 @@ from did.infrastructure.stage08_repository import (
 from did.planning import (
     DesiredNode,
     DesiredStateGraph,
+    NodePresence,
     ReferenceKind,
     ResourceReference,
     ResourceType,
@@ -234,6 +235,92 @@ class Stage08StructuralPlanningService:
                 "role_delta": 1 if reservation is not None else 0,
                 "overwrite_count": len(channel.overwrites),
                 "overwrite_delta": additions,
+            },
+        )
+
+    async def create_scope_role_cleanup_plan(
+        self,
+        *,
+        guild_id: int,
+        binding_id: UUID,
+        actor_user_id: int,
+        idempotency_key: str,
+        correlation_id: UUID,
+    ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+        binding = await self._scope_roles.get_binding(
+            guild_id=guild_id, binding_id=binding_id
+        )
+        if str(binding["role_state"]) not in {"ACTIVE", "PENDING_DELETE"}:
+            raise ValueError("technical role binding is not cleanable")
+        if not bool(binding["managed_by_did"]):
+            raise ValueError("adopted technical roles cannot be deleted by DID")
+        role_id = int(binding["discord_role_id"])
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        if (
+            guild.coverage.mode.value != "FULL"
+            or guild.coverage.freshness.value != "FRESH"
+            or not guild.coverage.members_complete
+            or not guild.roles_complete
+            or not guild.channels_complete
+        ):
+            raise ValueError("complete current Discord role/channel/member coverage is required")
+        role = guild.role(role_id)
+        if role is None:
+            raise ValueError("technical role is absent from the trusted Discord cache")
+        if role.managed or role.permissions != 0 or role.hoist or role.mentionable:
+            raise ValueError("technical role attributes are not safe for automatic cleanup")
+        if any(not channel.overwrites_complete for channel in guild.channels):
+            raise ValueError("complete overwrite coverage is required")
+        if any(
+            overwrite.target_type == 0 and overwrite.target_id == role_id
+            for channel in guild.channels
+            for overwrite in channel.overwrites
+        ):
+            raise ValueError("technical role is still referenced by Discord topology")
+        scope_id = UUID(str(binding["visibility_scope_id"]))
+        language_id = UUID(str(binding["language_profile_id"]))
+        if any(
+            str(policy["visibility_policy"]) == "SCOPE_AND_LANGUAGE"
+            and policy.get("visibility_scope_id") is not None
+            and UUID(str(policy["visibility_scope_id"])) == scope_id
+            and policy.get("explicit_language_profile_id") is not None
+            and UUID(str(policy["explicit_language_profile_id"])) == language_id
+            for policy in await self._policies.list_policies(guild_id)
+        ):
+            raise ValueError("technical role is still required by durable topology")
+        assignees = await self._read_models.member_ids_with_role(guild_id, role_id)
+        if assignees:
+            raise ValueError("technical role is still assigned to Discord members")
+        node = DesiredNode.build(
+            logical_key=f"stage08.scope-language-role.cleanup.{binding_id}",
+            resource_type=ResourceType.ROLE,
+            discord_id=role_id,
+            presence=NodePresence.ABSENT,
+        )
+        plan, replayed = await self._planning.create(
+            graph=DesiredStateGraph(guild_id, (node,)),
+            actor_user_id=actor_user_id,
+            idempotency_key=f"stage08:scope-role-cleanup:{binding_id}:{idempotency_key}",
+            correlation_id=correlation_id,
+            operation_order_policy="STAGE08_STRUCTURAL",
+        )
+        binding_key = f"scope:{scope_id}:language:{language_id}"
+        await self._lifecycle.attach_scope_role_cleanup(
+            guild_id=guild_id,
+            binding_id=binding_id,
+            plan_id=UUID(str(plan["id"])),
+            discord_role_id=role_id,
+            binding_key=binding_key,
+        )
+        return (
+            plan,
+            replayed,
+            {
+                "source": "TRUSTED_COMPLETE_CACHE_AND_DURABLE_TOPOLOGY",
+                "binding_id": str(binding_id),
+                "topology_references": 0,
+                "member_assignees": 0,
+                "discord_role_id": str(role_id),
             },
         )
 

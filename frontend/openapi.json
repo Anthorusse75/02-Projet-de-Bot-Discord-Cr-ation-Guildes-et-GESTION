@@ -1471,6 +1471,22 @@
         "title": "ScopeResolveRequest",
         "type": "object"
       },
+      "ScopeRoleCleanupPlanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "ScopeRoleCleanupPlanInput",
+        "type": "object"
+      },
       "ScopeRuleInput": {
         "additionalProperties": false,
         "properties": {
@@ -6303,6 +6319,70 @@
           }
         },
         "summary": "Translation Workspace",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan": {
+      "post": {
+        "operationId": "create_scope_role_cleanup_plan_api_v1_guilds__guild_id__visibility_role_bindings__binding_id__cleanup_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "binding_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Binding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopeRoleCleanupPlanInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Scope Role Cleanup Plan Api V1 Guilds  Guild Id  Visibility Role Bindings  Binding Id  Cleanup Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Scope Role Cleanup Plan",
         "tags": [
           "stage-08-multilingual-topology"
         ]

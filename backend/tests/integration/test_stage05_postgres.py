@@ -47,14 +47,19 @@ from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    Stage08Conflict,
+    Stage08NotFound,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
 )
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
     CompensationClass,
     DesiredNode,
     DesiredStateGraph,
+    NodePresence,
     OperationType,
     PlanOperation,
     PlanState,
@@ -189,6 +194,210 @@ async def test_stage08_role_binding_is_materialized_only_after_targeted_verifica
         assert adapter.verify_calls == 1
         assert binding is not None
         assert int(binding["discord_role_id"]) == CREATED_ROLE
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_unused_scope_role_is_deleted_then_binding_is_cleaned() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=3)
+    factory = create_session_factory(engine)
+    plans = PlanningRepository(factory)
+    runtime = RuntimeRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    languages = LanguageProfileRepository(factory)
+    scope_roles = VisibilityScopeLanguageRepository(factory)
+    policies = ResourceLanguagePolicyRepository(factory)
+    plan_id = uuid4()
+    correlation = uuid4()
+    scope_id = uuid4()
+    binding_id = uuid4()
+    role_id = CREATED_ROLE
+    node = DesiredNode.build(
+        logical_key=f"stage08.scope-language-role.cleanup.{binding_id}",
+        resource_type=ResourceType.ROLE,
+        discord_id=role_id,
+        presence=NodePresence.ABSENT,
+    )
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.DELETE_ROLE,
+        ResourceType.ROLE,
+        node.logical_key,
+        freeze_json_object({"id": role_id}),
+        freeze_json_object(
+            {
+                "id": role_id,
+                "name": "DID cleanup",
+                "position": 1,
+                "permissions": 0,
+                "managed": False,
+                "color": 0,
+                "hoist": False,
+                "mentionable": False,
+            }
+        ),
+        ("MANAGE_ROLES",),
+        CompensationClass.RECREATABLE_NOT_RESTORABLE,
+        RiskLevel.HIGH,
+        VerificationStrategy.ABSENCE_WITH_OBSERVABILITY,
+        RecoveryStrategy.DELETE_PROVE_ABSENCE,
+        ("GUILD_ROLE_DELETE",),
+        preconditions=freeze_json_object(
+            {
+                "schema_version": "did-operation-precondition-v1",
+                "mode": "MATCH_BEFORE",
+                "resource_type": "ROLE",
+                "resource_id": role_id,
+                "before": {
+                    "id": role_id,
+                    "name": "DID cleanup",
+                    "position": 1,
+                    "permissions": 0,
+                    "managed": False,
+                    "color": 0,
+                    "hoist": False,
+                    "mentionable": False,
+                },
+                "coverage_complete": True,
+            }
+        ),
+    )
+    plan_hash = "9" * 64
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(
+            guild_id=GUILD_A, code="fr", display_name="French"
+        )
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO visibility_scopes "
+                    "(id,guild_id,scope_type,scope_key,name,config_json) VALUES "
+                    "(:id,:guild_id,'GLOBAL',:key,'Cleanup scope','{}'::jsonb)"
+                ),
+                {"id": scope_id, "guild_id": GUILD_A, "key": f"cleanup-{scope_id}"},
+            )
+        await scope_roles.create(
+            guild_id=GUILD_A,
+            visibility_scope_id=scope_id,
+            language_profile_id=UUID(str(language["id"])),
+            discord_role_id=role_id,
+            binding_id=binding_id,
+        )
+        await plans.create_plan(
+            plan_id=plan_id,
+            guild_id=GUILD_A,
+            actor_user_id=ACTOR,
+            idempotency_key=f"scope-cleanup-{plan_id}",
+            graph=DesiredStateGraph(GUILD_A, (node,)),
+            operations=(operation,),
+            before_snapshot={"guild_id": str(GUILD_A)},
+            base_structure_version="guild:1|coverage:1",
+            base_structure_hash="8" * 64,
+            capability_version="discord-permissions-2026-08-24",
+            plan_hash=plan_hash,
+            risk=RiskAssessment(
+                RiskLevel.HIGH,
+                40,
+                ("risk.destructive_delete",),
+                ImpactSummary(1),
+                True,
+            ),
+            compiler_version="did-plan-compiler-v1",
+            correlation_id=correlation,
+        )
+        binding_key = f"scope:{scope_id}:language:{language['id']}"
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO stage08_role_reservations "
+                    "(id,guild_id,binding_kind,binding_key,visibility_scope_id,"
+                    "language_profile_id,symbol,status,discord_role_id) VALUES "
+                    "(:id,:guild_id,'SCOPE_LANGUAGE',:key,:scope_id,:language_id,"
+                    ":symbol,'BOUND',:role_id)"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": GUILD_A,
+                    "key": binding_key,
+                    "scope_id": scope_id,
+                    "language_id": language["id"],
+                    "symbol": f"stage08.role.{binding_key}",
+                    "role_id": role_id,
+                },
+            )
+        await lifecycle.attach_scope_role_cleanup(
+            guild_id=GUILD_A,
+            binding_id=binding_id,
+            plan_id=plan_id,
+            discord_role_id=role_id,
+            binding_key=binding_key,
+        )
+        assert (
+            await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id)
+        )["role_state"] == "PENDING_DELETE"
+        with pytest.raises(Stage08Conflict, match="cleanup is in progress"):
+            await policies.upsert(
+                guild_id=GUILD_A,
+                resource_type="CHANNEL",
+                discord_resource_id=CREATED_CHANNEL,
+                explicit_language_profile_id=UUID(str(language["id"])),
+                visibility_policy="SCOPE_AND_LANGUAGE",
+                visibility_scope_id=scope_id,
+            )
+        await plans.transition_plan(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            expected=PlanState.DRAFT,
+            target=PlanState.VALIDATED,
+            expected_version=1,
+            correlation_id=correlation,
+        )
+        await plans.confirm(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            idempotency_key=f"scope-cleanup-confirm-{plan_id}",
+            plan_hash=plan_hash,
+            risk_level=RiskLevel.HIGH,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            expected_version=2,
+            correlation_id=correlation,
+        )
+        await plans.enqueue_apply(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            correlation_id=correlation,
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A, lease_owner="stage08-role-cleanup", lease_seconds=30
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-role-cleanup",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        with pytest.raises(Stage08NotFound, match="not found"):
+            await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id)
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            reservation_count = await session.scalar(
+                text(
+                    "SELECT count(*) FROM stage08_role_reservations "
+                    "WHERE guild_id=:guild_id AND binding_key=:key"
+                ),
+                {"guild_id": GUILD_A, "key": binding_key},
+            )
+        assert reservation_count == 0
+        assert adapter.verify_calls == 1
         assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
     finally:
         await engine.dispose()

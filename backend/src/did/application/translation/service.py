@@ -901,14 +901,75 @@ class TranslationTopologyService:
             "automatic_deletion": False,
         }
 
-    async def workspace(self, guild_id: int) -> dict[str, Any]:
+    async def workspace(
+        self, guild_id: int, actor_user_id: int | None = None
+    ) -> dict[str, Any]:
+        groups = await self._groups.workspace(guild_id)
+        visibility_bindings = await self._visibility.list_bindings(guild_id)
+        source = "POSTGRESQL_DURABLE_TOPOLOGY"
+        cache_coverage: dict[str, Any] | None = None
+        if self._read_models is not None and actor_user_id is not None:
+            guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+            source = "DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE"
+            cache_coverage = {
+                "mode": guild.coverage.mode.value,
+                "freshness": guild.coverage.freshness.value,
+                "roles_complete": guild.roles_complete,
+                "channels_complete": guild.channels_complete,
+                "members_complete": guild.coverage.members_complete,
+                "state_version": guild.coverage.state_version,
+            }
+            for group in groups:
+                for variant_key, discord_id_key in (
+                    ("category_variants", "discord_category_id"),
+                    ("channel_variants", "discord_channel_id"),
+                ):
+                    for variant in group[variant_key]:
+                        channel = guild.channel(int(variant[discord_id_key]))
+                        variant["discord_cache"] = (
+                            {
+                                "present": True,
+                                "name": channel.name,
+                                "type": int(channel.channel_type),
+                                "observability": channel.observability.value,
+                                "freshness": channel.freshness.state.value,
+                            }
+                            if channel is not None
+                            else {
+                                "present": False,
+                                "name": None,
+                                "type": None,
+                                "observability": "UNKNOWN",
+                                "freshness": guild.coverage.freshness.value,
+                            }
+                        )
+            for binding in visibility_bindings:
+                role = guild.role(int(binding["discord_role_id"]))
+                binding["discord_cache"] = (
+                    {
+                        "present": True,
+                        "name": role.name,
+                        "managed": role.managed,
+                        "permissions": str(role.permissions),
+                        "freshness": role.freshness.state.value,
+                    }
+                    if role is not None
+                    else {
+                        "present": False,
+                        "name": None,
+                        "managed": None,
+                        "permissions": None,
+                        "freshness": guild.coverage.freshness.value,
+                    }
+                )
         return {
             "guild_id": str(guild_id),
-            "source": "POSTGRESQL_DURABLE_TRUTH",
+            "source": source,
             "discord_rest_calls": 0,
-            "groups": await self._groups.workspace(guild_id),
+            "cache_coverage": cache_coverage,
+            "groups": groups,
             "providers": await self._providers.list_bindings(guild_id),
-            "visibility_bindings": await self._visibility.list_bindings(guild_id),
+            "visibility_bindings": visibility_bindings,
         }
 
     async def add_language_delta(

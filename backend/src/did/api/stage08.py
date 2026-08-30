@@ -251,6 +251,11 @@ class VisibilityPlanInput(BaseModel):
         return str(parse_snowflake(value))
 
 
+class ScopeRoleCleanupPlanInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+
 def _correlation(request: Request) -> UUID:
     try:
         return UUID(str(request.state.correlation_id))
@@ -634,7 +639,7 @@ async def translation_workspace(
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.STRUCTURE_READ)
     languages, topology = _require(container)
-    workspace = await topology.workspace(parsed)
+    workspace = await topology.workspace(parsed, session.discord_user_id)
     return {
         **workspace,
         "languages": await languages.list_profiles(guild_id=parsed),
@@ -1426,6 +1431,57 @@ async def create_visibility_plan(
             "DISCORD_ADAPTER",
             "VERIFICATION",
             "STAGE08_MATERIALIZATION",
+            "AUDIT",
+        ],
+    }
+
+
+@router.post(
+    "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan"
+)
+async def create_scope_role_cleanup_plan(
+    guild_id: str,
+    binding_id: UUID,
+    body: ScopeRoleCleanupPlanInput,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
+    plan, replayed, authority = (
+        await container.stage08_structural_planning.create_scope_role_cleanup_plan(
+            guild_id=parsed,
+            binding_id=binding_id,
+            actor_user_id=session.discord_user_id,
+            idempotency_key=body.idempotency_key,
+            correlation_id=_correlation(request),
+        )
+    )
+    return {
+        "plan_id": str(plan["id"]),
+        "guild_id": str(plan["guild_id"]),
+        "status": str(plan["status"]),
+        "replayed": replayed,
+        "authority": authority,
+        "pipeline": [
+            "DSG",
+            "PLAN",
+            "PREFLIGHT",
+            "DESTRUCTIVE_CONFIRMATION",
+            "DURABLE_JOB",
+            "WORKER",
+            "GOVERNOR",
+            "DISCORD_ADAPTER",
+            "TARGETED_DELETE_VERIFICATION",
+            "DURABLE_BINDING_CLEANUP",
             "AUDIT",
         ],
     }

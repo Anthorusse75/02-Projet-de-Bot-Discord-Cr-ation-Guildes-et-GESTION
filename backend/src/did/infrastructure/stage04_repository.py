@@ -308,6 +308,21 @@ class Stage04Repository:
             for member_id in member_ids
         )
 
+    async def member_ids_with_role(self, guild_id: int, role_id: int) -> tuple[int, ...]:
+        """Return cached assignees; callers must separately require complete member coverage."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT discord_user_id FROM discord_member_authorization_cache "
+                        "WHERE guild_id=:guild_id AND :role_id = ANY(role_ids) "
+                        "AND validity='FRESH' ORDER BY discord_user_id"
+                    ),
+                    {"guild_id": guild_id, "role_id": role_id},
+                )
+            ).scalars()
+            return tuple(int(value) for value in rows)
+
     async def cached_member_snapshots(self, guild_id: int) -> tuple[MemberSnapshot, ...]:
         """Return only locally known subjects; this never invokes Discord member listing."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -855,7 +870,7 @@ class Stage04Repository:
             int(row["visible_channels"]),
             int(row["obfuscated_channels"]),
             int(row["known_roles"]),
-            members_complete=False,
+            members_complete=bool(row.get("members_complete", False)),
             overwrites_complete=str(row["coverage_mode"]) == "FULL",
             threads_complete=False,
             gateway_continuity=str(row["gateway_continuity"]),

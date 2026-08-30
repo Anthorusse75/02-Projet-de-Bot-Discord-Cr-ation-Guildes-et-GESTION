@@ -215,7 +215,56 @@ def test_guild_create_normalizes_initial_structure_without_member_list() -> None
     assert envelope is not None
     assert len(envelope.payload["channels"]) == 1
     assert len(envelope.payload["roles"]) == 1
-    assert "members" not in envelope.payload
+    assert envelope.payload["members"] == []
+    assert envelope.payload["members_complete"] is False
+
+
+def test_guild_create_proves_member_completeness_only_from_exact_count() -> None:
+    member = {
+        "user": {"id": "555555555555555555"},
+        "roles": ["444444444444444444"],
+    }
+    complete = normalize_gateway_dispatch(
+        dispatch(
+            "GUILD_CREATE",
+            {
+                "id": str(GUILD),
+                "name": "Guild",
+                "owner_id": "999999999999999999",
+                "channels": [],
+                "roles": [],
+                "member_count": 1,
+                "members": [member],
+            },
+        ),
+        discord_session_id=SESSION,
+    )
+    partial = normalize_gateway_dispatch(
+        dispatch(
+            "GUILD_CREATE",
+            {
+                "id": str(GUILD),
+                "name": "Guild",
+                "owner_id": "999999999999999999",
+                "channels": [],
+                "roles": [],
+                "member_count": 2,
+                "members": [member],
+            },
+        ),
+        discord_session_id=SESSION,
+    )
+
+    assert complete is not None and partial is not None
+    assert complete.payload["members_complete"] is True
+    assert complete.payload["members"] == [
+        {
+            "discord_user_id": 555555555555555555,
+            "role_ids": [444444444444444444],
+        }
+    ]
+    assert partial.payload["members_complete"] is False
+    assert partial.payload["members"] == []
 
 
 def test_thread_metadata_and_initial_threads_are_normalized() -> None:

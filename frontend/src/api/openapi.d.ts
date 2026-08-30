@@ -1059,6 +1059,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Scope Role Cleanup Plan */
+        post: operations["create_scope_role_cleanup_plan_api_v1_guilds__guild_id__visibility_role_bindings__binding_id__cleanup_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/visibility-scopes": {
         parameters: {
             query?: never;
@@ -1994,6 +2011,11 @@ export interface components {
         ScopeResolveRequest: {
             /** Member Id */
             member_id: string;
+        };
+        /** ScopeRoleCleanupPlanInput */
+        ScopeRoleCleanupPlanInput: {
+            /** Idempotency Key */
+            idempotency_key: string;
         };
         /** ScopeRuleInput */
         ScopeRuleInput: {
@@ -4836,6 +4858,44 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_scope_role_cleanup_plan_api_v1_guilds__guild_id__visibility_role_bindings__binding_id__cleanup_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScopeRoleCleanupPlanInput"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

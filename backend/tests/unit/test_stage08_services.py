@@ -312,6 +312,7 @@ def test_stage08_openapi_exposes_workspace_lifecycle_plans_and_clone() -> None:
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link",
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink",
         "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan",
+        "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan",
         "/api/v1/guilds/{guild_id}/multilingual-clone/plan",
     }
     assert required <= set(paths)
