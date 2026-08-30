@@ -41,6 +41,23 @@ class Stage08LifecycleRepository:
             )
             return dict(row) if row is not None else None
 
+    async def list_language_bindings(self, *, guild_id: int) -> list[dict[str, Any]]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM language_profile_roles WHERE guild_id=:guild_id "
+                            "ORDER BY language_profile_id"
+                        ),
+                        {"guild_id": guild_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+
     async def reserve_role(
         self,
         *,

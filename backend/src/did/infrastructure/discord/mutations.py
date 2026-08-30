@@ -123,6 +123,16 @@ class DiscordPyMutableAdapter:
             OperationType.DELETE_ROLE,
             OperationType.REORDER_ROLES,
         }
+        if operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            return await self._member_role_precondition(
+                guild_id=guild_id,
+                operation_type=operation_type,
+                payload=payload,
+                preconditions=preconditions,
+            )
         resources = (
             await self._reads.fetch_roles(guild_id)
             if operation_type in role_operations
@@ -201,6 +211,35 @@ class DiscordPyMutableAdapter:
                 roles=resources,
             )
         return PreconditionOutcome.SATISFIED
+
+    async def _member_role_precondition(
+        self,
+        *,
+        guild_id: int,
+        operation_type: OperationType,
+        payload: dict[str, Any],
+        preconditions: dict[str, Any],
+    ) -> PreconditionOutcome:
+        try:
+            member_id = self._required_id(payload, "member_id", fallback="id")
+            role_id = self._required_id(payload, "role_id")
+            member = await self._reads.fetch_member(guild_id, member_id)
+            roles = await self._reads.fetch_roles(guild_id)
+        except Exception:
+            return PreconditionOutcome.UNKNOWN
+        before = preconditions.get("before")
+        role_ids = member.get("role_ids")
+        if not isinstance(before, dict) or not isinstance(role_ids, list):
+            return PreconditionOutcome.UNKNOWN
+        if (role_id in {int(value) for value in role_ids}) != bool(before.get("assigned", False)):
+            return PreconditionOutcome.CHANGED
+        hierarchy_payload = {**payload, "id": role_id}
+        return await self._role_hierarchy_precondition(
+            guild_id=guild_id,
+            operation_type=operation_type,
+            payload=hierarchy_payload,
+            roles=roles,
+        )
 
     async def _role_hierarchy_precondition(
         self,
@@ -451,6 +490,24 @@ class DiscordPyMutableAdapter:
             target_id = self._required_id(payload, "subject_id", fallback="target_id")
             await http.delete_channel_permissions(channel_id, target_id, reason=reason)
             return {"channel_id": channel_id, "target_id": target_id, "deleted": True}, 204
+        if operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            member_id = self._required_id(payload, "member_id", fallback="id")
+            role_id = self._required_id(payload, "role_id")
+            if operation_type is OperationType.ADD_MEMBER_ROLE:
+                await http.add_role(guild_id, member_id, role_id, reason=reason)
+                assigned = True
+            else:
+                await http.remove_role(guild_id, member_id, role_id, reason=reason)
+                assigned = False
+            return {
+                "id": member_id,
+                "member_id": member_id,
+                "role_id": role_id,
+                "assigned": assigned,
+            }, 204
         raise ValueError(f"unsupported structural operation: {operation_type.value}")
 
     async def recover(
@@ -467,6 +524,34 @@ class DiscordPyMutableAdapter:
         }:
             channels = await self._reads.fetch_channels(guild_id)
             return self._recover_overwrite(operation_type, channels, payload, before_payload)
+        if operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            try:
+                member_id = self._required_id(payload, "member_id", fallback="id")
+                role_id = self._required_id(payload, "role_id")
+                member = await self._reads.fetch_member(guild_id, member_id)
+            except Exception:
+                return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+            raw_roles = member.get("role_ids")
+            if not isinstance(raw_roles, list):
+                return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
+            assigned = role_id in {int(value) for value in raw_roles}
+            desired = operation_type is OperationType.ADD_MEMBER_ROLE
+            if assigned == desired:
+                return RecoveryResult(
+                    RecoveryOutcome.PROVED_APPLIED,
+                    {
+                        "id": member_id,
+                        "member_id": member_id,
+                        "role_id": role_id,
+                        "assigned": assigned,
+                    },
+                )
+            if assigned == bool(before_payload.get("assigned", not desired)):
+                return RecoveryResult(RecoveryOutcome.PROVED_ABSENT)
+            return RecoveryResult(RecoveryOutcome.AMBIGUOUS)
         resources = (
             await self._reads.fetch_roles(guild_id)
             if operation_type

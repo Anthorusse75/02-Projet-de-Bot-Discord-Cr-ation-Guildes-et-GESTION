@@ -221,6 +221,107 @@ async def test_stage08_post_verification_failure_never_claims_plan_success() -> 
         await engine.dispose()
 
 
+async def test_member_role_operation_runs_through_durable_plan_and_cache_write_through() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=3)
+    factory = create_session_factory(engine)
+    plans = PlanningRepository(factory)
+    runtime = RuntimeRepository(factory)
+    plan_id = uuid4()
+    correlation = uuid4()
+    node = DesiredNode.build(
+        logical_key=f"stage08.member.{ACTOR}.role.{CREATED_ROLE}",
+        resource_type=ResourceType.MEMBER_ROLE,
+        discord_id=ACTOR,
+        properties={
+            "member_id": ACTOR,
+            "role_id": CREATED_ROLE,
+            "assigned": True,
+            "current_assigned": False,
+        },
+    )
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.ADD_MEMBER_ROLE,
+        ResourceType.MEMBER_ROLE,
+        node.logical_key,
+        freeze_json_object(
+            {"id": ACTOR, "member_id": ACTOR, "role_id": CREATED_ROLE, "assigned": True}
+        ),
+        freeze_json_object(
+            {"id": ACTOR, "member_id": ACTOR, "role_id": CREATED_ROLE, "assigned": False}
+        ),
+        ("MANAGE_ROLES",),
+        CompensationClass.REVERSIBLE,
+        RiskLevel.LOW,
+        VerificationStrategy.TARGETED_GET,
+        RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED,
+        ("GUILD_MEMBER_UPDATE",),
+        preconditions=freeze_json_object(
+            {
+                "schema_version": "did-operation-precondition-v1",
+                "mode": "MATCH_BEFORE",
+                "resource_type": "MEMBER_ROLE",
+                "resource_id": ACTOR,
+                "before": {
+                    "id": ACTOR,
+                    "member_id": ACTOR,
+                    "role_id": CREATED_ROLE,
+                    "assigned": False,
+                },
+            }
+        ),
+    )
+    try:
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO discord_member_authorization_cache "
+                    "(guild_id,discord_user_id,role_ids,source,validity,observed_at) "
+                    "VALUES (:guild_id,:member_id,ARRAY[:everyone_id]::bigint[],"
+                    "'GATEWAY','FRESH',now())"
+                ),
+                {"guild_id": GUILD_A, "member_id": ACTOR, "everyone_id": GUILD_A},
+            )
+        await persist_draft(
+            plans,
+            plan_id=plan_id,
+            guild_id=GUILD_A,
+            actor_user_id=ACTOR,
+            idempotency_key="stage08-member-role-plan",
+            graph=DesiredStateGraph(GUILD_A, (node,)),
+            operations=(operation,),
+            correlation_id=correlation,
+        )
+        _, leased = await confirm_enqueue_and_lease(
+            plans,
+            runtime,
+            plan_id=plan_id,
+            correlation_id=correlation,
+            worker_id="stage08-member-role-worker",
+        )
+        executor = ApplyPlanExecutor(
+            plans,
+            FakeMutationAdapter(),
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-member-role-worker",
+            authorization=AllowAuthorization(),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            role_ids = await session.scalar(
+                text(
+                    "SELECT role_ids FROM discord_member_authorization_cache "
+                    "WHERE guild_id=:guild_id AND discord_user_id=:member_id"
+                ),
+                {"guild_id": GUILD_A, "member_id": ACTOR},
+            )
+        assert role_ids is not None and CREATED_ROLE in {int(value) for value in role_ids}
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
 def graph_and_operation() -> tuple[DesiredStateGraph, PlanOperation]:
     node = DesiredNode.build(
         logical_key="role.stage05",
@@ -572,6 +673,21 @@ class FakeMutationAdapter:
     async def execute(self, **kwargs: Any) -> MutationResult:
         operation_type = kwargs["operation_type"]
         self.create_calls += 1
+        if operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            payload = kwargs.get("payload", {})
+            return MutationResult(
+                204,
+                {
+                    "id": int(payload["member_id"]),
+                    "member_id": int(payload["member_id"]),
+                    "role_id": int(payload["role_id"]),
+                    "assigned": operation_type is OperationType.ADD_MEMBER_ROLE,
+                },
+                "d" * 64,
+            )
         if operation_type is OperationType.CREATE_CHANNEL:
             return MutationResult(
                 201,

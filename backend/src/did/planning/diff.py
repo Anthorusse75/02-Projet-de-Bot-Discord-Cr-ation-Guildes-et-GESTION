@@ -35,6 +35,22 @@ class DiffEngine:
     ) -> DiffEntry:
         if node.resource_type is ResourceType.GUILD:
             return DiffEntry(DiffAction.NO_CHANGE, node)
+        if node.resource_type is ResourceType.MEMBER_ROLE:
+            properties = node.property_map()
+            desired_assigned = bool(properties.get("assigned", False))
+            current_assigned = bool(properties.get("current_assigned", False))
+            member_before = {
+                "id": node.discord_id,
+                "member_id": node.discord_id,
+                "role_id": properties.get("role_id"),
+                "assigned": current_assigned,
+            }
+            return DiffEntry(
+                DiffAction.NO_CHANGE if desired_assigned == current_assigned else DiffAction.UPDATE,
+                node,
+                freeze_json_object(member_before),
+                (() if desired_assigned == current_assigned else ("assigned",)),
+            )
         if node.resource_type is ResourceType.OVERWRITE:
             return self._compare_overwrite(observed, desired, node)
         before = self._observed_resource(observed, node)

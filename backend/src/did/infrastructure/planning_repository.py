@@ -19,6 +19,7 @@ from did.planning.models import (
     OperationType,
     PlanOperation,
     PlanState,
+    ResourceType,
     RiskLevel,
     thaw_json_object,
 )
@@ -1935,7 +1936,13 @@ class PlanningRepository:
             rendered = str(value)
             if value is None or not rendered.isdecimal() or int(rendered) <= 0:
                 return
-            normalized = "CHANNEL" if resource_type == "CATEGORY" else resource_type
+            normalized = (
+                "CHANNEL"
+                if resource_type == "CATEGORY"
+                else "MEMBER"
+                if resource_type == "MEMBER_ROLE"
+                else resource_type
+            )
             dependencies.setdefault((normalized, int(rendered)), reason)
 
         category_targets: set[int] = set()
@@ -1944,6 +1951,8 @@ class PlanningRepository:
             before = thaw_json_object(operation.before_payload)
             target_type = operation.resource_type.value
             remember(target_type, payload.get("id") or before.get("id"), "TARGET")
+            if operation.resource_type is ResourceType.MEMBER_ROLE:
+                remember("ROLE", payload.get("role_id"), "SUBJECT")
             remember("CHANNEL", payload.get("parent_id") or before.get("parent_id"), "PARENT")
             remember("CHANNEL", payload.get("channel_id") or before.get("channel_id"), "TARGET")
             subject_id = payload.get("subject_id") or payload.get("target_id")
@@ -2209,6 +2218,45 @@ class PlanningRepository:
                         "deny": int(payload.get("deny", 0)),
                     },
                     now,
+                )
+        elif operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            member_id = int(payload["member_id"])
+            role_id = int(payload["role_id"])
+            if operation_type is OperationType.ADD_MEMBER_ROLE:
+                await session.execute(
+                    text(
+                        "UPDATE discord_member_authorization_cache SET "
+                        "role_ids=(SELECT ARRAY(SELECT DISTINCT value FROM unnest("
+                        "role_ids || CAST(:role_id AS bigint)) value ORDER BY value)),"
+                        "source='REST_MUTATION',validity='FRESH',observed_at=:now,"
+                        "cache_updated_at=:now "
+                        "WHERE guild_id=:guild_id AND discord_user_id=:member_id"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "member_id": member_id,
+                        "role_id": role_id,
+                        "now": now,
+                    },
+                )
+            else:
+                await session.execute(
+                    text(
+                        "UPDATE discord_member_authorization_cache SET "
+                        "role_ids=array_remove(role_ids,CAST(:role_id AS bigint)),"
+                        "source='REST_MUTATION',validity='FRESH',observed_at=:now,"
+                        "cache_updated_at=:now "
+                        "WHERE guild_id=:guild_id AND discord_user_id=:member_id"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "member_id": member_id,
+                        "role_id": role_id,
+                        "now": now,
+                    },
                 )
 
     @staticmethod

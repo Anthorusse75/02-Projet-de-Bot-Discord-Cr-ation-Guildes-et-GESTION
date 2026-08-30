@@ -660,6 +660,56 @@ async def test_mutation_timeout_is_unknown_and_audit_reason_is_stable() -> None:
     assert RecoveryOutcome.AMBIGUOUS.value == "AMBIGUOUS"
 
 
+@pytest.mark.asyncio
+async def test_member_role_adapter_uses_discord_role_endpoints_and_rest_verification() -> None:
+    class MemberRoleHTTP:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int, int, int]] = []
+
+        async def add_role(
+            self, guild_id: int, member_id: int, role_id: int, **kwargs: Any
+        ) -> None:
+            del kwargs
+            self.calls.append(("ADD", guild_id, member_id, role_id))
+
+        async def remove_role(
+            self, guild_id: int, member_id: int, role_id: int, **kwargs: Any
+        ) -> None:
+            del kwargs
+            self.calls.append(("REMOVE", guild_id, member_id, role_id))
+
+    http = MemberRoleHTTP()
+    adapter = DiscordPyMutableAdapter(SimpleNamespace(http=http))  # type: ignore[arg-type]
+    common = {
+        "guild_id": GUILD,
+        "plan_id": uuid4(),
+        "correlation_id": uuid4(),
+        "payload": {"id": 800, "member_id": 800, "role_id": 900},
+    }
+    await adapter.execute(
+        **common,
+        operation_id=uuid4(),
+        operation_type=OperationType.ADD_MEMBER_ROLE,
+    )
+    await adapter.execute(
+        **common,
+        operation_id=uuid4(),
+        operation_type=OperationType.REMOVE_MEMBER_ROLE,
+    )
+    assert http.calls == [("ADD", GUILD, 800, 900), ("REMOVE", GUILD, 800, 900)]
+
+    adapter._reads = SimpleNamespace(  # type: ignore[assignment]
+        fetch_member=AsyncMock(return_value={"role_ids": [GUILD, 900]})
+    )
+    recovered = await adapter.recover(
+        guild_id=GUILD,
+        operation_type=OperationType.ADD_MEMBER_ROLE,
+        payload={"id": 800, "member_id": 800, "role_id": 900},
+        before_payload={"assigned": False},
+    )
+    assert recovered.outcome is RecoveryOutcome.PROVED_APPLIED
+
+
 def test_shared_scope_429_is_measured_but_not_counted_as_invalid_request() -> None:
     governor = DiscordWorkloadGovernor()
     governor.record_discord_failure(

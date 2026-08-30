@@ -152,6 +152,7 @@ class RuntimeRepository:
                 "GUILD_ROLE_CREATE",
                 "GUILD_ROLE_UPDATE",
                 "GUILD_ROLE_DELETE",
+                "GUILD_MEMBER_UPDATE",
             }:
                 await self._classify_plan_gateway_event(session, envelope)
             await session.execute(
@@ -182,7 +183,10 @@ class RuntimeRepository:
     ) -> None:
         """Match inferred own events conservatively; never claim native plan correlation."""
         resource_id = int(
-            envelope.payload.get("channel_id") or envelope.payload.get("role_id") or 0
+            envelope.payload.get("channel_id")
+            or envelope.payload.get("role_id")
+            or envelope.payload.get("discord_user_id")
+            or 0
         )
         if resource_id <= 0:
             return
@@ -340,6 +344,13 @@ class RuntimeRepository:
         expected: dict[str, Any],
         observed: dict[str, Any],
     ) -> bool:
+        if operation_type in {"ADD_MEMBER_ROLE", "REMOVE_MEMBER_ROLE"}:
+            role_id = expected.get("role_id")
+            role_ids = observed.get("role_ids")
+            if role_id is None or not isinstance(role_ids, list):
+                return False
+            assigned = int(role_id) in {int(value) for value in role_ids}
+            return assigned is (operation_type == "ADD_MEMBER_ROLE")
         if operation_type in {"UPSERT_OVERWRITE", "DELETE_OVERWRITE"}:
             expected_channel_id = expected.get("channel_id")
             if expected_channel_id is None or str(observed.get("channel_id")) != str(
@@ -444,6 +455,8 @@ class RuntimeRepository:
 
     @staticmethod
     def _gateway_resource_type(event_type: str) -> str:
+        if event_type == "GUILD_MEMBER_UPDATE":
+            return "MEMBER"
         return "ROLE" if event_type.startswith("GUILD_ROLE_") else "CHANNEL"
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:

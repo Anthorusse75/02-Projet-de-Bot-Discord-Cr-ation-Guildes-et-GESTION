@@ -290,8 +290,29 @@ class PlanningService:
                 OperationType.UPSERT_OVERWRITE,
                 OperationType.DELETE_OVERWRITE,
                 OperationType.DELETE_CHANNEL,
+                OperationType.ADD_MEMBER_ROLE,
+                OperationType.REMOVE_MEMBER_ROLE,
             }
-            if operation_type is OperationType.UPDATE_ROLE and payload.get("id") is not None:
+            if operation_type in {
+                OperationType.ADD_MEMBER_ROLE,
+                OperationType.REMOVE_MEMBER_ROLE,
+            }:
+                member_id = int(payload["member_id"])
+                role_id = int(payload["role_id"])
+                after_subjects = [
+                    replace(
+                        subject,
+                        role_ids=(
+                            tuple(sorted(set(subject.role_ids) | {role_id}))
+                            if operation_type is OperationType.ADD_MEMBER_ROLE
+                            else tuple(value for value in subject.role_ids if value != role_id)
+                        ),
+                    )
+                    if subject.user_id == member_id
+                    else subject
+                    for subject in after_subjects
+                ]
+            elif operation_type is OperationType.UPDATE_ROLE and payload.get("id") is not None:
                 role_id = int(payload["id"])
                 after = replace(
                     after,
@@ -461,6 +482,7 @@ class PlanningService:
             ResourceType.CHANNEL: 1,
             ResourceType.ROLE: 2,
             ResourceType.OVERWRITE: 3,
+            ResourceType.MEMBER_ROLE: 4,
         }
         delete_types = {
             OperationType.DELETE_OVERWRITE,

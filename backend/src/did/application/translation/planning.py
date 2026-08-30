@@ -10,6 +10,7 @@ from did.application.translation.service import (
     VIEW_CHANNEL,
 )
 from did.domain.discord_runtime import ObservabilityState
+from did.domain.scopes import MembershipOutcome, ScopeMembershipResolver
 from did.domain.translation_topology import VisibilityPolicy
 from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_lifecycle_repository import (
@@ -230,6 +231,93 @@ class Stage08StructuralPlanningService:
             "role_delta": 1 if reservation is not None else 0,
             "overwrite_count": len(channel.overwrites),
             "overwrite_delta": additions,
+        }
+
+    async def create_member_role_plan(
+        self,
+        *,
+        guild_id: int,
+        member_id: int,
+        actor_user_id: int,
+        idempotency_key: str,
+        correlation_id: UUID,
+    ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+        guild, member = await self._read_models.guild_snapshot(guild_id, member_id)
+        if not member.roles_complete or member.freshness.state.value != "FRESH":
+            raise ValueError("member role state is incomplete or stale")
+        visible_languages = {
+            UUID(str(row["language_profile_id"]))
+            for row in await self._languages.member_languages(guild_id, member_id)
+            if bool(row["enabled"])
+        }
+        global_bindings = await self._lifecycle.list_language_bindings(guild_id=guild_id)
+        scope_bindings = await self._scope_roles.list_bindings(guild_id)
+        scopes = await self._read_models.list_visibility_scopes(guild_id)
+        member_scopes: set[UUID] = set()
+        resolver = ScopeMembershipResolver()
+        for scope, rules, explicit_members in scopes:
+            decision = resolver.resolve(
+                scope=scope,
+                member=member,
+                rules=rules,
+                explicit_member_ids=explicit_members,
+            )
+            if decision.outcome is MembershipOutcome.UNKNOWN:
+                raise ValueError("scope membership is not authoritative")
+            if decision.outcome is MembershipOutcome.MATCH:
+                member_scopes.add(scope.id)
+        desired: set[int] = {
+            int(row["discord_role_id"])
+            for row in global_bindings
+            if str(row["role_state"]) == "ACTIVE"
+            and UUID(str(row["language_profile_id"])) in visible_languages
+        }
+        desired.update(
+            int(row["discord_role_id"])
+            for row in scope_bindings
+            if str(row["role_state"]) == "ACTIVE"
+            and UUID(str(row["visibility_scope_id"])) in member_scopes
+            and UUID(str(row["language_profile_id"])) in visible_languages
+        )
+        managed = {
+            int(row["discord_role_id"])
+            for row in (*global_bindings, *scope_bindings)
+            if str(row["role_state"]) == "ACTIVE"
+        }
+        if any(guild.role(role_id) is None for role_id in managed):
+            raise ValueError("managed technical role is absent from the trusted Discord cache")
+        current = set(member.role_ids).intersection(managed)
+        assign = sorted(desired - current)
+        remove = sorted(current - desired)
+        nodes = tuple(
+            DesiredNode.build(
+                logical_key=f"stage08.member.{member_id}.role.{role_id}",
+                resource_type=ResourceType.MEMBER_ROLE,
+                discord_id=member_id,
+                properties={
+                    "member_id": member_id,
+                    "role_id": role_id,
+                    "assigned": assigned,
+                    "current_assigned": not assigned,
+                },
+            )
+            for assigned, role_ids in ((True, assign), (False, remove))
+            for role_id in role_ids
+        )
+        plan, replayed = await self._planning.create(
+            graph=DesiredStateGraph(guild_id, nodes),
+            actor_user_id=actor_user_id,
+            idempotency_key=f"stage08:member-roles:{member_id}:{idempotency_key}",
+            correlation_id=correlation_id,
+            operation_order_policy="STAGE08_STRUCTURAL",
+        )
+        return plan, replayed, {
+            "source": "TRUSTED_CACHE_SCOPE_RESOLVER_AND_DURABLE_LANGUAGES",
+            "member_id": str(member_id),
+            "assign": [str(value) for value in assign],
+            "remove": [str(value) for value in remove],
+            "member_specific_overwrites": [],
+            "all_languages_role": None,
         }
 
     async def _effective_policy(

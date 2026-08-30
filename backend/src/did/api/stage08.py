@@ -11,7 +11,6 @@ from did.api.guilds import parse_snowflake
 from did.application.translation import (
     LanguageProfileService,
     LanguageVisibilityCompiler,
-    MemberTechnicalRoleReconciler,
     RoleCapacityEngine,
     TranslationCloneExpander,
     TranslationProviderCoordinator,
@@ -184,11 +183,13 @@ class CapacityInput(BaseModel):
 
 class MemberRoleReconcileInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    member_scope_ids: list[UUID] = Field(default_factory=list, max_length=256)
-    visible_language_ids: list[UUID] = Field(default_factory=list, max_length=64)
-    required_pairs: list[tuple[UUID, UUID]] = Field(default_factory=list, max_length=4096)
-    bindings: dict[str, str] = Field(default_factory=dict)
-    current_role_ids: list[str] = Field(default_factory=list, max_length=250)
+    discord_user_id: str
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+    @field_validator("discord_user_id")
+    @classmethod
+    def member_snowflake(cls, value: str) -> str:
+        return str(parse_snowflake(value))
 
 
 class ProviderAccessInput(BaseModel):
@@ -323,6 +324,43 @@ async def _audit(
     )
 
 
+async def _member_reconciliation_plan(
+    container: Any,
+    *,
+    guild_id: int,
+    member_id: int,
+    actor_id: int,
+    request: Request,
+) -> dict[str, Any]:
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
+    supplied_key = request.headers.get("Idempotency-Key")
+    key = (
+        supplied_key.strip()
+        if supplied_key and supplied_key.strip()
+        else str(_correlation(request))
+    )
+    plan, replayed, reconciliation = (
+        await container.stage08_structural_planning.create_member_role_plan(
+            guild_id=guild_id,
+            member_id=member_id,
+            actor_user_id=actor_id,
+            idempotency_key=f"language-change:{key}",
+            correlation_id=_correlation(request),
+        )
+    )
+    return {
+        "plan_id": str(plan["id"]),
+        "status": str(plan["status"]),
+        "replayed": replayed,
+        "reconciliation": reconciliation,
+    }
+
+
 @router.get("/api/v1/guilds/{guild_id}/languages")
 async def list_languages(
     guild_id: str, session: CurrentSessionDep, container: ServicesDep
@@ -399,6 +437,13 @@ async def set_member_languages(
     parsed = parse_snowflake(guild_id)
     member_id = parse_snowflake(user_id)
     await _authorize(parsed, session, container, Capability.MEMBERS_WRITE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
     languages, _ = _require(container)
     rows = await languages.set_member_languages(
         guild_id=parsed,
@@ -416,7 +461,19 @@ async def set_member_languages(
         correlation_id=_correlation(request),
         data={"language_count": len(rows), "source": body.source},
     )
-    return {"guild_id": str(parsed), "discord_user_id": str(member_id), "languages": rows}
+    role_plan = await _member_reconciliation_plan(
+        container,
+        guild_id=parsed,
+        member_id=member_id,
+        actor_id=session.discord_user_id,
+        request=request,
+    )
+    return {
+        "guild_id": str(parsed),
+        "discord_user_id": str(member_id),
+        "languages": rows,
+        "role_reconciliation_plan": role_plan,
+    }
 
 
 @router.get("/api/v1/guilds/{guild_id}/members/{user_id}/languages")
@@ -447,6 +504,13 @@ async def add_member_language(
     parsed = parse_snowflake(guild_id)
     member_id = parse_snowflake(user_id)
     await _authorize(parsed, session, container, Capability.MEMBERS_WRITE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
     languages, _ = _require(container)
     rows = await languages.add_member_language(
         guild_id=parsed,
@@ -463,7 +527,19 @@ async def add_member_language(
         target_id=str(member_id),
         correlation_id=_correlation(request),
     )
-    return {"guild_id": str(parsed), "discord_user_id": str(member_id), "languages": rows}
+    role_plan = await _member_reconciliation_plan(
+        container,
+        guild_id=parsed,
+        member_id=member_id,
+        actor_id=session.discord_user_id,
+        request=request,
+    )
+    return {
+        "guild_id": str(parsed),
+        "discord_user_id": str(member_id),
+        "languages": rows,
+        "role_reconciliation_plan": role_plan,
+    }
 
 
 @router.delete("/api/v1/guilds/{guild_id}/members/{user_id}/languages/{language_profile_id}")
@@ -478,6 +554,13 @@ async def remove_member_language(
     parsed = parse_snowflake(guild_id)
     member_id = parse_snowflake(user_id)
     await _authorize(parsed, session, container, Capability.MEMBERS_WRITE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
     languages, _ = _require(container)
     rows = await languages.remove_member_language(
         guild_id=parsed,
@@ -493,7 +576,19 @@ async def remove_member_language(
         target_id=str(member_id),
         correlation_id=_correlation(request),
     )
-    return {"guild_id": str(parsed), "discord_user_id": str(member_id), "languages": rows}
+    role_plan = await _member_reconciliation_plan(
+        container,
+        guild_id=parsed,
+        member_id=member_id,
+        actor_id=session.discord_user_id,
+        request=request,
+    )
+    return {
+        "guild_id": str(parsed),
+        "discord_user_id": str(member_id),
+        "languages": rows,
+        "role_reconciliation_plan": role_plan,
+    }
 
 
 @router.put("/api/v1/guilds/{guild_id}/resource-language-policies")
@@ -968,26 +1063,35 @@ async def capacity_preflight(
 async def reconcile_member_roles(
     guild_id: str,
     body: MemberRoleReconcileInput,
-    session: CurrentSessionDep,
+    request: Request,
+    session: CsrfSessionDep,
     container: ServicesDep,
 ) -> dict[str, Any]:
     parsed = parse_snowflake(guild_id)
-    await _authorize(parsed, session, container, Capability.MEMBERS_READ)
-    bindings: dict[tuple[UUID, UUID], int] = {}
-    for key, role_id in body.bindings.items():
-        scope, language = key.split(":", 1)
-        bindings[(UUID(scope), UUID(language))] = parse_snowflake(role_id)
-    reconciler = MemberTechnicalRoleReconciler()
-    desired = reconciler.desired_roles(
-        member_scope_ids=set(body.member_scope_ids),
-        visible_language_ids=set(body.visible_language_ids),
-        required_pairs=set(body.required_pairs),
-        role_bindings=bindings,
+    await _authorize(parsed, session, container, Capability.MEMBERS_WRITE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
+    plan, replayed, reconciliation = (
+        await container.stage08_structural_planning.create_member_role_plan(
+            guild_id=parsed,
+            member_id=int(body.discord_user_id),
+            actor_user_id=session.discord_user_id,
+            idempotency_key=body.idempotency_key,
+            correlation_id=_correlation(request),
+        )
     )
-    return reconciler.diff(
-        current_role_ids={parse_snowflake(value) for value in body.current_role_ids},
-        desired_role_ids=set(desired),
-    )
+    return {
+        "plan_id": str(plan["id"]),
+        "status": str(plan["status"]),
+        "replayed": replayed,
+        "reconciliation": reconciliation,
+        "pipeline": ["DSG", "PLAN", "PREFLIGHT", "CONFIRMATION", "WORKER", "VERIFICATION"],
+    }
 
 
 @router.post("/api/v1/guilds/{guild_id}/translation-providers/access-preflight")

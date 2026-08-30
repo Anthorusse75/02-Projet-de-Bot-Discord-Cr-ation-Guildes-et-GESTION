@@ -61,6 +61,7 @@ class ResourceType(StrEnum):
     CATEGORY = "CATEGORY"
     CHANNEL = "CHANNEL"
     OVERWRITE = "OVERWRITE"
+    MEMBER_ROLE = "MEMBER_ROLE"
 
 
 class NodePresence(StrEnum):
@@ -211,6 +212,8 @@ class OperationType(StrEnum):
     DELETE_CHANNEL = "DELETE_CHANNEL"
     UPSERT_OVERWRITE = "UPSERT_OVERWRITE"
     DELETE_OVERWRITE = "DELETE_OVERWRITE"
+    ADD_MEMBER_ROLE = "ADD_MEMBER_ROLE"
+    REMOVE_MEMBER_ROLE = "REMOVE_MEMBER_ROLE"
 
 
 class CompensationClass(StrEnum):

@@ -14,11 +14,14 @@ from did.domain.read_model import (
     CoverageSnapshot,
     FreshnessSnapshot,
     GuildSnapshot,
+    MemberSnapshot,
     OverwriteSnapshot,
     RoleSnapshot,
 )
 from did.domain.read_model.models import ChannelType
 from did.planning import ResourceType
+from did.planning.compiler import PlanCompiler
+from did.planning.models import OperationType
 
 GUILD = 780000000000000001
 ACTOR = 780000000000000002
@@ -205,3 +208,86 @@ async def test_actual_budget_blocks_new_role_at_250_but_allows_reuse() -> None:
     assert budget["role_delta"] == 0
     graph = spies.planning.create.await_args.kwargs["graph"]
     assert all(node.resource_type is not ResourceType.ROLE for node in graph.nodes)
+
+
+async def test_member_reconciliation_compiles_only_managed_role_add_remove_operations() -> None:
+    guild = snapshot(role_count=3, overwrite_count=0, protected_targets=())
+    technical_role = guild.roles[-1].role_id
+    business_role = guild.roles[-2].role_id
+    member = MemberSnapshot(
+        GUILD,
+        ACTOR,
+        (GUILD, business_role),
+        True,
+        guild.freshness,
+    )
+    planning = AsyncMock()
+    planning.create.return_value = (
+        {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
+        False,
+    )
+    read_models = AsyncMock()
+    read_models.guild_snapshot.return_value = (guild, member)
+    read_models.list_visibility_scopes.return_value = []
+    groups = AsyncMock()
+    languages = AsyncMock()
+    languages.member_languages.return_value = [
+        {"language_profile_id": LANGUAGE, "enabled": True}
+    ]
+    policies = AsyncMock()
+    scope_roles = AsyncMock()
+    scope_roles.list_bindings.return_value = []
+    lifecycle = AsyncMock()
+    lifecycle.list_language_bindings.return_value = [
+        {
+            "language_profile_id": LANGUAGE,
+            "discord_role_id": technical_role,
+            "role_state": "ACTIVE",
+        }
+    ]
+    authority = Stage08StructuralPlanningService(
+        planning=planning,
+        read_models=read_models,
+        groups=groups,
+        languages=languages,
+        policies=policies,
+        scope_roles=scope_roles,
+        lifecycle=lifecycle,
+    )
+    _, _, decision = await authority.create_member_role_plan(
+        guild_id=GUILD,
+        member_id=ACTOR,
+        actor_user_id=ACTOR,
+        idempotency_key="member-add",
+        correlation_id=uuid4(),
+    )
+    graph = planning.create.await_args.kwargs["graph"]
+    operations = PlanCompiler().compile(guild, graph, plan_id=uuid4())
+    assert decision["assign"] == [str(technical_role)]
+    assert decision["remove"] == []
+    assert len(operations) == 1
+    assert operations[0].operation_type is OperationType.ADD_MEMBER_ROLE
+    assert business_role not in {
+        int(node.property_map()["role_id"]) for node in graph.nodes
+    }
+
+    member_with_technical = MemberSnapshot(
+        GUILD,
+        ACTOR,
+        (GUILD, business_role, technical_role),
+        True,
+        guild.freshness,
+    )
+    read_models.guild_snapshot.return_value = (guild, member_with_technical)
+    languages.member_languages.return_value = []
+    await authority.create_member_role_plan(
+        guild_id=GUILD,
+        member_id=ACTOR,
+        actor_user_id=ACTOR,
+        idempotency_key="member-remove",
+        correlation_id=uuid4(),
+    )
+    remove_graph = planning.create.await_args.kwargs["graph"]
+    remove_operations = PlanCompiler().compile(guild, remove_graph, plan_id=uuid4())
+    assert len(remove_operations) == 1
+    assert remove_operations[0].operation_type is OperationType.REMOVE_MEMBER_ROLE
