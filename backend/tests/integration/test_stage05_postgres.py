@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 
 from did.application.discord_runtime import normalize_gateway_dispatch
 from did.application.planning.service import PlanningService
+from did.application.translation.lifecycle import Stage08PostVerificationMaterializer
 from did.domain.discord_runtime import (
     DiscordErrorKind,
     DiscordFailure,
@@ -43,6 +44,8 @@ from did.infrastructure.planning_repository import (
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import OutboxPublisher
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import LanguageProfileRepository
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
     CompensationClass,
@@ -101,6 +104,119 @@ async def seed() -> None:
                 ),
                 {"a": GUILD_A, "b": GUILD_B, "actor": ACTOR, "bot": BOT},
             )
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_role_binding_is_materialized_only_after_targeted_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case()
+    factory = create_session_factory(engine)
+    languages = LanguageProfileRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(
+            guild_id=GUILD_A,
+            code="fr",
+            display_name="Français",
+        )
+        reservations = await asyncio.gather(
+            lifecycle.reserve_role(
+                guild_id=GUILD_A,
+                binding_kind="LANGUAGE",
+                binding_key=f"language:{language['id']}",
+                language_profile_id=UUID(str(language["id"])),
+                symbol="sym.role.stage05",
+            ),
+            lifecycle.reserve_role(
+                guild_id=GUILD_A,
+                binding_kind="LANGUAGE",
+                binding_key=f"language:{language['id']}",
+                language_profile_id=UUID(str(language["id"])),
+                symbol="sym.role.stage05",
+            ),
+        )
+        assert sum(1 for _, created in reservations if created) == 1
+        reservation = next(row for row, created in reservations if created)
+        assert await lifecycle.language_binding(
+            guild_id=GUILD_A,
+            language_profile_id=UUID(str(language["id"])),
+        ) is None
+        await lifecycle.attach_role_plan(
+            guild_id=GUILD_A,
+            reservation_id=UUID(str(reservation["id"])),
+            plan_id=plan_id,
+            intent_type="BIND_LANGUAGE_ROLE",
+            payload={
+                "reservation_id": str(reservation["id"]),
+                "language_profile_id": str(language["id"]),
+                "symbol": "sym.role.stage05",
+            },
+        )
+        assert await lifecycle.language_binding(
+            guild_id=GUILD_A,
+            language_profile_id=UUID(str(language["id"])),
+        ) is None
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        binding = await lifecycle.language_binding(
+            guild_id=GUILD_A,
+            language_profile_id=UUID(str(language["id"])),
+        )
+        assert adapter.verify_calls == 1
+        assert binding is not None
+        assert int(binding["discord_role_id"]) == CREATED_ROLE
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_post_verification_failure_never_claims_plan_success() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case()
+    lifecycle = Stage08LifecycleRepository(create_session_factory(engine))
+    adapter = FakeMutationAdapter()
+    try:
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key="unsupported-clone",
+            intent_type="MATERIALIZE_CLONE",
+            payload={"destination_group_id": str(uuid4())},
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-failed-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-failed-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        plan = await plans.get_plan(GUILD_A, plan_id)
+        assert adapter.verify_calls == 1
+        assert plan["status"] == "PARTIALLY_APPLIED"
+        assert plan["error_code"] == "STAGE08_POST_VERIFICATION_FAILED"
+        assert plan["verification_summary"]["discord_verified"] is True
+        assert plan["verification_summary"]["post_verification_applied"] is False
     finally:
         await engine.dispose()
 

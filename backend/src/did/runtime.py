@@ -15,6 +15,7 @@ from did.application.reconciliation import (
     DiscordSyncService,
     ReconcileScheduler,
 )
+from did.application.translation.lifecycle import Stage08PostVerificationMaterializer
 from did.bot.gateway import DiscordGatewayClient
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import create_database_engine, create_session_factory
@@ -33,6 +34,7 @@ from did.infrastructure.runtime_redis import (
 )
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
 from did.oauth.discord import HttpDiscordMemberClient
 from did.oauth.stores import (
     RedisActorMembershipStore,
@@ -168,6 +170,9 @@ async def run_process(
                         worker_id=worker_id,
                         authorization=ApplyActorAuthorizer(worker_authorization),
                         preflight=planning_service,
+                        post_verification=Stage08PostVerificationMaterializer(
+                            Stage08LifecycleRepository(session_factory)
+                        ),
                     ),
                 )
                 runtime = DiscordWorkerRuntime(

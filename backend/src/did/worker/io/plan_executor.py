@@ -30,6 +30,12 @@ class ApplyAuthorizationPort(Protocol):
     async def authorize_apply(self, *, guild_id: int, actor_user_id: int) -> None: ...
 
 
+class PostVerificationPort(Protocol):
+    async def apply(
+        self, *, guild_id: int, plan_id: UUID, correlation_id: UUID
+    ) -> bool: ...
+
+
 class NoFaults:
     async def checkpoint(self, name: str) -> None:
         del name
@@ -48,6 +54,7 @@ class ApplyPlanExecutor:
         authorization: ApplyAuthorizationPort,
         faults: FaultInjector | None = None,
         preflight: ApplyPreflightPort | None = None,
+        post_verification: PostVerificationPort | None = None,
     ) -> None:
         self._repository = repository
         self._adapter = adapter
@@ -56,6 +63,7 @@ class ApplyPlanExecutor:
         self._authorization = authorization
         self._faults = faults or NoFaults()
         self._preflight = preflight
+        self._post_verification = post_verification
 
     async def execute_leased(
         self,
@@ -337,6 +345,8 @@ class ApplyPlanExecutor:
         counts = await self._repository.operation_counts(guild_id, plan_id)
         total = sum(counts.values())
         succeeded = counts.get(OperationState.SUCCEEDED.value, 0)
+        discord_verified = False
+        post_verified = False
         error: str | None
         if str(plan["status"]) == PlanState.CANCEL_REQUESTED.value:
             terminal = PlanState.CANCELLED
@@ -351,9 +361,23 @@ class ApplyPlanExecutor:
             terminal = PlanState.INTERVENTION_REQUIRED
             error = "DAG_BLOCKED"
         else:
-            verified = await self._verify(guild_id, plan_id, governor)
-            terminal = PlanState.SUCCEEDED if verified else PlanState.VERIFICATION_FAILED
-            error = None if verified else "TARGETED_VERIFICATION_FAILED"
+            discord_verified = await self._verify(guild_id, plan_id, governor)
+            post_verified = discord_verified
+            if discord_verified and self._post_verification is not None:
+                post_verified = await self._post_verification.apply(
+                    guild_id=guild_id,
+                    plan_id=plan_id,
+                    correlation_id=correlation_id,
+                )
+            if not discord_verified:
+                terminal = PlanState.VERIFICATION_FAILED
+                error = "TARGETED_VERIFICATION_FAILED"
+            elif not post_verified:
+                terminal = PlanState.PARTIALLY_APPLIED
+                error = "STAGE08_POST_VERIFICATION_FAILED"
+            else:
+                terminal = PlanState.SUCCEEDED
+                error = None
         await self._faults.checkpoint("I_BEFORE_FINALIZE")
         await self._repository.finalize_plan(
             guild_id=guild_id,
@@ -362,6 +386,8 @@ class ApplyPlanExecutor:
             verification_summary={
                 "strategy": "TARGETED_REST",
                 "verified": terminal is PlanState.SUCCEEDED,
+                "discord_verified": discord_verified,
+                "post_verification_applied": post_verified,
                 "completed_operations": succeeded,
                 "total_operations": total,
             },
