@@ -48,6 +48,7 @@ from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepo
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
+    TranslationProviderBindingRepository,
 )
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
@@ -141,10 +142,13 @@ async def test_stage08_role_binding_is_materialized_only_after_targeted_verifica
         )
         assert sum(1 for _, created in reservations if created) == 1
         reservation = next(row for row, created in reservations if created)
-        assert await lifecycle.language_binding(
-            guild_id=GUILD_A,
-            language_profile_id=UUID(str(language["id"])),
-        ) is None
+        assert (
+            await lifecycle.language_binding(
+                guild_id=GUILD_A,
+                language_profile_id=UUID(str(language["id"])),
+            )
+            is None
+        )
         await lifecycle.attach_role_plan(
             guild_id=GUILD_A,
             reservation_id=UUID(str(reservation["id"])),
@@ -156,10 +160,13 @@ async def test_stage08_role_binding_is_materialized_only_after_targeted_verifica
                 "symbol": "sym.role.stage05",
             },
         )
-        assert await lifecycle.language_binding(
-            guild_id=GUILD_A,
-            language_profile_id=UUID(str(language["id"])),
-        ) is None
+        assert (
+            await lifecycle.language_binding(
+                guild_id=GUILD_A,
+                language_profile_id=UUID(str(language["id"])),
+            )
+            is None
+        )
         leased = await runtime.lease_next_job(
             GUILD_A,
             lease_owner="stage08-materializer",
@@ -256,6 +263,74 @@ async def test_stage08_channel_variant_is_materialized_only_after_targeted_verif
         assert int(variant["discord_channel_id"]) == CREATED_CHANNEL
         assert variant["state"] == "ACTIVE"
         assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_provider_becomes_manual_only_after_structure_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case(channel=True)
+    factory = create_session_factory(engine)
+    providers = TranslationProviderBindingRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        provider = await providers.create(
+            guild_id=GUILD_A,
+            provider_type="existing_translation_bot",
+            provider_instance_key="stage08-post-verify",
+            capabilities={"supports_hub_and_spoke": True},
+            status="UNKNOWN",
+        )
+        group = await groups.create(
+            guild_id=GUILD_A,
+            name="Provider lifecycle",
+            root_kind="CHANNEL_SET",
+            routing_mode="HUB_AND_SPOKE",
+            provider_binding_id=UUID(str(provider["id"])),
+        )
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key=f"provider:{provider['id']}",
+            intent_type="VERIFY_PROVIDER",
+            payload={
+                "binding_id": str(provider["id"]),
+                "translation_group_id": str(group["id"]),
+                "verified_status": "MANUAL_CONFIGURATION_REQUIRED",
+            },
+        )
+        assert (await providers.get(guild_id=GUILD_A, binding_id=UUID(str(provider["id"]))))[
+            "status"
+        ] == "UNKNOWN"
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-provider-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-provider-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        verified = await providers.get(
+            guild_id=GUILD_A,
+            binding_id=UUID(str(provider["id"])),
+        )
+        assert adapter.verify_calls == 1
+        assert verified["status"] == "MANUAL_CONFIGURATION_REQUIRED"
+        assert verified["last_validated_at"] is None
+        assert (await groups.get(GUILD_A, UUID(str(group["id"]))))["status"] == ("PROVIDER_PENDING")
+        plan = await plans.get_plan(GUILD_A, plan_id)
+        assert plan["status"] == "APPLIED_WITH_PENDING_PROVIDER"
+        assert plan["error_code"] == "PROVIDER_MANUAL_CONFIGURATION_REQUIRED"
+        assert plan["verification_summary"]["discord_verified"] is True
+        assert plan["verification_summary"]["post_verification_outcome"] == ("PENDING_PROVIDER")
     finally:
         await engine.dispose()
 

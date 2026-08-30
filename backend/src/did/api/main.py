@@ -28,7 +28,11 @@ from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
 from did.application.planning import PlanningService
 from did.application.portability import PortabilityService
-from did.application.translation import LanguageProfileService, TranslationTopologyService
+from did.application.translation import (
+    LanguageProfileService,
+    Stage08ProviderOrchestrationService,
+    TranslationTopologyService,
+)
 from did.application.translation.planning import Stage08StructuralPlanningService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import (
@@ -198,6 +202,11 @@ def create_app(
                 scope_roles=stage08_visibility_repository,
                 lifecycle=stage08_lifecycle_repository,
             )
+            stage08_provider_orchestration = Stage08ProviderOrchestrationService(
+                read_models=stage04_repository,
+                groups=stage08_group_repository,
+                providers=stage08_provider_repository,
+            )
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -257,6 +266,7 @@ def create_app(
                 stage08_topology=stage08_topology,
                 stage08_audit_repository=stage08_audit_repository,
                 stage08_structural_planning=stage08_structural_planning,
+                stage08_provider_orchestration=stage08_provider_orchestration,
             )
         try:
             yield

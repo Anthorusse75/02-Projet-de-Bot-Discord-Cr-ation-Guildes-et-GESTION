@@ -13,7 +13,6 @@ from did.application.translation import (
     LanguageProfileService,
     LanguageVisibilityCompiler,
     RoleCapacityEngine,
-    TranslationProviderCoordinator,
     TranslationRouteCompiler,
     TranslationTopologyService,
 )
@@ -24,7 +23,6 @@ from did.domain.translation_topology import (
     TranslationProviderCapabilities,
     VisibilityPolicy,
 )
-from did.infrastructure.translation_provider import NonInvasiveExistingBotProvider
 from did.portability import CloneMode
 
 router = APIRouter(tags=["stage-08-multilingual-topology"])
@@ -187,20 +185,18 @@ class MemberRoleReconcileInput(BaseModel):
 
 class ProviderAccessInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    bot_present: bool
-    effective_permissions_by_variant: dict[str, str] = Field(default_factory=dict)
-    require_threads: bool = False
-    require_embeds: bool = False
-    require_attachments: bool = False
+    binding_id: UUID
 
 
 class ProviderPrepareInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    binding_id: UUID | None = None
-    observed_capabilities: RouteCompileInput
-    discord_bot_present: bool = False
-    bot_permissions: list[str] = Field(default_factory=list, max_length=64)
-    desired_group: dict[str, Any] = Field(default_factory=dict)
+    binding_id: UUID
+
+
+class ProviderVerifyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    binding_id: UUID
+    confirmed_manual_configuration: Literal[True]
 
 
 class DriftInput(BaseModel):
@@ -331,14 +327,16 @@ async def _member_reconciliation_plan(
         if supplied_key and supplied_key.strip()
         else str(_correlation(request))
     )
-    plan, replayed, reconciliation = (
-        await container.stage08_structural_planning.create_member_role_plan(
-            guild_id=guild_id,
-            member_id=member_id,
-            actor_user_id=actor_id,
-            idempotency_key=f"language-change:{key}",
-            correlation_id=_correlation(request),
-        )
+    (
+        plan,
+        replayed,
+        reconciliation,
+    ) = await container.stage08_structural_planning.create_member_role_plan(
+        guild_id=guild_id,
+        member_id=member_id,
+        actor_user_id=actor_id,
+        idempotency_key=f"language-change:{key}",
+        correlation_id=_correlation(request),
     )
     return {
         "plan_id": str(plan["id"]),
@@ -1063,14 +1061,16 @@ async def reconcile_member_roles(
             code="STAGE08_PLANNING_NOT_CONFIGURED",
             message_key="errors.plans.notConfigured",
         )
-    plan, replayed, reconciliation = (
-        await container.stage08_structural_planning.create_member_role_plan(
-            guild_id=parsed,
-            member_id=int(body.discord_user_id),
-            actor_user_id=session.discord_user_id,
-            idempotency_key=body.idempotency_key,
-            correlation_id=_correlation(request),
-        )
+    (
+        plan,
+        replayed,
+        reconciliation,
+    ) = await container.stage08_structural_planning.create_member_role_plan(
+        guild_id=parsed,
+        member_id=int(body.discord_user_id),
+        actor_user_id=session.discord_user_id,
+        idempotency_key=body.idempotency_key,
+        correlation_id=_correlation(request),
     )
     return {
         "plan_id": str(plan["id"]),
@@ -1081,24 +1081,26 @@ async def reconcile_member_roles(
     }
 
 
-@router.post("/api/v1/guilds/{guild_id}/translation-providers/access-preflight")
+@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/access-preflight")
 async def provider_access_preflight(
     guild_id: str,
+    group_id: UUID,
     body: ProviderAccessInput,
     session: CurrentSessionDep,
     container: ServicesDep,
 ) -> dict[str, Any]:
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.BOTS_AUDIT)
-    result = TranslationProviderCoordinator().access_preflight(
-        bot_present=body.bot_present,
-        effective_permissions_by_variant={
-            parse_snowflake(key): int(value)
-            for key, value in body.effective_permissions_by_variant.items()
-        },
-        require_threads=body.require_threads,
-        require_embeds=body.require_embeds,
-        require_attachments=body.require_attachments,
+    if container.stage08_provider_orchestration is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PROVIDER_NOT_CONFIGURED",
+            message_key="errors.translation.providerNotConfigured",
+        )
+    result, authority = await container.stage08_provider_orchestration.access_preflight(
+        guild_id=parsed,
+        group_id=group_id,
+        binding_id=body.binding_id,
     )
     return {
         "allowed": result.allowed,
@@ -1108,12 +1110,14 @@ async def provider_access_preflight(
         "required_permissions": result.required_permissions,
         "recommended_administrator": False,
         "uses_human_language_roles": False,
+        "authority": authority,
     }
 
 
-@router.post("/api/v1/guilds/{guild_id}/translation-providers/prepare")
+@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/prepare")
 async def prepare_provider_configuration(
     guild_id: str,
+    group_id: UUID,
     body: ProviderPrepareInput,
     request: Request,
     session: CsrfSessionDep,
@@ -1121,52 +1125,71 @@ async def prepare_provider_configuration(
 ) -> dict[str, Any]:
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
-
-    async def capabilities_probe(_: int) -> dict[str, Any]:
-        values = body.observed_capabilities
-        return {
-            "supports_hub_and_spoke": values.supports_hub_and_spoke,
-            "supports_full_mesh": values.supports_full_mesh,
-            "supports_custom": values.supports_custom,
-            "max_languages_per_group": values.max_languages_per_group,
-            "health": values.provider_health,
-            "discord_bot_present": body.discord_bot_present,
-            "bot_permissions": body.bot_permissions,
-        }
-
-    async def health_probe(_: int) -> dict[str, Any]:
-        return {"status": body.observed_capabilities.provider_health}
-
-    provider = NonInvasiveExistingBotProvider(capabilities_probe, health_probe)
-    result = await TranslationProviderCoordinator().prepare(
-        provider=provider, guild_id=parsed, desired_group=body.desired_group
-    )
-    if body.binding_id is not None:
-        _, topology = _require(container)
-        await topology.record_provider_status(
-            guild_id=parsed,
-            binding_id=body.binding_id,
-            status=result.state,
-            verified=False,
+    if container.stage08_provider_orchestration is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PROVIDER_NOT_CONFIGURED",
+            message_key="errors.translation.providerNotConfigured",
         )
+    result: dict[
+        str, Any
+    ] = await container.stage08_provider_orchestration.prepare_manual_configuration(
+        guild_id=parsed,
+        group_id=group_id,
+        binding_id=body.binding_id,
+    )
     await _audit(
         container,
         guild_id=parsed,
         actor_id=session.discord_user_id,
         event_type="TRANSLATION_PROVIDER_CONFIGURATION_PREPARED",
         target_type="TRANSLATION_PROVIDER_BINDING",
-        target_id=str(body.binding_id or "unbound"),
+        target_id=str(body.binding_id),
         correlation_id=_correlation(request),
-        data={"state": result.state.value, "verification_state": result.verification_state},
+        data={
+            "state": result["state"],
+            "verification_state": result["verification_state"],
+        },
     )
-    return {
-        "state": result.state.value,
-        "instructions": result.instructions,
-        "verification_state": result.verification_state,
-        "payload": result.payload,
-        "automatic_mutation_performed": False,
-        "token_shared": False,
-    }
+    return result
+
+
+@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/verify")
+async def verify_provider_configuration(
+    guild_id: str,
+    group_id: UUID,
+    body: ProviderVerifyInput,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
+    if container.stage08_provider_orchestration is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PROVIDER_NOT_CONFIGURED",
+            message_key="errors.translation.providerNotConfigured",
+        )
+    result: dict[
+        str, Any
+    ] = await container.stage08_provider_orchestration.verify_manual_configuration(
+        guild_id=parsed,
+        group_id=group_id,
+        binding_id=body.binding_id,
+        confirmed_manual_configuration=body.confirmed_manual_configuration,
+    )
+    await _audit(
+        container,
+        guild_id=parsed,
+        actor_id=session.discord_user_id,
+        event_type="TRANSLATION_PROVIDER_CONFIGURATION_VERIFIED",
+        target_type="TRANSLATION_PROVIDER_BINDING",
+        target_id=str(body.binding_id),
+        correlation_id=_correlation(request),
+        data={"state": result["state"], "verification_state": result["verification_state"]},
+    )
+    return result
 
 
 @router.post("/api/v1/guilds/{guild_id}/translation-drift/observe")

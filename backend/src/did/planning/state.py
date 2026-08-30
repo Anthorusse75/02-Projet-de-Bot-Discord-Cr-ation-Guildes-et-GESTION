@@ -16,6 +16,7 @@ PLAN_TRANSITIONS: Mapping[PlanState, frozenset[PlanState]] = {
     PlanState.CONFIRMED: frozenset({PlanState.APPLYING, PlanState.STALE, PlanState.CANCELLED}),
     PlanState.APPLYING: frozenset(
         {
+            PlanState.APPLIED_WITH_PENDING_PROVIDER,
             PlanState.PARTIALLY_APPLIED,
             PlanState.SUCCEEDED,
             PlanState.FAILED,
@@ -27,6 +28,7 @@ PLAN_TRANSITIONS: Mapping[PlanState, frozenset[PlanState]] = {
     PlanState.CANCEL_REQUESTED: frozenset(
         {PlanState.CANCELLED, PlanState.PARTIALLY_APPLIED, PlanState.INTERVENTION_REQUIRED}
     ),
+    PlanState.APPLIED_WITH_PENDING_PROVIDER: frozenset(),
     PlanState.PARTIALLY_APPLIED: frozenset(),
     PlanState.SUCCEEDED: frozenset(),
     PlanState.FAILED: frozenset(),

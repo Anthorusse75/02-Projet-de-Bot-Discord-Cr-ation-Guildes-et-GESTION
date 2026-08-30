@@ -179,7 +179,7 @@ class Stage08LifecycleRepository:
                 },
             )
 
-    async def apply_verified_intents(self, *, guild_id: int, plan_id: UUID) -> int:
+    async def apply_verified_intents(self, *, guild_id: int, plan_id: UUID) -> tuple[int, bool]:
         """Materialize every pending intent in one transaction after targeted REST verification."""
         now = datetime.now(UTC)
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -197,6 +197,7 @@ class Stage08LifecycleRepository:
                 .mappings()
                 .all()
             )
+            provider_pending = False
             for intent in intents:
                 payload = dict(intent["payload_json"])
                 intent_type = str(intent["intent_type"])
@@ -266,28 +267,52 @@ class Stage08LifecycleRepository:
                         raise Stage08LifecycleConflict("invalid verified provider state")
                     result = await session.execute(
                         text(
-                            "UPDATE translation_provider_bindings SET status=:status,"
-                            "last_validated_at=:now,updated_at=:now WHERE guild_id=:guild_id "
-                            "AND id=:binding_id"
+                            "UPDATE translation_provider_bindings b SET "
+                            "status=CAST(:status AS varchar),"
+                            "last_validated_at=CASE WHEN CAST(:status AS varchar)='READY' "
+                            "THEN :now "
+                            "ELSE b.last_validated_at END,updated_at=:now "
+                            "WHERE b.guild_id=:guild_id AND b.id=:binding_id AND EXISTS ("
+                            "SELECT 1 FROM translation_groups g WHERE g.guild_id=b.guild_id "
+                            "AND g.id=:group_id AND g.provider_binding_id=b.id)"
                         ),
                         {
                             "guild_id": guild_id,
                             "binding_id": UUID(str(payload["binding_id"])),
+                            "group_id": UUID(str(payload["translation_group_id"])),
                             "status": status,
                             "now": now,
                         },
                     )
                     if getattr(result, "rowcount", 0) != 1:
                         raise Stage08LifecycleConflict("provider binding is unavailable")
+                    group_status = "ACTIVE" if status == "READY" else "PROVIDER_PENDING"
+                    group_result = await session.execute(
+                        text(
+                            "UPDATE translation_groups SET status=:group_status,"
+                            "updated_at=:now WHERE guild_id=:guild_id AND id=:group_id "
+                            "AND provider_binding_id=:binding_id AND status<>'DETACHED'"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "group_id": UUID(str(payload["translation_group_id"])),
+                            "binding_id": UUID(str(payload["binding_id"])),
+                            "group_status": group_status,
+                            "now": now,
+                        },
+                    )
+                    if getattr(group_result, "rowcount", 0) != 1:
+                        raise Stage08LifecycleConflict("provider group is unavailable")
+                    provider_pending = provider_pending or status == (
+                        "MANUAL_CONFIGURATION_REQUIRED"
+                    )
                 elif intent_type in {
                     "MATERIALIZE_CATEGORY_VARIANT",
                     "MATERIALIZE_CHANNEL_VARIANT",
                     "REPAIR_CATEGORY_VARIANT",
                     "REPAIR_CHANNEL_VARIANT",
                 }:
-                    expected_type = (
-                        "CATEGORY" if "CATEGORY" in intent_type else "CHANNEL"
-                    )
+                    expected_type = "CATEGORY" if "CATEGORY" in intent_type else "CHANNEL"
                     resource_id = await self._bound_resource_id(
                         session,
                         guild_id=guild_id,
@@ -374,7 +399,7 @@ class Stage08LifecycleRepository:
                     ),
                     {"guild_id": guild_id, "id": intent["id"], "now": now},
                 )
-            return len(intents)
+            return len(intents), provider_pending
 
     @staticmethod
     async def _bound_role_id(
@@ -430,9 +455,7 @@ class Stage08LifecycleRepository:
             raise Stage08LifecycleConflict("verified resource symbol is not bound")
         return int(row["discord_id"])
 
-    async def fail_pending_intents(
-        self, *, guild_id: int, plan_id: UUID, error_code: str
-    ) -> None:
+    async def fail_pending_intents(self, *, guild_id: int, plan_id: UUID, error_code: str) -> None:
         now = datetime.now(UTC)
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             await session.execute(

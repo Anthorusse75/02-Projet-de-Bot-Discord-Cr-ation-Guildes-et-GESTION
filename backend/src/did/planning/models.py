@@ -247,6 +247,7 @@ class PlanState(StrEnum):
     STALE = "STALE"
     CONFIRMED = "CONFIRMED"
     APPLYING = "APPLYING"
+    APPLIED_WITH_PENDING_PROVIDER = "APPLIED_WITH_PENDING_PROVIDER"
     PARTIALLY_APPLIED = "PARTIALLY_APPLIED"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
@@ -272,6 +273,12 @@ class AttemptState(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
+
+
+class PostVerificationOutcome(StrEnum):
+    APPLIED = "APPLIED"
+    PENDING_PROVIDER = "PENDING_PROVIDER"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,7 +12,12 @@ from did.infrastructure.discord.mutations import (
 )
 from did.infrastructure.planning_lock import RedisGuildMutationLock
 from did.infrastructure.planning_repository import PlanningRepository
-from did.planning.models import OperationState, OperationType, PlanState
+from did.planning.models import (
+    OperationState,
+    OperationType,
+    PlanState,
+    PostVerificationOutcome,
+)
 from did.worker.io.governor import DiscordWorkloadGovernor
 
 
@@ -33,7 +38,7 @@ class ApplyAuthorizationPort(Protocol):
 class PostVerificationPort(Protocol):
     async def apply(
         self, *, guild_id: int, plan_id: UUID, correlation_id: UUID
-    ) -> bool: ...
+    ) -> PostVerificationOutcome: ...
 
 
 class NoFaults:
@@ -346,7 +351,7 @@ class ApplyPlanExecutor:
         total = sum(counts.values())
         succeeded = counts.get(OperationState.SUCCEEDED.value, 0)
         discord_verified = False
-        post_verified = False
+        post_outcome = PostVerificationOutcome.APPLIED
         error: str | None
         if str(plan["status"]) == PlanState.CANCEL_REQUESTED.value:
             terminal = PlanState.CANCELLED
@@ -362,9 +367,8 @@ class ApplyPlanExecutor:
             error = "DAG_BLOCKED"
         else:
             discord_verified = await self._verify(guild_id, plan_id, governor)
-            post_verified = discord_verified
             if discord_verified and self._post_verification is not None:
-                post_verified = await self._post_verification.apply(
+                post_outcome = await self._post_verification.apply(
                     guild_id=guild_id,
                     plan_id=plan_id,
                     correlation_id=correlation_id,
@@ -372,9 +376,12 @@ class ApplyPlanExecutor:
             if not discord_verified:
                 terminal = PlanState.VERIFICATION_FAILED
                 error = "TARGETED_VERIFICATION_FAILED"
-            elif not post_verified:
+            elif post_outcome is PostVerificationOutcome.FAILED:
                 terminal = PlanState.PARTIALLY_APPLIED
                 error = "STAGE08_POST_VERIFICATION_FAILED"
+            elif post_outcome is PostVerificationOutcome.PENDING_PROVIDER:
+                terminal = PlanState.APPLIED_WITH_PENDING_PROVIDER
+                error = "PROVIDER_MANUAL_CONFIGURATION_REQUIRED"
             else:
                 terminal = PlanState.SUCCEEDED
                 error = None
@@ -385,9 +392,11 @@ class ApplyPlanExecutor:
             status=terminal,
             verification_summary={
                 "strategy": "TARGETED_REST",
-                "verified": terminal is PlanState.SUCCEEDED,
+                "verified": terminal
+                in {PlanState.SUCCEEDED, PlanState.APPLIED_WITH_PENDING_PROVIDER},
                 "discord_verified": discord_verified,
-                "post_verification_applied": post_verified,
+                "post_verification_applied": post_outcome is not PostVerificationOutcome.FAILED,
+                "post_verification_outcome": post_outcome.value,
                 "completed_operations": succeeded,
                 "total_operations": total,
             },

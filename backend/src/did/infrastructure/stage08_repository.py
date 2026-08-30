@@ -992,9 +992,9 @@ class TranslationGroupRepository:
     async def materialize_portable_topology(
         self, *, guild_id: int, topology: dict[str, Any]
     ) -> dict[str, Any]:
-        return await _PortableTopologyMaterializer(
-            self._factory
-        ).materialize_portable_topology(guild_id=guild_id, topology=topology)
+        return await _PortableTopologyMaterializer(self._factory).materialize_portable_topology(
+            guild_id=guild_id, topology=topology
+        )
 
 
 class TranslationProviderBindingRepository:
@@ -1080,6 +1080,56 @@ class TranslationProviderBindingRepository:
                 },
             )
 
+    async def set_group_provider_state(
+        self,
+        *,
+        guild_id: int,
+        group_id: UUID,
+        binding_id: UUID,
+        provider_status: str,
+        group_status: str,
+        verified: bool,
+    ) -> dict[str, Any]:
+        """Transition one group and its own provider binding atomically."""
+        if provider_status == "READY" and not verified:
+            raise ValueError("provider cannot become READY before verification")
+        if group_status not in {"ACTIVE", "PROVIDER_PENDING", "DEGRADED"}:
+            raise ValueError("invalid provider-backed translation group status")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            binding = await _fetch_one(
+                session,
+                "UPDATE translation_provider_bindings b SET status=:provider_status,"
+                "last_validated_at=CASE WHEN :verified THEN now() ELSE last_validated_at END,"
+                "updated_at=now() WHERE b.guild_id=:guild_id AND b.id=:binding_id "
+                "AND EXISTS (SELECT 1 FROM translation_groups g WHERE g.guild_id=b.guild_id "
+                "AND g.id=:group_id AND g.provider_binding_id=b.id AND g.status<>'DETACHED') "
+                "RETURNING b.*",
+                {
+                    "guild_id": guild_id,
+                    "group_id": group_id,
+                    "binding_id": binding_id,
+                    "provider_status": provider_status,
+                    "verified": verified,
+                },
+            )
+            group_result = await session.execute(
+                text(
+                    "UPDATE translation_groups SET status=:group_status,updated_at=now() "
+                    "WHERE guild_id=:guild_id AND id=:group_id "
+                    "AND provider_binding_id=:binding_id AND status<>'DETACHED'"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "group_id": group_id,
+                    "binding_id": binding_id,
+                    "group_status": group_status,
+                },
+            )
+            if getattr(group_result, "rowcount", 0) != 1:
+                raise Stage08NotFound("provider-backed translation group was not found")
+            return binding
+
+
 class _PortableTopologyMaterializer:
     def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
         self._factory = factory
@@ -1118,9 +1168,7 @@ class _PortableTopologyMaterializer:
 
             group = dict(topology["group"])
             source_code = group.pop("source_language_code", None)
-            source_language_id = (
-                language_ids[str(source_code)] if source_code is not None else None
-            )
+            source_language_id = language_ids[str(source_code)] if source_code is not None else None
             await session.execute(
                 text(
                     "INSERT INTO translation_groups "
@@ -1184,9 +1232,7 @@ class _PortableTopologyMaterializer:
                         "logical_key": channel_group["logical_key"],
                         "display_name": channel_group["display_name"],
                         "source_id": (
-                            language_ids[str(source_code)]
-                            if source_code is not None
-                            else None
+                            language_ids[str(source_code)] if source_code is not None else None
                         ),
                     },
                 )
@@ -1339,9 +1385,7 @@ class _PortableTopologyMaterializer:
                         "guild_id": guild_id,
                         "group_id": group["id"],
                         "source_id": language_ids[str(route["source_language_code"])],
-                        "destination_id": language_ids[
-                            str(route["destination_language_code"])
-                        ],
+                        "destination_id": language_ids[str(route["destination_language_code"])],
                     },
                 )
             for binding in topology["language_roles"]:

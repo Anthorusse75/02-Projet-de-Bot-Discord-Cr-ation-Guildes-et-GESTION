@@ -459,6 +459,60 @@ async def test_route_replacement_cas_and_provider_ready_requires_verification(
 
 
 @pytest.mark.asyncio
+async def test_provider_and_group_pending_ready_transitions_are_atomic(
+    repositories: tuple[
+        LanguageProfileRepository,
+        ResourceLanguagePolicyRepository,
+        TranslationGroupRepository,
+        TranslationProviderBindingRepository,
+        VisibilityScopeLanguageRepository,
+    ],
+) -> None:
+    profiles, _, groups, providers, _ = repositories
+    language = await profiles.create(
+        guild_id=GUILD_A, code="fr", display_name="French"
+    )
+    binding = await providers.create(
+        guild_id=GUILD_A,
+        provider_type="existing_translation_bot",
+        provider_instance_key=f"state-{uuid4()}",
+        capabilities={"supports_hub_and_spoke": True},
+    )
+    group = await groups.create_with_languages(
+        guild_id=GUILD_A,
+        name="Provider state",
+        root_kind="CHANNEL_SET",
+        routing_mode="HUB_AND_SPOKE",
+        language_profile_ids=(language["id"],),
+        visibility_scope_id=None,
+        source_language_profile_id=language["id"],
+        provider_binding_id=binding["id"],
+    )
+    pending = await providers.set_group_provider_state(
+        guild_id=GUILD_A,
+        group_id=group["id"],
+        binding_id=binding["id"],
+        provider_status="MANUAL_CONFIGURATION_REQUIRED",
+        group_status="PROVIDER_PENDING",
+        verified=False,
+    )
+    assert pending["status"] == "MANUAL_CONFIGURATION_REQUIRED"
+    assert (await groups.get(GUILD_A, group["id"]))["status"] == "PROVIDER_PENDING"
+
+    ready = await providers.set_group_provider_state(
+        guild_id=GUILD_A,
+        group_id=group["id"],
+        binding_id=binding["id"],
+        provider_status="READY",
+        group_status="ACTIVE",
+        verified=True,
+    )
+    assert ready["status"] == "READY"
+    assert ready["last_validated_at"] is not None
+    assert (await groups.get(GUILD_A, group["id"]))["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
 async def test_gateway_delete_marks_only_the_exact_translation_variant_missing(
     repositories: tuple[
         LanguageProfileRepository,

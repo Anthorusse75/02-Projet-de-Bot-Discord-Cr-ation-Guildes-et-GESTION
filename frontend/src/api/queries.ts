@@ -44,7 +44,7 @@ export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflak
 export const useGuildDashboardCapabilities = (u: DiscordSnowflake, guildIds: readonly DiscordSnowflake[]) => useQueries({
   queries: guildIds.map((guildId) => dashboardCapabilitiesOptions(u, guildId)),
 })
-const terminalPlanStates = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
+const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({
   enabled: Boolean(planId), queryKey: queryKeys.tenant(u, g, 'plans', planId ?? 'none', 'progress'),
   queryFn: () => apiRequest<{events: PlanProgressEvent[]}>(`/api/v1/guilds/${g}/plans/${planId}/progress`, { signal: tenantSignal(g) }),

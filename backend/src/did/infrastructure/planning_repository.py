@@ -452,6 +452,7 @@ class PlanningRepository:
             PlanState.APPLYING: "applying_at",
             PlanState.CANCEL_REQUESTED: "cancel_requested_at",
             PlanState.STALE: "drift_detected_at",
+            PlanState.APPLIED_WITH_PENDING_PROVIDER: "completed_at",
             PlanState.SUCCEEDED: "completed_at",
             PlanState.FAILED: "completed_at",
             PlanState.PARTIALLY_APPLIED: "completed_at",
@@ -1715,6 +1716,7 @@ class PlanningRepository:
         correlation_id: UUID,
     ) -> None:
         if status not in {
+            PlanState.APPLIED_WITH_PENDING_PROVIDER,
             PlanState.SUCCEEDED,
             PlanState.FAILED,
             PlanState.PARTIALLY_APPLIED,
@@ -1729,6 +1731,7 @@ class PlanningRepository:
                 {"guild_id": guild_id, "plan_id": plan_id},
             )
             if current in {
+                PlanState.APPLIED_WITH_PENDING_PROVIDER.value,
                 PlanState.SUCCEEDED.value,
                 PlanState.FAILED.value,
                 PlanState.PARTIALLY_APPLIED.value,

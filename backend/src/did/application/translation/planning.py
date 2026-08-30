@@ -225,13 +225,17 @@ class Stage08StructuralPlanningService:
                 intent_type=intent_type,
                 payload=payload,
             )
-        return plan, replayed, {
-            "source": "TRUSTED_CACHE_AND_DURABLE_TOPOLOGY",
-            "role_count": len(guild.roles),
-            "role_delta": 1 if reservation is not None else 0,
-            "overwrite_count": len(channel.overwrites),
-            "overwrite_delta": additions,
-        }
+        return (
+            plan,
+            replayed,
+            {
+                "source": "TRUSTED_CACHE_AND_DURABLE_TOPOLOGY",
+                "role_count": len(guild.roles),
+                "role_delta": 1 if reservation is not None else 0,
+                "overwrite_count": len(channel.overwrites),
+                "overwrite_delta": additions,
+            },
+        )
 
     async def create_member_role_plan(
         self,
@@ -311,14 +315,18 @@ class Stage08StructuralPlanningService:
             correlation_id=correlation_id,
             operation_order_policy="STAGE08_STRUCTURAL",
         )
-        return plan, replayed, {
-            "source": "TRUSTED_CACHE_SCOPE_RESOLVER_AND_DURABLE_LANGUAGES",
-            "member_id": str(member_id),
-            "assign": [str(value) for value in assign],
-            "remove": [str(value) for value in remove],
-            "member_specific_overwrites": [],
-            "all_languages_role": None,
-        }
+        return (
+            plan,
+            replayed,
+            {
+                "source": "TRUSTED_CACHE_SCOPE_RESOLVER_AND_DURABLE_LANGUAGES",
+                "member_id": str(member_id),
+                "assign": [str(value) for value in assign],
+                "remove": [str(value) for value in remove],
+                "member_specific_overwrites": [],
+                "all_languages_role": None,
+            },
+        )
 
     async def create_variant_plan(
         self,
@@ -356,9 +364,7 @@ class Stage08StructuralPlanningService:
                 raise ValueError("only a trusted missing variant can be repaired")
             language_profile_id = UUID(str(existing["language_profile_id"]))
             if variant_type == "CHANNEL":
-                translation_channel_group_id = UUID(
-                    str(existing["translation_channel_group_id"])
-                )
+                translation_channel_group_id = UUID(str(existing["translation_channel_group_id"]))
         if language_profile_id is None:
             raise ValueError("new variants require a language profile")
         language = next(
@@ -379,8 +385,7 @@ class Stage08StructuralPlanningService:
                 raise ValueError("a category variant already exists for this language")
             if variant_type == "CHANNEL" and any(
                 UUID(str(row["language_profile_id"])) == language_profile_id
-                and UUID(str(row["translation_channel_group_id"]))
-                == translation_channel_group_id
+                and UUID(str(row["translation_channel_group_id"])) == translation_channel_group_id
                 for row in group["channel_variants"]
             ):
                 raise ValueError("a channel variant already exists for this language")
@@ -427,9 +432,7 @@ class Stage08StructuralPlanningService:
         if existing is not None:
             previous_id = int(
                 existing[
-                    "discord_category_id"
-                    if variant_type == "CATEGORY"
-                    else "discord_channel_id"
+                    "discord_category_id" if variant_type == "CATEGORY" else "discord_channel_id"
                 ]
             )
             previous = guild.channel(previous_id)
@@ -504,12 +507,29 @@ class Stage08StructuralPlanningService:
             intent_type=intent_type,
             payload=payload,
         )
-        return plan, replayed, {
-            "source": "BUSINESS_INTENT_AND_TRUSTED_CACHE",
-            "variant_id": str(variant_id),
-            "variant_type": variant_type,
-            "materialization": "AFTER_TARGETED_DISCORD_VERIFICATION",
-        }
+        provider_binding_id = group.get("provider_binding_id")
+        if provider_binding_id is not None:
+            await self._lifecycle.add_plan_intent(
+                guild_id=guild_id,
+                plan_id=UUID(str(plan["id"])),
+                intent_key=f"provider:{provider_binding_id}",
+                intent_type="VERIFY_PROVIDER",
+                payload={
+                    "binding_id": str(provider_binding_id),
+                    "translation_group_id": str(group_id),
+                    "verified_status": "MANUAL_CONFIGURATION_REQUIRED",
+                },
+            )
+        return (
+            plan,
+            replayed,
+            {
+                "source": "BUSINESS_INTENT_AND_TRUSTED_CACHE",
+                "variant_id": str(variant_id),
+                "variant_type": variant_type,
+                "materialization": "AFTER_TARGETED_DISCORD_VERIFICATION",
+            },
+        )
 
     async def _effective_policy(
         self,
@@ -536,13 +556,10 @@ class Stage08StructuralPlanningService:
     @staticmethod
     def _assert_group_resource(group: dict[str, Any], resource_type: str, resource_id: int) -> None:
         collection = (
-            group["category_variants"]
-            if resource_type == "CATEGORY"
-            else group["channel_variants"]
+            group["category_variants"] if resource_type == "CATEGORY" else group["channel_variants"]
         )
         key = "discord_category_id" if resource_type == "CATEGORY" else "discord_channel_id"
         if not any(
-            int(row[key]) == resource_id and str(row["state"]) == "ACTIVE"
-            for row in collection
+            int(row[key]) == resource_id and str(row["state"]) == "ACTIVE" for row in collection
         ):
             raise ValueError("visibility target is not an active variant of this group")

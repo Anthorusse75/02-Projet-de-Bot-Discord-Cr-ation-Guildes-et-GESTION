@@ -3,6 +3,7 @@ import type { MessageKey } from './catalog'
 const planStatuses: Record<string, MessageKey> = {
   DRAFT: 'plans.status.draft', VALIDATED: 'plans.status.validated', CONFIRMED: 'plans.status.confirmed', APPLYING: 'plans.status.applying',
   CANCEL_REQUESTED: 'plans.status.cancel_requested', CANCELLED: 'plans.status.cancelled', STALE: 'plans.status.stale', SUCCEEDED: 'plans.status.succeeded',
+  APPLIED_WITH_PENDING_PROVIDER: 'plans.status.applied_with_pending_provider',
   FAILED: 'plans.status.failed', PARTIALLY_APPLIED: 'plans.status.partially_applied', VERIFICATION_FAILED: 'plans.status.verification_failed', INTERVENTION_REQUIRED: 'plans.status.intervention_required',
 }
 const risks: Record<string, MessageKey> = { LOW: 'risk.low', MEDIUM: 'risk.medium', HIGH: 'risk.high' }
@@ -10,6 +11,7 @@ const progress: Record<string, MessageKey> = {
   'plans.progress.created': 'plans.progress.created', 'plans.progress.validated': 'plans.progress.validated', 'plans.progress.confirmed': 'plans.progress.confirmed',
   'plans.progress.applying': 'plans.progress.applying', 'plans.progress.cancel_requested': 'plans.progress.cancel_requested', 'plans.progress.cancelled': 'plans.progress.cancelled',
   'plans.progress.stale': 'plans.progress.stale', 'plans.progress.succeeded': 'plans.progress.succeeded', 'plans.progress.failed': 'plans.progress.failed',
+  'plans.progress.applied_with_pending_provider': 'plans.progress.applied_with_pending_provider',
   'plans.progress.partially_applied': 'plans.progress.partially_applied', 'plans.progress.verification_failed': 'plans.progress.verification_failed',
   'plans.progress.intervention_required': 'plans.progress.intervention_required', 'plans.progress.preconditionRejected': 'plans.progress.preconditionRejected',
   'plans.progress.operationSucceeded': 'plans.progress.operationSucceeded', 'plans.progress.operationUnknown': 'plans.progress.operationUnknown',

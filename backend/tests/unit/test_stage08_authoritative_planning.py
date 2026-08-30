@@ -234,9 +234,7 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     read_models.list_visibility_scopes.return_value = []
     groups = AsyncMock()
     languages = AsyncMock()
-    languages.member_languages.return_value = [
-        {"language_profile_id": LANGUAGE, "enabled": True}
-    ]
+    languages.member_languages.return_value = [{"language_profile_id": LANGUAGE, "enabled": True}]
     policies = AsyncMock()
     scope_roles = AsyncMock()
     scope_roles.list_bindings.return_value = []
@@ -270,9 +268,7 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     assert decision["remove"] == []
     assert len(operations) == 1
     assert operations[0].operation_type is OperationType.ADD_MEMBER_ROLE
-    assert business_role not in {
-        int(node.property_map()["role_id"]) for node in graph.nodes
-    }
+    assert business_role not in {int(node.property_map()["role_id"]) for node in graph.nodes}
 
     member_with_technical = MemberSnapshot(
         GUILD,
@@ -297,14 +293,14 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
 
 
 async def test_variant_plan_compiles_business_intent_and_defers_materialization() -> None:
-    authority, spies = service(
-        snapshot(role_count=1, overwrite_count=0, protected_targets=())
-    )
+    authority, spies = service(snapshot(role_count=1, overwrite_count=0, protected_targets=()))
     spies.planning.create.return_value = (
         {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
         False,
     )
     spies.lifecycle.add_plan_intent = AsyncMock()
+    provider_binding_id = uuid4()
+    authority._groups.workspace_group.return_value["provider_binding_id"] = provider_binding_id
 
     plan, replayed, authority_evidence = await authority.create_variant_plan(
         guild_id=GUILD,
@@ -322,12 +318,23 @@ async def test_variant_plan_compiles_business_intent_and_defers_materialization(
     assert len(graph.nodes) == 1
     assert graph.nodes[0].resource_type is ResourceType.CATEGORY
     assert graph.nodes[0].property_map() == {"name": "Français"}
-    intent = spies.lifecycle.add_plan_intent.await_args.kwargs
+    assert spies.lifecycle.add_plan_intent.await_count == 2
+    intent = spies.lifecycle.add_plan_intent.await_args_list[0].kwargs
     assert intent["intent_type"] == "MATERIALIZE_CATEGORY_VARIANT"
     assert intent["payload"]["language_profile_id"] == str(LANGUAGE)
-    assert authority_evidence["materialization"] == (
-        "AFTER_TARGETED_DISCORD_VERIFICATION"
-    )
+    provider_intent = spies.lifecycle.add_plan_intent.await_args_list[1].kwargs
+    assert provider_intent == {
+        "guild_id": GUILD,
+        "plan_id": UUID(str(plan["id"])),
+        "intent_key": f"provider:{provider_binding_id}",
+        "intent_type": "VERIFY_PROVIDER",
+        "payload": {
+            "binding_id": str(provider_binding_id),
+            "translation_group_id": str(GROUP),
+            "verified_status": "MANUAL_CONFIGURATION_REQUIRED",
+        },
+    }
+    assert authority_evidence["materialization"] == ("AFTER_TARGETED_DISCORD_VERIFICATION")
     first_variant_id = authority_evidence["variant_id"]
     _, _, replay_authority = await authority.create_variant_plan(
         guild_id=GUILD,
@@ -343,9 +350,7 @@ async def test_variant_plan_compiles_business_intent_and_defers_materialization(
 
 
 async def test_repair_plan_derives_durable_language_and_channel_group() -> None:
-    authority, spies = service(
-        snapshot(role_count=1, overwrite_count=0, protected_targets=())
-    )
+    authority, spies = service(snapshot(role_count=1, overwrite_count=0, protected_targets=()))
     channel_group_id = uuid4()
     variant_id = uuid4()
     spies.lifecycle.add_plan_intent = AsyncMock()

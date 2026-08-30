@@ -1,3 +1,6 @@
+from did.application.translation.provider_orchestration import (
+    Stage08ProviderOrchestrationService,
+)
 from did.application.translation.service import (
     CapacityDecision,
     DiscordOverwrite,
@@ -25,6 +28,7 @@ __all__ = [
     "ProviderConfigurationResult",
     "RoleCapacityEngine",
     "RoleOptimizer",
+    "Stage08ProviderOrchestrationService",
     "TechnicalRoleSpec",
     "TranslationDriftDetector",
     "TranslationProviderCoordinator",

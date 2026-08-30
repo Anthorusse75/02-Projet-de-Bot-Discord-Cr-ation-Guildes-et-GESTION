@@ -1092,35 +1092,14 @@
       "ProviderAccessInput": {
         "additionalProperties": false,
         "properties": {
-          "bot_present": {
-            "title": "Bot Present",
-            "type": "boolean"
-          },
-          "effective_permissions_by_variant": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Effective Permissions By Variant",
-            "type": "object"
-          },
-          "require_attachments": {
-            "default": false,
-            "title": "Require Attachments",
-            "type": "boolean"
-          },
-          "require_embeds": {
-            "default": false,
-            "title": "Require Embeds",
-            "type": "boolean"
-          },
-          "require_threads": {
-            "default": false,
-            "title": "Require Threads",
-            "type": "boolean"
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
           }
         },
         "required": [
-          "bot_present"
+          "binding_id"
         ],
         "title": "ProviderAccessInput",
         "type": "object"
@@ -1129,43 +1108,36 @@
         "additionalProperties": false,
         "properties": {
           "binding_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Binding Id"
-          },
-          "bot_permissions": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 64,
-            "title": "Bot Permissions",
-            "type": "array"
-          },
-          "desired_group": {
-            "additionalProperties": true,
-            "title": "Desired Group",
-            "type": "object"
-          },
-          "discord_bot_present": {
-            "default": false,
-            "title": "Discord Bot Present",
-            "type": "boolean"
-          },
-          "observed_capabilities": {
-            "$ref": "#/components/schemas/RouteCompileInput"
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
           }
         },
         "required": [
-          "observed_capabilities"
+          "binding_id"
         ],
         "title": "ProviderPrepareInput",
+        "type": "object"
+      },
+      "ProviderVerifyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "confirmed_manual_configuration": {
+            "const": true,
+            "title": "Confirmed Manual Configuration",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "binding_id",
+          "confirmed_manual_configuration"
+        ],
+        "title": "ProviderVerifyInput",
         "type": "object"
       },
       "PurgeRequest": {
@@ -5726,6 +5698,198 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/access-preflight": {
+      "post": {
+        "operationId": "provider_access_preflight_api_v1_guilds__guild_id__translation_groups__group_id__provider_access_preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderAccessInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Provider Access Preflight Api V1 Guilds  Guild Id  Translation Groups  Group Id  Provider Access Preflight Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Access Preflight",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/prepare": {
+      "post": {
+        "operationId": "prepare_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_prepare_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderPrepareInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Prepare Provider Configuration Api V1 Guilds  Guild Id  Translation Groups  Group Id  Provider Prepare Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prepare Provider Configuration",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/verify": {
+      "post": {
+        "operationId": "verify_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderVerifyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Verify Provider Configuration Api V1 Guilds  Guild Id  Translation Groups  Group Id  Provider Verify Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Provider Configuration",
+        "tags": [
+          "stage-08-multilingual-topology"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
       "post": {
         "operationId": "repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post",
@@ -6041,114 +6205,6 @@
           }
         },
         "summary": "Create Visibility Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
-    "/api/v1/guilds/{guild_id}/translation-providers/access-preflight": {
-      "post": {
-        "operationId": "provider_access_preflight_api_v1_guilds__guild_id__translation_providers_access_preflight_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProviderAccessInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Provider Access Preflight Api V1 Guilds  Guild Id  Translation Providers Access Preflight Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Provider Access Preflight",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
-    "/api/v1/guilds/{guild_id}/translation-providers/prepare": {
-      "post": {
-        "operationId": "prepare_provider_configuration_api_v1_guilds__guild_id__translation_providers_prepare_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProviderPrepareInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Prepare Provider Configuration Api V1 Guilds  Guild Id  Translation Providers Prepare Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Prepare Provider Configuration",
         "tags": [
           "stage-08-multilingual-topology"
         ]

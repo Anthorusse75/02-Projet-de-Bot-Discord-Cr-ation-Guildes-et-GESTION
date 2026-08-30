@@ -889,6 +889,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/access-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Provider Access Preflight */
+        post: operations["provider_access_preflight_api_v1_guilds__guild_id__translation_groups__group_id__provider_access_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Provider Configuration */
+        post: operations["prepare_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Provider Configuration */
+        post: operations["verify_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
         parameters: {
             query?: never;
@@ -968,40 +1019,6 @@ export interface paths {
         put?: never;
         /** Create Visibility Plan */
         post: operations["create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guilds/{guild_id}/translation-providers/access-preflight": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Provider Access Preflight */
-        post: operations["provider_access_preflight_api_v1_guilds__guild_id__translation_providers_access_preflight_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guilds/{guild_id}/translation-providers/prepare": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Prepare Provider Configuration */
-        post: operations["prepare_provider_configuration_api_v1_guilds__guild_id__translation_providers_prepare_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1826,44 +1843,32 @@ export interface components {
         };
         /** ProviderAccessInput */
         ProviderAccessInput: {
-            /** Bot Present */
-            bot_present: boolean;
-            /** Effective Permissions By Variant */
-            effective_permissions_by_variant?: {
-                [key: string]: string;
-            };
             /**
-             * Require Attachments
-             * @default false
+             * Binding Id
+             * Format: uuid
              */
-            require_attachments: boolean;
-            /**
-             * Require Embeds
-             * @default false
-             */
-            require_embeds: boolean;
-            /**
-             * Require Threads
-             * @default false
-             */
-            require_threads: boolean;
+            binding_id: string;
         };
         /** ProviderPrepareInput */
         ProviderPrepareInput: {
-            /** Binding Id */
-            binding_id?: string | null;
-            /** Bot Permissions */
-            bot_permissions?: string[];
-            /** Desired Group */
-            desired_group?: {
-                [key: string]: unknown;
-            };
             /**
-             * Discord Bot Present
-             * @default false
+             * Binding Id
+             * Format: uuid
              */
-            discord_bot_present: boolean;
-            observed_capabilities: components["schemas"]["RouteCompileInput"];
+            binding_id: string;
+        };
+        /** ProviderVerifyInput */
+        ProviderVerifyInput: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /**
+             * Confirmed Manual Configuration
+             * @constant
+             */
+            confirmed_manual_configuration: true;
         };
         /** PurgeRequest */
         PurgeRequest: {
@@ -4480,6 +4485,120 @@ export interface operations {
             };
         };
     };
+    provider_access_preflight_api_v1_guilds__guild_id__translation_groups__group_id__provider_access_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderAccessInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderPrepareInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderVerifyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post: {
         parameters: {
             query?: never;
@@ -4645,80 +4764,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["VisibilityPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    provider_access_preflight_api_v1_guilds__guild_id__translation_providers_access_preflight_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProviderAccessInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    prepare_provider_configuration_api_v1_guilds__guild_id__translation_providers_prepare_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProviderPrepareInput"];
             };
         };
         responses: {
