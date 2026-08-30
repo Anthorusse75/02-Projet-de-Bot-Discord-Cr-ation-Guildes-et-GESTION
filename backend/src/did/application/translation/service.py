@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
+from did.domain.discord_runtime import ObservabilityState
+from did.domain.read_model.models import ChannelType
 from did.domain.translation_topology import (
     CapabilitySupport,
     LanguageProfile,
@@ -16,9 +18,11 @@ from did.domain.translation_topology import (
     TranslationProviderStatus,
     VisibilityPolicy,
 )
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     ResourceLanguagePolicyRepository,
+    Stage08NotFound,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
     VisibilityScopeLanguageRepository,
@@ -846,10 +850,12 @@ class TranslationTopologyService:
         groups: TranslationGroupRepository,
         providers: TranslationProviderBindingRepository,
         visibility: VisibilityScopeLanguageRepository,
+        read_models: Stage04Repository | None = None,
     ) -> None:
         self._groups = groups
         self._providers = providers
         self._visibility = visibility
+        self._read_models = read_models
 
     async def create_group(
         self,
@@ -905,10 +911,25 @@ class TranslationTopologyService:
         confirmed_explicit_selection: bool,
         channel_group_id: UUID | None = None,
         category_variant_id: UUID | None = None,
+        actor_user_id: int | None = None,
     ) -> dict[str, Any]:
         if not confirmed_explicit_selection:
             raise ValueError("an existing Discord resource link requires explicit confirmation")
         await self._groups.get(guild_id, group_id)
+        cached_channel = None
+        if self._read_models is not None:
+            if actor_user_id is None:
+                raise ValueError("link compatibility requires an authenticated cache reader")
+            guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+            cached_channel = guild.channel(discord_resource_id)
+            if (
+                cached_channel is None
+                or cached_channel.observability is not ObservabilityState.VISIBLE
+            ):
+                raise ValueError("selected Discord resource is unavailable in the trusted cache")
+            is_category = cached_channel.channel_type == ChannelType.GUILD_CATEGORY
+            if (variant_type == "CATEGORY") is not is_category:
+                raise ValueError("selected Discord resource type is incompatible")
         if variant_type == "CATEGORY":
             return await self._groups.create_category_variant(
                 guild_id=guild_id,
@@ -923,12 +944,17 @@ class TranslationTopologyService:
                 channel_group_id=channel_group_id,
             )
             if category_variant_id is not None:
-                await self._groups.get_variant(
+                category_variant = await self._groups.get_variant(
                     guild_id=guild_id,
                     translation_group_id=group_id,
                     variant_id=category_variant_id,
                     variant_type="CATEGORY",
                 )
+                if (
+                    cached_channel is not None
+                    and cached_channel.parent_id != int(category_variant["discord_category_id"])
+                ):
+                    raise ValueError("selected channel belongs to an incompatible category")
             return await self._groups.create_channel_variant(
                 guild_id=guild_id,
                 translation_group_id=group_id,
@@ -975,11 +1001,48 @@ class TranslationTopologyService:
         group_id: UUID,
         expected_version: int,
         topology: TranslationGroupTopology,
-        language_ids: tuple[UUID, ...],
         hub_language_id: UUID | None,
         custom_routes: tuple[tuple[UUID, UUID], ...],
-        capabilities: TranslationProviderCapabilities,
     ) -> dict[str, Any]:
+        workspace_group = next(
+            (
+                row
+                for row in await self._groups.workspace(guild_id)
+                if UUID(str(row["id"])) == group_id
+            ),
+            None,
+        )
+        if workspace_group is None:
+            raise Stage08NotFound("translation group was not found")
+        provider_binding_id = workspace_group.get("provider_binding_id")
+        if provider_binding_id is None:
+            raise ValueError("translation routes require an authoritative provider binding")
+        provider = await self._providers.get(
+            guild_id=guild_id,
+            binding_id=UUID(str(provider_binding_id)),
+        )
+        if str(provider["status"]) != TranslationProviderStatus.READY.value:
+            raise ValueError("translation provider must be verified and READY")
+        raw_capabilities = dict(provider["capabilities_json"] or {})
+        capabilities = TranslationProviderCapabilities(
+            supports_hub_and_spoke=bool(raw_capabilities.get("supports_hub_and_spoke", False)),
+            supports_full_mesh=bool(raw_capabilities.get("supports_full_mesh", False)),
+            supports_custom=bool(raw_capabilities.get("supports_custom", False)),
+            max_languages_per_group=(
+                int(raw_capabilities["max_languages_per_group"])
+                if raw_capabilities.get("max_languages_per_group") is not None
+                else None
+            ),
+            configuration_mode=ProviderConfigurationMode(
+                str(raw_capabilities.get("configuration_mode", "OBSERVATION_ONLY"))
+            ),
+            health=TranslationProviderStatus.READY.value,
+        )
+        language_ids = tuple(
+            UUID(str(language["id"]))
+            for language in workspace_group["languages"]
+            if bool(language["enabled"])
+        )
         routes = TranslationRouteCompiler().compile(
             topology=topology,
             language_ids=language_ids,
@@ -1027,11 +1090,19 @@ class TranslationTopologyService:
             evidence=evidence,
             discord_resource_present=discord_resource_present,
         )
-        if decision["state"] == "MISSING" and variant_id is not None and variant_type is not None:
-            await self._groups.mark_variant_missing(
-                guild_id=guild_id, variant_id=variant_id, variant_type=variant_type
-            )
-        return {**decision, "other_variants_unchanged": True, "automatic_deletion": False}
+        del variant_id, variant_type
+        if decision["state"] == "MISSING":
+            decision = {
+                "state": current_state,
+                "drift": "UNTRUSTED_MISSING_CLAIM",
+                "repair": None,
+            }
+        return {
+            **decision,
+            "authoritative_source": "GATEWAY_PROJECTOR_ONLY",
+            "other_variants_unchanged": True,
+            "automatic_deletion": False,
+        }
 
     async def workspace(self, guild_id: int) -> dict[str, Any]:
         return {

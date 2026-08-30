@@ -29,6 +29,7 @@ from did.application.installations import InstallationService
 from did.application.planning import PlanningService
 from did.application.portability import PortabilityService
 from did.application.translation import LanguageProfileService, TranslationTopologyService
+from did.application.translation.planning import Stage08StructuralPlanningService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import (
     create_database_engine,
@@ -54,6 +55,7 @@ from did.infrastructure.redis import create_redis_client, redis_is_ready
 from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     ResourceLanguagePolicyRepository,
@@ -176,6 +178,7 @@ def create_app(
             stage08_group_repository = TranslationGroupRepository(session_factory)
             stage08_provider_repository = TranslationProviderBindingRepository(session_factory)
             stage08_visibility_repository = VisibilityScopeLanguageRepository(session_factory)
+            stage08_lifecycle_repository = Stage08LifecycleRepository(session_factory)
             stage08_languages = LanguageProfileService(
                 stage08_language_repository, stage08_policy_repository
             )
@@ -183,8 +186,18 @@ def create_app(
                 stage08_group_repository,
                 stage08_provider_repository,
                 stage08_visibility_repository,
+                stage04_repository,
             )
             stage08_audit_repository = Stage08AuditRepository(session_factory)
+            stage08_structural_planning = Stage08StructuralPlanningService(
+                planning=planning,
+                read_models=stage04_repository,
+                groups=stage08_group_repository,
+                languages=stage08_language_repository,
+                policies=stage08_policy_repository,
+                scope_roles=stage08_visibility_repository,
+                lifecycle=stage08_lifecycle_repository,
+            )
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -239,6 +252,7 @@ def create_app(
                 stage08_languages=stage08_languages,
                 stage08_topology=stage08_topology,
                 stage08_audit_repository=stage08_audit_repository,
+                stage08_structural_planning=stage08_structural_planning,
             )
         try:
             yield

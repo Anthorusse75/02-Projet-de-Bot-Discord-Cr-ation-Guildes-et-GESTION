@@ -9,12 +9,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 
+from did.application.discord_runtime import normalize_gateway_dispatch
 from did.application.translation import LanguageProfileService, TranslationTopologyService
 from did.domain.translation_topology import (
     TranslationGroupTopology,
-    TranslationProviderCapabilities,
 )
 from did.infrastructure.database import create_database_engine
+from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     ResourceLanguagePolicyRepository,
@@ -395,6 +396,18 @@ async def test_route_replacement_cas_and_provider_ready_requires_verification(
     topology = TranslationTopologyService(groups, providers, visibility)
     fr = await profiles.create(guild_id=GUILD_A, code="fr", display_name="French")
     en = await profiles.create(guild_id=GUILD_A, code="en", display_name="English")
+    binding = await providers.create(
+        guild_id=GUILD_A,
+        provider_type="existing_translation_bot",
+        provider_instance_key=f"ready-{uuid4()}",
+        capabilities={"supports_custom": True},
+    )
+    await providers.set_status(
+        guild_id=GUILD_A,
+        binding_id=binding["id"],
+        status="READY",
+        verified=True,
+    )
     group = await topology.create_group(
         guild_id=GUILD_A,
         name="Routes",
@@ -403,18 +416,15 @@ async def test_route_replacement_cas_and_provider_ready_requires_verification(
         language_ids=(fr["id"], en["id"]),
         visibility_scope_id=None,
         source_language_profile_id=None,
-        provider_binding_id=None,
+        provider_binding_id=binding["id"],
     )
-    capability = TranslationProviderCapabilities(supports_custom=True, health="READY")
     updated = await topology.replace_routes(
         guild_id=GUILD_A,
         group_id=group["id"],
         expected_version=1,
         topology=TranslationGroupTopology.CUSTOM,
-        language_ids=(fr["id"], en["id"]),
         hub_language_id=None,
         custom_routes=((fr["id"], en["id"]),),
-        capabilities=capability,
     )
     assert updated["version"] == 2 and len(updated["routes"]) == 1
     with pytest.raises(Stage08Conflict):
@@ -423,12 +433,10 @@ async def test_route_replacement_cas_and_provider_ready_requires_verification(
             group_id=group["id"],
             expected_version=1,
             topology=TranslationGroupTopology.CUSTOM,
-            language_ids=(fr["id"], en["id"]),
             hub_language_id=None,
             custom_routes=((en["id"], fr["id"]),),
-            capabilities=capability,
         )
-    binding = await providers.create(
+    unverified_binding = await providers.create(
         guild_id=GUILD_A,
         provider_type="existing_translation_bot",
         provider_instance_key=f"manual-{uuid4()}",
@@ -436,9 +444,90 @@ async def test_route_replacement_cas_and_provider_ready_requires_verification(
     )
     with pytest.raises(ValueError, match="verification"):
         await providers.set_status(
-            guild_id=GUILD_A, binding_id=binding["id"], status="READY", verified=False
+            guild_id=GUILD_A,
+            binding_id=unverified_binding["id"],
+            status="READY",
+            verified=False,
         )
     ready = await providers.set_status(
-        guild_id=GUILD_A, binding_id=binding["id"], status="READY", verified=True
+        guild_id=GUILD_A,
+        binding_id=unverified_binding["id"],
+        status="READY",
+        verified=True,
     )
     assert ready["status"] == "READY" and ready["last_validated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_gateway_delete_marks_only_the_exact_translation_variant_missing(
+    repositories: tuple[
+        LanguageProfileRepository,
+        ResourceLanguagePolicyRepository,
+        TranslationGroupRepository,
+        TranslationProviderBindingRepository,
+        VisibilityScopeLanguageRepository,
+    ],
+) -> None:
+    profiles, _, groups, providers, visibility = repositories
+    topology = TranslationTopologyService(groups, providers, visibility)
+    fr = await profiles.create(guild_id=GUILD_A, code="fr", display_name="French")
+    en = await profiles.create(guild_id=GUILD_A, code="en", display_name="English")
+    group = await topology.create_group(
+        guild_id=GUILD_A,
+        name="Gateway truth",
+        root_kind="CATEGORY_SET",
+        routing_mode="HUB_AND_SPOKE",
+        language_ids=(fr["id"], en["id"]),
+        visibility_scope_id=None,
+        source_language_profile_id=fr["id"],
+        provider_binding_id=None,
+    )
+    deleted = await groups.create_category_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group["id"],
+        language_profile_id=fr["id"],
+        discord_category_id=881000501,
+    )
+    preserved = await groups.create_category_variant(
+        guild_id=GUILD_A,
+        translation_group_id=group["id"],
+        language_profile_id=en["id"],
+        discord_category_id=881000502,
+    )
+    engine = create_database_engine(APP_URL, pool_size=1)
+    try:
+        runtime = RuntimeRepository(async_sessionmaker(engine, expire_on_commit=False))
+        envelope = normalize_gateway_dispatch(
+            {
+                "op": 0,
+                "s": 42,
+                "t": "CHANNEL_DELETE",
+                "d": {
+                    "guild_id": str(GUILD_A),
+                    "id": "881000501",
+                    "type": 4,
+                    "position": 1,
+                },
+            },
+            discord_session_id="stage08-trusted-gateway",
+        )
+        assert envelope is not None
+        assert await runtime.ingest_gateway_event(envelope)
+        assert (
+            await groups.get_variant(
+                guild_id=GUILD_A,
+                translation_group_id=group["id"],
+                variant_id=deleted["id"],
+                variant_type="CATEGORY",
+            )
+        )["state"] == "MISSING"
+        assert (
+            await groups.get_variant(
+                guild_id=GUILD_A,
+                translation_group_id=group["id"],
+                variant_id=preserved["id"],
+                variant_type="CATEGORY",
+            )
+        )["state"] == "ACTIVE"
+    finally:
+        await engine.dispose()

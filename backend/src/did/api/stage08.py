@@ -151,8 +151,12 @@ class RouteCompileInput(BaseModel):
     max_languages_per_group: int | None = Field(default=None, ge=1)
 
 
-class RouteReplaceInput(RouteCompileInput):
+class RouteReplaceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
+    topology: TranslationGroupTopology
+    hub_language_profile_id: UUID | None = None
+    custom_routes: list[tuple[UUID, UUID]] = Field(default_factory=list, max_length=4096)
 
 
 class VisibilityCompileInput(BaseModel):
@@ -249,6 +253,18 @@ class StructuralPlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     nodes: list[StructuralPlanNodeInput] = Field(min_length=1, max_length=1000)
     idempotency_key: str = Field(min_length=1, max_length=160)
+
+
+class VisibilityPlanInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resource_type: Literal["CATEGORY", "CHANNEL"]
+    discord_resource_id: str
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+    @field_validator("discord_resource_id")
+    @classmethod
+    def target_snowflake(cls, value: str) -> str:
+        return str(parse_snowflake(value))
 
 
 def _correlation(request: Request) -> UUID:
@@ -808,6 +824,7 @@ async def link_existing_variant(
         confirmed_explicit_selection=body.confirmed_explicit_selection,
         channel_group_id=body.translation_channel_group_id,
         category_variant_id=body.translation_category_variant_id,
+        actor_user_id=session.discord_user_id,
     )
     await _audit(
         container,
@@ -866,17 +883,8 @@ async def replace_group_routes(
         group_id=group_id,
         expected_version=body.expected_version,
         topology=body.topology,
-        language_ids=tuple(body.language_profile_ids),
         hub_language_id=body.hub_language_profile_id,
         custom_routes=tuple(body.custom_routes),
-        capabilities=TranslationProviderCapabilities(
-            supports_hub_and_spoke=body.supports_hub_and_spoke,
-            supports_full_mesh=body.supports_full_mesh,
-            supports_custom=body.supports_custom,
-            max_languages_per_group=body.max_languages_per_group,
-            configuration_mode=ProviderConfigurationMode.OBSERVATION_ONLY,
-            health=body.provider_health,
-        ),
     )
     await _audit(
         container,
@@ -1080,6 +1088,8 @@ async def observe_drift(
 ) -> dict[str, Any]:
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
+    if body.evidence in {"GATEWAY_DELETE", "TRUSTED_GATEWAY_DELETE", "DID_DELETE_CONFIRMED"}:
+        raise ValueError("Gateway evidence cannot be submitted through the HTTP API")
     _, topology = _require(container)
     result = await topology.observe_drift(guild_id=parsed, **body.model_dump())
     await _audit(
@@ -1124,7 +1134,6 @@ async def multilingual_clone_preview(
 
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan")
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/visibility/plan")
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan")
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan")
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan")
@@ -1198,4 +1207,53 @@ async def create_structural_plan(
             "OVERWRITES",
         ],
         "provider_configuration": "AFTER_DISCORD_VERIFICATION",
+    }
+
+
+@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/visibility/plan")
+async def create_visibility_plan(
+    guild_id: str,
+    group_id: UUID,
+    body: VisibilityPlanInput,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
+    plan, replayed, authority = await container.stage08_structural_planning.create_visibility_plan(
+        guild_id=parsed,
+        group_id=group_id,
+        actor_user_id=session.discord_user_id,
+        resource_type=body.resource_type,
+        discord_resource_id=int(body.discord_resource_id),
+        idempotency_key=body.idempotency_key,
+        correlation_id=_correlation(request),
+    )
+    return {
+        "plan_id": str(plan["id"]),
+        "guild_id": str(plan["guild_id"]),
+        "status": str(plan["status"]),
+        "replayed": replayed,
+        "authority": authority,
+        "pipeline": [
+            "DSG",
+            "PLAN",
+            "PREFLIGHT",
+            "CONFIRMATION",
+            "DURABLE_JOB",
+            "WORKER",
+            "GOVERNOR",
+            "DISCORD_ADAPTER",
+            "VERIFICATION",
+            "STAGE08_MATERIALIZATION",
+            "AUDIT",
+        ],
     }

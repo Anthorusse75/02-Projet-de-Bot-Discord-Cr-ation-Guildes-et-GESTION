@@ -725,6 +725,13 @@ class TranslationGroupRepository:
                 )
             return result
 
+    async def workspace_group(self, *, guild_id: int, group_id: UUID) -> dict[str, Any]:
+        groups = await self.workspace(guild_id)
+        try:
+            return next(row for row in groups if UUID(str(row["id"])) == group_id)
+        except StopIteration as exc:
+            raise Stage08NotFound("translation group was not found") from exc
+
     async def add_language(
         self, *, guild_id: int, translation_group_id: UUID, language_profile_id: UUID
     ) -> None:
@@ -1030,6 +1037,17 @@ class TranslationProviderBindingRepository:
                 {"guild_id": guild_id},
             )
             return [dict(row) for row in result.mappings().all()]
+
+    async def get(self, *, guild_id: int, binding_id: UUID) -> dict[str, Any]:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            return await _fetch_one(
+                session,
+                "SELECT id,guild_id,provider_type,provider_instance_key,"
+                "provider_discord_user_id,capabilities_json,status,last_validated_at,"
+                "created_at,updated_at FROM translation_provider_bindings "
+                "WHERE guild_id=:guild_id AND id=:id",
+                {"guild_id": guild_id, "id": binding_id},
+            )
 
     async def set_status(
         self,

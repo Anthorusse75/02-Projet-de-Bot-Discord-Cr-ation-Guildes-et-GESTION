@@ -64,6 +64,7 @@ class ServiceContainer:
     stage08_languages: LanguageProfileService | None = None
     stage08_topology: TranslationTopologyService | None = None
     stage08_audit_repository: Stage08AuditRepository | None = None
+    stage08_structural_planning: Any = None
 
 
 def services(request: Request) -> ServiceContainer:

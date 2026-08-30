@@ -620,6 +620,8 @@ class RuntimeRepository:
                 self._channel_parameters(envelope, payload),
             )
             applied = result.scalar_one_or_none() is not None
+            if applied:
+                await self._project_stage08_channel_delete(session, envelope, channel_id)
             drift_type = (
                 "THREAD_DELETED" if envelope.event_type == "THREAD_DELETE" else "CHANNEL_DELETED"
             )
@@ -1032,6 +1034,8 @@ class RuntimeRepository:
                 },
             )
             applied = result.scalar_one_or_none() is not None
+            if applied:
+                await self._project_stage08_role_delete(session, envelope, role_id)
             drift_type = "ROLE_DELETED"
         else:
             result = await session.execute(
@@ -1094,6 +1098,80 @@ class RuntimeRepository:
                 result_state="OBSERVED",
             )
         return applied
+
+    async def _project_stage08_channel_delete(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        channel_id: int,
+    ) -> None:
+        statements = (
+            (
+                "CATEGORY_VARIANT",
+                "UPDATE translation_category_variants SET state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_category_id=:resource_id "
+                "AND state<>'MISSING' RETURNING id",
+            ),
+            (
+                "CHANNEL_VARIANT",
+                "UPDATE translation_channel_variants SET state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_channel_id=:resource_id "
+                "AND state<>'MISSING' RETURNING id",
+            ),
+        )
+        for target_type, statement in statements:
+            rows = (
+                await session.execute(
+                    text(statement),
+                    {"guild_id": envelope.guild_id, "resource_id": channel_id},
+                )
+            ).scalars()
+            for variant_id in rows:
+                await self._append_audit(
+                    session,
+                    envelope,
+                    event_type="TRANSLATION_VARIANT_MISSING",
+                    target_type=target_type,
+                    target_id=variant_id,
+                    result_state="MISSING",
+                )
+
+    async def _project_stage08_role_delete(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        role_id: int,
+    ) -> None:
+        statements = (
+            (
+                "LANGUAGE_ROLE_BINDING",
+                "UPDATE language_profile_roles SET role_state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_role_id=:resource_id "
+                "AND role_state<>'MISSING' RETURNING id",
+            ),
+            (
+                "SCOPE_LANGUAGE_ROLE_BINDING",
+                "UPDATE visibility_scope_language_roles SET role_state='MISSING',"
+                "updated_at=now() WHERE guild_id=:guild_id AND discord_role_id=:resource_id "
+                "AND role_state<>'MISSING' RETURNING id",
+            ),
+        )
+        for target_type, statement in statements:
+            rows = (
+                await session.execute(
+                    text(statement),
+                    {"guild_id": envelope.guild_id, "resource_id": role_id},
+                )
+            ).scalars()
+            for binding_id in rows:
+                await self._append_audit(
+                    session,
+                    envelope,
+                    event_type="TRANSLATION_ROLE_BINDING_MISSING",
+                    target_type=target_type,
+                    target_id=binding_id,
+                    result_state="MISSING",
+                )
 
     async def _project_member(self, session: AsyncSession, envelope: EventEnvelope) -> None:
         await session.execute(
