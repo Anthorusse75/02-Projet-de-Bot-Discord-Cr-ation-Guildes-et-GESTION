@@ -33,8 +33,12 @@ def upgrade() -> None:
         sa.Column("discord_role_id", sa.BigInteger(), nullable=False),
         sa.Column("managed_by_did", sa.Boolean(), server_default=sa.text("true"), nullable=False),
         sa.Column("role_state", sa.String(length=16), server_default="ACTIVE", nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.ForeignKeyConstraint(
             ["guild_id", "language_profile_id"],
             ["language_profiles.guild_id", "language_profiles.id"],
@@ -47,7 +51,9 @@ def upgrade() -> None:
             name="ck_language_profile_roles_state",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_language_profile_roles"),
-        sa.UniqueConstraint("guild_id", "language_profile_id", name="uq_language_profile_roles_language"),
+        sa.UniqueConstraint(
+            "guild_id", "language_profile_id", name="uq_language_profile_roles_language"
+        ),
         sa.UniqueConstraint("guild_id", "discord_role_id", name="uq_language_profile_roles_role"),
     )
     op.create_table(
@@ -62,8 +68,12 @@ def upgrade() -> None:
         sa.Column("symbol", sa.String(length=256), nullable=False),
         sa.Column("status", sa.String(length=16), server_default="RESERVED", nullable=False),
         sa.Column("discord_role_id", sa.BigInteger(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.ForeignKeyConstraint(
             ["guild_id", "visibility_scope_id"],
             ["visibility_scopes.guild_id", "visibility_scopes.id"],
@@ -114,8 +124,12 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=16), server_default="PENDING", nullable=False),
         sa.Column("error_code", sa.String(length=128), nullable=True),
         sa.Column("verified_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.ForeignKeyConstraint(
             ["guild_id", "plan_id"],
             ["plans.guild_id", "plans.id"],
@@ -132,7 +146,9 @@ def upgrade() -> None:
             name="ck_stage08_plan_intents_status",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_stage08_plan_intents"),
-        sa.UniqueConstraint("guild_id", "plan_id", "intent_key", name="uq_stage08_plan_intents_key"),
+        sa.UniqueConstraint(
+            "guild_id", "plan_id", "intent_key", name="uq_stage08_plan_intents_key"
+        ),
     )
     op.create_index(
         "ix_stage08_plan_intents_pending",

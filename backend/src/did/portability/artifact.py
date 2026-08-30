@@ -271,9 +271,7 @@ def validate_portable_attributes(
     elif resource_type is PortableResourceType.TRANSLATION_ROUTE:
         string("source_language_code", maximum=64)
         string("destination_language_code", maximum=64)
-        if attributes.get("source_language_code") == attributes.get(
-            "destination_language_code"
-        ):
+        if attributes.get("source_language_code") == attributes.get("destination_language_code"):
             raise ValueError("portable translation route cannot target itself")
     elif resource_type is PortableResourceType.TRANSLATION_LANGUAGE_ROLE:
         string("language_code", maximum=64)

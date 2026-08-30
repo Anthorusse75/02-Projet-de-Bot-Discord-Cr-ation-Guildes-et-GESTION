@@ -286,9 +286,7 @@ class PortableArtifactBuilder:
         """Extend the Stage 06 snapshot with allowlisted Stage 08 topology metadata."""
 
         active_categories = tuple(
-            row
-            for row in group["category_variants"]
-            if str(row["state"]) == "ACTIVE"
+            row for row in group["category_variants"] if str(row["state"]) == "ACTIVE"
         )
         active_channels = tuple(
             row for row in group["channel_variants"] if str(row["state"]) == "ACTIVE"
@@ -325,14 +323,10 @@ class PortableArtifactBuilder:
                 )
             )
         group_identity = str(group["id"])
-        group_key = self._logical_key(
-            guild.guild_id, "translation_group", group_identity
-        )
+        group_key = self._logical_key(guild.guild_id, "translation_group", group_identity)
         source_language_id = group.get("source_language_profile_id")
         source_language = (
-            language_by_id.get(str(source_language_id))
-            if source_language_id is not None
-            else None
+            language_by_id.get(str(source_language_id)) if source_language_id is not None else None
         )
         resources.append(
             PortableResource.build(
@@ -349,13 +343,10 @@ class PortableArtifactBuilder:
             )
         )
         for language_key in language_keys.values():
-            dependencies.append(
-                PortableDependency(group_key, language_key, "language")
-            )
+            dependencies.append(PortableDependency(group_key, language_key, "language"))
 
         policy_by_resource = {
-            (str(row["resource_type"]), int(row["discord_resource_id"])): row
-            for row in policies
+            (str(row["resource_type"]), int(row["discord_resource_id"])): row for row in policies
         }
         category_by_id = {str(row["id"]): row for row in active_categories}
         category_keys: dict[str, str] = {}
@@ -388,9 +379,7 @@ class PortableArtifactBuilder:
             dependencies.extend(
                 (
                     PortableDependency(variant_key, group_key, "translation_group"),
-                    PortableDependency(
-                        variant_key, language_keys[language_id], "language"
-                    ),
+                    PortableDependency(variant_key, language_keys[language_id], "language"),
                     PortableDependency(
                         variant_key,
                         self._logical_key(guild.guild_id, "category", str(resource_id)),
@@ -422,9 +411,7 @@ class PortableArtifactBuilder:
                 )
             )
             dependencies.append(
-                PortableDependency(
-                    channel_group_key, group_key, "translation_group"
-                )
+                PortableDependency(channel_group_key, group_key, "translation_group")
             )
 
         for row in active_channels:
@@ -447,9 +434,7 @@ class PortableArtifactBuilder:
                 policy_by_resource.get(("CHANNEL", resource_id)),
                 inherited=inherited_policy,
             )
-            variant_key = self._logical_key(
-                guild.guild_id, "translation_channel_variant", identity
-            )
+            variant_key = self._logical_key(guild.guild_id, "translation_channel_variant", identity)
             resources.append(
                 PortableResource.build(
                     variant_key,
@@ -464,9 +449,7 @@ class PortableArtifactBuilder:
             dependencies.extend(
                 (
                     PortableDependency(variant_key, group_key, "translation_group"),
-                    PortableDependency(
-                        variant_key, language_keys[language_id], "language"
-                    ),
+                    PortableDependency(variant_key, language_keys[language_id], "language"),
                     PortableDependency(
                         variant_key,
                         resolved_channel_group_key,
@@ -485,21 +468,15 @@ class PortableArtifactBuilder:
                 if category_key is None:
                     raise ValueError("channel variant category is outside its translation group")
                 dependencies.append(
-                    PortableDependency(
-                        variant_key, category_key, "translation_category_variant"
-                    )
+                    PortableDependency(variant_key, category_key, "translation_category_variant")
                 )
 
         for row in group["routes"]:
             source = language_by_id.get(str(row["source_language_profile_id"]))
-            destination = language_by_id.get(
-                str(row["destination_language_profile_id"])
-            )
+            destination = language_by_id.get(str(row["destination_language_profile_id"]))
             if source is None or destination is None:
                 raise ValueError("translation route language is outside its group")
-            route_key = self._logical_key(
-                guild.guild_id, "translation_route", str(row["id"])
-            )
+            route_key = self._logical_key(guild.guild_id, "translation_route", str(row["id"]))
             resources.append(
                 PortableResource.build(
                     route_key,
@@ -573,9 +550,7 @@ class PortableArtifactBuilder:
                     provider_requirement,
                 )
             )
-            dependencies.append(
-                PortableDependency(provider_key, group_key, "translation_group")
-            )
+            dependencies.append(PortableDependency(provider_key, group_key, "translation_group"))
         return PortableArtifact(
             ArtifactType.CUSTOM_BUNDLE,
             tuple(resources),
@@ -594,9 +569,7 @@ class PortableArtifactBuilder:
         inherit = bool(policy and policy.get("inherit_language"))
         if effective is None or inherit:
             effective = inherited or effective
-        visibility = str(
-            effective["visibility_policy"] if effective is not None else "OPEN_ALL"
-        )
+        visibility = str(effective["visibility_policy"] if effective is not None else "OPEN_ALL")
         if visibility not in {"OPEN_ALL", "LANGUAGE_FILTERED"}:
             raise ValueError(
                 "scope-bound or custom visibility requires explicit destination mapping"

@@ -301,8 +301,9 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     assert remove_operations[0].operation_type is OperationType.REMOVE_MEMBER_ROLE
 
 
-async def test_scope_role_cleanup_compiles_verified_delete_only_from_complete_unused_state(
-) -> None:
+async def test_scope_role_cleanup_compiles_verified_delete_only_from_complete_unused_state() -> (
+    None
+):
     guild = snapshot(
         role_count=2,
         overwrite_count=0,
@@ -445,9 +446,7 @@ async def test_workspace_joins_durable_topology_to_local_cache_without_rest() ->
         {
             "id": GROUP,
             "category_variants": [],
-            "channel_variants": [
-                {"id": uuid4(), "discord_channel_id": CHANNEL, "state": "ACTIVE"}
-            ],
+            "channel_variants": [{"id": uuid4(), "discord_channel_id": CHANNEL, "state": "ACTIVE"}],
         }
     ]
     providers = AsyncMock()

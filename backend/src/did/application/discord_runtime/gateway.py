@@ -264,9 +264,7 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
         members = data.get("members", [])
         raw_member_count = data.get("member_count")
         member_count = (
-            _integer(raw_member_count, "guild.member_count")
-            if raw_member_count is not None
-            else 0
+            _integer(raw_member_count, "guild.member_count") if raw_member_count is not None else 0
         )
         if (
             not isinstance(channels, list)

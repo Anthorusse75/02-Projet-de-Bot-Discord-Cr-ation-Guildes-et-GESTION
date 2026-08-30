@@ -267,9 +267,7 @@ async def test_stage08_unused_scope_role_is_deleted_then_binding_is_cleaned() ->
     plan_hash = "9" * 64
     adapter = FakeMutationAdapter()
     try:
-        language = await languages.create(
-            guild_id=GUILD_A, code="fr", display_name="French"
-        )
+        language = await languages.create(guild_id=GUILD_A, code="fr", display_name="French")
         async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
             await session.execute(
                 text(
@@ -335,9 +333,9 @@ async def test_stage08_unused_scope_role_is_deleted_then_binding_is_cleaned() ->
             discord_role_id=role_id,
             binding_key=binding_key,
         )
-        assert (
-            await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id)
-        )["role_state"] == "PENDING_DELETE"
+        assert (await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id))[
+            "role_state"
+        ] == "PENDING_DELETE"
         with pytest.raises(Stage08Conflict, match="cleanup is in progress"):
             await policies.upsert(
                 guild_id=GUILD_A,

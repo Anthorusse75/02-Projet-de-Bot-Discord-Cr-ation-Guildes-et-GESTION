@@ -509,11 +509,7 @@ async def test_multilingual_clone_uses_stage06_stage05_and_materializes_after_su
             guild_id=GUILD_B,
             language_profile_id=UUID(
                 str(
-                    next(
-                        row["id"]
-                        for row in destination_group["languages"]
-                        if row["code"] == "fr"
-                    )
+                    next(row["id"] for row in destination_group["languages"] if row["code"] == "fr")
                 )
             ),
         )

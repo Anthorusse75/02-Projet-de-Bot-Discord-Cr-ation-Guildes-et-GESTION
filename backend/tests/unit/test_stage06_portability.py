@@ -253,9 +253,7 @@ def test_translation_topology_extends_real_portable_graph_and_destination_plan()
         resolutions=resolutions,
     )
     assert compilation.graph is not None
-    operations = PlanCompiler().compile(
-        destination_snapshot(), compilation.graph, plan_id=uuid4()
-    )
+    operations = PlanCompiler().compile(destination_snapshot(), compilation.graph, plan_id=uuid4())
     assert {operation.operation_type for operation in operations} >= {
         OperationType.CREATE_ROLE,
         OperationType.CREATE_CHANNEL,

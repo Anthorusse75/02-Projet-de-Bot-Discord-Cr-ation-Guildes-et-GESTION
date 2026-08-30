@@ -469,9 +469,7 @@ async def test_provider_and_group_pending_ready_transitions_are_atomic(
     ],
 ) -> None:
     profiles, _, groups, providers, _ = repositories
-    language = await profiles.create(
-        guild_id=GUILD_A, code="fr", display_name="French"
-    )
+    language = await profiles.create(guild_id=GUILD_A, code="fr", display_name="French")
     binding = await providers.create(
         guild_id=GUILD_A,
         provider_type="existing_translation_bot",

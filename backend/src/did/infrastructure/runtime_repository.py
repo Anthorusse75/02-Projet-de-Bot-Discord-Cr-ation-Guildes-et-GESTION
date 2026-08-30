@@ -568,9 +568,7 @@ class RuntimeRepository:
             await self._project_role(session, envelope, role, audit=False)
         if bool(payload.get("members_complete")):
             await session.execute(
-                text(
-                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"
-                ),
+                text("DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"),
                 {"guild_id": envelope.guild_id},
             )
             for member in payload.get("members", []):
@@ -1810,9 +1808,7 @@ class RuntimeRepository:
             raise ValueError("complete member snapshot contains duplicate users")
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             await session.execute(
-                text(
-                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"
-                ),
+                text("DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"),
                 {"guild_id": guild_id},
             )
             for member in rows:

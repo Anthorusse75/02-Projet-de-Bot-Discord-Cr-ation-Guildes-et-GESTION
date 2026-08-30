@@ -747,9 +747,8 @@ class TranslationTopologyService:
                     variant_id=category_variant_id,
                     variant_type="CATEGORY",
                 )
-                if (
-                    cached_channel is not None
-                    and cached_channel.parent_id != int(category_variant["discord_category_id"])
+                if cached_channel is not None and cached_channel.parent_id != int(
+                    category_variant["discord_category_id"]
                 ):
                     raise ValueError("selected channel belongs to an incompatible category")
             return await self._groups.create_channel_variant(
@@ -901,9 +900,7 @@ class TranslationTopologyService:
             "automatic_deletion": False,
         }
 
-    async def workspace(
-        self, guild_id: int, actor_user_id: int | None = None
-    ) -> dict[str, Any]:
+    async def workspace(self, guild_id: int, actor_user_id: int | None = None) -> dict[str, Any]:
         groups = await self._groups.workspace(guild_id)
         visibility_bindings = await self._visibility.list_bindings(guild_id)
         source = "POSTGRESQL_DURABLE_TOPOLOGY"

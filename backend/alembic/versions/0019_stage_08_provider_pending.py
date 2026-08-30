@@ -22,9 +22,7 @@ def upgrade() -> None:
         "'VERIFICATION_FAILED','CANCEL_REQUESTED','CANCELLED',"
         "'INTERVENTION_REQUIRED')",
     )
-    op.drop_constraint(
-        "ck_plan_progress_plan_status", "plan_progress_events", type_="check"
-    )
+    op.drop_constraint("ck_plan_progress_plan_status", "plan_progress_events", type_="check")
     op.create_check_constraint(
         "ck_plan_progress_plan_status",
         "plan_progress_events",
@@ -57,9 +55,7 @@ def downgrade() -> None:
         "translation_groups",
         "status IN ('ACTIVE','DEGRADED','PROVIDER_ERROR','DETACHED')",
     )
-    op.drop_constraint(
-        "ck_plan_progress_plan_status", "plan_progress_events", type_="check"
-    )
+    op.drop_constraint("ck_plan_progress_plan_status", "plan_progress_events", type_="check")
     op.create_check_constraint(
         "ck_plan_progress_plan_status",
         "plan_progress_events",

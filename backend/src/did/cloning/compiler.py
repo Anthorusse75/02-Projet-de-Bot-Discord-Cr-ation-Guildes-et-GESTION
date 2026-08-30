@@ -78,8 +78,7 @@ def support_matrix() -> dict[str, dict[str, tuple[str, ...]]]:
         CloneMode.MAXIMUM_COMPATIBLE.value: ("CREATE", "MAP_EXISTING", "REPORT"),
     }
     local_translation: dict[str, tuple[str, ...]] = {
-        mode.value: ("CREATE_DID_LOCAL_AFTER_DESTINATION_PLAN", "REPORT")
-        for mode in CloneMode
+        mode.value: ("CREATE_DID_LOCAL_AFTER_DESTINATION_PLAN", "REPORT") for mode in CloneMode
     }
     return {
         "version": {"value": ("did-clone-support-v2",)},

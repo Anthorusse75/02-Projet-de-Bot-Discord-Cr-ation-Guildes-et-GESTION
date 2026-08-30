@@ -1436,9 +1436,7 @@ async def create_visibility_plan(
     }
 
 
-@router.post(
-    "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan"
-)
+@router.post("/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan")
 async def create_scope_role_cleanup_plan(
     guild_id: str,
     binding_id: UUID,
@@ -1456,14 +1454,16 @@ async def create_scope_role_cleanup_plan(
             code="STAGE08_PLANNING_NOT_CONFIGURED",
             message_key="errors.plans.notConfigured",
         )
-    plan, replayed, authority = (
-        await container.stage08_structural_planning.create_scope_role_cleanup_plan(
-            guild_id=parsed,
-            binding_id=binding_id,
-            actor_user_id=session.discord_user_id,
-            idempotency_key=body.idempotency_key,
-            correlation_id=_correlation(request),
-        )
+    (
+        plan,
+        replayed,
+        authority,
+    ) = await container.stage08_structural_planning.create_scope_role_cleanup_plan(
+        guild_id=parsed,
+        binding_id=binding_id,
+        actor_user_id=session.discord_user_id,
+        idempotency_key=body.idempotency_key,
+        correlation_id=_correlation(request),
     )
     return {
         "plan_id": str(plan["id"]),

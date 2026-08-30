@@ -80,9 +80,7 @@ def downgrade() -> None:
         "visibility_scope_language_roles",
         "role_state IN ('ACTIVE','DRIFTED','MISSING','DETACHED')",
     )
-    op.drop_constraint(
-        "ck_cache_member_coverage_counts", "discord_cache_coverage", type_="check"
-    )
+    op.drop_constraint("ck_cache_member_coverage_counts", "discord_cache_coverage", type_="check")
     op.drop_column("discord_cache_coverage", "last_full_member_sync_at")
     op.drop_column("discord_cache_coverage", "members_complete")
     op.drop_column("discord_cache_coverage", "member_count")

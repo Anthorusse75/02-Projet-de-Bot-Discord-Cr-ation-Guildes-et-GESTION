@@ -247,9 +247,7 @@ class Stage08StructuralPlanningService:
         idempotency_key: str,
         correlation_id: UUID,
     ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
-        binding = await self._scope_roles.get_binding(
-            guild_id=guild_id, binding_id=binding_id
-        )
+        binding = await self._scope_roles.get_binding(guild_id=guild_id, binding_id=binding_id)
         if str(binding["role_state"]) not in {"ACTIVE", "PENDING_DELETE"}:
             raise ValueError("technical role binding is not cleanable")
         if not bool(binding["managed_by_did"]):
