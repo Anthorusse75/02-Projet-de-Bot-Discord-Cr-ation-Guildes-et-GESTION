@@ -25,14 +25,6 @@ from did.domain.translation_topology import (
     VisibilityPolicy,
 )
 from did.infrastructure.translation_provider import NonInvasiveExistingBotProvider
-from did.planning import (
-    DesiredNode,
-    DesiredStateGraph,
-    NodePresence,
-    ReferenceKind,
-    ResourceReference,
-    ResourceType,
-)
 
 router = APIRouter(tags=["stage-08-multilingual-topology"])
 
@@ -232,27 +224,21 @@ class MultilingualCloneInput(BaseModel):
         return str(parse_snowflake(value))
 
 
-class StructuralPlanNodeInput(BaseModel):
+class VariantPlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    logical_key: str = Field(min_length=1, max_length=256)
-    resource_type: Literal["CATEGORY", "CHANNEL", "ROLE", "OVERWRITE"]
-    properties: dict[str, Any] = Field(default_factory=dict)
-    discord_id: str | None = None
-    symbol: str | None = Field(default=None, max_length=256)
-    presence: Literal["PRESENT", "ABSENT"] = "PRESENT"
-    relations: dict[str, tuple[Literal["LOGICAL", "DISCORD_ID", "SYMBOL"], str]] = Field(
-        default_factory=dict, max_length=8
-    )
-
-    @field_validator("discord_id")
-    @classmethod
-    def optional_id(cls, value: str | None) -> str | None:
-        return str(parse_snowflake(value)) if value is not None else None
+    variant_type: Literal["CATEGORY", "CHANNEL"]
+    language_profile_id: UUID
+    desired_name: str = Field(min_length=1, max_length=100)
+    channel_type: Literal[0, 2, 5, 13, 15, 16] = 0
+    translation_channel_group_id: UUID | None = None
+    idempotency_key: str = Field(min_length=1, max_length=160)
 
 
-class StructuralPlanInput(BaseModel):
+class VariantRepairPlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    nodes: list[StructuralPlanNodeInput] = Field(min_length=1, max_length=1000)
+    variant_id: UUID
+    variant_type: Literal["CATEGORY", "CHANNEL"]
+    desired_name: str | None = Field(default=None, min_length=1, max_length=100)
     idempotency_key: str = Field(min_length=1, max_length=160)
 
 
@@ -1236,17 +1222,11 @@ async def multilingual_clone_preview(
     }
 
 
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan")
 @router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/variants/plan")
-@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/structural-plan")
-async def create_structural_plan(
+async def create_variant_plan(
     guild_id: str,
     group_id: UUID,
-    body: StructuralPlanInput,
+    body: VariantPlanInput,
     request: Request,
     session: CsrfSessionDep,
     container: ServicesDep,
@@ -1254,44 +1234,30 @@ async def create_structural_plan(
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
     await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
-    _, topology = _require(container)
-    await topology.get_group(guild_id=parsed, group_id=group_id)
-    if container.planning is None:
+    if container.stage08_structural_planning is None:
         raise ApiProblem(
             status_code=503,
-            code="PLANNING_NOT_CONFIGURED",
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
             message_key="errors.plans.notConfigured",
         )
-    graph = DesiredStateGraph(
-        parsed,
-        tuple(
-            DesiredNode.build(
-                logical_key=node.logical_key,
-                resource_type=ResourceType(node.resource_type),
-                properties=node.properties,
-                discord_id=int(node.discord_id) if node.discord_id else None,
-                symbol=node.symbol,
-                presence=NodePresence(node.presence),
-                relations={
-                    name: ResourceReference(ReferenceKind(kind), value)
-                    for name, (kind, value) in node.relations.items()
-                },
-            )
-            for node in body.nodes
-        ),
-    )
-    plan, replayed = await container.planning.create(
-        graph=graph,
+    plan, replayed, authority = await container.stage08_structural_planning.create_variant_plan(
+        guild_id=parsed,
+        group_id=group_id,
         actor_user_id=session.discord_user_id,
-        idempotency_key=f"stage08:{group_id}:{body.idempotency_key}",
+        variant_type=body.variant_type,
+        language_profile_id=body.language_profile_id,
+        desired_name=body.desired_name,
+        channel_type=body.channel_type,
+        translation_channel_group_id=body.translation_channel_group_id,
+        idempotency_key=body.idempotency_key,
         correlation_id=_correlation(request),
-        operation_order_policy="STAGE08_STRUCTURAL",
     )
     return {
         "plan_id": str(plan["id"]),
         "guild_id": str(plan["guild_id"]),
         "status": str(plan["status"]),
         "replayed": replayed,
+        "authority": authority,
         "pipeline": [
             "DSG",
             "PLAN",
@@ -1304,13 +1270,56 @@ async def create_structural_plan(
             "VERIFICATION",
             "AUDIT",
         ],
-        "structural_execution_order": [
-            "CATEGORIES",
-            "CHANNELS",
-            "ROLES",
-            "OVERWRITES",
+    }
+
+
+@router.post("/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan")
+async def repair_variant_plan(
+    guild_id: str,
+    group_id: UUID,
+    body: VariantRepairPlanInput,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.STRUCTURE_WRITE, sensitive=True)
+    if container.stage08_structural_planning is None:
+        raise ApiProblem(
+            status_code=503,
+            code="STAGE08_PLANNING_NOT_CONFIGURED",
+            message_key="errors.plans.notConfigured",
+        )
+    plan, replayed, authority = await container.stage08_structural_planning.create_variant_plan(
+        guild_id=parsed,
+        group_id=group_id,
+        actor_user_id=session.discord_user_id,
+        variant_type=body.variant_type,
+        language_profile_id=None,
+        desired_name=body.desired_name,
+        repair_variant_id=body.variant_id,
+        idempotency_key=body.idempotency_key,
+        correlation_id=_correlation(request),
+    )
+    return {
+        "plan_id": str(plan["id"]),
+        "guild_id": str(plan["guild_id"]),
+        "status": str(plan["status"]),
+        "replayed": replayed,
+        "authority": authority,
+        "pipeline": [
+            "DSG",
+            "PLAN",
+            "PREFLIGHT",
+            "CONFIRMATION",
+            "DURABLE_JOB",
+            "WORKER",
+            "GOVERNOR",
+            "DISCORD_ADAPTER",
+            "VERIFICATION",
+            "AUDIT",
         ],
-        "provider_configuration": "AFTER_DISCORD_VERIFICATION",
     }
 
 

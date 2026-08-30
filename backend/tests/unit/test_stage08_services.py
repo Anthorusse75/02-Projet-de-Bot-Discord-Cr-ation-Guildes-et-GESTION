@@ -355,6 +355,14 @@ def test_stage08_openapi_exposes_workspace_lifecycle_plans_and_clone() -> None:
         "/api/v1/guilds/{guild_id}/multilingual-clone/preview",
     }
     assert required <= set(paths)
+    arbitrary_graph_aliases = {
+        "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/structural-plan",
+        "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan",
+        "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan",
+        "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan",
+        "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan",
+    }
+    assert arbitrary_graph_aliases.isdisjoint(paths)
 
 
 def test_stage08_plan_policy_orders_create_phases_and_reverses_safe_deletes() -> None:

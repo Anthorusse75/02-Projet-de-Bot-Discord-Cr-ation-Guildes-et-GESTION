@@ -889,40 +889,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__link_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__provider_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
         parameters: {
             query?: never;
@@ -932,8 +898,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post"];
+        /** Repair Variant Plan */
+        post: operations["repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -957,40 +923,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__routes_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/structural-plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__structural_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink": {
         parameters: {
             query?: never;
@@ -1008,23 +940,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__unlink_plan_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/variants/plan": {
         parameters: {
             query?: never;
@@ -1034,8 +949,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post"];
+        /** Create Variant Plan */
+        post: operations["create_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1051,8 +966,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Structural Plan */
-        post: operations["create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post"];
+        /** Create Visibility Plan */
+        post: operations["create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1823,21 +1738,10 @@ export interface components {
         };
         /** MemberRoleReconcileInput */
         MemberRoleReconcileInput: {
-            /** Bindings */
-            bindings?: {
-                [key: string]: string;
-            };
-            /** Current Role Ids */
-            current_role_ids?: string[];
-            /** Member Scope Ids */
-            member_scope_ids?: string[];
-            /** Required Pairs */
-            required_pairs?: [
-                string,
-                string
-            ][];
-            /** Visible Language Ids */
-            visible_language_ids?: string[];
+            /** Discord User Id */
+            discord_user_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
         };
         /** MultilingualCloneInput */
         MultilingualCloneInput: {
@@ -2015,7 +1919,7 @@ export interface components {
          * ResourceType
          * @enum {string}
          */
-        ResourceType: "GUILD" | "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE";
+        ResourceType: "GUILD" | "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "MEMBER_ROLE";
         /** RoleBindingUpdate */
         RoleBindingUpdate: {
             /** Discord Role Id */
@@ -2071,30 +1975,6 @@ export interface components {
             expected_version: number;
             /** Hub Language Profile Id */
             hub_language_profile_id?: string | null;
-            /** Language Profile Ids */
-            language_profile_ids: string[];
-            /** Max Languages Per Group */
-            max_languages_per_group?: number | null;
-            /**
-             * Provider Health
-             * @default UNKNOWN
-             */
-            provider_health: string;
-            /**
-             * Supports Custom
-             * @default false
-             */
-            supports_custom: boolean;
-            /**
-             * Supports Full Mesh
-             * @default false
-             */
-            supports_full_mesh: boolean;
-            /**
-             * Supports Hub And Spoke
-             * @default false
-             */
-            supports_hub_and_spoke: boolean;
             topology: components["schemas"]["TranslationGroupTopology"];
         };
         /**
@@ -2162,44 +2042,6 @@ export interface components {
             resource_id: string;
             /** Subject Ids */
             subject_ids: string[];
-        };
-        /** StructuralPlanInput */
-        StructuralPlanInput: {
-            /** Idempotency Key */
-            idempotency_key: string;
-            /** Nodes */
-            nodes: components["schemas"]["StructuralPlanNodeInput"][];
-        };
-        /** StructuralPlanNodeInput */
-        StructuralPlanNodeInput: {
-            /** Discord Id */
-            discord_id?: string | null;
-            /** Logical Key */
-            logical_key: string;
-            /**
-             * Presence
-             * @default PRESENT
-             * @enum {string}
-             */
-            presence: "PRESENT" | "ABSENT";
-            /** Properties */
-            properties?: {
-                [key: string]: unknown;
-            };
-            /** Relations */
-            relations?: {
-                [key: string]: [
-                    "LOGICAL" | "DISCORD_ID" | "SYMBOL",
-                    string
-                ];
-            };
-            /**
-             * Resource Type
-             * @enum {string}
-             */
-            resource_type: "CATEGORY" | "CHANNEL" | "ROLE" | "OVERWRITE";
-            /** Symbol */
-            symbol?: string | null;
         };
         /** TemplateApplyInput */
         TemplateApplyInput: {
@@ -2290,6 +2132,48 @@ export interface components {
              */
             variant_type: "CATEGORY" | "CHANNEL";
         };
+        /** VariantPlanInput */
+        VariantPlanInput: {
+            /**
+             * Channel Type
+             * @default 0
+             * @enum {integer}
+             */
+            channel_type: 0 | 2 | 5 | 13 | 15 | 16;
+            /** Desired Name */
+            desired_name: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Language Profile Id
+             * Format: uuid
+             */
+            language_profile_id: string;
+            /** Translation Channel Group Id */
+            translation_channel_group_id?: string | null;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
+        /** VariantRepairPlanInput */
+        VariantRepairPlanInput: {
+            /** Desired Name */
+            desired_name?: string | null;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
         /** VariantUnlinkInput */
         VariantUnlinkInput: {
             /**
@@ -2326,6 +2210,18 @@ export interface components {
             policy: components["schemas"]["VisibilityPolicy"];
             /** Visibility Scope Id */
             visibility_scope_id?: string | null;
+        };
+        /** VisibilityPlanInput */
+        VisibilityPlanInput: {
+            /** Discord Resource Id */
+            discord_resource_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Resource Type
+             * @enum {string}
+             */
+            resource_type: "CATEGORY" | "CHANNEL";
         };
         /**
          * VisibilityPolicy
@@ -4581,7 +4477,7 @@ export interface operations {
             };
         };
     };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__link_plan_post: {
+    repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4593,83 +4489,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__provider_plan_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-                group_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-                group_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
+                "application/json": components["schemas"]["VariantRepairPlanInput"];
             };
         };
         responses: {
@@ -4733,82 +4553,6 @@ export interface operations {
             };
         };
     };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__routes_plan_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-                group_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__structural_plan_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-                group_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     unlink_variant_api_v1_guilds__guild_id__translation_groups__group_id__unlink_post: {
         parameters: {
             query?: never;
@@ -4847,7 +4591,7 @@ export interface operations {
             };
         };
     };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__unlink_plan_post: {
+    create_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4859,7 +4603,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
+                "application/json": components["schemas"]["VariantPlanInput"];
             };
         };
         responses: {
@@ -4885,7 +4629,7 @@ export interface operations {
             };
         };
     };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post: {
+    create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4897,45 +4641,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                guild_id: string;
-                group_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StructuralPlanInput"];
+                "application/json": components["schemas"]["VisibilityPlanInput"];
             };
         };
         responses: {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from did.application.planning import PlanningService
 from did.application.translation.service import (
@@ -318,6 +318,197 @@ class Stage08StructuralPlanningService:
             "remove": [str(value) for value in remove],
             "member_specific_overwrites": [],
             "all_languages_role": None,
+        }
+
+    async def create_variant_plan(
+        self,
+        *,
+        guild_id: int,
+        group_id: UUID,
+        actor_user_id: int,
+        variant_type: str,
+        language_profile_id: UUID | None,
+        idempotency_key: str,
+        correlation_id: UUID,
+        desired_name: str | None = None,
+        channel_type: int = 0,
+        translation_channel_group_id: UUID | None = None,
+        repair_variant_id: UUID | None = None,
+    ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+        if variant_type not in {"CATEGORY", "CHANNEL"}:
+            raise ValueError("variant type must be CATEGORY or CHANNEL")
+        if channel_type not in {0, 2, 5, 13, 15, 16}:
+            raise ValueError("unsupported managed Discord channel type")
+        if variant_type == "CATEGORY" and translation_channel_group_id is not None:
+            raise ValueError("category variants cannot reference a channel group")
+        if variant_type == "CATEGORY" and channel_type != 0:
+            raise ValueError("category variants cannot select a channel type")
+        group = await self._groups.workspace_group(guild_id=guild_id, group_id=group_id)
+        existing: dict[str, Any] | None = None
+        if repair_variant_id is not None:
+            existing = await self._groups.get_variant(
+                guild_id=guild_id,
+                translation_group_id=group_id,
+                variant_id=repair_variant_id,
+                variant_type=variant_type,
+            )
+            if str(existing["state"]) != "MISSING":
+                raise ValueError("only a trusted missing variant can be repaired")
+            language_profile_id = UUID(str(existing["language_profile_id"]))
+            if variant_type == "CHANNEL":
+                translation_channel_group_id = UUID(
+                    str(existing["translation_channel_group_id"])
+                )
+        if language_profile_id is None:
+            raise ValueError("new variants require a language profile")
+        language = next(
+            (
+                row
+                for row in group["languages"]
+                if UUID(str(row["id"])) == language_profile_id and bool(row["enabled"])
+            ),
+            None,
+        )
+        if language is None:
+            raise ValueError("variant language must be enabled and belong to the group")
+        if repair_variant_id is None:
+            if variant_type == "CATEGORY" and any(
+                UUID(str(row["language_profile_id"])) == language_profile_id
+                for row in group["category_variants"]
+            ):
+                raise ValueError("a category variant already exists for this language")
+            if variant_type == "CHANNEL" and any(
+                UUID(str(row["language_profile_id"])) == language_profile_id
+                and UUID(str(row["translation_channel_group_id"]))
+                == translation_channel_group_id
+                for row in group["channel_variants"]
+            ):
+                raise ValueError("a channel variant already exists for this language")
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        active_channels = tuple(
+            channel
+            for channel in guild.channels
+            if channel.observability is not ObservabilityState.DELETED_CONFIRMED
+        )
+        if len(active_channels) + 1 > 500:
+            raise ValueError("CHANNEL_CAPACITY_EXCEEDED")
+        parent_variant: dict[str, Any] | None = None
+        channel_group: dict[str, Any] | None = None
+        if variant_type == "CHANNEL":
+            if translation_channel_group_id is None:
+                raise ValueError("channel variants require a translation channel group")
+            channel_group = next(
+                (
+                    row
+                    for row in group["channel_groups"]
+                    if UUID(str(row["id"])) == translation_channel_group_id
+                ),
+                None,
+            )
+            if channel_group is None:
+                raise ValueError("translation channel group does not belong to this group")
+            parent_variant = next(
+                (
+                    row
+                    for row in group["category_variants"]
+                    if UUID(str(row["language_profile_id"])) == language_profile_id
+                    and str(row["state"]) == "ACTIVE"
+                ),
+                None,
+            )
+            if group["root_kind"] == "CATEGORY_SET" and parent_variant is None:
+                raise ValueError("channel variant requires its active language category")
+            if parent_variant is not None:
+                parent_id = int(parent_variant["discord_category_id"])
+                children = sum(channel.parent_id == parent_id for channel in active_channels)
+                if children + 1 > 50:
+                    raise ValueError("CATEGORY_CHILD_CAPACITY_EXCEEDED")
+        previous = None
+        if existing is not None:
+            previous_id = int(
+                existing[
+                    "discord_category_id"
+                    if variant_type == "CATEGORY"
+                    else "discord_channel_id"
+                ]
+            )
+            previous = guild.channel(previous_id)
+        normalized_name = (
+            desired_name or (previous.name if previous is not None else None) or ""
+        ).strip()
+        if not normalized_name or len(normalized_name) > 100:
+            raise ValueError("managed Discord variant name must be present and bounded")
+        variant_id = repair_variant_id or uuid5(
+            group_id,
+            ":".join(
+                (
+                    str(guild_id),
+                    variant_type,
+                    str(language_profile_id),
+                    str(translation_channel_group_id or "category"),
+                    idempotency_key,
+                )
+            ),
+        )
+        symbol = f"stage08.variant.{variant_id}"
+        resource_type = (
+            ResourceType.CATEGORY if variant_type == "CATEGORY" else ResourceType.CHANNEL
+        )
+        properties: dict[str, Any] = {"name": normalized_name}
+        relations: dict[str, ResourceReference] = {}
+        if variant_type == "CHANNEL":
+            properties["type"] = channel_type if previous is None else int(previous.channel_type)
+            if parent_variant is not None:
+                relations["parent"] = ResourceReference(
+                    ReferenceKind.DISCORD_ID,
+                    str(parent_variant["discord_category_id"]),
+                )
+        graph = DesiredStateGraph(
+            guild_id,
+            (
+                DesiredNode.build(
+                    logical_key=f"stage08.variant.{variant_id}",
+                    resource_type=resource_type,
+                    properties=properties,
+                    symbol=symbol,
+                    relations=relations,
+                ),
+            ),
+        )
+        plan, replayed = await self._planning.create(
+            graph=graph,
+            actor_user_id=actor_user_id,
+            idempotency_key=f"stage08:variant:{group_id}:{idempotency_key}",
+            correlation_id=correlation_id,
+            operation_order_policy="STAGE08_STRUCTURAL",
+        )
+        intent_type = (
+            f"REPAIR_{variant_type}_VARIANT"
+            if repair_variant_id is not None
+            else f"MATERIALIZE_{variant_type}_VARIANT"
+        )
+        payload = {
+            "variant_id": str(variant_id),
+            "translation_group_id": str(group_id),
+            "language_profile_id": str(language_profile_id),
+            "symbol": symbol,
+        }
+        if channel_group is not None:
+            payload["translation_channel_group_id"] = str(channel_group["id"])
+        if parent_variant is not None:
+            payload["translation_category_variant_id"] = str(parent_variant["id"])
+        await self._lifecycle.add_plan_intent(
+            guild_id=guild_id,
+            plan_id=UUID(str(plan["id"])),
+            intent_key=f"variant:{variant_id}",
+            intent_type=intent_type,
+            payload=payload,
+        )
+        return plan, replayed, {
+            "source": "BUSINESS_INTENT_AND_TRUSTED_CACHE",
+            "variant_id": str(variant_id),
+            "variant_type": variant_type,
+            "materialization": "AFTER_TARGETED_DISCORD_VERIFICATION",
         }
 
     async def _effective_policy(

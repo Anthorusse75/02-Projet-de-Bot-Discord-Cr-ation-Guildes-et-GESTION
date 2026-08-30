@@ -279,6 +279,90 @@ class Stage08LifecycleRepository:
                     )
                     if getattr(result, "rowcount", 0) != 1:
                         raise Stage08LifecycleConflict("provider binding is unavailable")
+                elif intent_type in {
+                    "MATERIALIZE_CATEGORY_VARIANT",
+                    "MATERIALIZE_CHANNEL_VARIANT",
+                    "REPAIR_CATEGORY_VARIANT",
+                    "REPAIR_CHANNEL_VARIANT",
+                }:
+                    expected_type = (
+                        "CATEGORY" if "CATEGORY" in intent_type else "CHANNEL"
+                    )
+                    resource_id = await self._bound_resource_id(
+                        session,
+                        guild_id=guild_id,
+                        plan_id=plan_id,
+                        symbol=str(payload["symbol"]),
+                        resource_type=expected_type,
+                    )
+                    if intent_type == "MATERIALIZE_CATEGORY_VARIANT":
+                        await session.execute(
+                            text(
+                                "INSERT INTO translation_category_variants "
+                                "(id,guild_id,translation_group_id,language_profile_id,"
+                                "discord_category_id,is_source,state) VALUES "
+                                "(:id,:guild_id,:group_id,:language_id,:resource_id,false,'ACTIVE')"
+                            ),
+                            {
+                                "id": UUID(str(payload["variant_id"])),
+                                "guild_id": guild_id,
+                                "group_id": UUID(str(payload["translation_group_id"])),
+                                "language_id": UUID(str(payload["language_profile_id"])),
+                                "resource_id": resource_id,
+                            },
+                        )
+                    elif intent_type == "MATERIALIZE_CHANNEL_VARIANT":
+                        await session.execute(
+                            text(
+                                "INSERT INTO translation_channel_variants "
+                                "(id,guild_id,translation_group_id,translation_channel_group_id,"
+                                "language_profile_id,discord_channel_id,"
+                                "translation_category_variant_id,state) VALUES "
+                                "(:id,:guild_id,:group_id,:channel_group_id,:language_id,"
+                                ":resource_id,:category_variant_id,'ACTIVE')"
+                            ),
+                            {
+                                "id": UUID(str(payload["variant_id"])),
+                                "guild_id": guild_id,
+                                "group_id": UUID(str(payload["translation_group_id"])),
+                                "channel_group_id": UUID(
+                                    str(payload["translation_channel_group_id"])
+                                ),
+                                "language_id": UUID(str(payload["language_profile_id"])),
+                                "resource_id": resource_id,
+                                "category_variant_id": (
+                                    UUID(str(payload["translation_category_variant_id"]))
+                                    if payload.get("translation_category_variant_id")
+                                    else None
+                                ),
+                            },
+                        )
+                    else:
+                        table, id_column = (
+                            ("translation_category_variants", "discord_category_id")
+                            if expected_type == "CATEGORY"
+                            else ("translation_channel_variants", "discord_channel_id")
+                        )
+                        # Closed internal table/column pair; request data is always bound.
+                        result = await session.execute(
+                            text(
+                                f"UPDATE {table} SET {id_column}=:resource_id,state='ACTIVE',"  # noqa: S608
+                                "updated_at=:now WHERE guild_id=:guild_id "
+                                "AND translation_group_id=:group_id AND id=:variant_id "
+                                "AND state='MISSING'"
+                            ),
+                            {
+                                "guild_id": guild_id,
+                                "group_id": UUID(str(payload["translation_group_id"])),
+                                "variant_id": UUID(str(payload["variant_id"])),
+                                "resource_id": resource_id,
+                                "now": now,
+                            },
+                        )
+                        if getattr(result, "rowcount", 0) != 1:
+                            raise Stage08LifecycleConflict(
+                                "missing variant is no longer repairable"
+                            )
                 elif intent_type == "MATERIALIZE_CLONE":
                     raise Stage08LifecycleConflict("clone materializer is unavailable")
                 else:  # guarded by the database CHECK, kept fail-closed for corrupted rows
@@ -312,6 +396,38 @@ class Stage08LifecycleRepository:
         )
         if row is None or row["discord_id"] is None:
             raise Stage08LifecycleConflict("verified role symbol is not bound")
+        return int(row["discord_id"])
+
+    @staticmethod
+    async def _bound_resource_id(
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        symbol: str,
+        resource_type: str,
+    ) -> int:
+        row = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT discord_id FROM plan_symbol_bindings WHERE guild_id=:guild_id "
+                        "AND plan_id=:plan_id AND symbol=:symbol AND resource_type=:resource_type "
+                        "AND status='BOUND' FOR SHARE"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "plan_id": plan_id,
+                        "symbol": symbol,
+                        "resource_type": resource_type,
+                    },
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None or row["discord_id"] is None:
+            raise Stage08LifecycleConflict("verified resource symbol is not bound")
         return int(row["discord_id"])
 
     async def fail_pending_intents(

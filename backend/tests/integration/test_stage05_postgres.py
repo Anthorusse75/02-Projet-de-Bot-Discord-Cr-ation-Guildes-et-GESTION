@@ -45,7 +45,10 @@ from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import OutboxPublisher
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
-from did.infrastructure.stage08_repository import LanguageProfileRepository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    TranslationGroupRepository,
+)
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
     CompensationClass,
@@ -179,6 +182,79 @@ async def test_stage08_role_binding_is_materialized_only_after_targeted_verifica
         assert adapter.verify_calls == 1
         assert binding is not None
         assert int(binding["discord_role_id"]) == CREATED_ROLE
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_channel_variant_is_materialized_only_after_targeted_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case(channel=True)
+    factory = create_session_factory(engine)
+    languages = LanguageProfileRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(
+            guild_id=GUILD_A,
+            code="fr",
+            display_name="French",
+        )
+        group = await groups.create(
+            guild_id=GUILD_A,
+            name="Localized channels",
+            root_kind="CHANNEL_SET",
+            routing_mode="HUB_AND_SPOKE",
+            group_id=uuid4(),
+        )
+        await groups.add_language(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            language_profile_id=UUID(str(language["id"])),
+        )
+        channel_group = await groups.create_channel_group(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            logical_key="general",
+        )
+        variant_id = uuid4()
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key=f"variant:{variant_id}",
+            intent_type="MATERIALIZE_CHANNEL_VARIANT",
+            payload={
+                "variant_id": str(variant_id),
+                "translation_group_id": str(group["id"]),
+                "translation_channel_group_id": str(channel_group["id"]),
+                "language_profile_id": str(language["id"]),
+                "symbol": "sym.channel.stage05",
+            },
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-channel-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-channel-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        variant = await groups.get_variant(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            variant_id=variant_id,
+            variant_type="CHANNEL",
+        )
+        assert adapter.verify_calls == 1
+        assert int(variant["discord_channel_id"]) == CREATED_CHANNEL
+        assert variant["state"] == "ACTIVE"
         assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
     finally:
         await engine.dispose()

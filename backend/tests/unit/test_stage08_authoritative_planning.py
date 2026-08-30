@@ -97,6 +97,9 @@ def service(
     groups = AsyncMock()
     groups.workspace_group.return_value = {
         "id": GROUP,
+        "root_kind": "CHANNEL_SET",
+        "languages": [{"id": LANGUAGE, "code": "fr", "enabled": True}],
+        "channel_groups": [],
         "channel_variants": [
             {"discord_channel_id": CHANNEL, "state": "ACTIVE"},
         ],
@@ -291,3 +294,90 @@ async def test_member_reconciliation_compiles_only_managed_role_add_remove_opera
     remove_operations = PlanCompiler().compile(guild, remove_graph, plan_id=uuid4())
     assert len(remove_operations) == 1
     assert remove_operations[0].operation_type is OperationType.REMOVE_MEMBER_ROLE
+
+
+async def test_variant_plan_compiles_business_intent_and_defers_materialization() -> None:
+    authority, spies = service(
+        snapshot(role_count=1, overwrite_count=0, protected_targets=())
+    )
+    spies.planning.create.return_value = (
+        {"id": uuid4(), "guild_id": GUILD, "status": "DRAFT"},
+        False,
+    )
+    spies.lifecycle.add_plan_intent = AsyncMock()
+
+    plan, replayed, authority_evidence = await authority.create_variant_plan(
+        guild_id=GUILD,
+        group_id=GROUP,
+        actor_user_id=ACTOR,
+        variant_type="CATEGORY",
+        language_profile_id=LANGUAGE,
+        desired_name="Français",
+        idempotency_key="category-fr",
+        correlation_id=uuid4(),
+    )
+
+    assert not replayed and plan["status"] == "DRAFT"
+    graph = spies.planning.create.await_args.kwargs["graph"]
+    assert len(graph.nodes) == 1
+    assert graph.nodes[0].resource_type is ResourceType.CATEGORY
+    assert graph.nodes[0].property_map() == {"name": "Français"}
+    intent = spies.lifecycle.add_plan_intent.await_args.kwargs
+    assert intent["intent_type"] == "MATERIALIZE_CATEGORY_VARIANT"
+    assert intent["payload"]["language_profile_id"] == str(LANGUAGE)
+    assert authority_evidence["materialization"] == (
+        "AFTER_TARGETED_DISCORD_VERIFICATION"
+    )
+    first_variant_id = authority_evidence["variant_id"]
+    _, _, replay_authority = await authority.create_variant_plan(
+        guild_id=GUILD,
+        group_id=GROUP,
+        actor_user_id=ACTOR,
+        variant_type="CATEGORY",
+        language_profile_id=LANGUAGE,
+        desired_name="Français",
+        idempotency_key="category-fr",
+        correlation_id=uuid4(),
+    )
+    assert replay_authority["variant_id"] == first_variant_id
+
+
+async def test_repair_plan_derives_durable_language_and_channel_group() -> None:
+    authority, spies = service(
+        snapshot(role_count=1, overwrite_count=0, protected_targets=())
+    )
+    channel_group_id = uuid4()
+    variant_id = uuid4()
+    spies.lifecycle.add_plan_intent = AsyncMock()
+    authority._groups.workspace_group.return_value.update(
+        {
+            "channel_groups": [{"id": channel_group_id}],
+            "channel_variants": [],
+        }
+    )
+    authority._groups.get_variant.return_value = {
+        "id": variant_id,
+        "state": "MISSING",
+        "language_profile_id": LANGUAGE,
+        "translation_channel_group_id": channel_group_id,
+        "discord_channel_id": CHANNEL,
+    }
+
+    await authority.create_variant_plan(
+        guild_id=GUILD,
+        group_id=GROUP,
+        actor_user_id=ACTOR,
+        variant_type="CHANNEL",
+        language_profile_id=None,
+        desired_name=None,
+        idempotency_key="repair-channel-fr",
+        correlation_id=uuid4(),
+        repair_variant_id=variant_id,
+    )
+
+    graph = spies.planning.create.await_args.kwargs["graph"]
+    assert graph.nodes[0].property_map() == {"name": "fr-general", "type": 0}
+    intent = spies.lifecycle.add_plan_intent.await_args.kwargs
+    assert intent["intent_type"] == "REPAIR_CHANNEL_VARIANT"
+    assert intent["payload"]["language_profile_id"] == str(LANGUAGE)
+    assert intent["payload"]["translation_channel_group_id"] == str(channel_group_id)

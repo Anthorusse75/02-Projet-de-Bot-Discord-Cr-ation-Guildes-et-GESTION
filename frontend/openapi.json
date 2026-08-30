@@ -844,60 +844,21 @@
       "MemberRoleReconcileInput": {
         "additionalProperties": false,
         "properties": {
-          "bindings": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Bindings",
-            "type": "object"
+          "discord_user_id": {
+            "title": "Discord User Id",
+            "type": "string"
           },
-          "current_role_ids": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 250,
-            "title": "Current Role Ids",
-            "type": "array"
-          },
-          "member_scope_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 256,
-            "title": "Member Scope Ids",
-            "type": "array"
-          },
-          "required_pairs": {
-            "items": {
-              "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "format": "uuid",
-                  "type": "string"
-                }
-              ],
-              "type": "array"
-            },
-            "maxItems": 4096,
-            "title": "Required Pairs",
-            "type": "array"
-          },
-          "visible_language_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 64,
-            "title": "Visible Language Ids",
-            "type": "array"
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
           }
         },
+        "required": [
+          "discord_user_id",
+          "idempotency_key"
+        ],
         "title": "MemberRoleReconcileInput",
         "type": "object"
       },
@@ -1345,7 +1306,8 @@
           "ROLE",
           "CATEGORY",
           "CHANNEL",
-          "OVERWRITE"
+          "OVERWRITE",
+          "MEMBER_ROLE"
         ],
         "title": "ResourceType",
         "type": "string"
@@ -1506,56 +1468,13 @@
             ],
             "title": "Hub Language Profile Id"
           },
-          "language_profile_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 64,
-            "minItems": 1,
-            "title": "Language Profile Ids",
-            "type": "array"
-          },
-          "max_languages_per_group": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Languages Per Group"
-          },
-          "provider_health": {
-            "default": "UNKNOWN",
-            "title": "Provider Health",
-            "type": "string"
-          },
-          "supports_custom": {
-            "default": false,
-            "title": "Supports Custom",
-            "type": "boolean"
-          },
-          "supports_full_mesh": {
-            "default": false,
-            "title": "Supports Full Mesh",
-            "type": "boolean"
-          },
-          "supports_hub_and_spoke": {
-            "default": false,
-            "title": "Supports Hub And Spoke",
-            "type": "boolean"
-          },
           "topology": {
             "$ref": "#/components/schemas/TranslationGroupTopology"
           }
         },
         "required": [
-          "topology",
-          "language_profile_ids",
-          "expected_version"
+          "expected_version",
+          "topology"
         ],
         "title": "RouteReplaceInput",
         "type": "object"
@@ -1747,119 +1666,6 @@
           "proposed_overwrites"
         ],
         "title": "SimulationRequest",
-        "type": "object"
-      },
-      "StructuralPlanInput": {
-        "additionalProperties": false,
-        "properties": {
-          "idempotency_key": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Idempotency Key",
-            "type": "string"
-          },
-          "nodes": {
-            "items": {
-              "$ref": "#/components/schemas/StructuralPlanNodeInput"
-            },
-            "maxItems": 1000,
-            "minItems": 1,
-            "title": "Nodes",
-            "type": "array"
-          }
-        },
-        "required": [
-          "nodes",
-          "idempotency_key"
-        ],
-        "title": "StructuralPlanInput",
-        "type": "object"
-      },
-      "StructuralPlanNodeInput": {
-        "additionalProperties": false,
-        "properties": {
-          "discord_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Discord Id"
-          },
-          "logical_key": {
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Logical Key",
-            "type": "string"
-          },
-          "presence": {
-            "default": "PRESENT",
-            "enum": [
-              "PRESENT",
-              "ABSENT"
-            ],
-            "title": "Presence",
-            "type": "string"
-          },
-          "properties": {
-            "additionalProperties": true,
-            "title": "Properties",
-            "type": "object"
-          },
-          "relations": {
-            "additionalProperties": {
-              "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "enum": [
-                    "LOGICAL",
-                    "DISCORD_ID",
-                    "SYMBOL"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ],
-              "type": "array"
-            },
-            "maxProperties": 8,
-            "title": "Relations",
-            "type": "object"
-          },
-          "resource_type": {
-            "enum": [
-              "CATEGORY",
-              "CHANNEL",
-              "ROLE",
-              "OVERWRITE"
-            ],
-            "title": "Resource Type",
-            "type": "string"
-          },
-          "symbol": {
-            "anyOf": [
-              {
-                "maxLength": 256,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Symbol"
-          }
-        },
-        "required": [
-          "logical_key",
-          "resource_type"
-        ],
-        "title": "StructuralPlanNodeInput",
         "type": "object"
       },
       "TemplateApplyInput": {
@@ -2119,6 +1925,113 @@
         "title": "VariantLinkInput",
         "type": "object"
       },
+      "VariantPlanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_type": {
+            "default": 0,
+            "enum": [
+              0,
+              2,
+              5,
+              13,
+              15,
+              16
+            ],
+            "title": "Channel Type",
+            "type": "integer"
+          },
+          "desired_name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Desired Name",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "language_profile_id": {
+            "format": "uuid",
+            "title": "Language Profile Id",
+            "type": "string"
+          },
+          "translation_channel_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Channel Group Id"
+          },
+          "variant_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Variant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variant_type",
+          "language_profile_id",
+          "desired_name",
+          "idempotency_key"
+        ],
+        "title": "VariantPlanInput",
+        "type": "object"
+      },
+      "VariantRepairPlanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "desired_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desired Name"
+          },
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "title": "Variant Id",
+            "type": "string"
+          },
+          "variant_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Variant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variant_id",
+          "variant_type",
+          "idempotency_key"
+        ],
+        "title": "VariantRepairPlanInput",
+        "type": "object"
+      },
       "VariantUnlinkInput": {
         "additionalProperties": false,
         "properties": {
@@ -2214,6 +2127,36 @@
           "policy"
         ],
         "title": "VisibilityCompileInput",
+        "type": "object"
+      },
+      "VisibilityPlanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_resource_id": {
+            "title": "Discord Resource Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "resource_type": {
+            "enum": [
+              "CATEGORY",
+              "CHANNEL"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_type",
+          "discord_resource_id",
+          "idempotency_key"
+        ],
+        "title": "VisibilityPlanInput",
         "type": "object"
       },
       "VisibilityPolicy": {
@@ -5786,137 +5729,9 @@
         ]
       }
     },
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link/plan": {
-      "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__link_plan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Group Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Link Plan Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Structural Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/plan": {
-      "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__provider_plan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Group Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Provider Plan Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Structural Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
       "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post",
+        "operationId": "repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post",
         "parameters": [
           {
             "in": "path",
@@ -5942,7 +5757,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
+                "$ref": "#/components/schemas/VariantRepairPlanInput"
               }
             }
           },
@@ -5954,7 +5769,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Repair Plan Post",
+                  "title": "Response Repair Variant Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Repair Plan Post",
                   "type": "object"
                 }
               }
@@ -5972,7 +5787,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Structural Plan",
+        "summary": "Repair Variant Plan",
         "tags": [
           "stage-08-multilingual-topology"
         ]
@@ -6042,134 +5857,6 @@
         ]
       }
     },
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes/plan": {
-      "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__routes_plan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Group Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Routes Plan Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Structural Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/structural-plan": {
-      "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__structural_plan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Group Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Structural Plan Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Structural Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink": {
       "post": {
         "operationId": "unlink_variant_api_v1_guilds__guild_id__translation_groups__group_id__unlink_post",
@@ -6234,73 +5921,9 @@
         ]
       }
     },
-    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink/plan": {
-      "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__unlink_plan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guild_id",
-            "required": true,
-            "schema": {
-              "title": "Guild Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Group Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Unlink Plan Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Structural Plan",
-        "tags": [
-          "stage-08-multilingual-topology"
-        ]
-      }
-    },
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/variants/plan": {
       "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post",
+        "operationId": "create_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post",
         "parameters": [
           {
             "in": "path",
@@ -6326,7 +5949,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
+                "$ref": "#/components/schemas/VariantPlanInput"
               }
             }
           },
@@ -6338,7 +5961,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Variants Plan Post",
+                  "title": "Response Create Variant Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Variants Plan Post",
                   "type": "object"
                 }
               }
@@ -6356,7 +5979,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Structural Plan",
+        "summary": "Create Variant Plan",
         "tags": [
           "stage-08-multilingual-topology"
         ]
@@ -6364,7 +5987,7 @@
     },
     "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/visibility/plan": {
       "post": {
-        "operationId": "create_structural_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post",
+        "operationId": "create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post",
         "parameters": [
           {
             "in": "path",
@@ -6390,7 +6013,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StructuralPlanInput"
+                "$ref": "#/components/schemas/VisibilityPlanInput"
               }
             }
           },
@@ -6402,7 +6025,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Create Structural Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Visibility Plan Post",
+                  "title": "Response Create Visibility Plan Api V1 Guilds  Guild Id  Translation Groups  Group Id  Visibility Plan Post",
                   "type": "object"
                 }
               }
@@ -6420,7 +6043,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Structural Plan",
+        "summary": "Create Visibility Plan",
         "tags": [
           "stage-08-multilingual-topology"
         ]
