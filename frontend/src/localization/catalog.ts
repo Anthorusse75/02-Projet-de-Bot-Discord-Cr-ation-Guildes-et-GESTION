@@ -304,6 +304,18 @@ export const en = {
   'translations.topology.custom': 'Custom routes',
   'translations.inheritance.category': 'Inherited from category',
   'translations.inheritance.self': 'Explicit on resource',
+  'translations.languageTargets': 'Language drop targets',
+  'translations.guildTargets': 'Destination server drop targets',
+  'translations.action.dialog': 'Multilingual action',
+  'translations.action.source': 'Source translation group: {{name}}',
+  'translations.languageTarget': 'Destination language',
+  'translations.desiredName': 'Desired Discord name',
+  'translations.channelGroup': 'Translation channel group',
+  'translations.discordResourceId': 'Explicit Discord resource ID',
+  'translations.previewSummary': '{{languages}} languages and {{variants}} structural variants in the current backend topology.',
+  'translations.action.planReady': 'The authoritative variant plan is ready.',
+  'translations.action.linkReady': 'The explicit Discord resource was linked.',
+  'translations.action.cloneReady': 'The cross-server clone plan is ready.',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -444,6 +456,9 @@ export const fr = translated({
   'translations.hierarchy': 'Variantes de categories et salons', 'translations.routes': 'Routes de traduction', 'translations.routes.empty': 'Aucune route configuree.', 'translations.variant.active': 'Active', 'translations.variant.missing': 'Manquante',
   'translations.drift.detected': '{{count}} variantes manquantes', 'translations.drift.clear': 'Aucune derive detectee', 'translations.capacity': 'Preflight de capacite', 'translations.capacity.roles': '{{count}} roles reutilisables sur {{limit}}', 'translations.capacity.overwrites': '{{count}} entrees sur un budget de {{limit}} overwrites', 'translations.actions': 'Actions multilingues',
   'translations.topology.hub': 'Hub et branches', 'translations.topology.mesh': 'Maillage complet', 'translations.topology.custom': 'Routes personnalisees', 'translations.inheritance.category': 'Herite de la categorie', 'translations.inheritance.self': 'Explicite sur la ressource',
+  'translations.languageTargets': 'Cibles de depot par langue', 'translations.guildTargets': 'Cibles de depot des serveurs de destination', 'translations.action.dialog': 'Action multilingue', 'translations.action.source': 'Groupe de traduction source : {{name}}',
+  'translations.languageTarget': 'Langue de destination', 'translations.desiredName': 'Nom Discord souhaite', 'translations.channelGroup': 'Groupe logique de salons', 'translations.discordResourceId': 'ID explicite de ressource Discord',
+  'translations.previewSummary': '{{languages}} langues et {{variants}} variantes structurelles dans la topologie backend actuelle.', 'translations.action.planReady': 'Le plan autoritaire de variante est pret.', 'translations.action.linkReady': 'La ressource Discord explicite a ete liee.', 'translations.action.cloneReady': 'Le plan de clone inter-serveurs est pret.',
 })
 
 export const de = translated({
@@ -578,6 +593,9 @@ export const de = translated({
   'translations.hierarchy': 'Kategorie- und Kanalvarianten', 'translations.routes': 'Uebersetzungsrouten', 'translations.routes.empty': 'Keine Route konfiguriert.', 'translations.variant.active': 'Aktiv', 'translations.variant.missing': 'Fehlt',
   'translations.drift.detected': '{{count}} fehlende Varianten', 'translations.drift.clear': 'Keine Abweichung erkannt', 'translations.capacity': 'Kapazitaetspruefung', 'translations.capacity.roles': '{{count}} von {{limit}} wiederverwendbaren Rollen', 'translations.capacity.overwrites': '{{count}} von {{limit}} Overwrite-Budgeteintraegen', 'translations.actions': 'Mehrsprachige Aktionen',
   'translations.topology.hub': 'Hub und Speichen', 'translations.topology.mesh': 'Vollstaendiges Netz', 'translations.topology.custom': 'Eigene Routen', 'translations.inheritance.category': 'Von Kategorie geerbt', 'translations.inheritance.self': 'Explizit an der Ressource',
+  'translations.languageTargets': 'Sprach-Ablageziele', 'translations.guildTargets': 'Ablageziele der Zielserver', 'translations.action.dialog': 'Mehrsprachige Aktion', 'translations.action.source': 'Quell-Uebersetzungsgruppe: {{name}}',
+  'translations.languageTarget': 'Zielsprache', 'translations.desiredName': 'Gewuenschter Discord-Name', 'translations.channelGroup': 'Uebersetzungskanalgruppe', 'translations.discordResourceId': 'Explizite Discord-Ressourcen-ID',
+  'translations.previewSummary': '{{languages}} Sprachen und {{variants}} Strukturvarianten in der aktuellen Backend-Topologie.', 'translations.action.planReady': 'Der autoritative Variantenplan ist bereit.', 'translations.action.linkReady': 'Die explizite Discord-Ressource wurde verknuepft.', 'translations.action.cloneReady': 'Der serveruebergreifende Klonplan ist bereit.',
 })
 
 export const es = translated({
@@ -712,6 +730,9 @@ export const es = translated({
   'translations.hierarchy': 'Variantes de categorias y canales', 'translations.routes': 'Rutas de traduccion', 'translations.routes.empty': 'No hay rutas configuradas.', 'translations.variant.active': 'Activa', 'translations.variant.missing': 'Ausente',
   'translations.drift.detected': '{{count}} variantes ausentes', 'translations.drift.clear': 'No se detectaron desviaciones', 'translations.capacity': 'Comprobacion previa de capacidad', 'translations.capacity.roles': '{{count}} de {{limit}} roles reutilizables', 'translations.capacity.overwrites': '{{count}} de {{limit}} entradas del presupuesto de sobrescrituras', 'translations.actions': 'Acciones multilingues',
   'translations.topology.hub': 'Centro y radios', 'translations.topology.mesh': 'Malla completa', 'translations.topology.custom': 'Rutas personalizadas', 'translations.inheritance.category': 'Heredado de la categoria', 'translations.inheritance.self': 'Explicito en el recurso',
+  'translations.languageTargets': 'Destinos de idioma para soltar', 'translations.guildTargets': 'Destinos de servidores para soltar', 'translations.action.dialog': 'Accion multilingue', 'translations.action.source': 'Grupo de traduccion de origen: {{name}}',
+  'translations.languageTarget': 'Idioma de destino', 'translations.desiredName': 'Nombre de Discord deseado', 'translations.channelGroup': 'Grupo de canales de traduccion', 'translations.discordResourceId': 'ID explicito del recurso de Discord',
+  'translations.previewSummary': '{{languages}} idiomas y {{variants}} variantes estructurales en la topologia actual del backend.', 'translations.action.planReady': 'El plan autoritativo de variante esta listo.', 'translations.action.linkReady': 'El recurso explicito de Discord fue vinculado.', 'translations.action.cloneReady': 'El plan de clonacion entre servidores esta listo.',
 })
 
 export const bootstrapPacks = { en, fr, de, es } satisfies Record<BootstrapLocaleCode, MessagePack>
