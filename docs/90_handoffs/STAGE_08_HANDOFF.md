@@ -1,19 +1,21 @@
 # Handoff STAGE 08 — Contenu multilingue et topologie de traduction
 
 > **Statut :** corrections de deep review intégrées et re-vérifiées contre le code actuel (voir
-> `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`). STAGE 08 reste
-> `STAGE_08_IMPLEMENTATION_IN_PROGRESS` uniquement parce que la validation live est bloquée par un sandbox
-> Discord externe à nettoyer (`BLOCKED_SANDBOX_RECOVERY`) ; aucun defect fonctionnel ou de sécurité n'est
-> ouvert dans le code. La PR #8 reste Draft et non mergée.
+> `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`). La première qualification live sur sandbox
+> réelle (commit `9240cb1`) a révélé un défaut de code réel — pas un problème de sandbox — décrit et
+> corrigé dans la section « Défaut réel découvert par la qualification live » ci-dessous (commit
+> `592b94b`). Une nouvelle qualification live sur sandbox nettoyée a ensuite PASS intégralement. STAGE 08
+> est `STAGE_08_COMPLETE_DRAFT_PR_OPEN`. La PR #8 reste Draft et non mergée, dans l'attente de l'audit
+> externe indépendant final.
 
 | Champ | Valeur |
 |---|---|
-| Date | `2026-08-30` |
+| Date | `2026-08-31` |
 | Base main | `252a4661195a3868acd04a2987453e23fc6ee4ff` |
 | Branche | `stage/08-multilingual-topology` |
 | PR | `#8`, Draft, non mergée |
 | Migration | `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08` ; tête unique `0021_stage_08` ; rehearsal down/up validé |
-| Statut | `STAGE_08_IMPLEMENTATION_IN_PROGRESS` (bloqué uniquement par le nettoyage sandbox live) |
+| Statut | `STAGE_08_COMPLETE_DRAFT_PR_OPEN` |
 | Dernière étape intégrée | `STAGE_07_REACT_DASHBOARD_I18N_AND_INTERACTIONS` |
 | Étape suivante | `STAGE_09_NOT_STARTED_FORBIDDEN_UNTIL_STAGE08_MERGED` |
 
@@ -80,6 +82,15 @@ Un rôle technique lazy possède `permissions=0`, `hoist=false`, `mentionable=fa
 autoritatif — jamais depuis des données fournies par le client. Il ne crée que l'intersection entre langues
 visibles et scopes métier déjà acquis : un choix de langue ne peut jamais accorder un scope. Il n'émet ni
 member overwrite ni rôle `ALL_LANGUAGES`.
+
+**Exception control-plane (REQ-I18N-022) :** REQ-I18N-022 (« les member-specific overwrites ne sont pas
+utilisés comme stratégie normale de visibilité multilingue ») reste intégralement vraie pour la visibilité
+métier humaine. Un unique overwrite de type membre est ajouté, uniquement pour le clone multilingue
+Stage06→05 et uniquement sur les salons destination qui portent un deny `VIEW_CHANNEL`, ciblant le
+`bot_identity()` durable de la Guild destination — jamais Administrator, jamais un rôle métier humain. C'est
+une exception service-principal/control-plane étroitement bornée nécessaire pour que le bot DID conserve
+l'administration des salons qu'il vient de créer ; elle ne doit jamais être généralisée aux utilisateurs
+humains. Voir la section « Défaut réel découvert par la qualification live » ci-dessous.
 
 ## Matrice provider
 
@@ -149,7 +160,7 @@ en EN/FR/DE/ES ; aucun enum interne ni clé brute n'est rendu.
 | `python scripts/validate_stage.py 08` | PASS : unitaires backend, intégrations PostgreSQL/Redis, frontend lint/typecheck/build, migrations, sécurité et docs |
 | tests ciblés STAGE 08 | PASS : 27 unitaires (`test_stage08_translation_topology.py`, `test_stage08_services.py`), 14 PostgreSQL (`test_stage08_persistence.py`, `test_stage08_application_postgres.py`), dont isolation A/B et ordre structurel |
 | `python scripts/validate_stage.py 08 --profile e2e` | PASS : 40 Playwright, dont 8 scénarios STAGE 08 (right-drag, ActionRegistry, workspace a11y, member languages), axe et EN/FR/DE/ES |
-| `python scripts/validate_stage.py 08 --include-discord-live` | **BLOCKED_SANDBOX_RECOVERY** : voir section dédiée ci-dessous |
+| `python scripts/validate_stage.py 08 --include-discord-live` | **PASS** sur deux Guilds sandbox réelles (`docs/90_handoffs/evidence/stage08/discord-live-stage08.json`, testé sur `592b94b`) ; voir section dédiée ci-dessous |
 | qualité | Ruff, format, MyPy, ESLint, TypeScript, build, i18n, OpenAPI et secret scan PASS |
 | Alembic | rehearsal `0013_stage_07 → head → 0013_stage_07 → head` PASS, tête unique `0021_stage_08` |
 
@@ -159,29 +170,44 @@ et [`00_REQUIREMENTS_TRACEABILITY.md`](../10_implementation/00_REQUIREMENTS_TRAC
 fichier:ligne et test pour chaque ID. Toutes sont `IMPLEMENTED`; aucune n'est promue à `VERIFIED` avant la
 qualification transverse prévue.
 
-## Blocage live : sandbox Guild B à nettoyer
+## Défaut réel découvert par la qualification live et correctif (commit `592b94b`)
 
-Une exécution live antérieure au correctif d'ordre des overwrites (grant-only avant deny-only) a laissé
-4 salons `DID-STAGE08-TEST-*` dans la Guild B sandbox. Un diagnostic en lecture seule (une seule tentative,
-sans mutation) confirme :
+La première tentative de qualification live (sur commit `9240cb1`, sandbox Guild B nettoyée des anciens
+salons résiduels) a révélé un **défaut de code réel**, pas un problème de sandbox : la topologie Stage08 à
+visibilité managée (`LANGUAGE_FILTERED` / `SCOPE_AND_LANGUAGE`) produit un overwrite final refusant
+`VIEW_CHANNEL` à `@everyone` et l'accordant au rôle langue/Scope × Language dérivé, mais ne préserve
+explicitement l'accès d'aucun principal pour le bot control-plane DID lui-même. Sur la sandbox Guild A, ce
+défaut restait invisible parce que le bot y détient accidentellement `Administrator` (accordé hors du code
+DID, qui ne l'accorde jamais), ce qui contourne tous les overwrites de salon. La Guild B, correctement
+dépourvue d'`Administrator`, expose donc le défaut : les salons fraîchement clonés par Stage06→05 refusaient
+`VIEW_CHANNEL` au bot — ce qui, par la règle Discord de déni implicite déjà implémentée dans
+`PermissionEvaluator`, rend aussi `MANAGE_CHANNELS` inopérant sur ces salons — et le preflight Stage05 du
+`DELETE_CHANNEL` de nettoyage échouait fermé (`LiveCapabilityBlocked` / `BLOCKED_CAPABILITY_CONFIGURATION`).
+L'ordre d'écriture des overwrites (le correctif antérieur grant-before-deny) n'était pas en cause : l'état
+overwrite final ne contenait tout simplement jamais d'octroi pour le bot.
 
-- Guild A (`Serveur de anthorusse75 - French`) : aucune ressource `DID-STAGE08-TEST-*` résiduelle, propre.
-- Guild B (`2nd Serveur de anthorusse75 - French`) : 4 salons résiduels ; 2 (`guides-fr`, `guides-en`) ont
-  un overwrite de salon qui refuse au bot à la fois `VIEW_CHANNEL` et `MANAGE_CHANNELS`, héritage direct du
-  bug d'ordre corrigé depuis. Le bot dispose de `manage_channels`/`manage_roles` au niveau Guild mais pas
-  `Administrator` (conforme à la politique : jamais d'Administrator comme solution) ; l'overwrite de salon
-  prime sur le droit de niveau Guild pour ces deux salons précis.
+**Correctif (`592b94b`) :** `PortabilityService.compile_stored` augmente désormais le graphe désiré de
+destination, uniquement pour les clones multilingues Stage08, d'un overwrite explicite de type membre
+accordant `VIEW_CHANNEL` au `bot_identity()` durable de la Guild destination, pour chaque salon portant un
+deny `VIEW_CHANNEL`. Il ne touche ni la visibilité humaine, ni `PermissionEvaluator`, ni l'ordre des
+mutations, ni le provider. Il n'accorde jamais `Administrator` ni un rôle métier humain — c'est une
+exception service-principal/control-plane étroitement bornée (voir section Scope × Language ci-dessus).
+Régression PostgreSQL dédiée :
+`test_multilingual_clone_preserves_control_plane_bot_access_on_restricted_channel`
+(`backend/tests/integration/test_stage06_postgres.py`), vérifiée en échec sur le code pré-correctif et en
+succès après, prouvant via le vrai `PermissionEvaluator` : accès bot préservé, humain sans le rôle dérivé
+toujours refusé, preflight `DELETE_CHANNEL` autorisé, aucun `Administrator`, aucune fuite de secret/binding
+provider dans l'artifact.
 
-Le pipeline DID ne peut pas prouver sa capacité à administrer/supprimer ces deux salons et échoue donc
-fermé (`BLOCKED_CAPABILITY_CONFIGURATION`, écrit par `scripts/validate_discord_live_stage08.py`). Aucune
-tentative de contournement (Administrator, mutation directe hors pipeline, nouvelle stratégie de
-récupération) n'a été effectuée, conformément à la discipline demandée.
+Une amélioration diagnostique séparée (`592b94b` puis ce commit) a par ailleurs corrigé la propagation des
+noms de capacité manquants sanitisés (ex. `MANAGE_CHANNELS`) dans le rapport JSON du validateur live
+STAGE 08, testée par `backend/tests/unit/test_stage08_live_diagnostics.py`.
 
-**Résolution requise (au choix de l'opérateur) :**
-- A. Supprimer manuellement les salons `DID-STAGE08-TEST-*` restants dans Guild B ; ou
-- B. Fournir une nouvelle Guild B sandbox vide.
-
-Une fois l'un des deux réalisé, relancer `python scripts/validate_stage.py 08 --include-discord-live`.
+**Re-qualification live :** après suppression manuelle par l'opérateur des anciens salons résiduels de
+Guild B et application du correctif, `uv run python scripts/validate_discord_live_stage08.py --include` sur
+commit `592b94b` a produit un `status: PASS` complet sur les deux Guilds sandbox réelles. La preuve
+sanitisée (zéro secret, zéro identifiant Discord, zéro PII) est committée dans
+[`evidence/stage08/discord-live-stage08.json`](evidence/stage08/discord-live-stage08.json).
 
 ## État opérationnel et limites
 

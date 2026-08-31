@@ -270,8 +270,18 @@ async def validate_plan(
         if preflight.errors and all(
             error.startswith("capability.permission_missing") for error in preflight.errors
         ):
+            names = tuple(
+                sorted(
+                    {
+                        error.rsplit(".", 1)[-1].upper()
+                        for error in preflight.errors
+                        if error.startswith("capability.permission_missing")
+                    }
+                )
+            )
             raise LiveCapabilityBlocked(
-                "sandbox bot lacks structural mutation capabilities: " + ",".join(preflight.errors)
+                "sandbox bot lacks structural mutation capabilities: " + ",".join(preflight.errors),
+                capabilities=names,
             )
         raise RuntimeError(f"live plan preflight failed: {','.join(preflight.errors)}")
     return await planning.confirm(

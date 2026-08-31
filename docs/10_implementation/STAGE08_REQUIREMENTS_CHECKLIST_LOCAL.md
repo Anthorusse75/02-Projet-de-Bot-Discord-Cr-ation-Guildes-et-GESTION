@@ -2,10 +2,10 @@
 
 ## État de la candidate
 
-- Statut global : `STAGE_08_IMPLEMENTATION_IN_PROGRESS` — corrections deep-review intégrées et re-qualifiées non-live ; validation live bloquée par un sandbox externe à nettoyer (voir `BLOCKED_SANDBOX_RECOVERY` ci-dessous).
+- Statut global : `STAGE_08_COMPLETE_DRAFT_PR_OPEN` — corrections deep-review intégrées et re-qualifiées non-live ; qualification live réelle PASS sur sandbox après correctif de l'accès control-plane du bot (`592b94b`).
 - Base `main` : `252a4661195a3868acd04a2987453e23fc6ee4ff`.
 - Branche : `stage/08-multilingual-topology` ; PR #8 conservée en Draft.
-- Les 43 IDs repassent `IMPLEMENTED` avec preuve intégrée réévaluée (fichier:ligne + test) ci-dessous ; `VERIFIED` reste réservé à la qualification transverse.
+- Les 43 IDs sont `IMPLEMENTED` avec preuve intégrée réévaluée (fichier:ligne + test) ci-dessous ; `VERIFIED` reste réservé à la qualification transverse.
 - STAGE 09 : `NOT_STARTED` et interdit avant merge de STAGE 08.
 
 ## Matrice des 43 IDs
@@ -60,6 +60,6 @@
 
 - `python scripts/validate_stage.py 08` : PASS.
 - `python scripts/validate_stage.py 08 --profile e2e` : PASS, 40 scénarios Playwright cumulés dont 8 propres à STAGE 08.
-- `python scripts/validate_stage.py 08 --include-discord-live` : **BLOCKED_SANDBOX_RECOVERY**. Diagnostic en lecture seule : Guild B sandbox conserve 4 salons `DID-STAGE08-TEST-*` d'une exécution antérieure au correctif d'ordre des overwrites ; 2 d'entre eux (`guides-fr`, `guides-en`) refusent au bot `VIEW_CHANNEL` et `MANAGE_CHANNELS` au niveau du salon. Le pipeline DID ne peut pas les administrer sans preuve de capacité, et `ADMINISTRATOR` n'est pas une solution acceptée. Guild A est propre. Le validateur écrit lui-même `status=BLOCKED_CAPABILITY_CONFIGURATION` (échec fermé), cohérent avec ce diagnostic. Résolution : suppression manuelle des salons `DID-STAGE08-TEST-*` restants dans Guild B, ou fourniture d'une Guild B sandbox neuve.
+- `python scripts/validate_stage.py 08 --include-discord-live` : **PASS** sur deux Guilds sandbox réelles (`docs/90_handoffs/evidence/stage08/discord-live-stage08.json`, testé sur `592b94b`). Une première tentative avait révélé un défaut de code réel : les salons clonés à visibilité restreinte (Scope × Language / LANGUAGE_FILTERED) refusaient `VIEW_CHANNEL` (et donc `MANAGE_CHANNELS`) au bot control-plane sur la Guild destination dépourvue d'Administrator, ce qui bloquait fermé le preflight Stage05 de nettoyage `DELETE_CHANNEL`. Corrigé par `592b94b` (grant explicite du control-plane bot, jamais Administrator, jamais rôle métier humain). La re-qualification sur sandbox nettoyée confirme le PASS complet.
 - Migration réversible `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08 → 0013_stage_07 → head`, tête unique `0021_stage_08` : PASS.
 - Secret scan, docs, Ruff, format, MyPy, frontend lint/typecheck/build/i18n/OpenAPI : PASS.
