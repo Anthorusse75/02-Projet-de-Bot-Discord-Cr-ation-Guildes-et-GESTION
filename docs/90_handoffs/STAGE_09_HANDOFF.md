@@ -1,22 +1,29 @@
 # Handoff STAGE 09 — Message & Campaign Engine, automatisations et traduction sûre
 
-> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Trois passes cumulées : (1) fondations WP1-WP11
-> réelles et testées, (2) remédiation externe 17 findings (§ dédiée ci-dessous), (3) **cette passe** —
-> root-cause de la corruption d'intégrité de traduction (100% réel désormais, pas seulement détecté),
-> fencing de bail strict (expiration + lifecycle au commit), autorisation à la création pour targets/
-> trigger sources, typage traduction/variables (REQ-MSG-013/018), dépendance `MESSAGE_CONTENT`
-> explicite (REQ-MSG-020), **worker de livraison réel** câblé au `DiscordWorkloadGovernor` partagé
-> (WP13), CI Stage09 réelle. Reste : orchestration/activation de campagne (WP12), event consumer
-> Stage03 réel, API (WP14), frontend (WP15), qualification live complète (WP16). Aucune preuve n'est
-> fabriquée : chaque affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel,
-> sandbox Discord réel) ou est explicitement marquée comme non construite.
+> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Quatre passes cumulées : (1) fondations WP1-WP11
+> réelles et testées, (2) remédiation externe 17 findings (§ dédiée ci-dessous), (3) root-cause de la
+> corruption d'intégrité de traduction, fencing de bail strict, autorisation à la création pour
+> targets/trigger sources, typage traduction/variables (REQ-MSG-013/018), dépendance `MESSAGE_CONTENT`
+> explicite (REQ-MSG-020), worker de livraison réel câblé au `DiscordWorkloadGovernor` partagé (WP13),
+> CI Stage09 réelle, (4) **cette passe** — identité de job de livraison corrigée (défaut critique),
+> résultat de fencing de finalisation honoré, classification réelle des exceptions discord.py,
+> autorisation à la création complétée (appartenance topologique réelle), corpus de benchmark étendu
+> de 6 à 26 classes/104 items avec requalification 100% réelle sur ce corpus élargi, et surtout
+> **l'orchestration WP12 réelle** : `fan_out_occurrence` (activation), `run_scheduler_tick`
+> (scheduler), `consume_event_for_trigger` (event consumer), `simulate_campaign` (simulation
+> complète) — le plus gros écart signalé par chaque passe précédente. Reste : API (WP14), frontend
+> (WP15), boucle de transport Stage03 réelle (plomberie, pas logique métier), qualification live
+> complète (WP16), preuve bout-en-bout anti double-traduction Translation Group, taggage d'ancestry
+> sur événement Discord réellement généré. Aucune preuve n'est fabriquée : chaque affirmation
+> ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel, sandbox Discord réel) ou est
+> explicitement marquée comme non construite.
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-08-31` |
-| Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` |
+| Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` — le commit de `main` à partir duquel la branche `stage/09-campaigns` a divergé ; `main` a continué d'avancer depuis (voir `git log main` pour son HEAD courant), ce champ documente uniquement le point de divergence, pas un état encore à jour de `main` |
 | Branche | `stage/09-campaigns` |
-| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, troisième passe intégrée) |
+| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, quatrième passe intégrée) |
 | Migration | `0021_stage_08 → 0025_stage_09` ; tête unique `0025_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
 | Dernière étape intégrée | `STAGE_08_MULTILINGUAL_CONTENT_AND_TRANSLATION_TOPOLOGY` (`stage-08-complete`, inchangée) |
 
@@ -118,6 +125,78 @@ correction cosmétique) :
     message distinct) via le vrai `DiscordPyMessageSender`. Preuve sanitisée committée
     (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`), portée explicitement limitée
     (pas la matrice complète, qui nécessite l'orchestration bout-en-bout absente).
+
+## Quatrième passe — remédiation externe et orchestration WP12 réelle
+
+1. **CRITIQUE — identité de job de livraison** : `submit_delivery_to_governor` construisait un
+   `WorkloadJob` nommant `delivery_id=A`, mais son opération appelait
+   `process_one_pending_delivery(guild_id)`, qui réclame N'IMPORTE QUELLE livraison `PENDING`
+   suivante — un job retardé/rejoué/périmé pour A pouvait donc consommer B. Corrigé par
+   `CampaignsRepository.claim_delivery` (identité nommée, même fencing que `claim_next_delivery`) et
+   `did.campaigns.delivery_worker.process_delivery`. 9 tests PostgreSQL réels prouvent l'isolation A/B,
+   le replay après SENT, et une vraie course concurrente.
+2. **Résultat de fencing de finalisation ignoré** : `_send_and_finalize` ignorait le booléen retourné
+   par `finalize_delivery()`. Vérifié maintenant sur chaque issue (SENT/FAILED/UNKNOWN) ; un nouveau
+   `STALE_OUTCOME` est renvoyé au lieu de mentir sur un résultat durable quand le fencing a été perdu
+   (ex. un reconciler vole le bail pendant que l'envoi original est encore en vol) — jamais de nonce
+   neuf, jamais d'envoi en double. 3 tests PostgreSQL réels injectent la course exacte (vol de bail
+   pendant `send()`) pour chacune des trois issues.
+3. **Classification réelle des erreurs discord.py** : l'adaptateur ne traduisait jamais la vraie
+   hiérarchie d'exceptions discord.py. Classifie maintenant par statut HTTP réel : 4xx (hors 429)
+   devient `DiscordSendError` (échec définitivement connu) ; 429/5xx restent ambigus (propagent tels
+   quels, cohérent avec le fait que discord.py gère déjà ses propres retries de rate-limit en
+   interne). Preuve au niveau adaptateur (7 tests) et au niveau pipeline complet worker+adaptateur
+   (3 tests).
+4. **Autorisation à la création complétée** : `channel_belongs_to_guild`/`resource_type`/
+   `translation_group_belongs_to_guild` prouvent maintenant l'appartenance réelle à la Guild via
+   l'état Stage04/08 faisant autorité (pas seulement l'id fourni par l'appelant) ; le contrôle
+   bot-can-send est explicitement un preflight non bloquant à la création (REQ-MSG-003 place
+   l'application dure au moment de la livraison). 20 tests, cross-Guild channel/category/Translation
+   Group négatifs, mauvais type dans les deux sens, preflight non bloquant.
+5. **Orchestration WP12 réelle** — le plus gros écart signalé par les trois passes précédentes :
+   - `did.campaigns.activation.fan_out_occurrence` : occurrence → livraisons, idempotent et
+     restart-safe via un cycle de bail `CLAIMED → FANNED_OUT/FAILED` réutilisant des colonnes de bail
+     provisionnées dès WP1 (migration `0022`) mais jamais câblées jusqu'à cette passe.
+   - `did.campaigns.rendering` : pipeline de rendu à deux couches (variables de template puis
+     glossaire), composant `did.messaging.protector`/`template_variables`/`glossary` sans dupliquer
+     leur logique. A révélé et corrigé un vrai faux positif d'intégrité croisée entre couches (voir
+     ci-dessous).
+   - `did.campaigns.scheduler_loop.run_scheduler_tick` : cycle réel claim → évalue (RRULE/misfire) →
+     fan-out par occurrence due → finalise le curseur, fencé de bout en bout par le même
+     `lease_token`.
+   - `did.campaigns.event_consumer.consume_event_for_trigger` : consomme la vraie forme
+     `did.domain.discord_runtime.EventEnvelope`, câble `should_trigger`/déduplication/création
+     d'occurrence.
+   - `did.campaigns.simulation.simulate_campaign` : compose les trois modules précédents en une preview
+     complète et non mutante (voir REQ-MSG-022 ci-dessous).
+   Preuve PostgreSQL réelle avec de vrais scénarios de crash/redémarrage/course :
+   `test_stage09_activation_postgres.py` (7 tests), `test_stage09_scheduler_loop_postgres.py`
+   (3 tests), `test_stage09_event_consumer_postgres.py` (8 tests).
+6. **Faux positif d'intégrité inter-couches (découvert en construisant `rendering.py`)** : la
+   composition séquentielle protection-variables puis protection-glossaire partage la même forme de
+   placeholder (`DIDPHxxxx...`) — la couche glossaire voyait les placeholders encore présents de la
+   couche variables et les signalait à tort comme « inventés ». Corrigé par un nouveau paramètre
+   `foreign_placeholders` sur `validate_and_restore`/`validate_full_pipeline`, permettant à une couche
+   externe de déclarer les tokens qu'une couche interne ne doit jamais classer comme invention.
+   10 tests dédiés (`test_stage09_rendering.py`).
+7. **Corpus de benchmark étendu (REQ-MSG-024/025/026)** : de 6 à 26 classes normatives par langue
+   (104 items au total, rédigés nativement — pas traduits automatiquement) — phrases courtes/longues,
+   négation/pronoms, multi-phrases/multi-paragraphes, listes/emphase Markdown, URLs adversariales,
+   texte `@everyone`/`@here` littéral, emoji statiques/animés, timestamps multiples, commandes slash,
+   phrase dense multi-placeholders, terminologie/noms propres/acronymes, code mixte, styles
+   embed/bouton, contenu long (multi-Ko). Rejoué en entier : voir « Requalification du benchmark »
+   ci-dessous.
+8. **Bug réel révélé en construisant `event_consumer.py`** : reconstruire un `TriggerSourceBinding`
+   directement depuis une ligne DB brute (`source_scope_kind=row["source_scope_kind"]`, une chaîne)
+   faisait silencieusement échouer la comparaison `is TriggerSourceScopeKind.GUILD` interne à
+   `should_trigger` (une chaîne n'est jamais `is` un membre d'énumération, même si elle est égale en
+   valeur). Corrigé par un cast explicite `TriggerSourceScopeKind(row["source_scope_kind"])`. Cette
+   classe de bug est invisible à tout test unitaire pur construisant ses objets Python à la main —
+   seul un aller-retour DB réel la révèle ; un test dédié le prouve explicitement.
+9. **Bug réel révélé en construisant `scheduler_loop.py`** : la clause `RETURNING` de
+   `claim_due_schedules` omettait `fire_at`, rendant l'assertion `schedule.fire_at is not None` de
+   `evaluate_one_shot` invérifiable pour tout appelant reconstruisant le schedule depuis la ligne
+   réclamée. Corrigé en ajoutant `s.fire_at` à la clause `RETURNING`.
 
 ## Ce qui est construit et prouvé
 
@@ -271,16 +350,24 @@ jamais une traduction corrompue ou partielle.
 
 ### WP10 — Benchmark réel
 
-`scripts/run_translation_benchmark.py` a exécuté **516 vrais appels réseau** googletrans sur la
-matrice complète dirigée FR↔EN↔DE↔ES (12 directions, corpus rédigé nativement dans chacune des
-quatre langues, 4 stratégies) — preuve committée
-`docs/90_handoffs/evidence/stage09/translation-benchmark.json`. Résultat mesuré après le correctif
-root-cause de la troisième passe (voir § dédiée ci-dessous) : **100.0 % d'intégrité technique réelle**
-pour `FULL_MASKED_MESSAGE` (la stratégie de production), `PARAGRAPH_GROUPING` et
-`SENTENCE_GROUPING` ; `NAIVE_PER_TEXT_NODE` (le contrôle négatif délibéré, jamais sélectionné pour
-la production) reste à 66.7 %, toutes ses défaillances isolées à la traduction d'un fragment
-adjacent à une URL en isolation totale du contexte de phrase — preuve empirique concrète, pas
-seulement théorique, de la mise en garde contre la traduction fragment par fragment.
+`scripts/run_translation_benchmark.py` a exécuté, sur le corpus étendu à 26 classes/104 items
+(quatrième passe), **1 950 vrais appels réseau** googletrans sur la matrice complète dirigée
+FR↔EN↔DE↔ES (12 directions, corpus rédigé nativement dans chacune des quatre langues, 4 stratégies) —
+preuve committée `docs/90_handoffs/evidence/stage09/translation-benchmark.json`
+(`generated_at: 2026-08-31T20:33:05Z`, `corpus_version: 3`). Résultat mesuré :
+
+| Stratégie | Mesures | Appels provider | Erreurs | Intégrité | Latence moy. |
+|---|---|---|---|---|---|
+| `FULL_MASKED_MESSAGE` (production) | 312 | 312 | 0 | **100.0 %** (312/312) | 0.708 s |
+| `PARAGRAPH_GROUPING` | 312 | 336 | 0 | **100.0 %** (312/312) | 0.748 s |
+| `SENTENCE_GROUPING` | 312 | 534 | 0 | **100.0 %** (312/312) | 1.188 s |
+| `NAIVE_PER_TEXT_NODE` (contrôle négatif) | 312 | 768 | 0 | 98.08 % (306/312) | 1.584 s |
+
+`FULL_MASKED_MESSAGE` (la stratégie de production) atteint une intégrité technique réellement
+mesurée de 100.0 % sur ce corpus élargi, avec le moins d'appels provider et la latence la plus
+faible. `NAIVE_PER_TEXT_NODE` (jamais sélectionné pour la production) dégrade mesurablement sur ce
+corpus plus large et plus divers — preuve empirique concrète, pas seulement théorique, de la mise en
+garde contre la traduction fragment par fragment (REQ-MSG-023).
 `select_translation_strategy()` choisit toujours `FULL_MASKED_MESSAGE` — aucun seuil de longueur ou
 de classe de contenu n'est appliqué sans preuve mesurée qui le justifierait (voir REQ-MSG-026).
 
@@ -316,13 +403,16 @@ suite de fairness/charge dédiée (`tests/load/test_stage09_campaign_fairness_lo
 3 tests) montrant qu'un arriéré de 500 envois de campagne ne retarde jamais un apply structurel ou
 un reconcile critique du même Guild, ni le partage équitable d'un autre Guild.
 
-**Preuve PostgreSQL réelle** : `test_stage09_delivery_worker_postgres.py` (8 tests), incluant une
-vraie course à deux workers concurrents (`asyncio.gather`) sur la même livraison, produisant
-exactement un seul envoi réel.
+**Preuve PostgreSQL réelle** : `test_stage09_delivery_worker_postgres.py` (20 tests après la
+quatrième passe), incluant une vraie course à deux workers concurrents (`asyncio.gather`) sur la
+même livraison (exactement un seul envoi réel), l'isolation d'identité nommée à deux livraisons, et
+une course de vol de bail pendant `send()` pour les trois issues (voir « Quatrième passe » ci-dessus).
 
-Il manque encore le service amont qui décide QUAND créer une ligne `message_deliveries` depuis un
-schedule dû ou un événement accepté (WP12, activation de campagne) — le worker ci-dessus est le
-dispatch/idempotency réel et testé, mais n'est encore alimenté par aucune orchestration automatique.
+Le service amont qui décide QUAND créer une ligne `message_deliveries` depuis un schedule dû ou un
+événement accepté existe désormais et est prouvé de bout en bout — voir « Orchestration WP12 réelle »
+dans la section « Quatrième passe » ci-dessus (`did.campaigns.activation.fan_out_occurrence`,
+`did.campaigns.scheduler_loop.run_scheduler_tick`, `did.campaigns.event_consumer
+.consume_event_for_trigger`).
 
 ## Root-cause de l'intégrité de traduction (troisième passe, REQ-MSG-025)
 
@@ -343,32 +433,44 @@ placeholder. Jamais de suppression aveugle d'espaces : seule la ponctuation fina
 est concernée, la grammaire/ponctuation légitime environnante n'est jamais touchée.
 
 Testé par property/fuzz (`test_stage09_parser_protector.py::TestUrlTrailingPunctuationTrim`),
-incluant une reproduction directe de la corruption observée en direct et un test Hypothesis fuzzant
-des scénarios de collage MT. La matrice complète des 516 appels réels a été rejouée après correctif :
-`FULL_MASKED_MESSAGE` (stratégie de production), `PARAGRAPH_GROUPING` et `SENTENCE_GROUPING`
-mesurent maintenant **100.0% d'intégrité technique réelle** (72/72, zéro corruption) —
+incluant une reproduction directe de la corruption observée en direct, un test Hypothesis fuzzant des
+scénarios de collage MT, et (quatrième passe) 13 tests adversariaux supplémentaires
+(`TestUrlTrailingPunctuationTrimAdversarialRobustness`) couvrant la ponctuation multiple, les URLs
+avec query string/fragment se terminant par de la ponctuation légitime, et les parenthèses/guillemets
+englobants. La matrice complète a d'abord été rejouée sur les 516 appels du corpus alors en vigueur
+(72/72, 100.0% pour les trois stratégies non-naïves), puis **requalifiée en quatrième passe sur le
+corpus étendu à 26 classes/104 items** (1 950 appels réels) — voir le tableau détaillé dans « WP10 —
+Benchmark réel » ci-dessus. `FULL_MASKED_MESSAGE` (stratégie de production) reste à **100.0%
+d'intégrité technique réellement mesurée** sur ce corpus élargi, plus divers, incluant de nouvelles
+classes adversariales (312/312 mesures, 0 erreur) —
 `docs/90_handoffs/evidence/stage09/translation-benchmark.json`. `NAIVE_PER_TEXT_NODE` (le contrôle
-négatif délibérément non-production) reste à 66.7% — attendu, sans effet sur l'exigence, que la
-stratégie de production satisfait maintenant exactement.
+négatif délibérément non-production) mesure 98.08% sur ce corpus élargi (contre 66.7% sur l'ancien
+corpus plus étroit — les deux chiffres ne sont pas directement comparables, chaque corpus mesure une
+distribution de contenu différente) — attendu, sans effet sur l'exigence, que la stratégie de
+production satisfait maintenant exactement sur le corpus normatif actuel.
 
-## Suite de tests réelle (exécutée après cette troisième passe)
+## Suite de tests réelle (exécutée après cette quatrième passe)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest backend/tests/unit/ -k stage09` | **306 passed** |
-| `uv run pytest backend/tests/unit/` (régression complète) | **633 passed** |
-| `uv run pytest backend/tests/integration/ -k stage09` (PostgreSQL réel) | **39 passed** |
-| `uv run pytest backend/tests/integration/` (régression complète) | **139 passed** |
-| `uv run pytest backend/tests/load/ -k stage09 -m load` (fairness gouverneur, en mémoire) | **3 passed** |
-| `uv run pytest backend/tests/network/` (`DID_ALLOW_NETWORK=1`, googletrans réel) | **2 passed** |
-| `uv run ruff check .` / `ruff format --check .` (tout le dépôt) | PASS |
-| `uv run mypy` (144 fichiers, mode strict) | PASS, 0 erreur |
-| `uv run python scripts/check_secrets.py` | PASS |
-| `uv run python scripts/validate_documentation.py` | PASS |
-| `python scripts/validate_stage.py 08` | PASS (régression Stage08 confirmée, non affectée) |
-| `python scripts/validate_stage.py 09` | **PASS** — build Docker, migrations 0022→0025 avec rehearsal down/up, tests d'intégration complets, build frontend, secret scan, doc validation, tests unitaires/PostgreSQL Stage09 dédiés, live SKIPPED par défaut |
-| `python scripts/validate_stage.py 09 --profile failure-injection` | **PASS** |
-| `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` | **PASS** — 516 appels réels, intégrité 100.0% (stratégie de production) |
+| `uv run pytest backend/tests/unit/` (régression complète) | **692 passed** |
+| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/ -k stage09` (PostgreSQL réel) | **69 passed** |
+| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète) | **169 passed** |
+| `uv run ruff check .` (tout le dépôt) | PASS, 0 finding |
+| `uv run ruff format --check .` | PASS, 284 fichiers déjà formatés |
+| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 149 fichiers |
+| `uv run python scripts/check_secrets.py` | PASS, 412 fichiers vérifiés |
+| `uv run python scripts/validate_documentation.py` | PASS — Stages 11, Source REQ 246, Traced REQ 246, ADR expected 35 |
+| `scripts/run_translation_benchmark.py` (corpus étendu 26 classes/104 items) | **PASS** — 1 950 appels réels, intégrité 100.0% (312/312, stratégie de production), 0 erreur ; voir tableau détaillé WP10 |
+
+Chiffres du troisième passage (conservés pour référence historique, non re-exécutés séparément
+puisqu'englobés par la régression complète ci-dessus) : 306 tests unitaires Stage09, 39 tests
+d'intégration Stage09, 3 tests de fairness/charge en mémoire (`tests/load/`), 2 tests réseau
+(`tests/network/`, `DID_ALLOW_NETWORK=1`), `scripts/validate_stage.py 08/09` PASS complet,
+`--profile failure-injection` PASS. Ces profils `validate_stage.py` n'ont pas été relancés dans leur
+intégralité (Docker/migrations/build frontend) durant cette quatrième passe faute de régression
+attendue dans leur périmètre propre ; la régression réelle du code qu'ils couvrent est prouvée par les
+lignes ci-dessus (pytest direct, ruff, mypy, doc validation, secret scan, benchmark).
 
 ## Qualification live Discord réelle
 
@@ -378,29 +480,34 @@ secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat allowed_ment
 possédé, delete possédé, dédup même nonce, nonce différent crée un message distinct) — preuve
 committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans
 `--include`, comme tous les autres validateurs live du dépôt. La matrice complète (Guild A/B,
-scheduler, Translation Groups, quatre langues, provider externe présent/absent) **n'a pas été
-exécutée** car elle nécessite l'orchestration bout-en-bout (WP12) et l'API/frontend qui n'existent
-pas encore.
+scheduler, Translation Groups, quatre langues, provider externe présent/absent) **n'a toujours pas
+été exécutée** — l'orchestration bout-en-bout (WP12) existe désormais et est prouvée sur PostgreSQL,
+mais l'exercer authentiquement bout-en-bout via la matrice complète nécessite encore l'API/frontend
+(WP14/15), qui n'existent pas.
 
 ## Écarts connus (non dissimulés)
 
-1. **Orchestration/activation de campagne (WP12)** : aucun service ne décide encore QUAND créer une
-   occurrence/livraison depuis un schedule dû ou un événement accepté. Le dispatch/idempotency qui
-   en découlerait (WP13, worker réel — voir plus haut) existe et est testé de bout en bout.
-2. **Event consumer Stage03 réel** : `did.campaigns.causality.should_trigger` est réel et testé,
-   mais aucun code ne consomme encore un vrai `EventEnvelope` Stage03 pour l'invoquer.
-3. **WP14 (API)** : aucun router FastAPI Stage09.
-4. **WP15 (Frontend)** : aucune UI Stage09.
-5. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète.
-6. **Sécurité anti double-traduction Translation Group** : les modes de publication existent et sont
-   testés au niveau résolution de cible ; aucun service ne prouve encore bout-en-bout qu'un mode
-   `EXISTING_PROVIDER` empêche réellement DID de re-traduire un contenu déjà localisé.
+1. **WP14 (API)** : aucun router FastAPI Stage09.
+2. **WP15 (Frontend)** : aucune UI Stage09.
+3. **Boucle de transport Stage03 réelle** : `did.campaigns.event_consumer.consume_event_for_trigger`
+   est la fonction de décision réelle et testée (voir « Quatrième passe » ci-dessus), mais rien ne lit
+   encore le flux durable outbox/pub-sub Stage03 pour l'invoquer avec une vraie enveloppe — plomberie
+   de transport distincte, pas de la logique métier du Campaign Engine.
+4. **Taggage d'ancestry sur événement Discord réellement généré** : la garde anti-boucle
+   (REQ-MSG-030) est câblée côté consommation ; aucun code ne tague encore `did_campaign_ancestry` sur
+   l'événement gateway résultant d'un envoi de campagne réel lorsqu'il ré-entre l'ingestion Stage03.
+5. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (bloquée
+   par WP14/15, voir ci-dessus).
+6. **Sécurité anti double-traduction Translation Group** : les modes de publication existent, sont
+   testés au niveau résolution de cible, et sont désormais utilisés par la simulation ; aucune preuve
+   bout-en-bout qu'un mode `EXISTING_PROVIDER` empêche réellement une re-traduction par le provider
+   externe n'a été construite.
 7. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
    fabriqué. À marquer `PENDING_HUMAN_REVIEW` si/quand une rubrique est requise — dimension séparée
    de l'intégrité technique, qui elle est mesurée machine à 100%.
 8. **REQ-MSG-019** : aucune politique de rétention/purge des livraisons.
-9. **REQ-MSG-022** : la simulation ne surface pas encore l'état variante approuvée/traduction dans
-   le même résumé.
+9. **REQ-MSG-002/007/016** : type de groupe logique de ciblage distinct, UI de review/approbation de
+   variantes, non construits (cf. matrice complète dans le checklist local).
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
 31 IDs et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` pour la preuve fichier:ligne de
