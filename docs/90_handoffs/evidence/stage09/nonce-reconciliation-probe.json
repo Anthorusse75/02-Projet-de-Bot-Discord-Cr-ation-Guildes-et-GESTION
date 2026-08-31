@@ -1,0 +1,25 @@
+{
+  "purpose": "WP6 empirical verification of Discord nonce behavior for UNKNOWN_OUTCOME delivery reconciliation, since discord.py==2.7.1 does not expose Discord's enforce_nonce REST field (verified: zero occurrences of \"enforce_nonce\" in the installed package source).",
+  "environment": "Real Discord sandbox Guild A, temporary text channel created and deleted by the probe, synthetic message content only, zero secrets/ids/PII recorded.",
+  "probe_1_nonce_persistence": {
+    "description": "Does Message.nonce survive a re-fetch (fetch_message / history), as opposed to only the immediate send response?",
+    "result": {
+      "send_response_has_nonce": true,
+      "fetch_message_has_nonce": false,
+      "fetch_message_nonce_value_type": "NoneType",
+      "history_has_matching_nonce": false,
+      "history_nonce_values_sample": ["NoneType"]
+    },
+    "conclusion": "nonce is NOT returned on fetch_message()/history() -- history-lookup-by-nonce reconciliation does not work against the real API and was not shipped."
+  },
+  "probe_2_default_dedup_on_same_nonce_retry": {
+    "description": "Sending identical nonce+content twice in immediate succession -- does Discord's default (non-enforce_nonce) heuristic deduplicate?",
+    "result": {
+      "same_message_id": true,
+      "messages_found_in_channel": 1,
+      "distinct_ids": 1
+    },
+    "conclusion": "Discord's default dedup heuristic held for a near-immediate same-nonce/same-content retry: only one message was created despite two send calls. This is the basis for the RETRY_WITH_SAME_NONCE recovery strategy in did.campaigns.delivery_reconciliation, bounded to a conservative 5-minute window since the heuristic's exact expiry is undocumented and was not pushed further (would require an hours-long live test)."
+  },
+  "known_gap": "enforce_nonce (Discord's strict/guaranteed nonce dedup) is unavailable through discord.py==2.7.1's public API. Closing this gap would require bypassing the library's Messageable.send() convenience wrapper and constructing the raw HTTP request via the internal HTTPClient/Route machinery to inject enforce_nonce into the JSON payload manually -- sketched but not implemented in Stage 09, since building and testing a hand-rolled message-send HTTP path (multipart files, embeds, components) without further live coverage risked introducing a subtly broken send path in the most safety-critical part of the system. Documented as an explicit acceptance gap, not a silently omitted feature."
+}
