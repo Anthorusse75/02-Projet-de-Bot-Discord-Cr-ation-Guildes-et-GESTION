@@ -108,6 +108,7 @@ def upgrade() -> None:
         sa.Column("fire_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("rrule", sa.Text(), nullable=True),
         sa.Column("timezone", sa.String(length=64), nullable=True),
+        sa.Column("starts_at", sa.DateTime(timezone=False), nullable=True),
         sa.Column(
             "misfire_policy", sa.String(length=24), server_default="SKIP_MISSED", nullable=False
         ),
@@ -171,7 +172,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "(schedule_kind = 'ONE_SHOT' AND fire_at IS NOT NULL) OR "
-            "(schedule_kind = 'RECURRING' AND rrule IS NOT NULL AND timezone IS NOT NULL) OR "
+            "(schedule_kind = 'RECURRING' AND rrule IS NOT NULL AND timezone IS NOT NULL "
+            "AND starts_at IS NOT NULL) OR "
             "(schedule_kind = 'IMMEDIATE')",
             name="ck_message_campaign_schedules_shape",
         ),

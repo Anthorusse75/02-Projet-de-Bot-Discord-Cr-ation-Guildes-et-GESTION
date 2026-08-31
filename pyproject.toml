@@ -17,8 +17,10 @@ dependencies = [
   "httpx==0.28.1",
   "pydantic==2.13.4",
   "pydantic-settings==2.15.0",
+  "python-dateutil==2.9.0.post0",
   "redis==8.1.0",
   "sqlalchemy==2.0.52",
+  "tzdata==2025.2",
   "uvicorn==0.52.3",
 ]
 
@@ -30,6 +32,7 @@ dev = [
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
   "ruff==0.16.3",
+  "types-python-dateutil==2.9.0.20250822",
 ]
 
 [tool.hatch.build.targets.wheel]

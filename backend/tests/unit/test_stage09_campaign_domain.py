@@ -110,6 +110,17 @@ class TestCampaignSchedule:
                 rrule="FREQ=DAILY",
             )
 
+    def test_recurring_requires_starts_at(self) -> None:
+        with pytest.raises(ValueError, match="starts_at"):
+            CampaignSchedule(
+                id=uuid4(),
+                owner_discord_user_id=1,
+                campaign_id=uuid4(),
+                schedule_kind=ScheduleKind.RECURRING,
+                rrule="FREQ=DAILY",
+                timezone="Europe/Paris",
+            )
+
     def test_catch_up_bound_range_enforced(self) -> None:
         with pytest.raises(ValueError, match="catch_up_bound"):
             CampaignSchedule(

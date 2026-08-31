@@ -150,6 +150,7 @@ class CampaignSchedule:
     fire_at: datetime | None = None
     rrule: str | None = None
     timezone: str | None = None
+    starts_at: datetime | None = None
     misfire_policy: MisfirePolicy = MisfirePolicy.SKIP_MISSED
     dst_nonexistent_policy: DstNonexistentPolicy = DstNonexistentPolicy.SHIFT_FORWARD
     dst_ambiguous_policy: DstAmbiguousPolicy = DstAmbiguousPolicy.EARLIEST
@@ -165,9 +166,9 @@ class CampaignSchedule:
         if self.schedule_kind is ScheduleKind.ONE_SHOT and self.fire_at is None:
             raise ValueError("ONE_SHOT schedule requires fire_at")
         if self.schedule_kind is ScheduleKind.RECURRING and (
-            not self.rrule or not self.timezone
+            not self.rrule or not self.timezone or self.starts_at is None
         ):
-            raise ValueError("RECURRING schedule requires rrule and timezone")
+            raise ValueError("RECURRING schedule requires rrule, timezone and starts_at")
         if not (0 <= self.catch_up_bound <= 50):
             raise ValueError("catch_up_bound must be between 0 and 50")
         if self.version <= 0:
