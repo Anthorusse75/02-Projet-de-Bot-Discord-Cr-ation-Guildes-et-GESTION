@@ -689,6 +689,34 @@ class CampaignsRepository:
             )
         return str(status) if status is not None else None
 
+    async def purge_terminal_deliveries(
+        self, guild_id: int, *, cutoff: datetime, limit: int = 1000
+    ) -> int:
+        """REQ-MSG-019 delivery-history retention: permanently deletes
+        SENT/FAILED deliveries (the only genuinely terminal, resolved
+        states) last updated before ``cutoff`` for this Guild. Never
+        touches PENDING/CLAIMED/SENDING/UNKNOWN/INTERVENTION_REQUIRED --
+        active or still-ambiguous records are not history yet and are
+        never purged by age alone, regardless of how old they are. Returns
+        the number of rows actually deleted (may be less than every
+        eligible row when ``limit`` is reached; the caller is expected to
+        call again for a full sweep). Guild-scoped (RLS) like every other
+        message_deliveries mutation -- a purge for one Guild can never
+        touch another Guild's or another owner's rows."""
+        if limit < 1:
+            raise ValueError("purge limit must be positive")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            result = await session.execute(
+                text(
+                    "WITH candidate AS (SELECT id FROM message_deliveries "
+                    "WHERE guild_id=:guild_id AND status IN ('SENT','FAILED') "
+                    "AND updated_at < :cutoff ORDER BY updated_at LIMIT :limit) "
+                    "DELETE FROM message_deliveries WHERE id IN (SELECT id FROM candidate)"
+                ),
+                {"guild_id": guild_id, "cutoff": cutoff, "limit": limit},
+            )
+        return cast(CursorResult[Any], result).rowcount
+
     async def mark_delivery_sending(
         self,
         delivery_id: UUID,

@@ -59,9 +59,26 @@ class DestinationSimulation:
     guild_id: int
     discord_channel_id: int
     language_profile_id: UUID | None
+    #: Target reachability ONLY -- Guild/channel authorization and bot-send
+    #: permission (exactly what did.campaigns.target_resolution.resolve_target
+    #: itself proves). Deliberately narrower than "would fan-out actually
+    #: send here": a destination can be `ready=True` while its content
+    #: cannot currently be produced (see `translation_state`
+    #: MISSING_NO_PROVIDER_CONFIGURED) -- external review flagged that a
+    #: consumer conflating the two into one overloaded flag could show a
+    #: destination as "will send" when it would actually be blocked at
+    #: fan-out time. Use `delivery_executable` for the single canonical
+    #: "will this destination actually get a delivery right now" answer.
     ready: bool
     blocked_reason: BlockReason | None
     translation_state: DestinationTranslationState
+    #: The one flag a UI/API consumer should render a destination's overall
+    #: status from: True only when the target is reachable (`ready`) AND
+    #: its content can currently be produced (`translation_state` is not
+    #: MISSING_NO_PROVIDER_CONFIGURED). Exactly mirrors whether this
+    #: destination is counted in `CampaignSimulationReport
+    #: .estimated_delivery_count`.
+    delivery_executable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +137,11 @@ async def simulate_campaign(
                 language_profile_codes=language_profile_codes,
                 translation_provider_available=translation_provider_available,
             )
+            delivery_executable = (
+                dest.is_ready
+                and translation_state
+                is not DestinationTranslationState.MISSING_NO_PROVIDER_CONFIGURED
+            )
             destinations.append(
                 DestinationSimulation(
                     guild_id=dest.guild_id,
@@ -128,6 +150,7 @@ async def simulate_campaign(
                     ready=dest.is_ready,
                     blocked_reason=dest.blocked_reason,
                     translation_state=translation_state,
+                    delivery_executable=delivery_executable,
                 )
             )
             if not dest.is_ready:

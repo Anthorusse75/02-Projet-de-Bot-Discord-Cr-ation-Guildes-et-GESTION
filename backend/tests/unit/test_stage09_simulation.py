@@ -94,6 +94,7 @@ class TestSimulateCampaignSourceOnly:
         assert report.estimated_delivery_count == 1
         [dest] = report.destinations
         assert dest.translation_state is DestinationTranslationState.SOURCE
+        assert dest.delivery_executable is True
         assert not report.blockers
 
     async def test_unauthorized_guild_is_blocked_and_not_counted_in_delivery_estimate(self) -> None:
@@ -242,8 +243,12 @@ class TestSimulateCampaignTranslation:
         [dest] = report.destinations
         assert dest.translation_state is DestinationTranslationState.MISSING_NO_PROVIDER_CONFIGURED
         # Ready by target_resolution's own check, but excluded from the
-        # delivery estimate and counted as blocked for a distinct reason.
+        # delivery estimate and counted as blocked for a distinct reason --
+        # `delivery_executable` is the one flag a consumer should trust for
+        # "will this destination actually get a delivery", precisely
+        # because `ready` alone would be misleading here.
         assert dest.ready is True
+        assert dest.delivery_executable is False
         assert report.estimated_delivery_count == 0
         assert "TRANSLATION_PROVIDER_UNAVAILABLE" in report.blockers
 
