@@ -182,6 +182,14 @@ class TriggerEvaluationContext:
     discord_resource_id: int | None
     causation_depth: int
     payload: Mapping[str, object]
+    #: REQ-MSG-020 runtime fail-closed gate: whether raw Discord message
+    #: content was actually captured/available for the event this context
+    #: represents (e.g. the MESSAGE_CONTENT privileged intent was enabled
+    #: and active for this Guild at the moment the event was received).
+    #: Defaults to True since most events/triggers never care -- only a
+    #: trigger that itself declares ``requires_message_content=True`` ever
+    #: consults this field.
+    message_content_available: bool = True
 
 
 def should_trigger(
@@ -191,6 +199,15 @@ def should_trigger(
 ) -> bool:
     """The single REQ-MSG-027/030 gate: source authorization + depth bound +
     ancestor-loop guard + the allowlisted condition, all required.
+
+    REQ-MSG-020 fail-closed addition: a trigger that declares
+    ``requires_message_content=True`` never even reaches condition
+    evaluation when ``context.message_content_available`` is False -- the
+    condition AST could reference message-content fields that are simply
+    absent from ``context.payload`` in that case, and evaluating it as if
+    they were merely "not equal"/"not containing" would be a silent
+    correctness failure, not a safe default. This is purely a runtime
+    consumer-side gate; it never toggles any Discord-facing intent itself.
 
     Exact-once *consumption* of a given (trigger_id, event_id) pair is
     additionally enforced by the ``message_campaign_trigger_consumptions``
@@ -205,5 +222,7 @@ def should_trigger(
         binding.matches(context.guild_id, context.discord_resource_id)
         for binding in source_bindings
     ):
+        return False
+    if trigger.requires_message_content and not context.message_content_available:
         return False
     return evaluate_condition(trigger.condition_ast, context.payload)

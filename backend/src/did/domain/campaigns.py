@@ -204,6 +204,16 @@ class CampaignTrigger:
     condition_ast: dict[str, object]
     max_causation_depth: int = 8
     version: int = 1
+    #: REQ-MSG-020: explicit author declaration -- never inferred from
+    #: event_type or the condition AST -- that this trigger's condition
+    #: reads raw Discord message content (e.g. a "message contains X"
+    #: check). Time-based/schedule-driven campaigns never set this; it is
+    #: meaningful only for event-triggered campaigns. See
+    #: did.campaigns.message_content_policy for the capability-blocker,
+    #: simulation-warning and runtime fail-closed behavior this declaration
+    #: drives -- declaring it here does not by itself enable
+    #: MESSAGE_CONTENT anywhere.
+    requires_message_content: bool = False
 
     def __post_init__(self) -> None:
         if self.owner_discord_user_id <= 0:

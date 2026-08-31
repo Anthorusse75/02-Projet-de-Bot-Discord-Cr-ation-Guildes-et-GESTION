@@ -226,29 +226,46 @@ class CampaignsRepository:
         schedule_id: UUID,
         lease_token: UUID,
         *,
+        now: datetime,
         new_last_cursor_local: datetime | None,
         new_next_fire_at: datetime | None,
     ) -> bool:
         """Write back the evaluated cursor/next-fire, fenced by
-        ``lease_token``: if another worker already reclaimed this schedule
-        (this worker's lease expired), the token no longer matches and the
-        update becomes a no-op -- the stale worker must not advance the
-        cursor or silently succeed. Always releases the lease on success.
+        ``lease_token`` AND unexpired ``leased_until`` AND the owning
+        campaign still being firing-eligible at commit time -- three
+        independent, jointly-necessary conditions (external-review finding,
+        second remediation pass: token-matching alone let a worker that ran
+        past its own promised lease window still commit, since nothing else
+        had raced in to change the token yet). If another worker already
+        reclaimed this schedule (token mismatch), if this worker overran its
+        own lease window (even with no competing claimant -- a stalled
+        worker's computation was made against a ``now`` that may no longer be
+        current), or if the campaign was paused/cancelled after the claim was
+        taken, the update becomes a safe no-op: the stale/unsafe worker must
+        not advance the cursor or next_fire_at. Always releases the lease on
+        success.
         """
         async with admin_factory() as session, session.begin():
             result = await session.execute(
                 text(
-                    "UPDATE message_campaign_schedules SET "
+                    "UPDATE message_campaign_schedules AS s SET "
                     "last_cursor_local=:cursor, next_fire_at=:next_fire, "
                     "lease_owner=NULL, lease_token=NULL, leased_until=NULL, "
                     "updated_at=now() "
-                    "WHERE id=:id AND lease_token=:token"
+                    "FROM message_campaigns AS c "
+                    "WHERE s.id=:id AND s.lease_token=:token "
+                    "AND s.leased_until IS NOT NULL AND s.leased_until > :now "
+                    "AND c.owner_discord_user_id = s.owner_discord_user_id "
+                    "AND c.id = s.campaign_id "
+                    "AND c.lifecycle_status = ANY(:eligible_statuses)"
                 ),
                 {
                     "id": schedule_id,
                     "token": lease_token,
+                    "now": now,
                     "cursor": new_last_cursor_local,
                     "next_fire": new_next_fire_at,
+                    "eligible_statuses": list(_FIRING_ELIGIBLE_LIFECYCLE_STATUSES),
                 },
             )
         return cast(CursorResult[Any], result).rowcount == 1
@@ -403,20 +420,28 @@ class CampaignsRepository:
         return [dict(row) for row in rows]
 
     async def mark_delivery_sending(
-        self, delivery_id: UUID, guild_id: int, lease_token: UUID
+        self, delivery_id: UUID, guild_id: int, lease_token: UUID, *, now: datetime
     ) -> bool:
-        """CLAIMED -> SENDING, fenced by ``lease_token``. Once this succeeds,
-        the delivery is no longer eligible for stale-lease reclaim by
-        :meth:`claim_next_delivery` -- only :meth:`finalize_delivery` (by
-        the same worker, using the same token) may resolve it further."""
+        """CLAIMED -> SENDING, fenced by ``lease_token`` AND an unexpired
+        ``leased_until`` (external-review finding, second remediation pass:
+        token-matching alone let a worker begin the irreversible external
+        mutation on a lease it had already overrun, since nothing else had
+        raced in yet to change the token). An expired CLAIMED lease can never
+        begin the external send -- the caller must re-claim instead. Once
+        this succeeds, the delivery is no longer eligible for stale-lease
+        reclaim by :meth:`claim_next_delivery` -- only :meth:`finalize_delivery`
+        (by the same worker, using the same token) may resolve it further,
+        and deliberately does NOT re-check ``leased_until`` (see that
+        method's docstring for why)."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             result = await session.execute(
                 text(
                     "UPDATE message_deliveries SET status='SENDING', updated_at=now() "
                     "WHERE id=:id AND guild_id=:guild_id AND status='CLAIMED' "
-                    "AND lease_token=:token"
+                    "AND lease_token=:token "
+                    "AND leased_until IS NOT NULL AND leased_until > :now"
                 ),
-                {"id": delivery_id, "guild_id": guild_id, "token": lease_token},
+                {"id": delivery_id, "guild_id": guild_id, "token": lease_token, "now": now},
             )
         return cast(CursorResult[Any], result).rowcount == 1
 
@@ -432,11 +457,29 @@ class CampaignsRepository:
         content_snapshot: dict[str, object] | None = None,
         last_error: str | None = None,
     ) -> bool:
-        """Resolve a CLAIMED/SENDING delivery, fenced by ``lease_token``: a
-        worker that lost its lease (expiry + reclaim by another worker)
-        cannot finalize -- the update becomes a safe no-op instead of
-        silently overwriting a row it no longer owns. Always releases the
-        lease on success."""
+        """Resolve a CLAIMED/SENDING delivery, fenced by ``lease_token`` --
+        deliberately NOT additionally fenced by ``leased_until`` freshness.
+        Design rationale (external review, second remediation pass): once
+        :meth:`mark_delivery_sending` has succeeded, the external Discord
+        mutation may already be irrevocably in flight or committed; the
+        lease's nominal time budget says nothing about how long Discord's
+        API actually takes to respond. Adding a freshness check here would
+        let a worker whose send genuinely succeeded, but arrived a moment
+        after its own lease's nominal expiry, lose the ability to record
+        that outcome -- and since ``SENDING`` rows are never reclaimed by
+        :meth:`claim_next_delivery`, that would strand the delivery
+        permanently rather than merely delay it. Token identity is the
+        correct fence for an outcome report: it proves this is the same
+        worker that made the mutation, which is the only thing that still
+        matters once the mutation may have already happened. Recovery from a
+        worker that legitimately crashed and never calls this at all is a
+        distinct concern, handled by the stalled-``SENDING`` reconciliation
+        sweep (:meth:`claim_stalled_sending_for_reconciliation`) feeding
+        ``did.campaigns.delivery_reconciliation``, not by this method. A
+        worker that lost its lease to another worker's reclaim (only
+        possible pre-``SENDING``, i.e. before this method could ever apply)
+        is already excluded by :meth:`mark_delivery_sending`'s own fencing.
+        Always releases the lease on success."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             result = await session.execute(
                 text(
@@ -463,6 +506,73 @@ class CampaignsRepository:
                 },
             )
         return cast(CursorResult[Any], result).rowcount == 1
+
+    async def claim_stalled_sending_for_reconciliation(
+        self,
+        guild_id: int,
+        *,
+        now: datetime,
+        lease_owner: str,
+        stall_after_seconds: float = 120.0,
+        lease_seconds: float = 30.0,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Atomically claim ``SENDING`` deliveries stuck well past any
+        realistic Discord round-trip time -- the recovery path for a worker
+        that crashed (or lost its response) after :meth:`mark_delivery_sending`
+        but before :meth:`finalize_delivery`, i.e. exactly the UNKNOWN_OUTCOME
+        case ``did.campaigns.delivery_reconciliation`` decides on.
+
+        ``stall_after_seconds`` (default 120s) is deliberately much larger
+        than the normal claim ``lease_seconds`` (default 30s): a send that is
+        merely slow (Discord API latency) must be left alone so its original
+        worker can still call :meth:`finalize_delivery` -- see that method's
+        docstring for why finalize is token-fenced, not time-fenced. Only a
+        delivery whose ``updated_at`` (set exactly when it entered
+        ``SENDING``) is older than this much longer stall bound is treated as
+        abandoned. Reissues a fresh ``lease_token``/``leased_until`` so the
+        reconciliation worker's own :meth:`finalize_delivery` call is
+        correctly fenced; the original worker's now-superseded token can no
+        longer finalize (a safe no-op, not a duplicate send -- if that worker
+        is in fact still alive it will observe the failed finalize and must
+        not retry with a fresh nonce, only escalate).
+        """
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH candidate AS (SELECT id FROM message_deliveries "
+                            "WHERE guild_id=:guild_id AND status='SENDING' "
+                            "AND updated_at < CAST(:now AS timestamptz) "
+                            "- (:stall_seconds * interval '1 second') "
+                            "ORDER BY updated_at LIMIT :limit FOR UPDATE SKIP LOCKED) "
+                            "UPDATE message_deliveries AS d SET "
+                            "lease_owner=:owner, lease_token=:token, "
+                            "leased_until=CAST(:now AS timestamptz) "
+                            "+ (:lease_seconds * interval '1 second'), "
+                            "updated_at=now() "
+                            "FROM candidate WHERE d.id=candidate.id "
+                            "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
+                            "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
+                            "d.discord_nonce, d.content_snapshot, d.attempt_count, "
+                            "d.lease_token"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "now": now,
+                            "stall_seconds": stall_after_seconds,
+                            "owner": lease_owner,
+                            "token": uuid4(),
+                            "lease_seconds": lease_seconds,
+                            "limit": limit,
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
 
     async def create_glossary_entry(self, entry: GlossaryEntry) -> None:
         """GUILD-scoped entries need both GUCs set (the row's RLS policy
@@ -536,9 +646,9 @@ class CampaignsRepository:
                 text(
                     "INSERT INTO message_campaign_triggers "
                     "(id, owner_discord_user_id, campaign_id, event_type, "
-                    "condition_ast, max_causation_depth, version) "
+                    "condition_ast, max_causation_depth, version, requires_message_content) "
                     "VALUES (:id, :owner, :campaign_id, :event_type, "
-                    "CAST(:condition AS JSONB), :depth, :version)"
+                    "CAST(:condition AS JSONB), :depth, :version, :requires_message_content)"
                 ),
                 {
                     "id": trigger.id,
@@ -548,8 +658,33 @@ class CampaignsRepository:
                     "condition": _to_json(trigger.condition_ast),
                     "depth": trigger.max_causation_depth,
                     "version": trigger.version,
+                    "requires_message_content": trigger.requires_message_content,
                 },
             )
+
+    async def get_trigger(
+        self, owner_discord_user_id: int, trigger_id: UUID
+    ) -> dict[str, Any] | None:
+        """RLS-scoped by owner -- returns None for a trigger that does not
+        exist OR belongs to a different owner, indistinguishably (never
+        discloses which). Used by the create-time target/source
+        authorization service (REQ-MSG target/source authority) to prove a
+        trigger source binding is being attached to a trigger the calling
+        owner actually owns before any Guild-scoped row is persisted."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            row = (
+                (
+                    await session.execute(
+                        text("SELECT * FROM message_campaign_triggers WHERE id=:id"),
+                        {"id": trigger_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
 
     async def create_trigger_source(self, binding: TriggerSourceBinding) -> None:
         async with tenant_transaction(self._factory, TenantContext(binding.guild_id)) as session:

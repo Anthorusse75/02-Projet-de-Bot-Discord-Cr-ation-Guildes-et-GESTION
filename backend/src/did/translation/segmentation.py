@@ -100,18 +100,24 @@ def select_translation_strategy(masked_text: str) -> SegmentationStrategy:
     arbitrary 1500-character threshold that no benchmark evidence backed --
     the committed corpus never contained a multi-KB sample, so that
     threshold was a guess, not a measured decision, and has been removed
-    (REQ-MSG-026 stays NOT_STARTED: no evidence yet justifies varying the
-    strategy by content length or class). FULL_MASKED_MESSAGE achieved 100%
-    protected-token integrity with the lowest measured average latency and,
-    unlike NAIVE_PER_TEXT_NODE, preserved inter-token whitespace correctly
-    (the naive control visibly dropped spaces around placeholders in the
-    recorded samples -- concrete evidence for why per-fragment translation
-    degrades quality, not just theory). PARAGRAPH_GROUPING/SENTENCE_GROUPING
-    remain implemented and benchmarked (see the evidence file) for future
-    use if representative long-content corpus classes are added and
-    demonstrate a real quality or reliability benefit -- until then,
-    picking either automatically would be exactly the unjustified
-    threshold this correction removes.
+    (REQ-MSG-026: no evidence yet justifies varying the strategy by content
+    length or class -- see that requirement's traceability row for the
+    current normative interpretation). FULL_MASKED_MESSAGE has the lowest
+    measured average latency and, unlike NAIVE_PER_TEXT_NODE, preserves
+    inter-token whitespace correctly (the naive control visibly dropped
+    spaces around placeholders in the recorded samples -- concrete evidence
+    for why per-fragment translation degrades quality, not just theory).
+    This function never hard-codes a measured integrity percentage in its
+    own docstring: read docs/90_handoffs/evidence/stage09/
+    translation-benchmark.json for the exact, current, regenerable number
+    (a stale "100%" figure quoted directly in code comments was itself an
+    external-review finding once the validator was strengthened and is not
+    a mistake to repeat here). PARAGRAPH_GROUPING/SENTENCE_GROUPING remain
+    implemented and benchmarked (see the evidence file) for future use if
+    representative long-content corpus classes are added and demonstrate a
+    real quality or reliability benefit -- until then, picking either
+    automatically would be exactly the unjustified threshold this
+    correction removes.
     """
     del masked_text  # kept in the signature: a future length-based decision
     # would read it, but none is applied without measured evidence to back it.

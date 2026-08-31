@@ -74,6 +74,38 @@ _TOKEN_PATTERN = re.compile(
 
 _EMPHASIS_MARKERS = ("**", "__", "~~", "||")
 
+# REQ-MSG-025 (external review, remediation): the URL alternative has no
+# closing delimiter of its own (unlike `<@...>`, `` `...` ``, `{{...}}`),
+# so it is the only ProtectedKind vulnerable to a translation engine gluing
+# adjacent punctuation directly onto it with no separating whitespace --
+# observed live: googletrans regularly drops the space before a
+# sentence-final "." (or ",", ";", ":", "!", "?") when a URL placeholder
+# ends up as the last token before that punctuation in the target word
+# order. Without this trim, the greedy URL character class (which must
+# legitimately include "." for domains/paths) would silently absorb that
+# glued punctuation into the URL value on reparse, producing a value that
+# no longer matches what was originally protected -- flagged as a
+# hallucinated/invented protected token by
+# ``protector.validate_reparsed_structure`` and correctly failing closed,
+# but avoidable since the punctuation was never part of the URL.
+#
+# This mirrors the standard "trailing punctuation trim" heuristic used by
+# production URL auto-linkers (GitHub, Slack, Twitter): strip *trailing*
+# sentence punctuation one character at a time, never touching characters
+# that are part of the URL's own required syntax (scheme, host, path). It
+# is applied identically at initial parse time and at reparse time, so the
+# same input always yields the same protected value regardless of which
+# side of a translation round trip it is parsed on.
+_URL_TRAILING_PUNCTUATION = ".,;:!?"
+_URL_MIN_LENGTH_AFTER_TRIM = len("https://x")
+
+
+def _trim_url_trailing_punctuation(value: str) -> str:
+    end = len(value)
+    while end > _URL_MIN_LENGTH_AFTER_TRIM and value[end - 1] in _URL_TRAILING_PUNCTUATION:
+        end -= 1
+    return value[:end]
+
 
 def parse(content: str) -> tuple[MessageNode, ...]:
     """Tokenize raw Discord message content into TEXT/PROTECTED nodes."""
@@ -81,11 +113,17 @@ def parse(content: str) -> tuple[MessageNode, ...]:
     cursor = 0
     for match in _TOKEN_PATTERN.finditer(content):
         start, end = match.span()
-        if start > cursor:
-            nodes.append(TextNode(content[cursor:start]))
         assert match.lastgroup is not None
         kind = ProtectedKind(match.lastgroup)
-        nodes.append(ProtectedNode(kind=kind, value=match.group()))
+        value = match.group()
+        if kind is ProtectedKind.URL:
+            trimmed = _trim_url_trailing_punctuation(value)
+            if len(trimmed) < len(value):
+                end -= len(value) - len(trimmed)
+                value = trimmed
+        if start > cursor:
+            nodes.append(TextNode(content[cursor:start]))
+        nodes.append(ProtectedNode(kind=kind, value=value))
         cursor = end
     if cursor < len(content):
         nodes.append(TextNode(content[cursor:]))

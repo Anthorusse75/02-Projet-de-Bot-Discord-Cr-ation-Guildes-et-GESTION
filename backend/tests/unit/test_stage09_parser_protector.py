@@ -338,3 +338,85 @@ class TestMeaningfulReorderIsSafeNotCorruption:
         restored = validate_full_pipeline(nodes, fake_translation, protection)
         for fp in protection.fingerprints:
             assert fp.restore_value in restored
+
+
+class TestUrlTrailingPunctuationTrim:
+    """External-review finding (REQ-MSG-025, second remediation pass): a real
+    516-call FR/EN/DE/ES googletrans benchmark measured FULL_MASKED_MESSAGE
+    at 97.2%, not 100%. Root cause, confirmed live against the actual
+    googletrans backend: it regularly drops the whitespace it received
+    before a sentence-final "." when the URL placeholder ends up as the
+    last token before that punctuation in the target word order (e.g. an
+    English "... Details: <URL> for full details." rendered into German as
+    "... unter <URL>." with no space before the period). Since the URL
+    character class must legitimately allow "." (domains, paths), the
+    un-trimmed greedy match would silently absorb that glued period into the
+    reparsed URL, producing a value that no longer equals the original
+    protected value -- a real, previously undetected corruption class that
+    the fail-closed gate correctly caught every time (zero false negatives)
+    but that must be fixed at the source rather than merely detected.
+    """
+
+    def test_trailing_period_with_no_space_is_not_absorbed_into_the_url(self) -> None:
+        content = "Details: https://example.com/campaign?ref=discord for full details."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == (
+            "https://example.com/campaign?ref=discord"
+        )
+
+    def test_reparse_of_mt_glued_trailing_period_matches_original_value(self) -> None:
+        """Reproduces the exact live-observed corruption: MT emits the
+        placeholder immediately followed by "." with no separating space."""
+        content = (
+            "Check out our new announcement at "
+            "https://example.com/campaign?ref=discord for full details."
+        )
+        nodes = parse(content)
+        protection = protect(nodes)
+        placeholder = protection.fingerprints[0].placeholder
+        glued_translation = f"See our announcement at {placeholder}."
+        restored = validate_full_pipeline(nodes, glued_translation, protection)
+        assert restored == "See our announcement at https://example.com/campaign?ref=discord."
+
+    @pytest.mark.parametrize("trailing", [".", ",", ";", ":", "!", "?"])
+    def test_each_sentence_terminal_punctuation_mark_is_trimmed(self, trailing: str) -> None:
+        content = f"Go to https://example.com/x{trailing}"
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/x"
+
+    def test_legitimate_mid_url_periods_and_colons_are_preserved(self) -> None:
+        content = "See https://example.com/v1.2.3?a=1,2;b=3 now."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/v1.2.3?a=1,2;b=3"
+
+    def test_url_that_is_only_punctuation_after_scheme_is_not_trimmed_to_nothing(self) -> None:
+        content = "https://x..."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value.startswith("https://")
+        assert len(protection.fingerprints[0].restore_value) >= len("https://x")
+
+    @settings(max_examples=40, suppress_health_check=[HealthCheck.too_slow])
+    @given(
+        trailing=st.sampled_from([".", ",", ";", ":", "!", "?", ".!", "?!"]),
+        glued=st.booleans(),
+        seed=st.integers(min_value=0, max_value=10_000),
+    )
+    def test_fuzzed_mt_gluing_never_corrupts_a_full_pipeline_round_trip(
+        self, trailing: str, glued: bool, seed: int
+    ) -> None:
+        rng = random.Random(seed)
+        path_segment = "".join(rng.choices("abcdefghijklmnop0123456789-", k=6))
+        content = f"Visit https://example.com/{path_segment} for details{trailing}"
+        nodes = parse(content)
+        protection = protect(nodes)
+        placeholder = protection.fingerprints[0].placeholder
+        original_url = protection.fingerprints[0].restore_value
+        separator = "" if glued else " "
+        fake_translation = f"See{separator}{placeholder} for details{trailing}"
+        restored = validate_full_pipeline(nodes, fake_translation, protection)
+        assert original_url in restored
+        assert restored.count(original_url) == 1

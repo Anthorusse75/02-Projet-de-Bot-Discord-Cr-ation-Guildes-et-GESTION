@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-08-31T15:09:52.840380+00:00",
+    "generated_at": "2026-08-31T15:58:58.892360+00:00",
     "googletrans_distribution_version": "4.0.2",
     "googletrans_module_dunder_version": "3.4.0",
     "corpus_version": 2,
@@ -45,7 +45,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.291,
+      "latency_seconds": 5.101,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes ravis de vous avoir ici."
@@ -57,7 +57,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.061,
+      "latency_seconds": 1.621,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678>, bienvenue ! Veuillez lire les règles dans <#2345678"
@@ -69,7 +69,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.914,
+      "latency_seconds": 2.192,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -81,10 +81,10 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.509,
+      "latency_seconds": 0.969,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Exécutez `campaign.publish()` pour passer en ligne ou utilisez l'extrait ```py\nc"
+      "translated_preview": "Exécutez `campaign.publish()` pour passer en direct ou utilisez l'extrait ```py\n"
     },
     {
       "item_id": "en-with-variables",
@@ -93,7 +93,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.971,
+      "latency_seconds": 5.165,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription pour {{event_name}} est confirmée pou"
@@ -105,7 +105,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.201,
+      "latency_seconds": 6.913,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678> ! Votre événement {{event_name}} démarre <t:17356896"
@@ -117,7 +117,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.918,
+      "latency_seconds": 3.541,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes ravis de vous avoir ici."
@@ -129,7 +129,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.869,
+      "latency_seconds": 4.52,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678>, bienvenue ! Veuillez lire les règles dans <#2345678"
@@ -141,7 +141,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.679,
+      "latency_seconds": 1.85,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -153,7 +153,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.693,
+      "latency_seconds": 1.627,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Exécutez `campaign.publish()` pour passer en direct ou utilisez l'extrait ```py\n"
@@ -165,7 +165,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.822,
+      "latency_seconds": 2.512,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription pour {{event_name}} est confirmée pou"
@@ -177,7 +177,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.631,
+      "latency_seconds": 4.167,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678> ! Votre événement {{event_name}} démarre <t:17356896"
@@ -189,7 +189,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 2.328,
+      "latency_seconds": 5.852,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes ravis de vous avoir ici."
@@ -201,7 +201,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 3.859,
+      "latency_seconds": 5.599,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678>, bienvenue ! Veuillez lire les règles dans <#2345678"
@@ -213,7 +213,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.92,
+      "latency_seconds": 1.335,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -225,7 +225,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.132,
+      "latency_seconds": 1.953,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Exécutez `campaign.publish()` pour passer en direct ou utilisez l'extrait ```py\n"
@@ -237,7 +237,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.081,
+      "latency_seconds": 2.302,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription pour {{event_name}} est confirmée pou"
@@ -249,7 +249,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 4.412,
+      "latency_seconds": 4.318,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut <@123456789012345678> ! Votre événement {{event_name}} démarre <t:17356896"
@@ -261,7 +261,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 0.827,
+      "latency_seconds": 1.602,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes ravis de vous avoir ici."
@@ -273,7 +273,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 4.916,
+      "latency_seconds": 4.46,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hé<@123456789012345678>, accueillir! Veuillez lire les règles dans<#234567890123"
@@ -285,7 +285,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 1.503,
+      "latency_seconds": 3.63,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -297,7 +297,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 2.777,
+      "latency_seconds": 4.529,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Courir`campaign.publish()`pour passer en direct, ou utiliser le```py\ncampaign.sc"
@@ -309,7 +309,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 4.113,
+      "latency_seconds": 7.213,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Salut{{member_name}}, votre inscription à{{event_name}}est confirmé pour{{event_"
@@ -321,7 +321,7 @@
       "source_language": "en",
       "target_language": "fr",
       "segment_count": 7,
-      "latency_seconds": 8.057,
+      "latency_seconds": 7.959,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -333,7 +333,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 0.882,
+      "latency_seconds": 0.638,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie hier zu haben."
@@ -345,79 +345,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.032,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo <@123456789012345678>, willkommen! Bitte lesen Sie die Regeln in <#2345678"
-    },
-    {
-      "item_id": "en-with-url",
-      "item_class": "url",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.588,
-      "protected_integrity_ok": false,
-      "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
-    },
-    {
-      "item_id": "en-with-code",
-      "item_class": "code",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.309,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Führen Sie `campaign.publish()` aus, um live zu gehen, oder verwenden Sie das Sn"
-    },
-    {
-      "item_id": "en-with-variables",
-      "item_class": "template_variables",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 2.241,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
-    },
-    {
-      "item_id": "en-mixed-everything",
-      "item_class": "mixed_technical_and_linguistic",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 2.232,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} startet <t:173568"
-    },
-    {
-      "item_id": "en-plain-short",
-      "item_class": "plain_prose",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.337,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie hier zu haben."
-    },
-    {
-      "item_id": "en-with-mentions",
-      "item_class": "mentions",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "en",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.289,
+      "latency_seconds": 4.08,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln in "
@@ -425,14 +353,86 @@
     {
       "item_id": "en-with-url",
       "item_class": "url",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 0.655,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Ausführliche Informationen finden Sie in unserer neuen Ankündigung unter https:/"
+    },
+    {
+      "item_id": "en-with-code",
+      "item_class": "code",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.62,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Führen Sie `campaign.publish()` aus, um live zu gehen, oder verwenden Sie das Sn"
+    },
+    {
+      "item_id": "en-with-variables",
+      "item_class": "template_variables",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.722,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
+    },
+    {
+      "item_id": "en-mixed-everything",
+      "item_class": "mixed_technical_and_linguistic",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.825,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
+    },
+    {
+      "item_id": "en-plain-short",
+      "item_class": "plain_prose",
       "strategy": "PARAGRAPH_GROUPING",
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.52,
-      "protected_integrity_ok": false,
+      "latency_seconds": 1.013,
+      "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
+      "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie hier zu haben."
+    },
+    {
+      "item_id": "en-with-mentions",
+      "item_class": "mentions",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 2.057,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo <@123456789012345678>, willkommen! Bitte lesen Sie die Regeln in <#2345678"
+    },
+    {
+      "item_id": "en-with-url",
+      "item_class": "url",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "en",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.502,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Ausführliche Informationen finden Sie in unserer neuen Ankündigung unter https:/"
     },
     {
       "item_id": "en-with-code",
@@ -441,7 +441,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.848,
+      "latency_seconds": 1.527,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Führen Sie `campaign.publish()` aus, um live zu gehen, oder verwenden Sie das Sn"
@@ -453,7 +453,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.71,
+      "latency_seconds": 1.353,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -465,10 +465,10 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.753,
+      "latency_seconds": 2.316,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
+      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} startet <t:173568"
     },
     {
       "item_id": "en-plain-short",
@@ -477,7 +477,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 1.774,
+      "latency_seconds": 1.973,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie hier zu haben."
@@ -489,7 +489,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 3.801,
+      "latency_seconds": 3.006,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>, willkommen! Bitte lesen Sie die Regeln in <#2345678"
@@ -501,10 +501,10 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.63,
-      "protected_integrity_ok": false,
+      "latency_seconds": 0.857,
+      "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
+      "translated_preview": "Ausführliche Informationen finden Sie in unserer neuen Ankündigung unter https:/"
     },
     {
       "item_id": "en-with-code",
@@ -513,7 +513,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.309,
+      "latency_seconds": 1.483,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Führen Sie `campaign.publish()` aus, um live zu gehen, oder verwenden Sie das Sn"
@@ -525,7 +525,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 0.982,
+      "latency_seconds": 1.235,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -537,7 +537,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 6.044,
+      "latency_seconds": 3.049,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
@@ -549,7 +549,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 0.902,
+      "latency_seconds": 0.903,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie hier zu haben."
@@ -561,7 +561,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 4.685,
+      "latency_seconds": 3.379,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hey<@123456789012345678>, Willkommen! Bitte lesen Sie die Regeln ein<#2345678901"
@@ -573,7 +573,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 2.324,
+      "latency_seconds": 0.784,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -585,7 +585,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 3.049,
+      "latency_seconds": 2.631,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Laufen`campaign.publish()`um live zu gehen oder das zu verwenden```py\ncampaign.s"
@@ -597,7 +597,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 4.962,
+      "latency_seconds": 1.996,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo{{member_name}}, Ihre Anmeldung für{{event_name}}ist bestätigt für{{event_d"
@@ -609,7 +609,7 @@
       "source_language": "en",
       "target_language": "de",
       "segment_count": 7,
-      "latency_seconds": 7.281,
+      "latency_seconds": 3.023,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -621,7 +621,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.171,
+      "latency_seconds": 0.382,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos emocionados de tenerte aquí."
@@ -633,7 +633,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.35,
+      "latency_seconds": 1.019,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -645,7 +645,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.155,
+      "latency_seconds": 1.179,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -657,7 +657,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.851,
+      "latency_seconds": 0.821,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `campaign.publish()` para activarlo o utilice el fragmento ```py\ncampaig"
@@ -669,7 +669,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.463,
+      "latency_seconds": 0.681,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -681,7 +681,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.913,
+      "latency_seconds": 1.375,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} inicia <t:1735689600:F>. De"
@@ -693,7 +693,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.003,
+      "latency_seconds": 0.583,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos emocionados de tenerte aquí."
@@ -705,7 +705,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.543,
+      "latency_seconds": 0.895,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -717,7 +717,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.412,
+      "latency_seconds": 0.828,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -729,7 +729,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.577,
+      "latency_seconds": 1.287,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `campaign.publish()` para activarlo o utilice el fragmento ```py\ncampaig"
@@ -741,7 +741,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.636,
+      "latency_seconds": 1.205,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -753,7 +753,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.164,
+      "latency_seconds": 1.28,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} inicia <t:1735689600:F>. De"
@@ -765,7 +765,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 1.663,
+      "latency_seconds": 1.121,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos emocionados de tenerte aquí."
@@ -777,7 +777,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 3.256,
+      "latency_seconds": 2.618,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -789,7 +789,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.601,
+      "latency_seconds": 3.301,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -801,10 +801,10 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.229,
+      "latency_seconds": 2.256,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Ejecute `campaign.publish()` para activarlo o utilice el fragmento ```py\ncampaig"
+      "translated_preview": "Ejecute `campaign.publish()` para activar o utilice el fragmento ```py\ncampaign."
     },
     {
       "item_id": "en-with-variables",
@@ -813,7 +813,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.51,
+      "latency_seconds": 1.107,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -825,10 +825,10 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 4.464,
+      "latency_seconds": 3.113,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} inicia <t:1735689600:F>. De"
+      "translated_preview": "¡Hola <@123456789012345678>! Su evento {{event_name}} inicia <t:1735689600:F>. D"
     },
     {
       "item_id": "en-plain-short",
@@ -837,7 +837,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 0.934,
+      "latency_seconds": 0.43,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos emocionados de tenerte aquí."
@@ -849,7 +849,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 3.595,
+      "latency_seconds": 2.061,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ey<@123456789012345678>, ¡bienvenido! Por favor lea las reglas en<#2345678901234"
@@ -861,7 +861,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 2.104,
+      "latency_seconds": 1.69,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -873,7 +873,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 3.572,
+      "latency_seconds": 1.753,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Correr`campaign.publish()`para publicar, o usar el```py\ncampaign.schedule(rrule="
@@ -885,7 +885,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 5.849,
+      "latency_seconds": 2.205,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola{{member_name}}, su registro para{{event_name}}está confirmado para{{event_d"
@@ -897,7 +897,7 @@
       "source_language": "en",
       "target_language": "es",
       "segment_count": 7,
-      "latency_seconds": 7.15,
+      "latency_seconds": 4.403,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -909,7 +909,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 0.758,
+      "latency_seconds": 0.658,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are delighted to have you among us."
@@ -921,7 +921,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.68,
+      "latency_seconds": 1.363,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hi <@123456789012345678>, welcome! Please read the rules in <#234567890123456789"
@@ -933,7 +933,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.202,
+      "latency_seconds": 1.394,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Check out our new listing on https://example.com/campaign?ref=discord for all th"
@@ -945,7 +945,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.019,
+      "latency_seconds": 1.058,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `campagne.publier()` to publish, or use the ```py\ncampagne.planifier(rrule=\""
@@ -957,7 +957,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.453,
+      "latency_seconds": 0.947,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
@@ -969,93 +969,93 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
+      "latency_seconds": 1.02,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Det"
+    },
+    {
+      "item_id": "fr-plain-short",
+      "item_class": "plain_prose",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 0.734,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Welcome to the server! We are delighted to have you among us."
+    },
+    {
+      "item_id": "fr-with-mentions",
+      "item_class": "mentions",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 1.232,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hi <@123456789012345678>, welcome! Please read the rules in <#234567890123456789"
+    },
+    {
+      "item_id": "fr-with-url",
+      "item_class": "url",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 1.659,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Check out our new listing on https://example.com/campaign?ref=discord for all th"
+    },
+    {
+      "item_id": "fr-with-code",
+      "item_class": "code",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 0.986,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Run `campagne.publier()` to publish, or use snippet ```py\ncampagne.planifier(rru"
+    },
+    {
+      "item_id": "fr-with-variables",
+      "item_class": "template_variables",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 0.769,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
+    },
+    {
+      "item_id": "fr-mixed-everything",
+      "item_class": "mixed_technical_and_linguistic",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 1,
+      "latency_seconds": 0.802,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Det"
+    },
+    {
+      "item_id": "fr-plain-short",
+      "item_class": "plain_prose",
+      "strategy": "SENTENCE_GROUPING",
+      "source_language": "fr",
+      "target_language": "en",
+      "segment_count": 2,
       "latency_seconds": 1.167,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Det"
-    },
-    {
-      "item_id": "fr-plain-short",
-      "item_class": "plain_prose",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.079,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Welcome to the server! We are delighted to have you among us."
-    },
-    {
-      "item_id": "fr-with-mentions",
-      "item_class": "mentions",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.438,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hi <@123456789012345678>, welcome! Please read the rules in <#234567890123456789"
-    },
-    {
-      "item_id": "fr-with-url",
-      "item_class": "url",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.721,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Check out our new listing on https://example.com/campaign?ref=discord for all th"
-    },
-    {
-      "item_id": "fr-with-code",
-      "item_class": "code",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.407,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Run `campagne.publier()` to publish, or use the ```py\ncampagne.planifier(rrule=\""
-    },
-    {
-      "item_id": "fr-with-variables",
-      "item_class": "template_variables",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.101,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
-    },
-    {
-      "item_id": "fr-mixed-everything",
-      "item_class": "mixed_technical_and_linguistic",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 1,
-      "latency_seconds": 1.46,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Det"
-    },
-    {
-      "item_id": "fr-plain-short",
-      "item_class": "plain_prose",
-      "strategy": "SENTENCE_GROUPING",
-      "source_language": "fr",
-      "target_language": "en",
-      "segment_count": 2,
-      "latency_seconds": 1.774,
-      "protected_integrity_ok": true,
-      "error": null,
       "translated_preview": "Welcome to the server! We are delighted to have you among us."
     },
     {
@@ -1065,7 +1065,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 2.333,
+      "latency_seconds": 2.019,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hi <@123456789012345678>, welcome! Please read the rules in <#234567890123456789"
@@ -1077,7 +1077,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.861,
+      "latency_seconds": 1.105,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Check out our new listing on https://example.com/campaign?ref=discord for all th"
@@ -1089,7 +1089,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.748,
+      "latency_seconds": 1.706,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `campagne.publier()` to publish, or use snippet ```py\ncampagne.planifier(rru"
@@ -1101,7 +1101,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.236,
+      "latency_seconds": 1.641,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
@@ -1113,7 +1113,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 3.305,
+      "latency_seconds": 4.268,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Det"
@@ -1125,7 +1125,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 0.845,
+      "latency_seconds": 1.282,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are delighted to have you among us."
@@ -1137,7 +1137,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 3.214,
+      "latency_seconds": 3.464,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hi<@123456789012345678>, Welcome ! Please read the rules in<#234567890123456789>"
@@ -1149,7 +1149,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 2.168,
+      "latency_seconds": 1.292,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1161,7 +1161,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 3.649,
+      "latency_seconds": 3.218,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run`campagne.publier()`to post, or use the snippet```py\ncampagne.planifier(rrule"
@@ -1173,7 +1173,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 4.006,
+      "latency_seconds": 2.373,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Good morning{{member_name}}, your registration to{{event_name}}is confirmed for "
@@ -1185,7 +1185,7 @@
       "source_language": "fr",
       "target_language": "en",
       "segment_count": 7,
-      "latency_seconds": 6.745,
+      "latency_seconds": 4.783,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1197,7 +1197,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 0.908,
+      "latency_seconds": 0.63,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie bei uns zu haben."
@@ -1209,10 +1209,10 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.534,
+      "latency_seconds": 1.417,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hallo <@123456789012345678>, willkommen! Bitte lesen Sie die Regeln in <#2345678"
+      "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln in "
     },
     {
       "item_id": "fr-with-url",
@@ -1221,7 +1221,79 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.803,
+      "latency_seconds": 2.273,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Schauen Sie sich unser neues Angebot auf https://example.com/campaign?ref=discor"
+    },
+    {
+      "item_id": "fr-with-code",
+      "item_class": "code",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.549,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Führen Sie zum Veröffentlichen `campagne.publier()` aus oder verwenden Sie das S"
+    },
+    {
+      "item_id": "fr-with-variables",
+      "item_class": "template_variables",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 2.331,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
+    },
+    {
+      "item_id": "fr-mixed-everything",
+      "item_class": "mixed_technical_and_linguistic",
+      "strategy": "FULL_MASKED_MESSAGE",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 2.284,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo <@123456789012345678>! Ihr {{event_name}}-Ereignis beginnt mit <t:17356896"
+    },
+    {
+      "item_id": "fr-plain-short",
+      "item_class": "plain_prose",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.257,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie bei uns zu haben."
+    },
+    {
+      "item_id": "fr-with-mentions",
+      "item_class": "mentions",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.447,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln in "
+    },
+    {
+      "item_id": "fr-with-url",
+      "item_class": "url",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "fr",
+      "target_language": "de",
+      "segment_count": 1,
+      "latency_seconds": 1.462,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Schauen Sie sich unser neues Angebot unter https://example.com/campaign?ref=disc"
@@ -1229,11 +1301,11 @@
     {
       "item_id": "fr-with-code",
       "item_class": "code",
-      "strategy": "FULL_MASKED_MESSAGE",
+      "strategy": "PARAGRAPH_GROUPING",
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.588,
+      "latency_seconds": 1.69,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Führen Sie `campagne.publier()` zum Veröffentlichen aus oder verwenden Sie das S"
@@ -1241,83 +1313,11 @@
     {
       "item_id": "fr-with-variables",
       "item_class": "template_variables",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 3.411,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
-    },
-    {
-      "item_id": "fr-mixed-everything",
-      "item_class": "mixed_technical_and_linguistic",
-      "strategy": "FULL_MASKED_MESSAGE",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.973,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
-    },
-    {
-      "item_id": "fr-plain-short",
-      "item_class": "plain_prose",
       "strategy": "PARAGRAPH_GROUPING",
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.548,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie bei uns zu haben."
-    },
-    {
-      "item_id": "fr-with-mentions",
-      "item_class": "mentions",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 2.793,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln in "
-    },
-    {
-      "item_id": "fr-with-url",
-      "item_class": "url",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.948,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Schauen Sie sich unser neues Angebot auf https://example.com/campaign?ref=discor"
-    },
-    {
-      "item_id": "fr-with-code",
-      "item_class": "code",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.728,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Führen Sie zum Veröffentlichen `campagne.publier()` aus oder verwenden Sie das S"
-    },
-    {
-      "item_id": "fr-with-variables",
-      "item_class": "template_variables",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "fr",
-      "target_language": "de",
-      "segment_count": 1,
-      "latency_seconds": 1.613,
+      "latency_seconds": 1.906,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -1329,7 +1329,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.987,
+      "latency_seconds": 1.824,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
@@ -1341,7 +1341,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 1.698,
+      "latency_seconds": 1.13,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie bei uns zu haben."
@@ -1353,10 +1353,10 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 3.837,
+      "latency_seconds": 3.54,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln in "
+      "translated_preview": "Hallo <@123456789012345678>, willkommen! Bitte lesen Sie die Regeln in <#2345678"
     },
     {
       "item_id": "fr-with-url",
@@ -1365,10 +1365,10 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.052,
+      "latency_seconds": 2.078,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Schauen Sie sich unser neues Angebot auf https://example.com/campaign?ref=discor"
+      "translated_preview": "Schauen Sie sich unser neues Angebot unter https://example.com/campaign?ref=disc"
     },
     {
       "item_id": "fr-with-code",
@@ -1377,10 +1377,10 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.518,
+      "latency_seconds": 1.496,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Führen Sie zum Veröffentlichen `campagne.publier()` aus oder verwenden Sie das S"
+      "translated_preview": "Führen Sie `campagne.publier()` zum Veröffentlichen aus oder verwenden Sie das S"
     },
     {
       "item_id": "fr-with-variables",
@@ -1389,7 +1389,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.395,
+      "latency_seconds": 1.84,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -1401,7 +1401,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 5.756,
+      "latency_seconds": 3.647,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
@@ -1413,7 +1413,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 0.99,
+      "latency_seconds": 0.438,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns, Sie bei uns zu haben."
@@ -1425,7 +1425,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 4.568,
+      "latency_seconds": 2.167,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo<@123456789012345678>, Willkommen ! Bitte lesen Sie die Regeln ein<#2345678"
@@ -1437,7 +1437,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 2.027,
+      "latency_seconds": 1.063,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1449,7 +1449,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 3.171,
+      "latency_seconds": 1.243,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Laufen`campagne.publier()`zum Posten oder Verwenden des Snippets```py\ncampagne.p"
@@ -1461,7 +1461,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 4.835,
+      "latency_seconds": 2.5,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Guten Morgen{{member_name}}, Ihre Anmeldung zu{{event_name}}ist für die bestätig"
@@ -1473,7 +1473,7 @@
       "source_language": "fr",
       "target_language": "de",
       "segment_count": 7,
-      "latency_seconds": 6.062,
+      "latency_seconds": 3.69,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1485,7 +1485,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 0.871,
+      "latency_seconds": 0.526,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos encantados de tenerte entre nosotros."
@@ -1497,7 +1497,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.335,
+      "latency_seconds": 1.279,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -1509,7 +1509,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.622,
+      "latency_seconds": 0.699,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo listado en https://example.com/campaign?ref=discord para "
@@ -1521,7 +1521,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.249,
+      "latency_seconds": 0.879,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `campagne.publier()` para publicar o utilice el fragmento ```py\ncampagne"
@@ -1533,7 +1533,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.927,
+      "latency_seconds": 1.074,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -1545,7 +1545,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.894,
+      "latency_seconds": 2.004,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>. "
@@ -1557,7 +1557,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.281,
+      "latency_seconds": 0.504,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos encantados de tenerte entre nosotros."
@@ -1569,7 +1569,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.702,
+      "latency_seconds": 1.384,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -1581,7 +1581,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.565,
+      "latency_seconds": 1.562,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo listado en https://example.com/campaign?ref=discord para "
@@ -1593,7 +1593,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.538,
+      "latency_seconds": 1.219,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `campagne.publier()` para publicar o utilice el fragmento ```py\ncampagne"
@@ -1605,7 +1605,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.435,
+      "latency_seconds": 1.369,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -1617,10 +1617,10 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.596,
+      "latency_seconds": 1.201,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>. "
+      "translated_preview": "Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. "
     },
     {
       "item_id": "fr-plain-short",
@@ -1629,7 +1629,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 1.739,
+      "latency_seconds": 0.808,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos encantados de tenerte entre nosotros."
@@ -1641,7 +1641,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 3.482,
+      "latency_seconds": 1.962,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -1653,7 +1653,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.66,
+      "latency_seconds": 1.058,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo listado en https://example.com/campaign?ref=discord para "
@@ -1665,7 +1665,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.566,
+      "latency_seconds": 1.512,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `campagne.publier()` para publicar o utilice el fragmento ```py\ncampagne"
@@ -1677,7 +1677,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.714,
+      "latency_seconds": 1.017,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para {{eve"
@@ -1689,7 +1689,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 5.6,
+      "latency_seconds": 3.613,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>. "
@@ -1701,7 +1701,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.413,
+      "latency_seconds": 0.385,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos encantados de tenerte entre nosotros."
@@ -1713,7 +1713,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 4.032,
+      "latency_seconds": 1.741,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola<@123456789012345678>, Bienvenido ! Por favor lea las reglas en<#23456789012"
@@ -1725,7 +1725,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 2.619,
+      "latency_seconds": 1.134,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1737,7 +1737,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 3.108,
+      "latency_seconds": 1.437,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Correr`campagne.publier()`para publicar o utilizar el fragmento```py\ncampagne.pl"
@@ -1749,7 +1749,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 3.739,
+      "latency_seconds": 1.589,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Buen día{{member_name}}, su registro para{{event_name}}está confirmado para el{{"
@@ -1761,7 +1761,7 @@
       "source_language": "fr",
       "target_language": "es",
       "segment_count": 7,
-      "latency_seconds": 8.236,
+      "latency_seconds": 3.454,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -1773,7 +1773,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.26,
+      "latency_seconds": 0.511,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -1785,7 +1785,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.626,
+      "latency_seconds": 1.307,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules in <#234567890123456"
@@ -1797,7 +1797,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.2,
+      "latency_seconds": 1.248,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Check out our new announcement at https://example.com/campaign?ref=discord for f"
@@ -1809,7 +1809,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.323,
+      "latency_seconds": 0.914,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `kampagne.veroeffentlichen()` or use the ```py\nkampagne.planen(rrule=\"FREQ=D"
@@ -1821,7 +1821,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.127,
+      "latency_seconds": 1.134,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for the"
@@ -1833,7 +1833,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.373,
+      "latency_seconds": 0.722,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. "
@@ -1845,7 +1845,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 0.993,
+      "latency_seconds": 0.968,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -1857,7 +1857,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.577,
+      "latency_seconds": 1.355,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules in <#234567890123456"
@@ -1869,7 +1869,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.449,
+      "latency_seconds": 1.431,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Check out our new announcement at https://example.com/campaign?ref=discord for f"
@@ -1881,7 +1881,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 2.554,
+      "latency_seconds": 1.014,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `kampagne.veroeffentlichen()` or use the ```py\nkampagne.planen(rrule=\"FREQ=D"
@@ -1893,7 +1893,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.499,
+      "latency_seconds": 1.599,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for the"
@@ -1905,7 +1905,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 3.371,
+      "latency_seconds": 0.563,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. "
@@ -1917,7 +1917,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 2.242,
+      "latency_seconds": 0.981,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -1929,7 +1929,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 2.681,
+      "latency_seconds": 2.082,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules in <#234567890123456"
@@ -1941,7 +1941,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.1,
+      "latency_seconds": 0.726,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Check out our new announcement at https://example.com/campaign?ref=discord for f"
@@ -1953,7 +1953,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.27,
+      "latency_seconds": 0.763,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `kampagne.veroeffentlichen()` or use the ```py\nkampagne.planen(rrule=\"FREQ=D"
@@ -1965,10 +1965,10 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.099,
+      "latency_seconds": 0.674,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for the"
+      "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
     },
     {
       "item_id": "de-mixed-everything",
@@ -1977,7 +1977,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 5.104,
+      "latency_seconds": 1.979,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. "
@@ -1989,7 +1989,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 0.901,
+      "latency_seconds": 0.375,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -2001,7 +2001,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 4.424,
+      "latency_seconds": 1.543,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello<@123456789012345678>, welcome! Please read the rules<#234567890123456789>a"
@@ -2013,7 +2013,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 1.914,
+      "latency_seconds": 1.096,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2025,7 +2025,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 4.499,
+      "latency_seconds": 1.268,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Lead`kampagne.veroeffentlichen()`or use the```py\nkampagne.planen(rrule=\"FREQ=DAI"
@@ -2037,7 +2037,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 4.339,
+      "latency_seconds": 1.733,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello{{member_name}}, your registration for{{event_name}}is for him{{event_date}"
@@ -2049,7 +2049,7 @@
       "source_language": "de",
       "target_language": "en",
       "segment_count": 7,
-      "latency_seconds": 10.365,
+      "latency_seconds": 3.698,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2061,7 +2061,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.486,
+      "latency_seconds": 0.412,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -2073,10 +2073,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.143,
+      "latency_seconds": 1.216,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement dans <#234"
+      "translated_preview": "Hello <@123456789012345678>, welcome! Veuillez lire les règles dans <#2345678901"
     },
     {
       "item_id": "de-with-url",
@@ -2085,7 +2085,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.85,
+      "latency_seconds": 0.806,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -2097,10 +2097,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.455,
+      "latency_seconds": 1.096,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Exécutez `kampagne.veroeffentlichen()` ou utilisez l’extrait de code ```py\nkampa"
+      "translated_preview": "Exécutez `kampagne.veroeffentlichen()` ou utilisez l'extrait de code ```py\nkampa"
     },
     {
       "item_id": "de-with-variables",
@@ -2109,7 +2109,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.895,
+      "latency_seconds": 1.515,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
@@ -2121,10 +2121,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.371,
+      "latency_seconds": 1.827,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
+      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
     },
     {
       "item_id": "de-plain-short",
@@ -2133,7 +2133,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.289,
+      "latency_seconds": 0.456,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -2145,7 +2145,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.807,
+      "latency_seconds": 1.717,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire les règles dans <#23456"
@@ -2157,7 +2157,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.102,
+      "latency_seconds": 1.494,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -2169,10 +2169,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.84,
+      "latency_seconds": 1.632,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Exécutez `kampagne.veroeffentlichen()` ou utilisez l’extrait de code ```py\nkampa"
+      "translated_preview": "Exécutez `kampagne.veroeffentlichen()` ou utilisez l'extrait de code ```py\nkampa"
     },
     {
       "item_id": "de-with-variables",
@@ -2181,7 +2181,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.781,
+      "latency_seconds": 1.401,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
@@ -2193,10 +2193,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.046,
+      "latency_seconds": 1.705,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
+      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
     },
     {
       "item_id": "de-plain-short",
@@ -2205,7 +2205,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 3.496,
+      "latency_seconds": 1.175,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -2217,10 +2217,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 3.752,
+      "latency_seconds": 1.66,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement dans <#234"
+      "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire les règles dans <#23456"
     },
     {
       "item_id": "de-with-url",
@@ -2229,7 +2229,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.952,
+      "latency_seconds": 1.3,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce sur https://example.com/campaign?ref=discord po"
@@ -2241,7 +2241,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.709,
+      "latency_seconds": 1.378,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Exécutez `kampagne.veroeffentlichen()` ou utilisez l'extrait de code ```py\nkampa"
@@ -2253,7 +2253,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.231,
+      "latency_seconds": 1.407,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
@@ -2265,10 +2265,10 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 6.298,
+      "latency_seconds": 3.809,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
+      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1"
     },
     {
       "item_id": "de-plain-short",
@@ -2277,7 +2277,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.526,
+      "latency_seconds": 0.327,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -2289,7 +2289,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 4.3,
+      "latency_seconds": 1.657,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour<@123456789012345678>, accueillir! Veuillez lire les règles<#234567890123"
@@ -2301,7 +2301,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 2.234,
+      "latency_seconds": 0.786,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2313,7 +2313,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 3.218,
+      "latency_seconds": 1.175,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Plomb`kampagne.veroeffentlichen()`ou utilisez le```py\nkampagne.planen(rrule=\"FRE"
@@ -2325,7 +2325,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 4.935,
+      "latency_seconds": 1.718,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour{{member_name}}, votre inscription à{{event_name}}c'est pour lui{{event_d"
@@ -2337,7 +2337,7 @@
       "source_language": "de",
       "target_language": "fr",
       "segment_count": 7,
-      "latency_seconds": 8.918,
+      "latency_seconds": 4.147,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2361,7 +2361,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.685,
+      "latency_seconds": 1.762,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -2373,7 +2373,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 3.657,
+      "latency_seconds": 3.765,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -2385,7 +2385,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 3.045,
+      "latency_seconds": 2.754,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `kampagne.veroeffentlichen()` o utilice el fragmento de código ```py\nkam"
@@ -2397,7 +2397,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 3.165,
+      "latency_seconds": 2.86,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para el {{"
@@ -2409,7 +2409,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.98,
+      "latency_seconds": 3.467,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>."
@@ -2421,7 +2421,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 0.954,
+      "latency_seconds": 2.699,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos muy felices de tenerte aquí."
@@ -2433,7 +2433,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.958,
+      "latency_seconds": 3.615,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -2445,7 +2445,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.716,
+      "latency_seconds": 3.679,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -2457,7 +2457,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.718,
+      "latency_seconds": 3.228,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `kampagne.veroeffentlichen()` o utilice el fragmento de código ```py\nkam"
@@ -2469,7 +2469,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.568,
+      "latency_seconds": 2.928,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para el {{"
@@ -2481,10 +2481,10 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.529,
+      "latency_seconds": 3.014,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>."
+      "translated_preview": "¡Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>."
     },
     {
       "item_id": "de-plain-short",
@@ -2493,7 +2493,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 1.895,
+      "latency_seconds": 1.231,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos muy felices de tenerte aquí."
@@ -2505,7 +2505,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 3.251,
+      "latency_seconds": 3.955,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola <@123456789012345678>, ¡bienvenido! Lea las reglas en <#234567890123456789>"
@@ -2517,7 +2517,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.873,
+      "latency_seconds": 1.74,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consulte nuestro nuevo anuncio en https://example.com/campaign?ref=discord para "
@@ -2529,7 +2529,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 1.952,
+      "latency_seconds": 1.864,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Ejecute `kampagne.veroeffentlichen()` o utilice el fragmento de código ```py\nkam"
@@ -2541,7 +2541,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 2.307,
+      "latency_seconds": 1.744,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola {{member_name}}, tu registro para {{event_name}} está confirmado para el {{"
@@ -2553,7 +2553,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 6.607,
+      "latency_seconds": 3.996,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>."
@@ -2565,7 +2565,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 1,
-      "latency_seconds": 0.892,
+      "latency_seconds": 0.413,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "¡Bienvenido al servidor! Estamos muy felices de tenerte aquí."
@@ -2577,7 +2577,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 5.562,
+      "latency_seconds": 2.217,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola<@123456789012345678>, ¡bienvenido! Por favor lea las reglas<#23456789012345"
@@ -2589,7 +2589,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 2,
-      "latency_seconds": 2.446,
+      "latency_seconds": 1.402,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2601,7 +2601,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 3,
-      "latency_seconds": 2.67,
+      "latency_seconds": 1.52,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Dirigir`kampagne.veroeffentlichen()`o utilizar el```py\nkampagne.planen(rrule=\"FR"
@@ -2613,7 +2613,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 4,
-      "latency_seconds": 5.419,
+      "latency_seconds": 3.278,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hola{{member_name}}, su registro para{{event_name}}es para el{{event_date}}confi"
@@ -2625,7 +2625,7 @@
       "source_language": "de",
       "target_language": "es",
       "segment_count": 7,
-      "latency_seconds": 8.525,
+      "latency_seconds": 8.068,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2637,7 +2637,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.013,
+      "latency_seconds": 0.745,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -2649,7 +2649,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.519,
+      "latency_seconds": 1.106,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules at <#234567890123456"
@@ -2661,7 +2661,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.487,
+      "latency_seconds": 1.096,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "See our new listing at https://example.com/campaign?ref=discord for all the deta"
@@ -2673,7 +2673,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.255,
+      "latency_seconds": 0.954,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `campana.publicar()` to publish, or use the fragment ```py\ncampana.programar"
@@ -2685,7 +2685,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.915,
+      "latency_seconds": 1.187,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
@@ -2697,7 +2697,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.466,
+      "latency_seconds": 1.485,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. "
@@ -2709,7 +2709,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.272,
+      "latency_seconds": 0.46,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -2721,7 +2721,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.348,
+      "latency_seconds": 1.969,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules at <#234567890123456"
@@ -2733,7 +2733,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.097,
+      "latency_seconds": 1.544,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "See our new listing at https://example.com/campaign?ref=discord for all the deta"
@@ -2745,10 +2745,10 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.28,
+      "latency_seconds": 1.0,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Run `campana.publicar()` to publish, or use the fragment ```py\ncampana.programar"
+      "translated_preview": "Run `campana.publicar()` to publish, or use the ```py\ncampana.programar(rrule=\"F"
     },
     {
       "item_id": "es-with-variables",
@@ -2757,7 +2757,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.45,
+      "latency_seconds": 0.896,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
@@ -2769,7 +2769,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.081,
+      "latency_seconds": 1.427,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. "
@@ -2781,7 +2781,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 2.587,
+      "latency_seconds": 1.437,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -2793,7 +2793,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 3.61,
+      "latency_seconds": 2.194,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>, welcome! Please read the rules at <#234567890123456"
@@ -2805,7 +2805,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.623,
+      "latency_seconds": 0.738,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "See our new listing at https://example.com/campaign?ref=discord for all the deta"
@@ -2817,7 +2817,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.436,
+      "latency_seconds": 0.671,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run `campana.publicar()` to publish, or use the fragment ```py\ncampana.programar"
@@ -2829,7 +2829,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 1.297,
+      "latency_seconds": 0.734,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello {{member_name}}, your registration for {{event_name}} is confirmed for {{e"
@@ -2841,7 +2841,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 6.1,
+      "latency_seconds": 2.913,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. "
@@ -2853,7 +2853,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 1,
-      "latency_seconds": 0.93,
+      "latency_seconds": 0.36,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Welcome to the server! We are very happy to have you here."
@@ -2865,7 +2865,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 4.739,
+      "latency_seconds": 2.181,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello<@123456789012345678>, welcome! Please read the rules at<#23456789012345678"
@@ -2877,7 +2877,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 2,
-      "latency_seconds": 3.034,
+      "latency_seconds": 1.547,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2889,7 +2889,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 3,
-      "latency_seconds": 3.181,
+      "latency_seconds": 2.854,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Run`campana.publicar()`to post, or use the snippet```py\ncampana.programar(rrule="
@@ -2901,7 +2901,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 4,
-      "latency_seconds": 5.217,
+      "latency_seconds": 2.901,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hello{{member_name}}, your registration for{{event_name}}is confirmed for{{event"
@@ -2913,7 +2913,7 @@
       "source_language": "es",
       "target_language": "en",
       "segment_count": 7,
-      "latency_seconds": 11.031,
+      "latency_seconds": 4.601,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -2925,7 +2925,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.14,
+      "latency_seconds": 0.375,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -2937,7 +2937,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.018,
+      "latency_seconds": 1.154,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement sur <#2345"
@@ -2949,7 +2949,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.418,
+      "latency_seconds": 1.572,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce à https://example.com/campaign?ref=discord pour"
@@ -2961,7 +2961,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.005,
+      "latency_seconds": 1.833,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Exécutez `campana.publicar()` pour publier ou utilisez le fragment ```py\ncampana"
@@ -2973,7 +2973,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 2.688,
+      "latency_seconds": 1.198,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
@@ -2985,79 +2985,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.226,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:173568"
-    },
-    {
-      "item_id": "es-plain-short",
-      "item_class": "plain_prose",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 1.49,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
-    },
-    {
-      "item_id": "es-with-mentions",
-      "item_class": "mentions",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 3.227,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement sur <#2345"
-    },
-    {
-      "item_id": "es-with-url",
-      "item_class": "url",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 2.696,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Consultez notre nouvelle annonce à https://example.com/campaign?ref=discord pour"
-    },
-    {
-      "item_id": "es-with-code",
-      "item_class": "code",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 3.124,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Exécutez `campana.publicar()` pour publier ou utilisez le fragment ```py\ncampana"
-    },
-    {
-      "item_id": "es-with-variables",
-      "item_class": "template_variables",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 2.337,
-      "protected_integrity_ok": true,
-      "error": null,
-      "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
-    },
-    {
-      "item_id": "es-mixed-everything",
-      "item_class": "mixed_technical_and_linguistic",
-      "strategy": "PARAGRAPH_GROUPING",
-      "source_language": "es",
-      "target_language": "fr",
-      "segment_count": 1,
-      "latency_seconds": 3.319,
+      "latency_seconds": 1.586,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:173568"
@@ -3065,11 +2993,83 @@
     {
       "item_id": "es-plain-short",
       "item_class": "plain_prose",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 0.459,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
+    },
+    {
+      "item_id": "es-with-mentions",
+      "item_class": "mentions",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 1.932,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement sur <#2345"
+    },
+    {
+      "item_id": "es-with-url",
+      "item_class": "url",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 1.752,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Consultez notre nouvelle annonce à https://example.com/campaign?ref=discord pour"
+    },
+    {
+      "item_id": "es-with-code",
+      "item_class": "code",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 1.366,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Exécutez `campana.publicar()` pour publier ou utilisez le fragment ```py\ncampana"
+    },
+    {
+      "item_id": "es-with-variables",
+      "item_class": "template_variables",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 1.264,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
+    },
+    {
+      "item_id": "es-mixed-everything",
+      "item_class": "mixed_technical_and_linguistic",
+      "strategy": "PARAGRAPH_GROUPING",
+      "source_language": "es",
+      "target_language": "fr",
+      "segment_count": 1,
+      "latency_seconds": 1.613,
+      "protected_integrity_ok": true,
+      "error": null,
+      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:173568"
+    },
+    {
+      "item_id": "es-plain-short",
+      "item_class": "plain_prose",
       "strategy": "SENTENCE_GROUPING",
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 3.048,
+      "latency_seconds": 0.997,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -3081,7 +3081,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 5.099,
+      "latency_seconds": 2.894,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour <@123456789012345678>, bienvenue ! Veuillez lire le règlement sur <#2345"
@@ -3093,7 +3093,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.046,
+      "latency_seconds": 2.127,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Consultez notre nouvelle annonce à https://example.com/campaign?ref=discord pour"
@@ -3105,7 +3105,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.018,
+      "latency_seconds": 2.812,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Exécutez `campana.publicar()` pour publier ou utilisez le fragment ```py\ncampana"
@@ -3117,7 +3117,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 3.009,
+      "latency_seconds": 2.119,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour {{member_name}}, votre inscription au {{event_name}} est confirmée pour "
@@ -3129,10 +3129,10 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 8.699,
+      "latency_seconds": 6.741,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:173568"
+      "translated_preview": "Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:173568"
     },
     {
       "item_id": "es-plain-short",
@@ -3141,7 +3141,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 1,
-      "latency_seconds": 1.936,
+      "latency_seconds": 1.65,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bienvenue sur le serveur ! Nous sommes très heureux de vous avoir ici."
@@ -3153,7 +3153,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 6.995,
+      "latency_seconds": 5.552,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour<@123456789012345678>, accueillir! Veuillez lire les règles sur<#23456789"
@@ -3165,7 +3165,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 2,
-      "latency_seconds": 4.008,
+      "latency_seconds": 2.58,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -3177,10 +3177,10 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 3,
-      "latency_seconds": 4.541,
+      "latency_seconds": 2.8,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Courir`campana.publicar()`pour publier, ou utiliser l'extrait```py\ncampana.progr"
+      "translated_preview": "Courir`campana.publicar()`pour publier ou utiliser l'extrait```py\ncampana.progra"
     },
     {
       "item_id": "es-with-variables",
@@ -3189,7 +3189,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 4,
-      "latency_seconds": 7.379,
+      "latency_seconds": 2.653,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Bonjour{{member_name}}, votre inscription à{{event_name}}est confirmé pour{{even"
@@ -3201,7 +3201,7 @@
       "source_language": "es",
       "target_language": "fr",
       "segment_count": 7,
-      "latency_seconds": 12.125,
+      "latency_seconds": 4.833,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -3213,7 +3213,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.668,
+      "latency_seconds": 0.548,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns sehr, Sie hier zu haben."
@@ -3225,7 +3225,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.853,
+      "latency_seconds": 1.435,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln unt"
@@ -3237,10 +3237,10 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.979,
-      "protected_integrity_ok": false,
+      "latency_seconds": 1.636,
+      "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
+      "translated_preview": "Alle Einzelheiten finden Sie in unserem neuen Angebot unter https://example.com/"
     },
     {
       "item_id": "es-with-code",
@@ -3249,7 +3249,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.003,
+      "latency_seconds": 1.611,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Führen Sie zum Veröffentlichen `campana.publicar()` aus oder verwenden Sie das F"
@@ -3261,7 +3261,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.496,
+      "latency_seconds": 1.172,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -3273,7 +3273,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.589,
+      "latency_seconds": 1.447,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
@@ -3285,7 +3285,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.508,
+      "latency_seconds": 0.76,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns sehr, Sie hier zu haben."
@@ -3297,7 +3297,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.948,
+      "latency_seconds": 1.967,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln unt"
@@ -3309,10 +3309,10 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.672,
-      "protected_integrity_ok": false,
+      "latency_seconds": 2.349,
+      "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
+      "translated_preview": "Alle Einzelheiten finden Sie in unserem neuen Angebot unter https://example.com/"
     },
     {
       "item_id": "es-with-code",
@@ -3321,7 +3321,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.324,
+      "latency_seconds": 1.893,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Führen Sie `campana.publicar()` zum Veröffentlichen aus oder verwenden Sie das F"
@@ -3333,7 +3333,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.761,
+      "latency_seconds": 1.291,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -3345,7 +3345,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.445,
+      "latency_seconds": 1.858,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:17"
@@ -3357,7 +3357,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 3.357,
+      "latency_seconds": 1.483,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns sehr, Sie hier zu haben."
@@ -3369,7 +3369,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 4.997,
+      "latency_seconds": 3.151,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo <@123456789012345678>, herzlich willkommen! Bitte lesen Sie die Regeln unt"
@@ -3381,10 +3381,10 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 2.122,
-      "protected_integrity_ok": false,
+      "latency_seconds": 1.597,
+      "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
+      "translated_preview": "Alle Einzelheiten finden Sie in unserem neuen Angebot unter https://example.com/"
     },
     {
       "item_id": "es-with-code",
@@ -3393,10 +3393,10 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 4.134,
+      "latency_seconds": 1.486,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Führen Sie `campana.publicar()` zum Veröffentlichen aus oder verwenden Sie das F"
+      "translated_preview": "Führen Sie zum Veröffentlichen `campana.publicar()` aus oder verwenden Sie das F"
     },
     {
       "item_id": "es-with-variables",
@@ -3405,7 +3405,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 3.595,
+      "latency_seconds": 1.168,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo {{member_name}}, Ihre Registrierung für {{event_name}} ist für {{event_dat"
@@ -3417,10 +3417,10 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 8.521,
+      "latency_seconds": 4.496,
       "protected_integrity_ok": true,
       "error": null,
-      "translated_preview": "Hallo <@123456789012345678>! Ihr Event {{event_name}} startet <t:1735689600:F>. "
+      "translated_preview": "Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} startet <t:173568"
     },
     {
       "item_id": "es-plain-short",
@@ -3429,7 +3429,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 1,
-      "latency_seconds": 1.48,
+      "latency_seconds": 0.487,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Willkommen auf dem Server! Wir freuen uns sehr, Sie hier zu haben."
@@ -3441,7 +3441,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 9.753,
+      "latency_seconds": 2.065,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo<@123456789012345678>, Willkommen! Bitte lesen Sie die Regeln unter<#234567"
@@ -3453,7 +3453,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 2,
-      "latency_seconds": 4.754,
+      "latency_seconds": 1.027,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -3465,7 +3465,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 3,
-      "latency_seconds": 8.482,
+      "latency_seconds": 1.253,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Laufen`campana.publicar()`zum Posten oder Verwenden des Snippets```py\ncampana.pr"
@@ -3477,7 +3477,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 4,
-      "latency_seconds": 7.428,
+      "latency_seconds": 1.909,
       "protected_integrity_ok": true,
       "error": null,
       "translated_preview": "Hallo{{member_name}}, Ihre Anmeldung für{{event_name}}ist bestätigt für{{event_d"
@@ -3489,7 +3489,7 @@
       "source_language": "es",
       "target_language": "de",
       "segment_count": 7,
-      "latency_seconds": 15.319,
+      "latency_seconds": 3.815,
       "protected_integrity_ok": false,
       "error": null,
       "translated_preview": "<INTEGRITY_VIOLATION: restored text contains protected-looking content not prese"
@@ -3500,29 +3500,29 @@
       "measurement_records": 72,
       "provider_invocations": 72,
       "errors": 0,
-      "protected_integrity_rate": 0.9722222222222222,
-      "average_latency_seconds": 1.846
+      "protected_integrity_rate": 1.0,
+      "average_latency_seconds": 1.552
     },
     "PARAGRAPH_GROUPING": {
       "measurement_records": 72,
       "provider_invocations": 72,
       "errors": 0,
-      "protected_integrity_rate": 0.9722222222222222,
-      "average_latency_seconds": 1.868
+      "protected_integrity_rate": 1.0,
+      "average_latency_seconds": 1.63
     },
     "SENTENCE_GROUPING": {
       "measurement_records": 72,
       "provider_invocations": 120,
       "errors": 0,
-      "protected_integrity_rate": 0.9722222222222222,
-      "average_latency_seconds": 2.908
+      "protected_integrity_rate": 1.0,
+      "average_latency_seconds": 2.143
     },
     "NAIVE_PER_TEXT_NODE": {
       "measurement_records": 72,
       "provider_invocations": 252,
       "errors": 0,
       "protected_integrity_rate": 0.6666666666666666,
-      "average_latency_seconds": 4.492
+      "average_latency_seconds": 2.408
     },
     "_totals": {
       "provider_invocations_all_strategies": 516

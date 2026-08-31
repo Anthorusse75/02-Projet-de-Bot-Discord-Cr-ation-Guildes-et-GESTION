@@ -440,8 +440,9 @@ class TestScheduleClaimConcurrency:
         admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
         try:
             admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            claim_now = datetime.now(UTC)
             [claimed] = await repo.claim_due_schedules(
-                admin_factory, now=datetime.now(UTC), lease_owner="worker-1", limit=5
+                admin_factory, now=claim_now, lease_owner="worker-1", limit=5
             )
             real_token = claimed["lease_token"]
 
@@ -450,6 +451,7 @@ class TestScheduleClaimConcurrency:
                 admin_factory,
                 schedule.id,
                 uuid4(),
+                now=claim_now,
                 new_last_cursor_local=None,
                 new_next_fire_at=None,
             )
@@ -460,6 +462,7 @@ class TestScheduleClaimConcurrency:
                 admin_factory,
                 schedule.id,
                 real_token,
+                now=claim_now,
                 new_last_cursor_local=None,
                 new_next_fire_at=None,
             )
@@ -471,10 +474,117 @@ class TestScheduleClaimConcurrency:
                 admin_factory,
                 schedule.id,
                 real_token,
+                now=claim_now,
                 new_last_cursor_local=None,
                 new_next_fire_at=None,
             )
             assert replay_result is False
+        finally:
+            await admin_engine.dispose()
+
+    async def test_finalize_schedule_claim_rejects_an_already_expired_lease(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """External-review finding (second remediation pass): token-matching
+        alone let a worker that overran its own lease window still commit,
+        even with no competing claimant. finalize must independently prove
+        the lease had not yet expired at commit time."""
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        await repo.create_campaign(campaign)
+        schedule = DomainSchedule(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            schedule_kind=ScheduleKind.ONE_SHOT,
+            fire_at=datetime.now(UTC) - timedelta(minutes=5),
+            next_fire_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        await repo.create_schedule(schedule)
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            claim_now = datetime.now(UTC)
+            [claimed] = await repo.claim_due_schedules(
+                admin_factory,
+                now=claim_now,
+                lease_owner="worker-1",
+                lease_seconds=0.01,
+                limit=5,
+            )
+            await asyncio.sleep(0.05)
+
+            stale_result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                claimed["lease_token"],
+                now=datetime.now(UTC),
+                new_last_cursor_local=None,
+                new_next_fire_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            assert stale_result is False
+
+            # A second worker can now legitimately reclaim and finalize.
+            [reclaimed] = await repo.claim_due_schedules(
+                admin_factory, now=datetime.now(UTC), lease_owner="worker-2", limit=5
+            )
+            assert reclaimed["lease_token"] != claimed["lease_token"]
+            fresh_result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                reclaimed["lease_token"],
+                now=datetime.now(UTC),
+                new_last_cursor_local=None,
+                new_next_fire_at=None,
+            )
+            assert fresh_result is True
+        finally:
+            await admin_engine.dispose()
+
+    async def test_finalize_schedule_claim_rejects_a_campaign_paused_after_claim(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """External-review race scenario: campaign paused/cancelled after
+        the schedule claim was taken but before finalize commits -- finalize
+        must recheck lifecycle eligibility at commit time, not just at claim
+        time."""
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        await repo.create_campaign(campaign)
+        schedule = DomainSchedule(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            schedule_kind=ScheduleKind.ONE_SHOT,
+            fire_at=datetime.now(UTC) - timedelta(minutes=5),
+            next_fire_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        await repo.create_schedule(schedule)
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            claim_now = datetime.now(UTC)
+            [claimed] = await repo.claim_due_schedules(
+                admin_factory, now=claim_now, lease_owner="worker-1", limit=5
+            )
+
+            async with admin_factory() as session, session.begin():
+                await session.execute(
+                    text("UPDATE message_campaigns SET lifecycle_status='PAUSED' WHERE id=:id"),
+                    {"id": campaign.id},
+                )
+
+            result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                claimed["lease_token"],
+                now=claim_now,
+                new_last_cursor_local=None,
+                new_next_fire_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            assert result is False
         finally:
             await admin_engine.dispose()
 
@@ -546,7 +656,10 @@ class TestDeliveryLeaseFencing:
         [claimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
         token = claimed["lease_token"]
 
-        assert await repo.mark_delivery_sending(delivery.id, GUILD_A, token) is True
+        assert (
+            await repo.mark_delivery_sending(delivery.id, GUILD_A, token, now=datetime.now(UTC))
+            is True
+        )
         assert (
             await repo.finalize_delivery(
                 delivery.id, GUILD_A, token, status="SENT", discord_message_id=123456789
@@ -588,24 +701,133 @@ class TestDeliveryLeaseFencing:
         )
         assert stale_result is False
 
+    async def test_expired_claimed_lease_cannot_begin_sending(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """External-review finding (second remediation pass): CLAIMED ->
+        SENDING requires a currently valid lease -- a worker that overran
+        its claim window must not be allowed to start the irreversible
+        external mutation on a lease that had already expired, even before
+        anyone else has reclaimed it."""
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(
+            GUILD_A, lease_owner="worker-1", lease_seconds=0.01
+        )
+        await asyncio.sleep(0.05)
+
+        sending_ok = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, claimed["lease_token"], now=datetime.now(UTC)
+        )
+        assert sending_ok is False
+
+        # A second worker can legitimately reclaim and start sending instead.
+        [reclaimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-2")
+        assert reclaimed["lease_token"] != claimed["lease_token"]
+        second_sending_ok = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, reclaimed["lease_token"], now=datetime.now(UTC)
+        )
+        assert second_sending_ok is True
+
+        # The stale first worker's own attempt, retried after the reclaim,
+        # still fails -- it never becomes a duplicate SENDING transition.
+        first_retry = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, claimed["lease_token"], now=datetime.now(UTC)
+        )
+        assert first_retry is False
+
     async def test_sending_delivery_is_not_reclaimed_by_a_fresh_claim(
         self, campaigns_context: CampaignsRepository
     ) -> None:
         """Once mark_delivery_sending succeeds, the delivery must never be
         picked up again by claim_next_delivery -- an ambiguous outcome past
         that point is handled by did.campaigns.delivery_reconciliation, not
-        by a blind second claim/second send."""
+        by a blind second claim/second send. Uses a normal (non-expired)
+        lease for the SENDING transition itself -- see
+        test_expired_claimed_lease_cannot_begin_sending for the separate
+        expired-before-SENDING scenario."""
         repo = campaigns_context
         delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
-        [claimed] = await repo.claim_next_delivery(
-            GUILD_A, lease_owner="worker-1", lease_seconds=0.01
+        [claimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+        sending_ok = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, claimed["lease_token"], now=datetime.now(UTC)
         )
-        sending_ok = await repo.mark_delivery_sending(delivery.id, GUILD_A, claimed["lease_token"])
         assert sending_ok is True
-        await asyncio.sleep(0.05)  # lease would have expired if it still applied
 
         still_none = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-2")
         assert still_none == []
+
+    async def test_finalize_after_sending_succeeds_even_if_the_original_lease_would_have_expired(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Design contract (external review): finalize_delivery is
+        token-fenced, not time-fenced, because a legitimately slow Discord
+        response must still be recordable by the worker that made the call
+        -- see finalize_delivery's docstring."""
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(
+            GUILD_A, lease_owner="worker-1", lease_seconds=0.05
+        )
+        token = claimed["lease_token"]
+        sending_ok = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, token, now=datetime.now(UTC)
+        )
+        assert sending_ok is True
+
+        await asyncio.sleep(0.1)  # simulate a slow Discord round trip past the nominal lease
+
+        finalized = await repo.finalize_delivery(
+            delivery.id, GUILD_A, token, status="SENT", discord_message_id=123456789
+        )
+        assert finalized is True
+
+    async def test_stalled_sending_delivery_is_reclaimable_for_reconciliation(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """A worker that crashed after mark_delivery_sending and never
+        finalized must eventually be recoverable via the dedicated stalled-
+        SENDING reconciliation claim, not the normal claim_next_delivery
+        path (which correctly never touches SENDING rows)."""
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+        original_token = claimed["lease_token"]
+        sending_ok = await repo.mark_delivery_sending(
+            delivery.id, GUILD_A, original_token, now=datetime.now(UTC)
+        )
+        assert sending_ok is True
+
+        # Not stalled yet: too recent to be picked up.
+        too_soon = await repo.claim_stalled_sending_for_reconciliation(
+            GUILD_A, now=datetime.now(UTC), lease_owner="reconciler-1", stall_after_seconds=60.0
+        )
+        assert too_soon == []
+
+        [reclaimed] = await repo.claim_stalled_sending_for_reconciliation(
+            GUILD_A,
+            now=datetime.now(UTC) + timedelta(seconds=120),
+            lease_owner="reconciler-1",
+            stall_after_seconds=60.0,
+        )
+        assert reclaimed["id"] == delivery.id
+        assert reclaimed["lease_token"] != original_token
+
+        # The reconciliation worker's fresh token can finalize.
+        finalized = await repo.finalize_delivery(
+            delivery.id,
+            GUILD_A,
+            reclaimed["lease_token"],
+            status="SENT",
+            discord_message_id=123456789,
+        )
+        assert finalized is True
+
+        # The original (crashed) worker's superseded token cannot.
+        stale = await repo.finalize_delivery(
+            delivery.id, GUILD_A, original_token, status="SENT", discord_message_id=999
+        )
+        assert stale is False
 
 
 @pytest.mark.asyncio
@@ -941,6 +1163,7 @@ class TestScheduleCursorPersistenceRoundTrip:
                 admin_factory,
                 schedule.id,
                 claimed_1["lease_token"],
+                now=now_1,
                 new_last_cursor_local=evaluation_1.new_last_cursor_local,
                 new_next_fire_at=evaluation_1.next_fire_at_utc,
             )

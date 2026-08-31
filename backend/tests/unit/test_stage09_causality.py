@@ -221,3 +221,56 @@ class TestShouldTrigger:
             payload={"tier": "bronze"},
         )
         assert should_trigger(trigger, [binding], context) is False
+
+    def test_trigger_not_requiring_message_content_ignores_its_unavailability(self) -> None:
+        """A trigger that never declared the dependency must not be affected
+        by message_content_available -- REQ-MSG-020 never globally gates
+        anything, only triggers that explicitly opt in."""
+        trigger = self._trigger(requires_message_content=False)
+        binding = self._guild_binding(trigger.id, 111)
+        context = TriggerEvaluationContext(
+            event_id=uuid4(),
+            guild_id=111,
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
+            message_content_available=False,
+        )
+        assert should_trigger(trigger, [binding], context) is True
+
+    def test_message_content_dependent_trigger_fails_closed_when_unavailable(self) -> None:
+        trigger = self._trigger(requires_message_content=True)
+        binding = self._guild_binding(trigger.id, 111)
+        context = TriggerEvaluationContext(
+            event_id=uuid4(),
+            guild_id=111,
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
+            message_content_available=False,
+        )
+        assert should_trigger(trigger, [binding], context) is False
+
+    def test_message_content_dependent_trigger_fires_normally_when_available(self) -> None:
+        trigger = self._trigger(requires_message_content=True)
+        binding = self._guild_binding(trigger.id, 111)
+        context = TriggerEvaluationContext(
+            event_id=uuid4(),
+            guild_id=111,
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
+            message_content_available=True,
+        )
+        assert should_trigger(trigger, [binding], context) is True
+
+    def test_message_content_available_defaults_to_true(self) -> None:
+        """Every existing caller that never set this field keeps its prior
+        behavior exactly -- the default must not silently change outcomes
+        for triggers that predate this field."""
+        trigger = self._trigger(requires_message_content=True)
+        binding = self._guild_binding(trigger.id, 111)
+        context = TriggerEvaluationContext(
+            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=0, payload={}
+        )
+        assert should_trigger(trigger, [binding], context) is True
