@@ -4,6 +4,7 @@ machine, trigger-source authorization matching and glossary priority.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -33,7 +34,7 @@ pytestmark = [pytest.mark.security]
 
 
 def _campaign(**overrides: object) -> MessageCampaign:
-    fields = dict(
+    fields: dict[str, Any] = dict(
         id=uuid4(),
         owner_discord_user_id=1001,
         logical_campaign_key="camp-1",
@@ -122,7 +123,7 @@ class TestCampaignSchedule:
 
 class TestDeliveryStateMachine:
     def _delivery(self, **overrides: object) -> MessageDelivery:
-        fields = dict(
+        fields: dict[str, Any] = dict(
             id=uuid4(),
             guild_id=880000001,
             campaign_id=uuid4(),
