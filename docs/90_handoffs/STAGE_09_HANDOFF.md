@@ -1,23 +1,23 @@
 # Handoff STAGE 09 — Message & Campaign Engine, automatisations et traduction sûre
 
-> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Ce handoff documente honnêtement ce qui est
-> réellement construit et prouvé (schéma/domaine/scheduler/causalité/parser-protecteur/glossaire/
-> traduction/réconciliation/résolution de cibles/variantes approuvées — 11 des 16 work packages
-> internes), et ce qui reste (orchestration bout-en-bout, worker/governor, API, frontend,
-> qualification live complète — WP12 partiel/WP13/WP14/WP15/WP16). Aucune preuve n'est fabriquée :
-> chaque affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel, sandbox
-> Discord réel) ou est explicitement marquée comme non construite. Une passe de remédiation externe
-> (17 findings, § dédiée ci-dessous) a été intégrée après le premier checkpoint publié — deux
-> corrections majeures (`enforce_nonce`, intégrité de traduction) ont changé la conclusion factuelle
-> de deux exigences.
+> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Trois passes cumulées : (1) fondations WP1-WP11
+> réelles et testées, (2) remédiation externe 17 findings (§ dédiée ci-dessous), (3) **cette passe** —
+> root-cause de la corruption d'intégrité de traduction (100% réel désormais, pas seulement détecté),
+> fencing de bail strict (expiration + lifecycle au commit), autorisation à la création pour targets/
+> trigger sources, typage traduction/variables (REQ-MSG-013/018), dépendance `MESSAGE_CONTENT`
+> explicite (REQ-MSG-020), **worker de livraison réel** câblé au `DiscordWorkloadGovernor` partagé
+> (WP13), CI Stage09 réelle. Reste : orchestration/activation de campagne (WP12), event consumer
+> Stage03 réel, API (WP14), frontend (WP15), qualification live complète (WP16). Aucune preuve n'est
+> fabriquée : chaque affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel,
+> sandbox Discord réel) ou est explicitement marquée comme non construite.
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-08-31` |
 | Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` |
 | Branche | `stage/09-campaigns` |
-| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, remédiation externe intégrée) |
-| Migration | `0021_stage_08 → 0024_stage_09` ; tête unique `0024_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
+| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, troisième passe intégrée) |
+| Migration | `0021_stage_08 → 0025_stage_09` ; tête unique `0025_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
 | Dernière étape intégrée | `STAGE_08_MULTILINGUAL_CONTENT_AND_TRANSLATION_TOPOLOGY` (`stage-08-complete`, inchangée) |
 
 ## Passe de remédiation externe (17 findings, intégrée)
@@ -83,7 +83,10 @@ correction cosmétique) :
     l'affirmation initiale de « 100% d'intégrité » était fausse et a été corrigée partout
     (traçabilité, checklist, code). C'est une découverte réelle du processus de revue, pas une
     régression introduite par la remédiation : le corpus/comportement googletrans n'a pas changé,
-    seule la rigueur du validateur a augmenté.
+    seule la rigueur du validateur a augmenté. **Suite (troisième passe)** : la cause racine a depuis
+    été trouvée et corrigée à la source — voir « Root-cause de l'intégrité de traduction » plus bas ;
+    la stratégie de production atteint désormais 100.0% d'intégrité réellement mesurée, pas
+    seulement une détection fiable à 100%.
 13. **Glossaire — tiers GUILD manquant (REQ-MSG-014)** : le texte normatif exige une priorité
     déterministe par « langue/scope/template » ; seuls CAMPAIGN (le tiers « template ») et
     GLOBAL_USER existaient. Tiers GUILD ajouté (migration `0024_stage_09`), avec une politique RLS
@@ -99,8 +102,10 @@ correction cosmétique) :
     `discord.File` avant envoi. Preuve au niveau adaptateur.
 15. **Requalification de traçabilité** : 10 lignes REQ-MSG re-auditées avec preuve mise à jour ;
     REQ-MSG-029 passe `PARTIALLY_IMPLEMENTED → IMPLEMENTED` (correction `enforce_nonce`) ;
-    REQ-MSG-025 reste `PARTIALLY_IMPLEMENTED` mais avec la preuve honnête corrigée (pas 100%, avec
-    fail-closed 100% fiable) ; REQ-MSG-014 confirmé `IMPLEMENTED` avec le tiers GUILD réel.
+    REQ-MSG-025 restait alors `PARTIALLY_IMPLEMENTED` avec la preuve honnête corrigée (pas 100%,
+    avec fail-closed 100% fiable) — **passée `IMPLEMENTED` durant la troisième passe** une fois la
+    cause racine corrigée (voir plus bas) ; REQ-MSG-014 confirmé `IMPLEMENTED` avec le tiers GUILD
+    réel.
 16. **`scripts/validate_stage.py 09`** : ajouté réellement (steps par défaut + profils
     `translation-benchmark --allow-network` et `failure-injection` + `--include-discord-live`) et
     **exécuté avec succès** (`python scripts/validate_stage.py 09` → PASS complet : build Docker,
@@ -206,20 +211,30 @@ correspondance Guild/salon avant toute mutation.
 et vérifié contre les vraies signatures `discord.py==2.7.1` installées (`Messageable.send`,
 `Message.edit`, `AllowedMentions`, méthodes de construction d'`Embed`).
 
-**Découverte réelle en cours de construction** (deux sondes live contre le sandbox réel, preuve
-committée dans `docs/90_handoffs/evidence/stage09/nonce-reconciliation-probe.json`, zéro secret/id/
-PII) : `Message.nonce` n'est présent que sur la réponse immédiate d'envoi — absent de
-`fetch_message()`/`history()` — donc une réconciliation par recherche d'historique ne fonctionne
-pas contre l'API réelle et n'a pas été livrée. `discord.py==2.7.1` n'expose pas du tout le champ
-REST `enforce_nonce` de Discord (zéro occurrence dans le paquet installé). En revanche, un renvoi
-immédiat avec le même nonce + même contenu a retourné le même id de message les deux fois (une
-seule vraie création) — le déduplication par défaut de Discord (sans `enforce_nonce`) fonctionne
-pour un renvoi proche dans le temps. `did.campaigns.delivery_reconciliation
-.decide_unknown_outcome_recovery()` recommande donc de renvoyer avec le nonce déjà stocké et le
-`content_snapshot` déjà stocké (jamais un contenu re-rendu), borné à 5 minutes et 3 tentatives
-ambiguës, au-delà de quoi `INTERVENTION_REQUIRED`. Combler `enforce_nonce` nécessiterait de
-contourner `Messageable.send()` via l'`HTTPClient`/`Route` interne — esquissé, non implémenté (voir
-« Écarts »).
+**`enforce_nonce` est réellement disponible et actif** (corrigé pendant la deuxième passe de
+remédiation — voir finding 7 ci-dessous pour l'historique complet de la correction) :
+`discord/http.py::handle_message_parameters()`, la fonction que traverse tout appel
+`Messageable.send()` y compris `DiscordPyMessageSender.send()`, active automatiquement
+`payload['enforce_nonce'] = True` dès qu'un nonce est fourni. Chaque envoi de campagne bénéficie
+donc déjà du contrat de déduplication documenté par Discord ; aucun contournement HTTP bas niveau
+n'est nécessaire. Preuve directe du payload exact (`test_stage09_discord_message_sender.py`) et
+preuve live bout-en-bout via l'adaptateur réel contre le sandbox
+(`docs/90_handoffs/evidence/stage09/nonce-reconciliation-probe.json`, zéro secret/id/PII) : même
+nonce → un seul message ; nonce différent → message distinct.
+
+`Message.nonce` reste absent de `fetch_message()`/`history()` (présent uniquement sur la réponse
+immédiate d'envoi) — une réconciliation par recherche d'historique ne fonctionne donc toujours pas
+contre l'API réelle et n'est pas utilisée. `did.campaigns.delivery_reconciliation
+.decide_unknown_outcome_recovery()` renvoie avec le nonce déjà stocké et le `content_snapshot` déjà
+stocké (jamais un contenu re-rendu), dans une fenêtre conservatrice bornée (Discord documente le
+contrat comme couvrant « les quelques dernières minutes » sans borne exacte publiée — la fenêtre de
+5 minutes est une interprétation prudente de ce contrat documenté-mais-imprécis, jamais présentée
+comme la garantie exacte de Discord) et 3 tentatives ambiguës maximum, au-delà de quoi
+`INTERVENTION_REQUIRED`. Cette décision est maintenant réellement câblée dans le worker de livraison
+(WP13, voir plus bas) : `did.campaigns.delivery_worker.reconcile_one_stalled_delivery` récupère à la
+fois le cas où le worker a crashé avant de finaliser (toujours `SENDING`) et le cas normal où le
+worker a lui-même intercepté l'exception ambiguë et déjà finalisé en `UNKNOWN` — jamais un nonce
+neuf n'est généré pour une reprise.
 
 ### WP7 — Parseur/protecteur Discord-safe
 
@@ -256,17 +271,18 @@ jamais une traduction corrompue ou partielle.
 
 ### WP10 — Benchmark réel
 
-`scripts/run_translation_benchmark.py` a exécuté **288 vrais appels réseau** googletrans (12 items
-du corpus `backend/tests/fixtures/translation_corpus/stage09_corpus.json`, EN→FR/DE/ES, 4
-stratégies) — preuve committée `docs/90_handoffs/evidence/stage09/translation-benchmark.json`.
-Résultat mesuré : **100 % d'intégrité de placeholder sur les 4 stratégies** ;
-`FULL_MASKED_MESSAGE` la plus rapide/à égalité, avec espacement inter-token correctement préservé,
-tandis que le contrôle négatif `NAIVE_PER_TEXT_NODE` a visiblement perdu l'espacement autour des
-placeholders dans les échantillons allemands enregistrés — preuve empirique concrète, pas
+`scripts/run_translation_benchmark.py` a exécuté **516 vrais appels réseau** googletrans sur la
+matrice complète dirigée FR↔EN↔DE↔ES (12 directions, corpus rédigé nativement dans chacune des
+quatre langues, 4 stratégies) — preuve committée
+`docs/90_handoffs/evidence/stage09/translation-benchmark.json`. Résultat mesuré après le correctif
+root-cause de la troisième passe (voir § dédiée ci-dessous) : **100.0 % d'intégrité technique réelle**
+pour `FULL_MASKED_MESSAGE` (la stratégie de production), `PARAGRAPH_GROUPING` et
+`SENTENCE_GROUPING` ; `NAIVE_PER_TEXT_NODE` (le contrôle négatif délibéré, jamais sélectionné pour
+la production) reste à 66.7 %, toutes ses défaillances isolées à la traduction d'un fragment
+adjacent à une URL en isolation totale du contexte de phrase — preuve empirique concrète, pas
 seulement théorique, de la mise en garde contre la traduction fragment par fragment.
-`select_translation_strategy()` choisit `FULL_MASKED_MESSAGE` par défaut (repli
-`PARAGRAPH_GROUPING` au-delà de 1500 caractères masqués) directement à partir de cette preuve
-mesurée.
+`select_translation_strategy()` choisit toujours `FULL_MASKED_MESSAGE` — aucun seuil de longueur ou
+de classe de contenu n'est appliqué sans preuve mesurée qui le justifierait (voir REQ-MSG-026).
 
 ### WP11 — Variantes approuvées
 
@@ -277,60 +293,114 @@ inchangée reste `REUSABLE` à travers ses occurrences (testé), tandis qu'un ch
 rend l'ancienne approbation `STALE` sans jamais la réutiliser silencieusement ni retraduire
 silencieusement.
 
-## Suite de tests réelle (exécutée après la remédiation)
+### WP13 — Worker de livraison réel (troisième passe)
+
+`backend/src/did/campaigns/delivery_worker.py`. Implémente le pipeline réel
+claim→mark SENDING→send→finalize : `process_one_pending_delivery` réclame une livraison
+`PENDING`/`CLAIMED` expirée, persiste durablement un nonce frais dans la même transition fencée
+`mark_delivery_sending`, envoie via le port `DiscordMessageSender` existant, puis finalise —
+`SENT`/`FAILED` correctement distingués d'`UNKNOWN_OUTCOME` (toute exception qui n'est pas la
+`DiscordSendError` propre à la librairie est traitée comme ambiguë, jamais comme un simple échec).
+`reconcile_one_stalled_delivery` récupère à la fois le cas où le worker a crashé avant de finaliser
+(toujours `SENDING`, via `claim_stalled_sending_for_reconciliation`) et le cas normal où le worker a
+lui-même intercepté l'exception ambiguë et déjà finalisé en `UNKNOWN` (via la nouvelle
+`claim_unknown_deliveries_for_reconciliation`) — les deux alimentent la décision de
+`did.campaigns.delivery_reconciliation` à partir de l'horodatage réel de la tentative originale,
+jamais un nonce neuf.
+
+Un nouveau palier `WorkloadPriority.SEND_CAMPAIGN_MESSAGE` (ajouté en fin d'énumération, aucune
+valeur existante renumérotée) route chaque envoi de campagne à travers le `DiscordWorkloadGovernor`
+partagé — le fan-out en masse d'une campagne est donc soumis à l'équité par Guild et à la limite de
+concurrence globale déjà en place pour tous les autres types de travail Discord. Prouvé par une
+suite de fairness/charge dédiée (`tests/load/test_stage09_campaign_fairness_load.py`, en mémoire,
+3 tests) montrant qu'un arriéré de 500 envois de campagne ne retarde jamais un apply structurel ou
+un reconcile critique du même Guild, ni le partage équitable d'un autre Guild.
+
+**Preuve PostgreSQL réelle** : `test_stage09_delivery_worker_postgres.py` (8 tests), incluant une
+vraie course à deux workers concurrents (`asyncio.gather`) sur la même livraison, produisant
+exactement un seul envoi réel.
+
+Il manque encore le service amont qui décide QUAND créer une ligne `message_deliveries` depuis un
+schedule dû ou un événement accepté (WP12, activation de campagne) — le worker ci-dessus est le
+dispatch/idempotency réel et testé, mais n'est encore alimenté par aucune orchestration automatique.
+
+## Root-cause de l'intégrité de traduction (troisième passe, REQ-MSG-025)
+
+La benchmark renforcée (deuxième passe) avait mesuré 97.2% d'intégrité — un vrai finding, pas
+accepté silencieusement. Cette passe en a trouvé et corrigé la cause racine : googletrans perd
+régulièrement l'espace précédant une ponctuation finale de phrase (`.`, `,`, `;`, `:`, `!`, `?`)
+quand un placeholder URL termine la phrase dans l'ordre des mots de la langue cible (reproduit en
+direct : EN→DE, « ... unter DIDPH0000QxxxxZH. » sans espace avant le point). Comme la classe de
+caractères de l'URL doit légitimement autoriser le point (domaines, chemins), la regex gourmande non
+filtrée absorbait cette ponctuation collée lors du reparse, produisant une valeur différente de
+l'originale — correctement détectée comme falsifiée par `validate_reparsed_structure`, mais évitable.
+
+Corrigé à la source dans `did.messaging.parser.parse` : un match URL retire maintenant la
+ponctuation finale de phrase un caractère à la fois (`_trim_url_trailing_punctuation`), à l'identique
+au parse initial et au reparse — l'heuristique standard de « trim de ponctuation finale » des
+auto-linkers de production (GitHub, Slack, Twitter), pas une astuce d'espacement autour du
+placeholder. Jamais de suppression aveugle d'espaces : seule la ponctuation finale d'un match URL
+est concernée, la grammaire/ponctuation légitime environnante n'est jamais touchée.
+
+Testé par property/fuzz (`test_stage09_parser_protector.py::TestUrlTrailingPunctuationTrim`),
+incluant une reproduction directe de la corruption observée en direct et un test Hypothesis fuzzant
+des scénarios de collage MT. La matrice complète des 516 appels réels a été rejouée après correctif :
+`FULL_MASKED_MESSAGE` (stratégie de production), `PARAGRAPH_GROUPING` et `SENTENCE_GROUPING`
+mesurent maintenant **100.0% d'intégrité technique réelle** (72/72, zéro corruption) —
+`docs/90_handoffs/evidence/stage09/translation-benchmark.json`. `NAIVE_PER_TEXT_NODE` (le contrôle
+négatif délibérément non-production) reste à 66.7% — attendu, sans effet sur l'exigence, que la
+stratégie de production satisfait maintenant exactement.
+
+## Suite de tests réelle (exécutée après cette troisième passe)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest backend/tests/unit/ -k stage09` | **255 passed** |
-| `uv run pytest backend/tests/unit/` (régression complète) | **582 passed** |
-| `uv run pytest backend/tests/integration/test_stage09_campaigns_postgres.py` (PostgreSQL réel) | **26 passed** |
-| `uv run pytest backend/tests/integration/` (régression complète) | **126 passed** |
+| `uv run pytest backend/tests/unit/ -k stage09` | **306 passed** |
+| `uv run pytest backend/tests/unit/` (régression complète) | **633 passed** |
+| `uv run pytest backend/tests/integration/ -k stage09` (PostgreSQL réel) | **39 passed** |
+| `uv run pytest backend/tests/integration/` (régression complète) | **139 passed** |
+| `uv run pytest backend/tests/load/ -k stage09 -m load` (fairness gouverneur, en mémoire) | **3 passed** |
 | `uv run pytest backend/tests/network/` (`DID_ALLOW_NETWORK=1`, googletrans réel) | **2 passed** |
 | `uv run ruff check .` / `ruff format --check .` (tout le dépôt) | PASS |
-| `uv run mypy` (139 fichiers, mode strict) | PASS, 0 erreur |
-| `uv run python scripts/check_secrets.py` | PASS (390 fichiers) |
-| `uv run python scripts/validate_documentation.py` | PASS (246/246 REQ tracées) |
-| `python scripts/validate_stage.py 08` | PASS (régression Stage08 confirmée, non affectée par la remédiation) |
-| `python scripts/validate_stage.py 09` | **PASS** — build Docker, migrations 0022→0024 avec rehearsal down/up, 126 tests d'intégration (dont Stage09), build frontend, secret scan, doc validation, tests unitaires/PostgreSQL Stage09 dédiés, live SKIPPED par défaut |
+| `uv run mypy` (144 fichiers, mode strict) | PASS, 0 erreur |
+| `uv run python scripts/check_secrets.py` | PASS |
+| `uv run python scripts/validate_documentation.py` | PASS |
+| `python scripts/validate_stage.py 08` | PASS (régression Stage08 confirmée, non affectée) |
+| `python scripts/validate_stage.py 09` | **PASS** — build Docker, migrations 0022→0025 avec rehearsal down/up, tests d'intégration complets, build frontend, secret scan, doc validation, tests unitaires/PostgreSQL Stage09 dédiés, live SKIPPED par défaut |
+| `python scripts/validate_stage.py 09 --profile failure-injection` | **PASS** |
+| `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` | **PASS** — 516 appels réels, intégrité 100.0% (stratégie de production) |
 
 ## Qualification live Discord réelle
 
-`scripts/validate_discord_live_stage09.py` (nouveau, créé pendant la remédiation) exécute le vrai
-`DiscordPyMessageSender` contre le sandbox Guild A réel (salon temporaire créé/supprimé, contenu
-synthétique uniquement, zéro secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat
-allowed_mentions=none, edit possédé, delete possédé, dédup même nonce, nonce différent crée un
-message distinct) — preuve committée
-(`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans `--include`,
-comme tous les autres validateurs live du dépôt. La matrice complète demandée en section J de la
-spécification (envoi planifié réel, retry après crash réel, quatre variantes de langue, Translation
-Group publication, provider externe présent/absent) **n'a pas été exécutée** car elle nécessite le
-service d'orchestration bout-en-bout (WP12 restant + WP13) qui n'existe pas encore.
+`scripts/validate_discord_live_stage09.py` exécute le vrai `DiscordPyMessageSender` contre le
+sandbox Guild A réel (salon temporaire créé/supprimé, contenu synthétique uniquement, zéro
+secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat allowed_mentions=none, edit
+possédé, delete possédé, dédup même nonce, nonce différent crée un message distinct) — preuve
+committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans
+`--include`, comme tous les autres validateurs live du dépôt. La matrice complète (Guild A/B,
+scheduler, Translation Groups, quatre langues, provider externe présent/absent) **n'a pas été
+exécutée** car elle nécessite l'orchestration bout-en-bout (WP12) et l'API/frontend qui n'existent
+pas encore.
 
 ## Écarts connus (non dissimulés)
 
-1. **Orchestration bout-en-bout** : aucun service ne relie encore activation de campagne →
-   création d'occurrence → fan-out → delivery. Chaque brique existe et est prouvée isolément.
-2. **WP13 (Governor/worker)** : décision prise et documentée — réutiliser `discord_io_jobs` +
-   `DiscordWorkloadGovernor` via un nouveau `workload_type` (`SEND_CAMPAIGN_MESSAGE`), jamais un
-   worker parallèle — mais le branchement réel dans `worker.py` n'est pas fait ; aucun test de
-   charge/fairness Stage09.
+1. **Orchestration/activation de campagne (WP12)** : aucun service ne décide encore QUAND créer une
+   occurrence/livraison depuis un schedule dû ou un événement accepté. Le dispatch/idempotency qui
+   en découlerait (WP13, worker réel — voir plus haut) existe et est testé de bout en bout.
+2. **Event consumer Stage03 réel** : `did.campaigns.causality.should_trigger` est réel et testé,
+   mais aucun code ne consomme encore un vrai `EventEnvelope` Stage03 pour l'invoquer.
 3. **WP14 (API)** : aucun router FastAPI Stage09.
 4. **WP15 (Frontend)** : aucune UI Stage09.
 5. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète.
-6. **REQ-MSG-013** : aucun typage champ-par-champ (embed/composant) distinguant ce qui est
-   traduisible.
-7. **REQ-MSG-018** : les variables de template sont protégées de façon uniforme et sûre, mais pas
-   typées `TRANSLATABLE_TEXT`/`NON_TRANSLATABLE`/`LOCALIZED_VALUE` séparément.
-8. **REQ-MSG-020** : aucune déclaration explicite de dépendance `MESSAGE_CONTENT` sur un trigger.
-9. **REQ-MSG-026** : la preuve mesurée ne justifie pas (pour l'instant) une stratégie différenciée
-   par classe de contenu ; décision honnête, pas un oubli.
-10. **Corruption résiduelle de traduction (REQ-MSG-025)** : la perte d'espacement autour des URLs
-    restaurées (§ remédiation, finding 12) reste un problème réel non résolu au niveau du format de
-    placeholder. Toujours détectée et bloquée à 100% (jamais publiée silencieusement), mais le
-    format de placeholder lui-même devrait être amélioré (p. ex. rendu insensible à la perte
-    d'espace adjacent) pour que le corpus atteigne 100% de non-corruption, pas seulement 100% de
-    détection.
-11. **`scripts/validate_stage.py`** : pas d'entrée Stage09 ajoutée cette session.
+6. **Sécurité anti double-traduction Translation Group** : les modes de publication existent et sont
+   testés au niveau résolution de cible ; aucun service ne prouve encore bout-en-bout qu'un mode
+   `EXISTING_PROVIDER` empêche réellement DID de re-traduire un contenu déjà localisé.
+7. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
+   fabriqué. À marquer `PENDING_HUMAN_REVIEW` si/quand une rubrique est requise — dimension séparée
+   de l'intégrité technique, qui elle est mesurée machine à 100%.
+8. **REQ-MSG-019** : aucune politique de rétention/purge des livraisons.
+9. **REQ-MSG-022** : la simulation ne surface pas encore l'état variante approuvée/traduction dans
+   le même résumé.
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
 31 IDs et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` pour la preuve fichier:ligne de
