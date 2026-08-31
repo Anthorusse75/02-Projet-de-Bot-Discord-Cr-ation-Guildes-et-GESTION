@@ -826,13 +826,22 @@ def stage_09(
             ),
         )
     if profile == "failure-injection":
-        # The Stage09 Postgres integration suite already carries the
-        # concurrency/lease-fencing/DST-restart failure-injection tests
-        # (pytest.mark.failure_injection on the whole module) -- there is no
-        # separate finer-grained suite to run here, unlike Stage05's
-        # dedicated failure-injection harness. Documented honestly rather
-        # than fabricating a distinct profile.
+        # The Stage09 Postgres integration suites already carry the
+        # concurrency/lease-fencing/DST-restart/crash-recovery
+        # failure-injection tests (pytest.mark.failure_injection on both
+        # modules) -- there is no separate finer-grained suite to run here,
+        # unlike Stage05's dedicated failure-injection harness. Documented
+        # honestly rather than fabricating a distinct profile. A fresh CI
+        # database has no schema at all until migrated -- this profile is a
+        # standalone step list (unlike the default profile, which reuses
+        # stage_01's baseline), so it must run its own migration first.
         return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step(
+                "migration STAGE 09 failure-injection head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
             Step(
                 "STAGE 09 failure-injection PostgreSQL tests",
                 (
@@ -840,6 +849,7 @@ def stage_09(
                     "run",
                     "pytest",
                     "backend/tests/integration/test_stage09_campaigns_postgres.py",
+                    "backend/tests/integration/test_stage09_delivery_worker_postgres.py",
                     "-q",
                     "--junitxml="
                     + relative_path(evidence_directory / "stage09-failure-injection.xml"),
