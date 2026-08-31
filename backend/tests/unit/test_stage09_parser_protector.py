@@ -15,7 +15,13 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from did.messaging.parser import ProtectedKind, ProtectedNode, TextNode, parse, render
-from did.messaging.protector import IntegrityViolation, protect, validate_and_restore
+from did.messaging.protector import (
+    IntegrityViolation,
+    protect,
+    validate_and_restore,
+    validate_full_pipeline,
+    validate_reparsed_structure,
+)
 
 pytestmark = [pytest.mark.security]
 
@@ -228,3 +234,107 @@ class TestFuzzProtectedTokenIntegrity:
         corrupted = protection.masked_text.replace(victim.placeholder, "", 1)
         with pytest.raises(IntegrityViolation):
             validate_and_restore(corrupted, protection)
+
+
+class TestReparsedStructureValidation:
+    """External-review WP7 strengthening: reparse the restored output and
+    compare it against the original source, independent of the placeholder
+    mechanism itself."""
+
+    def test_identity_translation_passes(self) -> None:
+        content = "Hi <@123456789012345678>, visit https://example.com now."
+        nodes = parse(content)
+        protection = protect(nodes)
+        restored = validate_and_restore(protection.masked_text, protection)
+        validate_reparsed_structure(nodes, restored)  # must not raise
+
+    def test_hallucinated_mention_in_translated_text_is_caught(self) -> None:
+        """Simulates a translation engine emitting literal mention-shaped
+        text that was never a protected token in the source -- structurally
+        indistinguishable from a real mention once it reaches Discord, so
+        it must be caught even though every original placeholder round-
+        tripped correctly."""
+        content = "Plain announcement, nothing technical here."
+        nodes = parse(content)
+        protection = protect(nodes)
+        hallucinated = protection.masked_text + " <@999999999999999999>"
+        restored = validate_and_restore(hallucinated, protection)
+        with pytest.raises(IntegrityViolation, match="hallucinated"):
+            validate_reparsed_structure(nodes, restored)
+
+    def test_hallucinated_url_is_caught(self) -> None:
+        content = "No links in this one."
+        nodes = parse(content)
+        protection = protect(nodes)
+        hallucinated = protection.masked_text + " https://not-in-the-source.example"
+        restored = validate_and_restore(hallucinated, protection)
+        with pytest.raises(IntegrityViolation, match="hallucinated"):
+            validate_reparsed_structure(nodes, restored)
+
+
+class TestFullPipelineValidator:
+    """validate_full_pipeline() is the single production-grade gate the
+    benchmark must also use -- proves it composes all three checks."""
+
+    @pytest.mark.parametrize("content", COMPLIANCE_CORPUS)
+    def test_identity_translation_passes_the_full_pipeline(self, content: str) -> None:
+        nodes = parse(content)
+        protection = protect(nodes)
+        restored = validate_full_pipeline(nodes, protection.masked_text, protection)
+        assert restored == content
+
+    def test_full_pipeline_still_catches_dropped_placeholders(self) -> None:
+        content = "Ping <@123456789012345678> now."
+        nodes = parse(content)
+        protection = protect(nodes)
+        corrupted = protection.masked_text.replace(protection.fingerprints[0].placeholder, "")
+        with pytest.raises(IntegrityViolation):
+            validate_full_pipeline(nodes, corrupted, protection)
+
+    def test_full_pipeline_catches_hallucinated_content_even_with_intact_placeholders(
+        self,
+    ) -> None:
+        content = "Hi <@123456789012345678>, welcome."
+        nodes = parse(content)
+        protection = protect(nodes)
+        translated_with_extra = protection.masked_text + " <#999999999999999999>"
+        with pytest.raises(IntegrityViolation, match="hallucinated"):
+            validate_full_pipeline(nodes, translated_with_extra, protection)
+
+
+class TestMeaningfulReorderIsSafeNotCorruption:
+    """External-review request for property/fuzz coverage of 'meaningful
+    reorder corruption': proves the actual, documented design property --
+    since each placeholder is an opaque, independently-restoring token,
+    shuffling WHERE intact placeholders sit in the translated text can never
+    corrupt their restored values. This is what makes legitimate MT word
+    reordering safe; genuine corruption can only come from altering,
+    duplicating, or dropping a placeholder's own string, all of which are
+    covered by TestCorruptionFailsClosed above."""
+
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
+    @given(seed=st.integers(min_value=0, max_value=10_000))
+    def test_shuffling_intact_placeholder_positions_always_round_trips(self, seed: int) -> None:
+        content = (
+            "Hi <@123456789012345678>, your event {{event_name}} at "
+            "<#234567890123456789> starts <t:1700000000:F> -- see https://example.com."
+        )
+        nodes = parse(content)
+        protection = protect(nodes)
+        rng = random.Random(seed)
+
+        # Split the masked text into placeholder tokens and literal chunks,
+        # then shuffle ONLY the relative order of the placeholder tokens
+        # amongst themselves (simulating grammar-driven word reordering)
+        # while every placeholder's own string stays byte-identical.
+        placeholders = [fp.placeholder for fp in protection.fingerprints]
+        shuffled = placeholders[:]
+        rng.shuffle(shuffled)
+        fake_translation = protection.masked_text
+        for original, replacement in zip(placeholders, shuffled, strict=True):
+            fake_translation = fake_translation.replace(original, f"\x00{replacement}\x00", 1)
+        fake_translation = fake_translation.replace("\x00", "")
+
+        restored = validate_full_pipeline(nodes, fake_translation, protection)
+        for fp in protection.fingerprints:
+            assert fp.restore_value in restored

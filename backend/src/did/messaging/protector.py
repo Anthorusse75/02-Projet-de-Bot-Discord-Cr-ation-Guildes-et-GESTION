@@ -24,7 +24,8 @@ import re
 import secrets
 from dataclasses import dataclass
 
-from did.messaging.parser import MessageNode, ProtectedKind, TextNode
+from did.messaging.parser import MessageNode, ProtectedKind, ProtectedNode, TextNode
+from did.messaging.parser import parse as parse_message
 
 _PLACEHOLDER_PATTERN = re.compile(r"DIDPH[0-9]{4}Q[0-9A-F]{8}ZH")
 
@@ -142,3 +143,48 @@ def validate_structural_balance(source_text: str, restored_text: str) -> None:
     }
     if unbalanced:
         raise IntegrityViolation(f"markdown emphasis marker counts changed: {unbalanced}")
+
+
+def validate_reparsed_structure(
+    original_nodes: tuple[MessageNode, ...], restored_text: str
+) -> None:
+    """Reparse the fully-restored text and confirm it introduces no
+    protected-token-shaped content that was not present in the original
+    source.
+
+    This is a distinct, independent check from placeholder-set validation:
+    that check proves every *placeholder* survived intact; this one proves
+    translation did not hallucinate a brand-new mention/URL/timestamp/etc
+    into what used to be plain TEXT (e.g. a translation engine emitting
+    literal ``<@...>``-shaped text it invented). ``AllowedMentionsCompiler``
+    already defaults every delivery to zero mentions regardless, so this is
+    defense-in-depth, not the primary mention-safety gate.
+    """
+    original_values = {n.value for n in original_nodes if isinstance(n, ProtectedNode)}
+    reparsed = parse_message(restored_text)
+    reparsed_values = {n.value for n in reparsed if isinstance(n, ProtectedNode)}
+    invented = sorted(reparsed_values - original_values)
+    if invented:
+        raise IntegrityViolation(
+            f"restored text contains protected-looking content not present "
+            f"in the original source (possible hallucinated token): {invented}"
+        )
+
+
+def validate_full_pipeline(
+    original_nodes: tuple[MessageNode, ...],
+    translated_text: str,
+    protection: ProtectionResult,
+) -> str:
+    """The single production-grade validator: placeholder-set integrity +
+    restoration, reparse-and-compare against the original source, and
+    Markdown structural balance -- all fail-closed. Every caller (the
+    delivery pipeline AND the WP10 benchmark) must use this, not just
+    :func:`validate_and_restore` alone, so the benchmark measures the same
+    guarantee production actually enforces.
+    """
+    restored = validate_and_restore(translated_text, protection)
+    validate_reparsed_structure(original_nodes, restored)
+    original_text = "".join(n.text if isinstance(n, TextNode) else n.value for n in original_nodes)
+    validate_structural_balance(original_text, restored)
+    return restored

@@ -34,6 +34,8 @@ from did.domain.campaigns import (
     CampaignSchedule,
     CampaignTarget,
     CampaignTrigger,
+    GlossaryEntry,
+    GlossaryScope,
     MessageCampaign,
     MessageDelivery,
     MessageOccurrence,
@@ -461,6 +463,66 @@ class CampaignsRepository:
                 },
             )
         return cast(CursorResult[Any], result).rowcount == 1
+
+    async def create_glossary_entry(self, entry: GlossaryEntry) -> None:
+        """GUILD-scoped entries need both GUCs set (the row's RLS policy
+        checks guild_id under app.current_guild_id()), so this always opens
+        under a TenantContext carrying the entry's own owner as user_id --
+        that also satisfies the owner-only policy branch for
+        GLOBAL_USER/CAMPAIGN entries, which never touches guild_id at all.
+        A entry with no natural guild dimension (GLOBAL_USER/CAMPAIGN) still
+        needs a positive guild_id to open a TenantContext; callers without a
+        real Guild in scope should use guild_id=entry's own campaign's
+        eventual target Guild once known, or any positive placeholder is
+        rejected as unsafe -- so those two scopes are created without a
+        Guild dimension by using UserContext instead.
+        """
+        if entry.scope_kind is GlossaryScope.GUILD:
+            assert entry.guild_id is not None
+            context: TenantContext | UserContext = TenantContext(
+                entry.guild_id, user_id=entry.owner_discord_user_id
+            )
+        else:
+            context = UserContext(user_id=entry.owner_discord_user_id)
+        async with tenant_transaction(self._factory, context) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO message_glossary_entries "
+                    "(id, owner_discord_user_id, scope_kind, campaign_id, guild_id, "
+                    "source_term, target_language_code, behavior, forced_translation, "
+                    "match_mode) "
+                    "VALUES (:id, :owner, :scope, :campaign_id, :guild_id, :term, "
+                    ":language, :behavior, :forced, :match_mode)"
+                ),
+                {
+                    "id": entry.id,
+                    "owner": entry.owner_discord_user_id,
+                    "scope": entry.scope_kind.value,
+                    "campaign_id": entry.campaign_id,
+                    "guild_id": entry.guild_id,
+                    "term": entry.source_term,
+                    "language": entry.target_language_code,
+                    "behavior": entry.behavior.value,
+                    "forced": entry.forced_translation,
+                    "match_mode": entry.match_mode.value,
+                },
+            )
+
+    async def list_applicable_glossary_entries(
+        self, *, owner_discord_user_id: int, guild_id: int
+    ) -> list[dict[str, Any]]:
+        """Every GLOBAL_USER/CAMPAIGN entry owned by ``owner_discord_user_id``
+        plus every GUILD entry for ``guild_id`` -- exactly the set
+        did.campaigns.glossary.resolve_applicable_entries() needs, visible
+        in one query because TenantContext sets both RLS GUCs together."""
+        context = TenantContext(guild_id, user_id=owner_discord_user_id)
+        async with tenant_transaction(self._factory, context) as session:
+            rows = (
+                (await session.execute(text("SELECT * FROM message_glossary_entries")))
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
 
     async def create_trigger(self, trigger: CampaignTrigger) -> None:
         """Raises :class:`ConditionEvaluationError` for a malformed/disallowed/

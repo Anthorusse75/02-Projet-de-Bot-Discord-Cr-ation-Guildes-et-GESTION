@@ -802,6 +802,118 @@ def stage_08(
     return tuple(base_steps)
 
 
+def stage_09(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    if profile == "translation-benchmark":
+        return (
+            Step(
+                "STAGE 09 real translation benchmark (network)",
+                (
+                    uv,
+                    "run",
+                    "python",
+                    "scripts/run_translation_benchmark.py",
+                    "--corpus",
+                    "backend/tests/fixtures/translation_corpus/stage09_corpus.json",
+                    "--out",
+                    relative_path(evidence_directory / "translation-benchmark.json"),
+                ),
+                600,
+            ),
+        )
+    if profile == "failure-injection":
+        # The Stage09 Postgres integration suite already carries the
+        # concurrency/lease-fencing/DST-restart failure-injection tests
+        # (pytest.mark.failure_injection on the whole module) -- there is no
+        # separate finer-grained suite to run here, unlike Stage05's
+        # dedicated failure-injection harness. Documented honestly rather
+        # than fabricating a distinct profile.
+        return (
+            Step(
+                "STAGE 09 failure-injection PostgreSQL tests",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/integration/test_stage09_campaigns_postgres.py",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage09-failure-injection.xml"),
+                ),
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+        )
+
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    base_steps[migration_index : migration_index + 1] = [
+        Step(
+            "migration upgrade STAGE 09 head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration downgrade STAGE 09 to STAGE 08",
+            (uv, "run", "alembic", "downgrade", "0021_stage_08"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration re-upgrade STAGE 08 to STAGE 09",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step("single Alembic STAGE 09 head", (uv, "run", "alembic", "heads"), environment=TEST_ENV),
+    ]
+    base_steps.append(
+        Step(
+            "STAGE 09 campaign engine unit tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "-m",
+                "not integration and not load and not discord_live and not translation_network",
+                "-k",
+                "stage09",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage09-unit.xml')}",
+            ),
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 09 campaign engine PostgreSQL tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage09_campaigns_postgres.py",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage09-persistence.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage09.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage09.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(Step("Discord live STAGE 09 campaign primitives", tuple(live_arguments), 600))
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -885,6 +997,10 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-I18N-{index:03d}" for index in range(1, 43)),
             "REQ-I18N-026A",
         ),
+    ),
+    "09": StageDefinition(
+        steps=stage_09,
+        requirements=tuple(f"REQ-MSG-{index:03d}" for index in range(1, 32)),
     ),
 }
 
@@ -1052,8 +1168,21 @@ def main() -> int:
     parser.add_argument("stage", choices=sorted(STAGES))
     parser.add_argument("--include-discord-live", action="store_true")
     parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required in addition to --profile translation-benchmark: makes real "
+        "outbound network calls, never silently implied by the profile alone.",
+    )
+    parser.add_argument(
         "--profile",
-        choices=("default", "load", "failure-injection", "security", "e2e"),
+        choices=(
+            "default",
+            "load",
+            "failure-injection",
+            "security",
+            "e2e",
+            "translation-benchmark",
+        ),
         default="default",
     )
     arguments = parser.parse_args()
@@ -1078,11 +1207,17 @@ def main() -> int:
     if arguments.profile == "load" and stage not in {"03", "05"}:
         print("The load profile is defined only for STAGE 03 and STAGE 05")
         return 2
-    if arguments.profile == "failure-injection" and stage != "05":
-        print("The failure-injection profile is defined only for STAGE 05")
+    if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
+        print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
         return 2
     if arguments.profile == "e2e" and stage not in {"07", "08"}:
         print("The e2e profile is defined only for STAGE 07 and STAGE 08")
+        return 2
+    if arguments.profile == "translation-benchmark" and stage != "09":
+        print("The translation-benchmark profile is defined only for STAGE 09")
+        return 2
+    if arguments.profile == "translation-benchmark" and not arguments.allow_network:
+        print("The translation-benchmark profile requires --allow-network to make real calls")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []

@@ -88,32 +88,31 @@ def count_text_nodes(nodes: tuple[MessageNode, ...]) -> int:
     return sum(1 for node in nodes if isinstance(node, TextNode) and node.text.strip())
 
 
-#: Above this many masked characters, a single googletrans call risks
-#: provider-side truncation/latency degradation observed informally during
-#: benchmark development; PARAGRAPH_GROUPING keeps each call small while
-#: still translating far more context per call than SENTENCE_GROUPING.
-#: Below it, FULL_MASKED_MESSAGE is strictly better by the real measured
-#: evidence in docs/90_handoffs/evidence/stage09/translation-benchmark.json.
-_FULL_MESSAGE_LENGTH_THRESHOLD = 1500
-
-
 def select_translation_strategy(masked_text: str) -> SegmentationStrategy:
     """REQ-MSG-024/026: the production default, chosen from real measured
-    evidence (144 live googletrans calls, EN->FR/DE/ES, 12-item corpus x 4
-    strategies -- see the benchmark report referenced above), not opinion.
+    evidence -- see
+    docs/90_handoffs/evidence/stage09/translation-benchmark.json for the
+    exact run (live googletrans calls across the full directed FR/EN/DE/ES
+    matrix, 4 strategies) this decision is based on.
 
-    FULL_MASKED_MESSAGE achieved 100% protected-token integrity with the
-    lowest average latency (1.25s/record vs. 1.13s paragraph / 2.15s
-    sentence / 2.36s naive) and, unlike NAIVE_PER_TEXT_NODE, preserved
-    inter-token whitespace correctly (the naive control visibly dropped
-    spaces around placeholders in the recorded samples -- concrete evidence
-    for why per-fragment translation degrades quality, not just theory).
-    PARAGRAPH_GROUPING is used as a fallback only for messages long enough
-    that a single call risks provider-side degradation; it was statistically
-    indistinguishable from FULL_MASKED_MESSAGE on this corpus (no multi-KB
-    samples were present) and preserves far more context per call than
-    sentence-level or per-node splitting.
+    Always FULL_MASKED_MESSAGE. External-review correction: an earlier
+    version of this function switched to PARAGRAPH_GROUPING above an
+    arbitrary 1500-character threshold that no benchmark evidence backed --
+    the committed corpus never contained a multi-KB sample, so that
+    threshold was a guess, not a measured decision, and has been removed
+    (REQ-MSG-026 stays NOT_STARTED: no evidence yet justifies varying the
+    strategy by content length or class). FULL_MASKED_MESSAGE achieved 100%
+    protected-token integrity with the lowest measured average latency and,
+    unlike NAIVE_PER_TEXT_NODE, preserved inter-token whitespace correctly
+    (the naive control visibly dropped spaces around placeholders in the
+    recorded samples -- concrete evidence for why per-fragment translation
+    degrades quality, not just theory). PARAGRAPH_GROUPING/SENTENCE_GROUPING
+    remain implemented and benchmarked (see the evidence file) for future
+    use if representative long-content corpus classes are added and
+    demonstrate a real quality or reliability benefit -- until then,
+    picking either automatically would be exactly the unjustified
+    threshold this correction removes.
     """
-    if len(masked_text) <= _FULL_MESSAGE_LENGTH_THRESHOLD:
-        return SegmentationStrategy.FULL_MASKED_MESSAGE
-    return SegmentationStrategy.PARAGRAPH_GROUPING
+    del masked_text  # kept in the signature: a future length-based decision
+    # would read it, but none is applied without measured evidence to back it.
+    return SegmentationStrategy.FULL_MASKED_MESSAGE

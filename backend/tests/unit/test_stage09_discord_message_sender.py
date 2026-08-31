@@ -9,15 +9,19 @@ library limitation; see the module docstring in
 
 from __future__ import annotations
 
+import discord
 import pytest
 from discord.http import handle_message_parameters
 
 from did.campaigns.delivery_reconciliation import generate_delivery_nonce
+from did.domain.campaigns import AttachmentPolicy
 from did.infrastructure.discord_message_sender import (
     DiscordPyMessageSender,
     _build_discord_allowed_mentions,
 )
 from did.messaging.allowed_mentions import NO_MENTIONS
+from did.messaging.edit_payload import EditPayload, NewAttachment
+from did.messaging.message_model import MessageModel
 
 pytestmark = [pytest.mark.security]
 
@@ -64,8 +68,76 @@ class TestAdapterConstructsAllowedMentionsCorrectly:
 
 class TestDiscordPyMessageSenderConstructible:
     def test_sender_wraps_a_client_without_touching_the_network(self) -> None:
-        import discord
-
         client = discord.Client(intents=discord.Intents.none())
         sender = DiscordPyMessageSender(client)
         assert sender is not None
+
+
+class _FakeMessage:
+    def __init__(self) -> None:
+        self.edit_calls: list[dict[str, object]] = []
+
+    async def edit(self, **kwargs: object) -> None:
+        self.edit_calls.append(kwargs)
+
+
+class _FakeChannel:
+    def __init__(self, message: _FakeMessage) -> None:
+        self._message = message
+
+    async def fetch_message(self, message_id: int) -> _FakeMessage:
+        return self._message
+
+
+class TestEditReplaceAllAttachmentConversion:
+    """External-review adapter-level test: REPLACE_ALL's NewAttachment
+    entries must actually reach message.edit() as real discord.File objects
+    under the ``attachments`` kwarg -- not silently dropped."""
+
+    @pytest.mark.asyncio
+    async def test_replace_all_converts_new_attachments_to_discord_files(self) -> None:
+        client = discord.Client(intents=discord.Intents.none())
+        sender = DiscordPyMessageSender(client)
+        fake_message = _FakeMessage()
+        fake_channel = _FakeChannel(fake_message)
+        sender._get_channel = lambda channel_id: _async_return(fake_channel)  # type: ignore[method-assign,assignment,return-value]
+
+        attachment = NewAttachment(filename="report.pdf", content=b"%PDF-1.4 fake")
+        payload = EditPayload(
+            message_model=MessageModel(content="updated"),
+            allowed_mentions=NO_MENTIONS,
+            attachment_policy=AttachmentPolicy.REPLACE_ALL,
+            new_attachments=(attachment,),
+        )
+
+        await sender.edit(channel_id=123, message_id=456, payload=payload)
+
+        assert len(fake_message.edit_calls) == 1
+        sent_kwargs = fake_message.edit_calls[0]
+        assert "new_attachments" not in sent_kwargs
+        files = sent_kwargs["attachments"]
+        assert isinstance(files, list)
+        assert len(files) == 1
+        assert isinstance(files[0], discord.File)
+        assert files[0].filename == "report.pdf"
+
+    @pytest.mark.asyncio
+    async def test_preserve_existing_never_sets_attachments_key(self) -> None:
+        client = discord.Client(intents=discord.Intents.none())
+        sender = DiscordPyMessageSender(client)
+        fake_message = _FakeMessage()
+        fake_channel = _FakeChannel(fake_message)
+        sender._get_channel = lambda channel_id: _async_return(fake_channel)  # type: ignore[method-assign,assignment,return-value]
+
+        payload = EditPayload(
+            message_model=MessageModel(content="updated"),
+            allowed_mentions=NO_MENTIONS,
+            attachment_policy=AttachmentPolicy.PRESERVE_EXISTING,
+        )
+        await sender.edit(channel_id=123, message_id=456, payload=payload)
+
+        assert "attachments" not in fake_message.edit_calls[0]
+
+
+async def _async_return(value: object) -> object:
+    return value

@@ -24,6 +24,9 @@ from did.campaigns.scheduling import evaluate_recurring
 from did.domain.campaigns import CampaignSchedule as DomainSchedule
 from did.domain.campaigns import CampaignTarget as DomainTarget
 from did.domain.campaigns import (
+    GlossaryBehavior,
+    GlossaryEntry,
+    GlossaryScope,
     LifecycleStatus,
     MessageCampaign,
     MessageDelivery,
@@ -976,3 +979,76 @@ class TestScheduleCursorPersistenceRoundTrip:
             )
         finally:
             await admin_engine.dispose()
+
+
+@pytest.mark.asyncio
+class TestGlossaryGuildScopeRls:
+    """External-review REQ-MSG-014 finding: the missing GUILD glossary tier
+    (migration 0024_stage_09) uses a dual-condition RLS policy -- prove it
+    against real PostgreSQL, not just in-memory logic."""
+
+    async def test_guild_scoped_entry_visible_to_any_owner_authorized_for_that_guild(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=GUILD_A,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        # OWNER_B, resolving glossary entries for the SAME Guild, must see
+        # OWNER_A's GUILD-scoped entry -- it is Guild-wide, not author-only.
+        visible_to_b = await repo.list_applicable_glossary_entries(
+            owner_discord_user_id=OWNER_B, guild_id=GUILD_A
+        )
+        assert {row["id"] for row in visible_to_b} == {entry.id}
+
+    async def test_guild_scoped_entry_not_visible_under_a_different_guild(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=GUILD_A,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        visible_under_b = await repo.list_applicable_glossary_entries(
+            owner_discord_user_id=OWNER_A, guild_id=GUILD_B
+        )
+        assert visible_under_b == []
+
+    async def test_global_user_entry_still_owner_isolated_not_leaked_via_guild_context(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """The dual-condition policy must not accidentally widen
+        GLOBAL_USER/CAMPAIGN visibility to other owners just because a
+        Guild GUC happens to be set in the session."""
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Gadget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        visible_to_b = await repo.list_applicable_glossary_entries(
+            owner_discord_user_id=OWNER_B, guild_id=GUILD_A
+        )
+        assert entry.id not in {row["id"] for row in visible_to_b}
+
+        visible_to_a = await repo.list_applicable_glossary_entries(
+            owner_discord_user_id=OWNER_A, guild_id=GUILD_A
+        )
+        assert entry.id in {row["id"] for row in visible_to_a}

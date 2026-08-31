@@ -66,6 +66,45 @@ class TestResolveApplicableEntries:
             [entry], campaign_id=uuid4(), target_language_code="es"
         ) == [entry]
 
+    def test_guild_scope_entry_applies_only_to_its_own_guild(self) -> None:
+        entry = _entry(scope_kind=GlossaryScope.GUILD, guild_id=880000001, campaign_id=None)
+        assert resolve_applicable_entries(
+            [entry], campaign_id=uuid4(), target_language_code="fr", guild_id=880000001
+        ) == [entry]
+        assert (
+            resolve_applicable_entries(
+                [entry], campaign_id=uuid4(), target_language_code="fr", guild_id=880000002
+            )
+            == []
+        )
+
+    def test_guild_scope_entry_excluded_when_no_guild_context_given(self) -> None:
+        entry = _entry(scope_kind=GlossaryScope.GUILD, guild_id=880000001, campaign_id=None)
+        assert (
+            resolve_applicable_entries([entry], campaign_id=uuid4(), target_language_code="fr")
+            == []
+        )
+
+    def test_three_tier_priority_ordering(self) -> None:
+        campaign_id = uuid4()
+        campaign_entry = _entry(
+            scope_kind=GlossaryScope.CAMPAIGN, campaign_id=campaign_id, source_term="Widget"
+        )
+        guild_entry = _entry(
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=880000001,
+            campaign_id=None,
+            source_term="Widget",
+        )
+        global_entry = _entry(scope_kind=GlossaryScope.GLOBAL_USER, source_term="Widget")
+        resolved = resolve_applicable_entries(
+            [global_entry, guild_entry, campaign_entry],
+            campaign_id=campaign_id,
+            target_language_code="fr",
+            guild_id=880000001,
+        )
+        assert resolved == [campaign_entry, guild_entry, global_entry]
+
     def test_ordering_is_most_specific_first(self) -> None:
         campaign_id = uuid4()
         global_entry = _entry(scope_kind=GlossaryScope.GLOBAL_USER, source_term="Widget")

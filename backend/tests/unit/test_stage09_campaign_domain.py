@@ -331,6 +331,69 @@ class TestGlossaryPriority:
         )
         assert campaign_entry.specificity() > global_entry.specificity()
 
+    def test_guild_scope_outranks_global_user_but_not_campaign(self) -> None:
+        """REQ-MSG-014 external-review finding: the missing GUILD tier
+        (langue/scope/template) must rank strictly between CAMPAIGN and
+        GLOBAL_USER."""
+        campaign_entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=1,
+            scope_kind=GlossaryScope.CAMPAIGN,
+            campaign_id=uuid4(),
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        guild_entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=1,
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=880000001,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        global_entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=1,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        assert campaign_entry.specificity() > guild_entry.specificity() > global_entry.specificity()
+
+    def test_guild_scope_requires_positive_guild_id(self) -> None:
+        with pytest.raises(ValueError, match="guild_id"):
+            GlossaryEntry(
+                id=uuid4(),
+                owner_discord_user_id=1,
+                scope_kind=GlossaryScope.GUILD,
+                source_term="Widget",
+                behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+            )
+
+    def test_guild_scope_must_not_carry_campaign_id(self) -> None:
+        with pytest.raises(ValueError, match="campaign_id"):
+            GlossaryEntry(
+                id=uuid4(),
+                owner_discord_user_id=1,
+                scope_kind=GlossaryScope.GUILD,
+                guild_id=880000001,
+                campaign_id=uuid4(),
+                source_term="Widget",
+                behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+            )
+
+    def test_campaign_scope_must_not_carry_guild_id(self) -> None:
+        with pytest.raises(ValueError, match="guild_id"):
+            GlossaryEntry(
+                id=uuid4(),
+                owner_discord_user_id=1,
+                scope_kind=GlossaryScope.CAMPAIGN,
+                campaign_id=uuid4(),
+                guild_id=880000001,
+                source_term="Widget",
+                behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+            )
+
     def test_language_specific_outranks_language_agnostic_within_scope(self) -> None:
         specific = GlossaryEntry(
             id=uuid4(),

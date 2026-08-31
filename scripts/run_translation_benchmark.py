@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import sys
 import time
@@ -25,7 +26,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "src"))
 
 from did.messaging.parser import TextNode, parse
-from did.messaging.protector import IntegrityViolation, protect, validate_and_restore
+from did.messaging.protector import IntegrityViolation, protect, validate_full_pipeline
 from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
 from did.translation.segmentation import (
     SegmentationStrategy,
@@ -35,12 +36,23 @@ from did.translation.segmentation import (
     translate_nodes_naively,
 )
 
+# External-review finding: googletrans.__version__ (the module attribute) is
+# stale upstream -- it reports "3.4.0" even when the installed *distribution*
+# is 4.0.2 (the version pyproject.toml actually pins and uv.lock resolves).
+# importlib.metadata.version() reads the installed package metadata, which
+# is authoritative; the module attribute is recorded alongside it purely so
+# the upstream discrepancy stays auditable, never as the primary version.
+try:
+    GOOGLETRANS_DISTRIBUTION_VERSION = importlib.metadata.version("googletrans")
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - defensive
+    GOOGLETRANS_DISTRIBUTION_VERSION = "unknown"
+
 try:
     import googletrans
 
-    GOOGLETRANS_VERSION = googletrans.__version__
+    GOOGLETRANS_MODULE_DUNDER_VERSION = googletrans.__version__
 except Exception:  # pragma: no cover - defensive, version reporting only
-    GOOGLETRANS_VERSION = "unknown"
+    GOOGLETRANS_MODULE_DUNDER_VERSION = "unknown"
 
 
 @dataclass
@@ -97,7 +109,10 @@ async def _run_one(
         latency = time.perf_counter() - started
 
         try:
-            restored = validate_and_restore(translated_masked, protection)
+            # Exercises the SAME production-grade validator the delivery
+            # pipeline uses (placeholder integrity + reparse-and-compare +
+            # Markdown structural balance), not a weaker benchmark-only check.
+            restored = validate_full_pipeline(nodes, translated_masked, protection)
             integrity_ok = True
         except IntegrityViolation as exc:
             restored = f"<INTEGRITY_VIOLATION: {exc}>"
@@ -132,9 +147,13 @@ async def _run_one(
 
 
 async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
-    source_language = corpus["source_language"]
-    target_languages = corpus["target_languages"]
-    items = corpus["items"]
+    """Runs every strategy over the FULL directed language matrix: every
+    ordered pair (source, target) of distinct languages in
+    ``corpus["languages"]``, using that source language's own natively-
+    authored corpus items (REQ-MSG-024's FR/EN/DE/ES requirement -- not just
+    EN-as-source)."""
+    languages: list[str] = corpus["languages"]
+    items_by_language: dict[str, list[dict[str, str]]] = corpus["items_by_language"]
     strategies = [
         SegmentationStrategy.FULL_MASKED_MESSAGE,
         SegmentationStrategy.PARAGRAPH_GROUPING,
@@ -143,22 +162,25 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
     ]
     provider = GoogletransCampaignTranslationProvider(timeout_seconds=15.0, max_attempts=3)
 
+    directions = [(src, dst) for src in languages for dst in languages if src != dst]
+
     records: list[MeasurementRecord] = []
-    for target_language in target_languages:
+    for source_language, target_language in directions:
         for strategy in strategies:
-            for item in items:
+            for item in items_by_language[source_language]:
                 record = await _run_one(provider, item, strategy, source_language, target_language)
                 records.append(record)
 
     return {
         "meta": {
             "generated_at": datetime.now(UTC).isoformat(),
-            "googletrans_version": GOOGLETRANS_VERSION,
+            "googletrans_distribution_version": GOOGLETRANS_DISTRIBUTION_VERSION,
+            "googletrans_module_dunder_version": GOOGLETRANS_MODULE_DUNDER_VERSION,
             "corpus_version": corpus.get("version"),
-            "source_language": source_language,
-            "target_languages": target_languages,
+            "languages": languages,
+            "directions": [f"{s}->{d}" for s, d in directions],
             "strategies": [s.value for s in strategies],
-            "item_count": len(items),
+            "items_per_language": {lang: len(items) for lang, items in items_by_language.items()},
         },
         "records": [asdict(r) for r in records],
         "summary": _summarize(records),
@@ -166,12 +188,19 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
 
 
 def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
+    """``measurement_records`` = one row per (item, strategy, direction);
+    ``provider_invocations`` = the REAL number of googletrans network calls
+    that measurement required (1 for FULL_MASKED_MESSAGE, N segments for
+    PARAGRAPH/SENTENCE grouping, N text nodes for the naive control) -- these
+    are deliberately reported separately per the external review finding
+    that "total_calls" previously conflated the two."""
     by_strategy: dict[str, dict[str, Any]] = {}
     for record in records:
         bucket = by_strategy.setdefault(
             record.strategy,
             {
-                "total": 0,
+                "measurement_records": 0,
+                "provider_invocations": 0,
                 "errors": 0,
                 "integrity_ok": 0,
                 "integrity_checked": 0,
@@ -179,10 +208,11 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
                 "latency_count": 0,
             },
         )
-        bucket["total"] = int(bucket["total"]) + 1
+        bucket["measurement_records"] = int(bucket["measurement_records"]) + 1
         if record.error is not None:
             bucket["errors"] = int(bucket["errors"]) + 1
             continue
+        bucket["provider_invocations"] = int(bucket["provider_invocations"]) + record.segment_count
         if record.protected_integrity_ok is not None:
             bucket["integrity_checked"] = int(bucket["integrity_checked"]) + 1
             if record.protected_integrity_ok:
@@ -192,17 +222,23 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
             bucket["latency_count"] = int(bucket["latency_count"]) + 1
 
     summary: dict[str, Any] = {}
+    total_provider_invocations = 0
     for strategy, bucket in by_strategy.items():
         checked = int(bucket["integrity_checked"])
         integrity_rate = (int(bucket["integrity_ok"]) / checked) if checked else None
         latency_count = int(bucket["latency_count"])
         avg_latency = float(bucket["latency_sum"]) / latency_count if latency_count else None
+        total_provider_invocations += int(bucket["provider_invocations"])
         summary[strategy] = {
-            "total_calls": bucket["total"],
+            "measurement_records": bucket["measurement_records"],
+            "provider_invocations": bucket["provider_invocations"],
             "errors": bucket["errors"],
             "protected_integrity_rate": integrity_rate,
             "average_latency_seconds": round(avg_latency, 3) if avg_latency else None,
         }
+    summary["_totals"] = {
+        "provider_invocations_all_strategies": total_provider_invocations,
+    }
     return summary
 
 

@@ -17,7 +17,7 @@ from did.messaging.allowed_mentions import (
     AllowedMentionsPolicy,
     MentionPolicyError,
 )
-from did.messaging.edit_payload import EditPayload
+from did.messaging.edit_payload import EditPayload, NewAttachment
 from did.messaging.message_model import (
     ButtonStyle,
     ComponentActionRow,
@@ -181,6 +181,48 @@ class TestEditPayloadAttachmentPolicy:
         )
         with pytest.raises(MessageModelViolation):
             payload.to_discord_kwargs()
+
+    def test_replace_all_without_new_attachments_is_rejected_not_silently_preserved(
+        self,
+    ) -> None:
+        """External-review fix: REPLACE_ALL previously fell through to the
+        exact same no-op as PRESERVE_EXISTING. It must now be impossible to
+        construct a REPLACE_ALL payload without real replacement content."""
+        with pytest.raises(ValueError, match="REPLACE_ALL requires"):
+            EditPayload(
+                message_model=MessageModel(content="updated"),
+                allowed_mentions=NO_MENTIONS,
+                attachment_policy=AttachmentPolicy.REPLACE_ALL,
+            )
+
+    def test_new_attachments_rejected_outside_replace_all(self) -> None:
+        with pytest.raises(ValueError, match="only meaningful with REPLACE_ALL"):
+            EditPayload(
+                message_model=MessageModel(content="updated"),
+                allowed_mentions=NO_MENTIONS,
+                attachment_policy=AttachmentPolicy.PRESERVE_EXISTING,
+                new_attachments=(NewAttachment(filename="a.png", content=b"data"),),
+            )
+
+    def test_replace_all_with_attachments_carries_them_under_their_own_key(self) -> None:
+        attachment = NewAttachment(filename="report.pdf", content=b"%PDF-1.4 fake")
+        payload = EditPayload(
+            message_model=MessageModel(content="updated"),
+            allowed_mentions=NO_MENTIONS,
+            attachment_policy=AttachmentPolicy.REPLACE_ALL,
+            new_attachments=(attachment,),
+        )
+        kwargs = payload.to_discord_kwargs()
+        assert kwargs["new_attachments"] == (attachment,)
+        assert "attachments" not in kwargs  # only the adapter converts to real File objects
+
+    def test_new_attachment_rejects_blank_filename(self) -> None:
+        with pytest.raises(ValueError, match="filename"):
+            NewAttachment(filename="   ", content=b"data")
+
+    def test_new_attachment_rejects_empty_content(self) -> None:
+        with pytest.raises(ValueError, match="content"):
+            NewAttachment(filename="a.png", content=b"")
 
 
 class TestOwnedMessageMutationGuard:

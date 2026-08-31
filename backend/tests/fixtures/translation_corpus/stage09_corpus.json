@@ -1,68 +1,135 @@
 {
-  "version": 1,
-  "source_language": "en",
-  "target_languages": ["fr", "de", "es"],
-  "note": "Synthetic, non-private Discord-safe campaign message samples for the WP10 real googletrans benchmark. No user data, no real Guild/channel/message ids.",
-  "items": [
-    {
-      "id": "plain-short",
-      "class": "plain_prose",
-      "content": "Welcome to the server! We are excited to have you here."
-    },
-    {
-      "id": "plain-multi-sentence",
-      "class": "multi_sentence_prose",
-      "content": "Our next community event starts this weekend. Bring your friends and join the fun. Prizes will be awarded to the top three teams."
-    },
-    {
-      "id": "plain-paragraphs",
-      "class": "paragraphs",
-      "content": "The maintenance window begins tonight at 22:00.\n\nDuring this time, voice channels may briefly disconnect. We appreciate your patience while we roll out improvements.\n\nThank you for being part of this community."
-    },
-    {
-      "id": "with-mentions",
-      "class": "mentions",
-      "content": "Hey <@123456789012345678>, welcome! Please read the rules in <#234567890123456789> and say hi to <@&345678901234567890> members."
-    },
-    {
-      "id": "with-url",
-      "class": "url",
-      "content": "Check out our new announcement at https://example.com/campaign?ref=discord for full details."
-    },
-    {
-      "id": "with-markdown",
-      "class": "markdown",
-      "content": "**Important:** the event is *tomorrow* at 6pm. Don't miss it -- bring a friend!"
-    },
-    {
-      "id": "with-code",
-      "class": "code",
-      "content": "Run `campaign.publish()` to go live, or use the ```py\ncampaign.schedule(rrule=\"FREQ=DAILY\")\n``` snippet for recurring sends."
-    },
-    {
-      "id": "with-variables",
-      "class": "template_variables",
-      "content": "Hi {{member_name}}, your registration for {{event_name}} is confirmed for {{event_date}}."
-    },
-    {
-      "id": "with-emoji",
-      "class": "emoji",
-      "content": "Congratulations on leveling up <a:party:456789012345678901>! Keep up the great work <:star:567890123456789012>."
-    },
-    {
-      "id": "mixed-everything",
-      "class": "mixed_technical_and_linguistic",
-      "content": "Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. See you there <a:party:456789012345678901>!"
-    },
-    {
-      "id": "everyone-mention-in-content",
-      "class": "mass_mention_literal",
-      "content": "This is not an announcement to @everyone, just a note for the team."
-    },
-    {
-      "id": "embed-like-field",
-      "class": "embed_field",
-      "content": "Season 3 launches next month with new maps, ranked rewards, and a redesigned progression system for every player tier."
-    }
-  ]
+  "version": 2,
+  "languages": ["en", "fr", "de", "es"],
+  "note": "Synthetic, non-private Discord-safe campaign message samples for the WP10 real googletrans benchmark. No user data, no real Guild/channel/message ids. Natively authored (not machine-translated) in each of the four languages so the full directed FR/EN/DE/ES matrix has genuine, non-circular source content in every direction, per REQ-MSG-024.",
+  "items_by_language": {
+    "en": [
+      {
+        "id": "en-plain-short",
+        "class": "plain_prose",
+        "content": "Welcome to the server! We are excited to have you here."
+      },
+      {
+        "id": "en-with-mentions",
+        "class": "mentions",
+        "content": "Hey <@123456789012345678>, welcome! Please read the rules in <#234567890123456789> and say hi to <@&345678901234567890> members."
+      },
+      {
+        "id": "en-with-url",
+        "class": "url",
+        "content": "Check out our new announcement at https://example.com/campaign?ref=discord for full details."
+      },
+      {
+        "id": "en-with-code",
+        "class": "code",
+        "content": "Run `campaign.publish()` to go live, or use the ```py\ncampaign.schedule(rrule=\"FREQ=DAILY\")\n``` snippet for recurring sends."
+      },
+      {
+        "id": "en-with-variables",
+        "class": "template_variables",
+        "content": "Hi {{member_name}}, your registration for {{event_name}} is confirmed for {{event_date}}."
+      },
+      {
+        "id": "en-mixed-everything",
+        "class": "mixed_technical_and_linguistic",
+        "content": "Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>."
+      }
+    ],
+    "fr": [
+      {
+        "id": "fr-plain-short",
+        "class": "plain_prose",
+        "content": "Bienvenue sur le serveur ! Nous sommes ravis de vous compter parmi nous."
+      },
+      {
+        "id": "fr-with-mentions",
+        "class": "mentions",
+        "content": "Salut <@123456789012345678>, bienvenue ! Merci de lire le règlement dans <#234567890123456789> et de saluer les membres <@&345678901234567890>."
+      },
+      {
+        "id": "fr-with-url",
+        "class": "url",
+        "content": "Découvrez notre nouvelle annonce sur https://example.com/campaign?ref=discord pour tous les détails."
+      },
+      {
+        "id": "fr-with-code",
+        "class": "code",
+        "content": "Exécutez `campagne.publier()` pour publier, ou utilisez le extrait ```py\ncampagne.planifier(rrule=\"FREQ=DAILY\")\n``` pour les envois récurrents."
+      },
+      {
+        "id": "fr-with-variables",
+        "class": "template_variables",
+        "content": "Bonjour {{member_name}}, votre inscription à {{event_name}} est confirmée pour le {{event_date}}."
+      },
+      {
+        "id": "fr-mixed-everything",
+        "class": "mixed_technical_and_linguistic",
+        "content": "Salut <@123456789012345678> ! Votre événement {{event_name}} commence <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>."
+      }
+    ],
+    "de": [
+      {
+        "id": "de-plain-short",
+        "class": "plain_prose",
+        "content": "Willkommen auf dem Server! Wir freuen uns sehr, dich hier zu haben."
+      },
+      {
+        "id": "de-with-mentions",
+        "class": "mentions",
+        "content": "Hallo <@123456789012345678>, willkommen! Bitte lies die Regeln in <#234567890123456789> und begrüße die Mitglieder <@&345678901234567890>."
+      },
+      {
+        "id": "de-with-url",
+        "class": "url",
+        "content": "Schau dir unsere neue Ankündigung unter https://example.com/campaign?ref=discord für alle Details an."
+      },
+      {
+        "id": "de-with-code",
+        "class": "code",
+        "content": "Führe `kampagne.veroeffentlichen()` aus, oder verwende den ```py\nkampagne.planen(rrule=\"FREQ=DAILY\")\n``` Codeausschnitt für wiederkehrende Sendungen."
+      },
+      {
+        "id": "de-with-variables",
+        "class": "template_variables",
+        "content": "Hallo {{member_name}}, deine Anmeldung für {{event_name}} ist für den {{event_date}} bestätigt."
+      },
+      {
+        "id": "de-mixed-everything",
+        "class": "mixed_technical_and_linguistic",
+        "content": "Hallo <@123456789012345678>! Dein Event {{event_name}} beginnt <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in <#234567890123456789>."
+      }
+    ],
+    "es": [
+      {
+        "id": "es-plain-short",
+        "class": "plain_prose",
+        "content": "¡Bienvenido al servidor! Estamos muy contentos de tenerte aquí."
+      },
+      {
+        "id": "es-with-mentions",
+        "class": "mentions",
+        "content": "Hola <@123456789012345678>, ¡bienvenido! Por favor lee las reglas en <#234567890123456789> y saluda a los miembros <@&345678901234567890>."
+      },
+      {
+        "id": "es-with-url",
+        "class": "url",
+        "content": "Consulta nuestro nuevo anuncio en https://example.com/campaign?ref=discord para todos los detalles."
+      },
+      {
+        "id": "es-with-code",
+        "class": "code",
+        "content": "Ejecuta `campana.publicar()` para publicar, o usa el fragmento ```py\ncampana.programar(rrule=\"FREQ=DAILY\")\n``` para envíos recurrentes."
+      },
+      {
+        "id": "es-with-variables",
+        "class": "template_variables",
+        "content": "Hola {{member_name}}, tu inscripción para {{event_name}} está confirmada para el {{event_date}}."
+      },
+      {
+        "id": "es-mixed-everything",
+        "class": "mixed_technical_and_linguistic",
+        "content": "¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en <#234567890123456789>."
+      }
+    ]
+  }
 }

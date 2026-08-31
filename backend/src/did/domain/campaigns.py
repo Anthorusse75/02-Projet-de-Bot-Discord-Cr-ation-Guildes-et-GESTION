@@ -414,6 +414,7 @@ class MessageDelivery:
 
 class GlossaryScope(StrEnum):
     GLOBAL_USER = "GLOBAL_USER"
+    GUILD = "GUILD"
     CAMPAIGN = "CAMPAIGN"
 
 
@@ -427,18 +428,31 @@ class GlossaryMatchMode(StrEnum):
     CASE_INSENSITIVE = "CASE_INSENSITIVE"
 
 
+#: Most specific first. CAMPAIGN is the "template" tier from REQ-MSG-014's
+#: "par langue/scope/template" wording -- a campaign's own message content
+#: is its template. GUILD sits between CAMPAIGN and GLOBAL_USER: a
+#: Guild-wide vocabulary shared by every campaign targeting that Guild,
+#: regardless of which of the owner's campaigns is asking.
+_SCOPE_RANK: dict[GlossaryScope, int] = {
+    GlossaryScope.CAMPAIGN: 2,
+    GlossaryScope.GUILD: 1,
+    GlossaryScope.GLOBAL_USER: 0,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class GlossaryEntry:
     """A DO_NOT_TRANSLATE / FORCED_TRANSLATION term.
 
     Priority (most specific wins, see docs/90_handoffs/STAGE_09_HANDOFF.md):
-    ``CAMPAIGN`` scope beats ``GLOBAL_USER`` scope; within a scope, an entry
-    naming a specific ``target_language_code`` beats a language-agnostic
-    entry (``target_language_code is None``); ties broken by longest
-    ``source_term`` match. There is no Guild-owned glossary tier -- glossary
-    entries are always owned by the campaign author (``owner_discord_user_id``)
-    to keep a single RLS ownership axis; a Guild-wide vocabulary is expressed
-    as a ``GLOBAL_USER`` entry reused across that user's campaigns.
+    ``CAMPAIGN`` scope beats ``GUILD`` scope beats ``GLOBAL_USER`` scope;
+    within a scope, an entry naming a specific ``target_language_code``
+    beats a language-agnostic entry (``target_language_code is None``);
+    ties broken by longest ``source_term`` match. Every entry is still
+    authored by an owner (``owner_discord_user_id``, for authorship/audit),
+    but a ``GUILD`` entry is *visible* under that Guild's RLS context (any
+    of the Guild's authorized campaign owners), not only its author --
+    see migration ``0024_stage_09`` for the dual-condition RLS policy.
     """
 
     id: UUID
@@ -447,6 +461,7 @@ class GlossaryEntry:
     source_term: str
     behavior: GlossaryBehavior
     campaign_id: UUID | None = None
+    guild_id: int | None = None
     target_language_code: str | None = None
     forced_translation: str | None = None
     match_mode: GlossaryMatchMode = GlossaryMatchMode.CASE_INSENSITIVE
@@ -456,10 +471,19 @@ class GlossaryEntry:
             raise ValueError("owner_discord_user_id must be positive")
         if not self.source_term.strip():
             raise ValueError("source_term must not be blank")
-        if self.scope_kind is GlossaryScope.CAMPAIGN and self.campaign_id is None:
-            raise ValueError("CAMPAIGN scope requires campaign_id")
-        if self.scope_kind is GlossaryScope.GLOBAL_USER and self.campaign_id is not None:
-            raise ValueError("GLOBAL_USER scope must not carry campaign_id")
+        if self.scope_kind is GlossaryScope.CAMPAIGN:
+            if self.campaign_id is None:
+                raise ValueError("CAMPAIGN scope requires campaign_id")
+            if self.guild_id is not None:
+                raise ValueError("CAMPAIGN scope must not carry guild_id")
+        elif self.scope_kind is GlossaryScope.GUILD:
+            if self.guild_id is None or self.guild_id <= 0:
+                raise ValueError("GUILD scope requires a positive guild_id")
+            if self.campaign_id is not None:
+                raise ValueError("GUILD scope must not carry campaign_id")
+        else:  # GLOBAL_USER
+            if self.campaign_id is not None or self.guild_id is not None:
+                raise ValueError("GLOBAL_USER scope must not carry campaign_id or guild_id")
         if self.behavior is GlossaryBehavior.FORCED_TRANSLATION and not self.forced_translation:
             raise ValueError("FORCED_TRANSLATION requires forced_translation text")
         if self.behavior is GlossaryBehavior.DO_NOT_TRANSLATE and self.forced_translation:
@@ -467,9 +491,8 @@ class GlossaryEntry:
 
     def specificity(self) -> tuple[int, int, int]:
         """Higher tuples win. Used to sort candidate matches deterministically."""
-        scope_rank = 1 if self.scope_kind is GlossaryScope.CAMPAIGN else 0
         language_rank = 1 if self.target_language_code is not None else 0
-        return (scope_rank, language_rank, len(self.source_term))
+        return (_SCOPE_RANK[self.scope_kind], language_rank, len(self.source_term))
 
 
 @dataclass(frozen=True, slots=True)

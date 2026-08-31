@@ -107,10 +107,16 @@ class TestNaivePerTextNode:
 
 
 class TestStrategySelection:
+    """External-review correction: an earlier version switched to
+    PARAGRAPH_GROUPING above an unjustified, evidence-free length
+    threshold. select_translation_strategy() must always pick
+    FULL_MASKED_MESSAGE until real long-content benchmark evidence exists
+    to justify anything else (REQ-MSG-026 stays NOT_STARTED)."""
+
     def test_short_message_selects_full_masked_message(self) -> None:
         assert select_translation_strategy("short message") is (
             SegmentationStrategy.FULL_MASKED_MESSAGE
         )
 
-    def test_long_message_falls_back_to_paragraph_grouping(self) -> None:
-        assert select_translation_strategy("x" * 2000) is (SegmentationStrategy.PARAGRAPH_GROUPING)
+    def test_even_a_very_long_message_still_selects_full_masked_message(self) -> None:
+        assert select_translation_strategy("x" * 6000) is (SegmentationStrategy.FULL_MASKED_MESSAGE)

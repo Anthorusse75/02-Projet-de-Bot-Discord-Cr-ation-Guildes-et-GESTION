@@ -25,6 +25,7 @@ submits Discord's documented strict-dedup contract.
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 import discord
@@ -135,6 +136,13 @@ class DiscordPyMessageSender:
             roles=allowed_mentions_payload.get("roles", False) or False,
             replied_user=bool(allowed_mentions_payload.get("replied_user", False)),
         )
+        new_attachments = edit_kwargs.pop("new_attachments", None)
+        if new_attachments:
+            assert isinstance(new_attachments, tuple)
+            edit_kwargs["attachments"] = [
+                discord.File(io.BytesIO(a.content), filename=a.filename, description=a.description)
+                for a in new_attachments
+            ]
         await message.edit(**edit_kwargs)
 
     async def delete(self, *, channel_id: int, message_id: int) -> None:

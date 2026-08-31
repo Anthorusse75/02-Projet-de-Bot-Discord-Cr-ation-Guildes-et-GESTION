@@ -10,12 +10,14 @@ existing fail-closed placeholder-integrity check (``protector.py``) validate
 the round trip gives glossary terms the exact same safety guarantee as
 mentions, URLs and code blocks.
 
-Priority (documented decision, most specific wins):
-``GlossaryEntry.specificity()`` -- CAMPAIGN scope beats GLOBAL_USER scope;
-within a scope, a language-specific entry beats a language-agnostic one;
-ties broken by longest ``source_term``. Matching is leftmost-first among
-non-overlapping spans; at a given start position, the highest-priority
-(specificity-sorted) candidate wins.
+Priority (documented decision, most specific wins, REQ-MSG-014's
+"langue/scope/template" dimensions): ``CAMPAIGN`` scope (the "template"
+tier -- a campaign's own message content) beats ``GUILD`` scope (a
+Guild-wide vocabulary shared by every campaign targeting that Guild) beats
+``GLOBAL_USER`` scope; within a scope, a language-specific entry beats a
+language-agnostic one; ties broken by longest ``source_term``. Matching is
+leftmost-first among non-overlapping spans; at a given start position, the
+highest-priority (specificity-sorted) candidate wins.
 """
 
 from __future__ import annotations
@@ -34,14 +36,26 @@ def resolve_applicable_entries(
     *,
     campaign_id: UUID,
     target_language_code: str,
+    guild_id: int | None = None,
 ) -> list[GlossaryEntry]:
-    """Filter to entries usable for this campaign/target-language pair, most
-    specific first (see module docstring)."""
+    """Filter to entries usable for this campaign/(optional) Guild/target-
+    language triple, most specific first (see module docstring).
+
+    ``guild_id`` should be supplied whenever the delivery has a known
+    destination Guild (almost always) so GUILD-scoped entries for that
+    Guild are included; omit it only when resolving glossary terms with no
+    Guild context yet (e.g. a source-only preview).
+    """
     applicable = [
         entry
         for entry in entries
         if (
             (entry.scope_kind is GlossaryScope.CAMPAIGN and entry.campaign_id == campaign_id)
+            or (
+                entry.scope_kind is GlossaryScope.GUILD
+                and guild_id is not None
+                and entry.guild_id == guild_id
+            )
             or entry.scope_kind is GlossaryScope.GLOBAL_USER
         )
         and entry.target_language_code in (None, target_language_code)
