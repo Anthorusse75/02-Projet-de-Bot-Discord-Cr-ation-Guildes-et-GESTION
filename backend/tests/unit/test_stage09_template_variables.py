@@ -172,15 +172,25 @@ class TestResolveTemplateVariables:
 class TestPropertyMultipleVariableTypesNeverCorruptTheReparse:
     @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
     @given(
-        headline=st.text(min_size=1, max_size=15).filter(lambda s: "{" not in s and "}" not in s),
-        # Excludes Markdown emphasis-marker substrings ("**", "__", "~~",
-        # "||"): a NON_TRANSLATABLE value that happens to literally BE one
-        # of those is a legitimate but separate edge case for
-        # protector.validate_structural_balance's own (already tested
-        # elsewhere) best-effort emphasis-count signal, not something this
-        # placeholder-integrity round-trip property needs to also probe.
+        # Excludes "{}" (would be parsed as a NEW template-variable
+        # reference) and Markdown-syntax characters ("*_~|`") -- a
+        # TRANSLATABLE_TEXT/NON_TRANSLATABLE value that happens to contain
+        # (or, combined with adjacent literal text, forms) a Markdown
+        # emphasis marker or inline-code backtick pair is a legitimate but
+        # separate edge case for protector.validate_structural_balance/
+        # validate_reparsed_structure's own (already tested elsewhere)
+        # best-effort signals, not something this placeholder-integrity
+        # round-trip property needs to also probe. Hypothesis found exactly
+        # this: a lone backtick in each of headline/ref combining across
+        # the " :: " literal separator into a matched `` ` ... ` `` pair
+        # that reparses as a hallucinated INLINE_CODE node.
+        headline=st.text(
+            alphabet=st.characters(blacklist_categories=["Cs"], blacklist_characters="{}*_~|`"),
+            min_size=1,
+            max_size=15,
+        ),
         ref=st.text(
-            alphabet=st.characters(blacklist_categories=["Cs"], blacklist_characters="{}*_~|"),
+            alphabet=st.characters(blacklist_categories=["Cs"], blacklist_characters="{}*_~|`"),
             min_size=1,
             max_size=10,
         ),

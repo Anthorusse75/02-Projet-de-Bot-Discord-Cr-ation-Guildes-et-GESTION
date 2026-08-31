@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.campaigns.causality import validate_condition_ast
 from did.domain.campaigns import (
+    ApprovedVariant,
     CampaignSchedule,
     CampaignTarget,
     CampaignTrigger,
@@ -747,6 +748,62 @@ class CampaignsRepository:
                 .all()
             )
         return [dict(row) for row in rows]
+
+    async def list_approved_variants(
+        self, owner_discord_user_id: int, campaign_id: UUID
+    ) -> dict[str, dict[str, Any]]:
+        """Keyed by ``target_language_code`` -- exactly the shape
+        ``did.campaigns.approved_variants.resolve_variant_for_delivery``
+        expects (WP11/WP12: one approved-variant read per campaign, reused
+        for every target language a fan-out considers)."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_approved_variants WHERE campaign_id=:campaign_id"
+                        ),
+                        {"campaign_id": campaign_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return {str(row["target_language_code"]): dict(row) for row in rows}
+
+    async def upsert_approved_variant(self, variant: ApprovedVariant) -> None:
+        """Approving a variant for (campaign_id, target_language_code)
+        replaces any prior approval for that same pair -- there is only ever
+        one current approval per language, never a history of stale ones
+        left behind to be accidentally reused."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=variant.owner_discord_user_id)
+        ) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO message_approved_variants "
+                    "(id, owner_discord_user_id, campaign_id, target_language_code, "
+                    "source_fingerprint, localized_message_model, approved_by_discord_user_id) "
+                    "VALUES (:id, :owner, :campaign_id, :language, :fingerprint, "
+                    "CAST(:model AS JSONB), :approved_by) "
+                    "ON CONFLICT (campaign_id, target_language_code) DO UPDATE SET "
+                    "source_fingerprint=EXCLUDED.source_fingerprint, "
+                    "localized_message_model=EXCLUDED.localized_message_model, "
+                    "approved_by_discord_user_id=EXCLUDED.approved_by_discord_user_id, "
+                    "approved_at=now(), updated_at=now()"
+                ),
+                {
+                    "id": variant.id,
+                    "owner": variant.owner_discord_user_id,
+                    "campaign_id": variant.campaign_id,
+                    "language": variant.target_language_code,
+                    "fingerprint": variant.source_fingerprint,
+                    "model": _to_json(variant.localized_message_model),
+                    "approved_by": variant.approved_by_discord_user_id,
+                },
+            )
 
     async def create_glossary_entry(self, entry: GlossaryEntry) -> None:
         """GUILD-scoped entries need both GUCs set (the row's RLS policy

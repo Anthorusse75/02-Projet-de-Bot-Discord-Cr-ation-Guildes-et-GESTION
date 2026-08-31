@@ -93,18 +93,38 @@ def protect(
     return ProtectionResult(masked_text="".join(parts), fingerprints=tuple(fingerprints))
 
 
-def validate_and_restore(translated_text: str, protection: ProtectionResult) -> str:
+def validate_and_restore(
+    translated_text: str,
+    protection: ProtectionResult,
+    *,
+    foreign_placeholders: frozenset[str] = frozenset(),
+) -> str:
     """Verify exact placeholder-set integrity, then restore original tokens.
 
     Raises :class:`IntegrityViolation` (fail closed) if any expected
     placeholder is missing, any placeholder is duplicated, or the text
     contains a placeholder-shaped token that was never issued (invented).
+
+    ``foreign_placeholders`` (WP12, ``did.campaigns.rendering``'s layered
+    template-variable/glossary composition): placeholder tokens that
+    legitimately belong to a DIFFERENT, already-completed or still-pending
+    ``protect()``/``validate_and_restore`` round trip layered around this
+    one -- e.g. an outer layer's placeholder sitting, as opaque literal
+    text, inside what this layer treats as ordinary TEXT content. They are
+    excluded entirely from this call's missing/duplicated/invented checks
+    (that layer's own ``validate_and_restore`` call is what verifies them),
+    but are never altered by the restore step below either, since they are
+    not in ``expected`` and therefore never matched by the ``replace()``
+    loop -- they simply pass through untouched for the outer layer to
+    resolve.
     """
     expected = {fp.placeholder: fp for fp in protection.fingerprints}
     found = _PLACEHOLDER_PATTERN.findall(translated_text)
 
     found_counts: dict[str, int] = {}
     for token in found:
+        if token in foreign_placeholders:
+            continue
         found_counts[token] = found_counts.get(token, 0) + 1
 
     unknown = sorted(set(found_counts) - set(expected))
@@ -175,6 +195,8 @@ def validate_full_pipeline(
     original_nodes: tuple[MessageNode, ...],
     translated_text: str,
     protection: ProtectionResult,
+    *,
+    foreign_placeholders: frozenset[str] = frozenset(),
 ) -> str:
     """The single production-grade validator: placeholder-set integrity +
     restoration, reparse-and-compare against the original source, and
@@ -182,8 +204,15 @@ def validate_full_pipeline(
     delivery pipeline AND the WP10 benchmark) must use this, not just
     :func:`validate_and_restore` alone, so the benchmark measures the same
     guarantee production actually enforces.
+
+    ``foreign_placeholders`` -- see :func:`validate_and_restore`; used only
+    by ``did.campaigns.rendering``'s layered template-variable/glossary
+    composition, where an outer layer's own placeholder tokens legitimately
+    pass through this (inner) layer's text untouched.
     """
-    restored = validate_and_restore(translated_text, protection)
+    restored = validate_and_restore(
+        translated_text, protection, foreign_placeholders=foreign_placeholders
+    )
     validate_reparsed_structure(original_nodes, restored)
     original_text = "".join(n.text if isinstance(n, TextNode) else n.value for n in original_nodes)
     validate_structural_balance(original_text, restored)
