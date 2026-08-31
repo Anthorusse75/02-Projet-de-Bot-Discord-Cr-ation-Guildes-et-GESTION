@@ -83,7 +83,9 @@ class DueOccurrence:
 @dataclass(frozen=True, slots=True)
 class ScheduleEvaluation:
     due: tuple[DueOccurrence, ...]
-    new_last_cursor_local: datetime
+    #: None for ONE_SHOT (which has no local-cursor concept at all -- it
+    #: fires once and is done); always naive-local for RECURRING.
+    new_last_cursor_local: datetime | None
     next_fire_at_utc: datetime | None
 
 
@@ -96,12 +98,12 @@ def evaluate_one_shot(schedule: CampaignSchedule, *, now: datetime) -> ScheduleE
     assert schedule.fire_at is not None
     if schedule.fire_at > now:
         return ScheduleEvaluation(
-            due=(), new_last_cursor_local=now, next_fire_at_utc=schedule.fire_at
+            due=(), new_last_cursor_local=None, next_fire_at_utc=schedule.fire_at
         )
     key = f"schedule:{schedule.id}:one-shot"
     return ScheduleEvaluation(
         due=(DueOccurrence(scheduled_for_utc=schedule.fire_at, occurrence_key=key),),
-        new_last_cursor_local=now,
+        new_last_cursor_local=None,
         next_fire_at_utc=None,
     )
 
@@ -124,8 +126,13 @@ def evaluate_recurring(schedule: CampaignSchedule, *, now: datetime) -> Schedule
     except (ValueError, TypeError) as exc:
         raise ScheduleEvaluationError(f"invalid RRULE: {exc}") from exc
 
+    if schedule.last_cursor_local is not None and schedule.last_cursor_local.tzinfo is not None:
+        raise ScheduleEvaluationError(
+            "last_cursor_local must be naive local wall-clock, not timezone-aware -- "
+            "mixing it with starts_at would silently corrupt RRULE evaluation"
+        )
     now_local = now.astimezone(tz).replace(tzinfo=None)
-    cursor_local = schedule.last_cursor_at or schedule.starts_at
+    cursor_local = schedule.last_cursor_local or schedule.starts_at
 
     candidates: list[datetime] = list(
         rule.between(cursor_local, now_local + timedelta(microseconds=1), inc=False)

@@ -139,6 +139,15 @@ class TestOneShot:
         r2 = evaluate_one_shot(schedule, now=datetime(2026, 6, 1, tzinfo=UTC))
         assert r1.due[0].occurrence_key == r2.due[0].occurrence_key
 
+    def test_one_shot_has_no_local_cursor_concept(self) -> None:
+        """ONE_SHOT never uses RRULE/local-civil-time evaluation, so it must
+        never emit a cursor value at all -- past or future fire_at."""
+        future = self._schedule(datetime(2030, 1, 1, tzinfo=UTC))
+        past = self._schedule(datetime(2020, 1, 1, tzinfo=UTC))
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        assert evaluate_one_shot(future, now=now).new_last_cursor_local is None
+        assert evaluate_one_shot(past, now=now).new_last_cursor_local is None
+
 
 class TestRecurringDailyOrdinary:
     def test_daily_recurrence_fires_once_per_day(self) -> None:
@@ -156,7 +165,7 @@ class TestRecurringDailyOrdinary:
     def test_next_fire_at_points_to_next_occurrence(self) -> None:
         schedule = _recurring(
             starts_at=datetime(2026, 6, 1, 9, 0, 0),
-            last_cursor_at=datetime(2026, 6, 1, 9, 0, 0),
+            last_cursor_local=datetime(2026, 6, 1, 9, 0, 0),
         )
         result = evaluate_recurring(schedule, now=datetime(2026, 6, 1, 10, 0, 0, tzinfo=PARIS))
         assert result.next_fire_at_utc is not None
@@ -253,7 +262,7 @@ class TestMisfireCatchUp:
 
     def test_process_restart_does_not_duplicate_occurrences(self) -> None:
         """Simulates a scheduler restart: re-evaluating with the same
-        last_cursor_at/now must produce the identical occurrence set (same
+        last_cursor_local/now must produce the identical occurrence set (same
         keys), which is what backs the DB uniqueness constraint."""
         schedule = _recurring(starts_at=datetime(2026, 6, 1, 9, 0, 0), catch_up_bound=10)
         now = datetime(2026, 6, 5, 10, 0, 0, tzinfo=PARIS)
@@ -283,3 +292,33 @@ class TestDispatch:
         )
         with pytest.raises(ScheduleEvaluationError):
             evaluate_schedule(schedule, now=datetime(2026, 1, 1, tzinfo=UTC))
+
+
+class TestNaiveAwareCursorGuard:
+    """External-review finding: message_campaign_schedules.last_cursor_at
+    was previously TIMESTAMPTZ while evaluate_recurring() treated it as a
+    naive local wall-clock value alongside starts_at. Both the domain
+    constructor and evaluate_recurring() itself now refuse an aware value,
+    defense-in-depth against a row that somehow got persisted wrong."""
+
+    def test_domain_constructor_rejects_aware_starts_at(self) -> None:
+        with pytest.raises(ValueError, match="naive local wall-clock"):
+            _recurring(starts_at=datetime(2026, 6, 1, 9, 0, 0, tzinfo=PARIS))
+
+    def test_domain_constructor_rejects_aware_last_cursor_local(self) -> None:
+        with pytest.raises(ValueError, match="naive local wall-clock"):
+            _recurring(
+                starts_at=datetime(2026, 6, 1, 9, 0, 0),
+                last_cursor_local=datetime(2026, 6, 1, 9, 0, 0, tzinfo=PARIS),
+            )
+
+    def test_evaluate_recurring_defends_against_a_corrupted_aware_cursor(self) -> None:
+        """Simulates a row loaded from a legacy/corrupted source that
+        bypassed the domain constructor -- evaluate_recurring() must still
+        refuse to silently mix naive and aware datetimes."""
+        schedule = _recurring(starts_at=datetime(2026, 6, 1, 9, 0, 0))
+        object.__setattr__(
+            schedule, "last_cursor_local", datetime(2026, 6, 1, 9, 0, 0, tzinfo=PARIS)
+        )
+        with pytest.raises(ScheduleEvaluationError, match="naive local wall-clock"):
+            evaluate_recurring(schedule, now=datetime(2026, 6, 3, 8, 0, 0, tzinfo=PARIS))

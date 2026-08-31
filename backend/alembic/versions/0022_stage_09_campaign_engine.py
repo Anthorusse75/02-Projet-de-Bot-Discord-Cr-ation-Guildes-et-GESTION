@@ -58,9 +58,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("publication_mode", sa.String(length=24), nullable=False),
-        sa.Column(
-            "lifecycle_status", sa.String(length=24), server_default="DRAFT", nullable=False
-        ),
+        sa.Column("lifecycle_status", sa.String(length=24), server_default="DRAFT", nullable=False),
         sa.Column("version", sa.BigInteger(), server_default="1", nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
@@ -345,9 +343,7 @@ def upgrade() -> None:
         sa.Column("scheduled_for", sa.DateTime(timezone=True), nullable=True),
         sa.Column("source_event_id", sa.Uuid(), nullable=True),
         sa.Column("source_correlation_id", sa.Uuid(), nullable=True),
-        sa.Column(
-            "status", sa.String(length=24), server_default="PENDING_FANOUT", nullable=False
-        ),
+        sa.Column("status", sa.String(length=24), server_default="PENDING_FANOUT", nullable=False),
         sa.Column("lease_owner", sa.String(length=128), nullable=True),
         sa.Column("leased_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("lease_token", sa.Uuid(), nullable=True),
@@ -377,9 +373,7 @@ def upgrade() -> None:
             name="ck_message_occurrences_status",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_message_occurrences"),
-        sa.UniqueConstraint(
-            "campaign_id", "occurrence_key", name="uq_message_occurrences_key"
-        ),
+        sa.UniqueConstraint("campaign_id", "occurrence_key", name="uq_message_occurrences_key"),
     )
 
     for table in (
@@ -596,9 +590,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("attempt_count >= 0", name="ck_message_deliveries_attempt_count"),
         sa.PrimaryKeyConstraint("id", name="pk_message_deliveries"),
-        sa.UniqueConstraint(
-            "guild_id", "delivery_key", name="uq_message_deliveries_delivery_key"
-        ),
+        sa.UniqueConstraint("guild_id", "delivery_key", name="uq_message_deliveries_delivery_key"),
     )
 
     for table in (
@@ -614,9 +606,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("message_deliveries")
     op.drop_table("message_campaign_trigger_consumptions")
-    op.execute(
-        "DROP INDEX IF EXISTS uq_message_campaign_trigger_sources_guild"
-    )
+    op.execute("DROP INDEX IF EXISTS uq_message_campaign_trigger_sources_guild")
     op.drop_table("message_campaign_trigger_sources")
     op.drop_table("message_campaign_targets")
     op.drop_table("message_occurrences")

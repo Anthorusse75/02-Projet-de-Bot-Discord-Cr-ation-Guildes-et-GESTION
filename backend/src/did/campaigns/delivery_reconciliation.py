@@ -3,39 +3,45 @@
 The critical failure case this module exists for: Discord accepted a
 message, the worker process crashed (or the connection reset) before the
 SENT status committed locally. On restart the delivery is UNKNOWN. Never
-blindly resend a fresh message -- but a *same-nonce* retry is safe, per two
-live probes against the real Discord sandbox (see
+blindly resend a fresh message -- but a *same-nonce* retry is safe and,
+per the corrected finding below, backed by Discord's documented contract,
+not an assumed heuristic (see
 ``docs/90_handoffs/evidence/stage09/nonce-reconciliation-probe.json``):
 
-1. ``Message.nonce`` is populated only from the immediate send response
-   (``data.get('nonce')`` in discord.py's ``Message.__init__``, unconditional
-   on payload shape) -- it is empirically **absent** on both
-   ``fetch_message()`` and ``history()`` results. History-lookup-by-nonce
-   reconciliation does not work against the real API and is not used here.
-2. ``discord.py==2.7.1`` does not expose Discord's ``enforce_nonce`` REST
-   field at all (grepped the installed package source: zero occurrences of
-   "enforce_nonce"). However, sending the identical ``nonce`` + identical
-   content twice in immediate succession, live, returned the **same message
-   id both times** with only one message actually created in the channel --
-   Discord's default (non-``enforce_nonce``) dedup heuristic held for a
-   near-immediate retry.
+1. ``Message.nonce`` is populated only from the immediate send response --
+   it is empirically **absent** on both ``fetch_message()`` and
+   ``history()`` results. History-lookup-by-nonce reconciliation does not
+   work against the real API and is not used here.
+2. **Corrected**: an earlier finding claimed ``discord.py==2.7.1`` does not
+   expose Discord's ``enforce_nonce`` REST field. That was wrong -- caused
+   by a recursive directory grep that silently failed against this repo's
+   accented path, not by the library lacking the field. Reading
+   ``discord/http.py`` directly (and proving it via
+   ``backend/tests/unit/test_stage09_discord_message_sender.py``) shows
+   ``handle_message_parameters()`` -- the function every ``Messageable.send``
+   call goes through, including
+   ``did.infrastructure.discord_message_sender.DiscordPyMessageSender.send()``
+   -- unconditionally sets ``payload['enforce_nonce'] = True`` whenever a
+   ``nonce`` is supplied. Every campaign send already submits Discord's
+   documented strict-dedup contract; no low-level HTTP bypass is needed.
 
 Recovery strategy: on UNKNOWN_OUTCOME, retry the send using the delivery's
 already-stored ``discord_nonce`` and its stored ``content_snapshot`` --
 never a freshly re-rendered payload, which could legitimately differ (e.g.
-if glossary/translation state changed) and defeat Discord's content-based
-dedup matching. Whatever message id that retry returns -- freshly created or
-Discord-deduped back to the original -- is used directly as the delivery's
-final ``discord_message_id``; the two cases are indistinguishable from the
-response and do not need to be, since either way exactly one message now
-exists with that content and that id.
+if glossary/translation state changed) and would be sent with a fresh nonce
+override or defeat matching. Whatever message id that retry returns --
+freshly created or Discord-deduped back to the original -- is used directly
+as the delivery's final ``discord_message_id``; the two cases are
+indistinguishable from the response and do not need to be, since either way
+exactly one message now exists with that content and that id.
 
-Because Discord's default dedup window is undocumented/best-effort (that is
-precisely the guarantee ``enforce_nonce`` exists to make strict), the retry
-is only attempted automatically within a conservative, bounded time window
-since the original attempt, and only for a bounded number of ambiguous
-attempts. Beyond either bound, the delivery goes to INTERVENTION_REQUIRED
-rather than risk sending an actual duplicate on a stale assumption.
+Discord documents the ``enforce_nonce`` dedup window only as "the past few
+minutes" without an exact bound, so the retry is still only attempted
+automatically within a conservative, bounded time window since the original
+attempt, and only for a bounded number of ambiguous attempts -- not because
+the guarantee is in doubt, but because its exact width is not published.
+Beyond either bound, the delivery goes to INTERVENTION_REQUIRED rather than
+assume the window is still open.
 """
 
 from __future__ import annotations
@@ -52,11 +58,12 @@ def generate_delivery_nonce() -> str:
     return secrets.token_hex(16)[:25]
 
 
-#: Conservative and deliberately not empirically pushed further (that would
-#: need an hours-long live test against an undocumented heuristic). Retries
-#: within this window rely on Discord's default nonce dedup; beyond it,
-#: INTERVENTION_REQUIRED is the safe default. Tune only from further live
-#: evidence, never from assumption.
+#: Discord documents enforce_nonce dedup as covering "the past few minutes"
+#: without an exact bound; this window is a conservative interpretation of
+#: that documented-but-imprecise contract, not a guess about undocumented
+#: behavior. Retries within it rely on Discord's enforce_nonce guarantee
+#: (see the module docstring); beyond it, INTERVENTION_REQUIRED is the safe
+#: default. Tune only from further evidence Discord itself publishes.
 SAFE_RETRY_WINDOW = timedelta(minutes=5)
 
 #: A same-nonce retry can itself end up UNKNOWN again (another crash/timeout

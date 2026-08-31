@@ -57,10 +57,37 @@ def _resolve_path(payload: Mapping[str, object], path: str) -> object:
     return current
 
 
+#: Pathological-input bounds (WP3 remediation): a stored condition AST can
+#: never grow unbounded, regardless of who authored it.
+MAX_CONDITION_AST_DEPTH = 10
+MAX_CONDITION_AST_NODES = 100
+MAX_CONDITION_CLAUSES_PER_NODE = 20
+MAX_CONDITION_PATH_LENGTH = 200
+MAX_CONDITION_VALUE_STRING_LENGTH = 2000
+
+
 def validate_condition_ast(node: object) -> None:
-    """Raise if ``node`` uses any operator outside :class:`TriggerConditionOp`
-    or is otherwise malformed. Call this before persisting a trigger.
+    """Raise if ``node`` uses any operator outside :class:`TriggerConditionOp`,
+    is otherwise malformed, or exceeds the pathological-input bounds above
+    (depth/node count/clause count/path or value size). Call this before
+    persisting a trigger -- it must be impossible for an invalid or
+    oversized AST to reach durable state through the canonical create/update
+    path.
     """
+    _validate_condition_ast(node, depth=1, node_count=[0])
+
+
+def _validate_condition_ast(node: object, *, depth: int, node_count: list[int]) -> None:
+    if depth > MAX_CONDITION_AST_DEPTH:
+        raise ConditionEvaluationError(
+            f"condition AST exceeds maximum depth of {MAX_CONDITION_AST_DEPTH}"
+        )
+    node_count[0] += 1
+    if node_count[0] > MAX_CONDITION_AST_NODES:
+        raise ConditionEvaluationError(
+            f"condition AST exceeds maximum node count of {MAX_CONDITION_AST_NODES}"
+        )
+
     if not isinstance(node, dict) or "op" not in node:
         raise ConditionEvaluationError("condition node must be an object with an 'op' key")
     try:
@@ -74,20 +101,34 @@ def validate_condition_ast(node: object) -> None:
         TriggerConditionOp.CONTAINS,
     )
     if op in comparison_ops:
-        if "path" not in node or not isinstance(node["path"], str) or not node["path"]:
+        path = node.get("path")
+        if not isinstance(path, str) or not path:
             raise ConditionEvaluationError(f"{op} condition requires a non-empty 'path' string")
+        if len(path) > MAX_CONDITION_PATH_LENGTH:
+            raise ConditionEvaluationError(
+                f"{op} condition 'path' exceeds {MAX_CONDITION_PATH_LENGTH} characters"
+            )
         if "value" not in node:
             raise ConditionEvaluationError(f"{op} condition requires a 'value'")
+        value = node["value"]
+        if isinstance(value, str) and len(value) > MAX_CONDITION_VALUE_STRING_LENGTH:
+            raise ConditionEvaluationError(
+                f"{op} condition 'value' exceeds {MAX_CONDITION_VALUE_STRING_LENGTH} characters"
+            )
     elif op in (TriggerConditionOp.AND, TriggerConditionOp.OR):
         clauses = node.get("clauses")
         if not isinstance(clauses, list) or not clauses:
             raise ConditionEvaluationError(f"{op} condition requires a non-empty 'clauses' list")
+        if len(clauses) > MAX_CONDITION_CLAUSES_PER_NODE:
+            raise ConditionEvaluationError(
+                f"{op} condition exceeds {MAX_CONDITION_CLAUSES_PER_NODE} clauses"
+            )
         for clause in clauses:
-            validate_condition_ast(clause)
+            _validate_condition_ast(clause, depth=depth + 1, node_count=node_count)
     elif op is TriggerConditionOp.NOT:
         if "clause" not in node:
             raise ConditionEvaluationError("NOT condition requires a 'clause'")
-        validate_condition_ast(node["clause"])
+        _validate_condition_ast(node["clause"], depth=depth + 1, node_count=node_count)
     # ALWAYS: no further shape to validate.
 
 

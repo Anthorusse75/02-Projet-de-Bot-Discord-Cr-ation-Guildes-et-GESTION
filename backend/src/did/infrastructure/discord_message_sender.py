@@ -7,6 +7,20 @@ Live send/edit/delete behavior itself (as opposed to the parameter shapes)
 is exercised by the WP16 Discord sandbox qualification, not by an offline
 unit test; discord.py's own network layer is not something this repository
 re-tests.
+
+**nonce / enforce_nonce (REQ-MSG-029), corrected finding**: passing
+``nonce=`` to ``send()`` here reaches ``discord.http.handle_message_parameters``
+(the real internal payload builder every ``Messageable.send`` call goes
+through), which **unconditionally sets ``payload['enforce_nonce'] = True``
+whenever ``nonce is not None``** (``discord/http.py``, the
+``if nonce is not None:`` block). Proven directly against the exact request
+payload in ``backend/tests/unit/test_stage09_discord_message_sender.py``.
+An earlier session's finding that ``enforce_nonce`` was "unavailable in
+discord.py==2.7.1" was WRONG -- caused by a recursive directory grep that
+silently returned no matches against this repository's accented path
+(``...Création...``), not by the library actually lacking the field. No
+low-level HTTP bypass is needed: the supported high-level API already
+submits Discord's documented strict-dedup contract.
 """
 
 from __future__ import annotations

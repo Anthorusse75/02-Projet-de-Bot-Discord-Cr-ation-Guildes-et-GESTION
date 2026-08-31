@@ -29,6 +29,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import CursorResult, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from did.campaigns.causality import validate_condition_ast
 from did.domain.campaigns import (
     CampaignSchedule,
     CampaignTarget,
@@ -40,6 +41,11 @@ from did.domain.campaigns import (
 )
 from did.infrastructure.database import tenant_transaction
 from did.tenancy.context import TenantContext, UserContext
+
+#: Only a campaign in one of these lifecycle states may have its schedule
+#: fire -- a PAUSED/CANCELLED/COMPLETED/FAILED_INTERVENTION campaign's
+#: schedule must never be claimed, regardless of next_fire_at.
+_FIRING_ELIGIBLE_LIFECYCLE_STATUSES = ("SCHEDULED_ARMED", "ACTIVE_RUNNING")
 
 
 class CampaignsRepository:
@@ -103,6 +109,24 @@ class CampaignsRepository:
             )
         return [dict(row) for row in rows]
 
+    async def get_schedule(
+        self, owner_discord_user_id: int, schedule_id: UUID
+    ) -> dict[str, Any] | None:
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            row = (
+                (
+                    await session.execute(
+                        text("SELECT * FROM message_campaign_schedules WHERE id=:id"),
+                        {"id": schedule_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
     async def create_schedule(self, schedule: CampaignSchedule) -> None:
         async with tenant_transaction(
             self._factory, UserContext(user_id=schedule.owner_discord_user_id)
@@ -112,7 +136,8 @@ class CampaignsRepository:
                     "INSERT INTO message_campaign_schedules "
                     "(id, owner_discord_user_id, campaign_id, schedule_kind, fire_at, rrule, "
                     "timezone, starts_at, misfire_policy, dst_nonexistent_policy, "
-                    "dst_ambiguous_policy, catch_up_bound, next_fire_at, last_cursor_at, version) "
+                    "dst_ambiguous_policy, catch_up_bound, next_fire_at, last_cursor_local, "
+                    "version) "
                     "VALUES (:id, :owner, :campaign_id, :kind, :fire_at, :rrule, :tz, :starts_at, "
                     ":misfire, :dst_nonexistent, :dst_ambiguous, :catch_up, :next_fire, "
                     ":last_cursor, :version)"
@@ -131,7 +156,7 @@ class CampaignsRepository:
                     "dst_ambiguous": schedule.dst_ambiguous_policy.value,
                     "catch_up": schedule.catch_up_bound,
                     "next_fire": schedule.next_fire_at,
-                    "last_cursor": schedule.last_cursor_at,
+                    "last_cursor": schedule.last_cursor_local,
                     "version": schedule.version,
                 },
             )
@@ -146,18 +171,29 @@ class CampaignsRepository:
         limit: int = 20,
     ) -> list[dict[str, Any]]:
         """System/scheduler-only: atomically claim due RECURRING/ONE_SHOT
-        schedules across every owner. Must run on the admin (RLS-bypassing)
-        session factory -- see the module docstring.
+        schedules across every owner, but ONLY when the owning campaign is
+        still in a firing-eligible lifecycle state (SCHEDULED_ARMED or
+        ACTIVE_RUNNING) -- a PAUSED/CANCELLED/COMPLETED/FAILED_INTERVENTION
+        campaign's schedule is never claimed even if next_fire_at is due.
+        Must run on the admin (RLS-bypassing) session factory -- see the
+        module docstring. Each returned row's ``lease_token`` MUST be passed
+        back to :meth:`finalize_schedule_claim`; a claimant that loses its
+        lease (expiry, another worker reclaiming) cannot finalize.
         """
         async with admin_factory() as session, session.begin():
             rows = (
                 (
                     await session.execute(
                         text(
-                            "WITH candidate AS (SELECT id FROM message_campaign_schedules "
-                            "WHERE next_fire_at <= :now AND "
-                            "(leased_until IS NULL OR leased_until < :now) "
-                            "ORDER BY next_fire_at LIMIT :limit FOR UPDATE SKIP LOCKED) "
+                            "WITH candidate AS ("
+                            "SELECT s.id FROM message_campaign_schedules s "
+                            "JOIN message_campaigns c "
+                            "ON c.owner_discord_user_id = s.owner_discord_user_id "
+                            "AND c.id = s.campaign_id "
+                            "WHERE s.next_fire_at <= :now AND "
+                            "(s.leased_until IS NULL OR s.leased_until < :now) AND "
+                            "c.lifecycle_status = ANY(:eligible_statuses) "
+                            "ORDER BY s.next_fire_at LIMIT :limit FOR UPDATE OF s SKIP LOCKED) "
                             "UPDATE message_campaign_schedules AS s SET "
                             "lease_owner=:owner, lease_token=:token, "
                             "leased_until=:now + (:lease_seconds * interval '1 second') "
@@ -165,7 +201,7 @@ class CampaignsRepository:
                             "RETURNING s.id, s.owner_discord_user_id, s.campaign_id, "
                             "s.schedule_kind, s.rrule, s.timezone, s.starts_at, "
                             "s.misfire_policy, s.dst_nonexistent_policy, s.dst_ambiguous_policy, "
-                            "s.catch_up_bound, s.last_cursor_at, s.version"
+                            "s.catch_up_bound, s.last_cursor_local, s.version, s.lease_token"
                         ),
                         {
                             "now": now,
@@ -173,6 +209,7 @@ class CampaignsRepository:
                             "owner": lease_owner,
                             "token": uuid4(),
                             "lease_seconds": lease_seconds,
+                            "eligible_statuses": list(_FIRING_ELIGIBLE_LIFECYCLE_STATUSES),
                         },
                     )
                 )
@@ -180,6 +217,39 @@ class CampaignsRepository:
                 .all()
             )
         return [dict(row) for row in rows]
+
+    async def finalize_schedule_claim(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        schedule_id: UUID,
+        lease_token: UUID,
+        *,
+        new_last_cursor_local: datetime | None,
+        new_next_fire_at: datetime | None,
+    ) -> bool:
+        """Write back the evaluated cursor/next-fire, fenced by
+        ``lease_token``: if another worker already reclaimed this schedule
+        (this worker's lease expired), the token no longer matches and the
+        update becomes a no-op -- the stale worker must not advance the
+        cursor or silently succeed. Always releases the lease on success.
+        """
+        async with admin_factory() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE message_campaign_schedules SET "
+                    "last_cursor_local=:cursor, next_fire_at=:next_fire, "
+                    "lease_owner=NULL, lease_token=NULL, leased_until=NULL, "
+                    "updated_at=now() "
+                    "WHERE id=:id AND lease_token=:token"
+                ),
+                {
+                    "id": schedule_id,
+                    "token": lease_token,
+                    "cursor": new_last_cursor_local,
+                    "next_fire": new_next_fire_at,
+                },
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
 
     async def create_target(self, target: CampaignTarget) -> None:
         async with tenant_transaction(self._factory, TenantContext(target.guild_id)) as session:
@@ -276,26 +346,53 @@ class CampaignsRepository:
         return cast(CursorResult[Any], result).rowcount == 1
 
     async def claim_next_delivery(
-        self, guild_id: int, *, lease_owner: str, limit: int = 1
+        self,
+        guild_id: int,
+        *,
+        lease_owner: str,
+        lease_seconds: float = 30.0,
+        limit: int = 1,
     ) -> list[dict[str, Any]]:
         """Guild-scoped atomic claim of PENDING deliveries (the delivery
-        worker's WP13 dispatch primitive)."""
+        worker's WP13 dispatch primitive), durably lease-fenced.
+
+        Also reclaims deliveries stuck in ``CLAIMED`` past their lease
+        expiry -- safe because ``CLAIMED`` means the previous worker never
+        even reached the external send call yet (see
+        :meth:`mark_delivery_sending`); once a worker marks a delivery
+        ``SENDING`` it is no longer eligible here, since a stale reclaim at
+        that point is exactly the ambiguous-outcome scenario
+        ``did.campaigns.delivery_reconciliation`` handles instead of a
+        blind second claim. Every returned row's ``lease_token`` MUST be
+        passed to :meth:`mark_delivery_sending`/:meth:`finalize_delivery`.
+        """
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             rows = (
                 (
                     await session.execute(
                         text(
                             "WITH candidate AS (SELECT id FROM message_deliveries "
-                            "WHERE guild_id=:guild_id AND status='PENDING' "
+                            "WHERE guild_id=:guild_id AND ("
+                            "status='PENDING' OR "
+                            "(status='CLAIMED' AND (leased_until IS NULL OR leased_until < now()))"
+                            ") "
                             "ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED) "
                             "UPDATE message_deliveries AS d SET status='CLAIMED', "
+                            "lease_owner=:owner, lease_token=:token, "
+                            "leased_until=now() + (:lease_seconds * interval '1 second'), "
                             "attempt_count=attempt_count+1, updated_at=now() "
                             "FROM candidate WHERE d.id=candidate.id "
                             "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
                             "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
-                            "d.discord_nonce, d.attempt_count"
+                            "d.discord_nonce, d.attempt_count, d.lease_token"
                         ),
-                        {"guild_id": guild_id, "owner": lease_owner, "limit": limit},
+                        {
+                            "guild_id": guild_id,
+                            "owner": lease_owner,
+                            "token": uuid4(),
+                            "lease_seconds": lease_seconds,
+                            "limit": limit,
+                        },
                     )
                 )
                 .mappings()
@@ -303,7 +400,73 @@ class CampaignsRepository:
             )
         return [dict(row) for row in rows]
 
+    async def mark_delivery_sending(
+        self, delivery_id: UUID, guild_id: int, lease_token: UUID
+    ) -> bool:
+        """CLAIMED -> SENDING, fenced by ``lease_token``. Once this succeeds,
+        the delivery is no longer eligible for stale-lease reclaim by
+        :meth:`claim_next_delivery` -- only :meth:`finalize_delivery` (by
+        the same worker, using the same token) may resolve it further."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_deliveries SET status='SENDING', updated_at=now() "
+                    "WHERE id=:id AND guild_id=:guild_id AND status='CLAIMED' "
+                    "AND lease_token=:token"
+                ),
+                {"id": delivery_id, "guild_id": guild_id, "token": lease_token},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
+    async def finalize_delivery(
+        self,
+        delivery_id: UUID,
+        guild_id: int,
+        lease_token: UUID,
+        *,
+        status: str,
+        discord_message_id: int | None = None,
+        discord_nonce: str | None = None,
+        content_snapshot: dict[str, object] | None = None,
+        last_error: str | None = None,
+    ) -> bool:
+        """Resolve a CLAIMED/SENDING delivery, fenced by ``lease_token``: a
+        worker that lost its lease (expiry + reclaim by another worker)
+        cannot finalize -- the update becomes a safe no-op instead of
+        silently overwriting a row it no longer owns. Always releases the
+        lease on success."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_deliveries SET status=:status, "
+                    "discord_message_id=COALESCE(:message_id, discord_message_id), "
+                    "discord_nonce=COALESCE(:nonce, discord_nonce), "
+                    "content_snapshot=COALESCE(CAST(:snapshot AS JSONB), content_snapshot), "
+                    "last_error=:last_error, "
+                    "lease_owner=NULL, lease_token=NULL, leased_until=NULL, updated_at=now() "
+                    "WHERE id=:id AND guild_id=:guild_id AND status IN ('CLAIMED','SENDING') "
+                    "AND lease_token=:token"
+                ),
+                {
+                    "id": delivery_id,
+                    "guild_id": guild_id,
+                    "token": lease_token,
+                    "status": status,
+                    "message_id": discord_message_id,
+                    "nonce": discord_nonce,
+                    "snapshot": (
+                        _to_json(content_snapshot) if content_snapshot is not None else None
+                    ),
+                    "last_error": last_error,
+                },
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
     async def create_trigger(self, trigger: CampaignTrigger) -> None:
+        """Raises :class:`ConditionEvaluationError` for a malformed/disallowed/
+        oversized condition AST -- validated before any INSERT is attempted,
+        so an invalid AST can never reach durable state through this path."""
+        validate_condition_ast(trigger.condition_ast)
         async with tenant_transaction(
             self._factory, UserContext(user_id=trigger.owner_discord_user_id)
         ) as session:

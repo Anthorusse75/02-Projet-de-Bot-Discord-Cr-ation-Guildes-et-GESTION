@@ -1,8 +1,9 @@
 {
-  "purpose": "WP6 empirical verification of Discord nonce behavior for UNKNOWN_OUTCOME delivery reconciliation, since discord.py==2.7.1 does not expose Discord's enforce_nonce REST field (verified: zero occurrences of \"enforce_nonce\" in the installed package source).",
-  "environment": "Real Discord sandbox Guild A, temporary text channel created and deleted by the probe, synthetic message content only, zero secrets/ids/PII recorded.",
+  "purpose": "WP6 empirical verification of Discord nonce behavior for UNKNOWN_OUTCOME delivery reconciliation and REQ-MSG-029 (nonce + enforce_nonce).",
+  "environment": "Real Discord sandbox Guild A, temporary text channel(s) created and deleted by each probe, synthetic message content only, zero secrets/ids/PII recorded.",
+  "correction_notice": "An earlier version of this evidence file, and the code/docs it informed, claimed 'discord.py==2.7.1 does not expose Discord's enforce_nonce REST field at all (grepped: zero occurrences in the installed package)'. That claim was WRONG. The recursive directory grep used to check the installed discord.py source silently returned no matches when run against this repository's path (which contains the accented characters in 'Création'), not because the field is absent. A direct file-level check of discord/http.py found handle_message_parameters() unconditionally sets payload['enforce_nonce'] = True whenever a nonce is supplied -- confirmed by literally calling that function and inspecting the built payload (see probe_3 below and backend/tests/unit/test_stage09_discord_message_sender.py). did.infrastructure.discord_message_sender.DiscordPyMessageSender.send() already passed nonce=nonce to channel.send() from the start, so enforce_nonce=True was very likely already being submitted on every campaign send throughout this stage's development -- this correction is to the finding/documentation/interpretation, not a code behavior change to the send path itself.",
   "probe_1_nonce_persistence": {
-    "description": "Does Message.nonce survive a re-fetch (fetch_message / history), as opposed to only the immediate send response?",
+    "description": "Does Message.nonce survive a re-fetch (fetch_message / history), as opposed to only the immediate send response? (Still true and still relevant: nonce is not queryable after the fact, so history-lookup reconciliation remains unusable -- this part of the original finding stands.)",
     "result": {
       "send_response_has_nonce": true,
       "fetch_message_has_nonce": false,
@@ -10,16 +11,34 @@
       "history_has_matching_nonce": false,
       "history_nonce_values_sample": ["NoneType"]
     },
-    "conclusion": "nonce is NOT returned on fetch_message()/history() -- history-lookup-by-nonce reconciliation does not work against the real API and was not shipped."
+    "conclusion": "nonce is NOT returned on fetch_message()/history() -- history-lookup-by-nonce reconciliation does not work against the real API and was not shipped. Still correct; unaffected by the enforce_nonce correction."
   },
   "probe_2_default_dedup_on_same_nonce_retry": {
-    "description": "Sending identical nonce+content twice in immediate succession -- does Discord's default (non-enforce_nonce) heuristic deduplicate?",
+    "description": "Sending identical nonce+content twice in immediate succession via a raw discord.py channel.send() call.",
     "result": {
       "same_message_id": true,
       "messages_found_in_channel": 1,
       "distinct_ids": 1
     },
-    "conclusion": "Discord's default dedup heuristic held for a near-immediate same-nonce/same-content retry: only one message was created despite two send calls. This is the basis for the RETRY_WITH_SAME_NONCE recovery strategy in did.campaigns.delivery_reconciliation, bounded to a conservative 5-minute window since the heuristic's exact expiry is undocumented and was not pushed further (would require an hours-long live test)."
+    "conclusion": "At the time this was run, it was (incorrectly) attributed to an 'undocumented default dedup heuristic'. It is now understood to be the documented enforce_nonce=True guarantee, since discord.py sends enforce_nonce=True automatically whenever any nonce is passed to send() -- this probe was unknowingly already exercising the real guarantee, not a fallback heuristic."
   },
-  "known_gap": "enforce_nonce (Discord's strict/guaranteed nonce dedup) is unavailable through discord.py==2.7.1's public API. Closing this gap would require bypassing the library's Messageable.send() convenience wrapper and constructing the raw HTTP request via the internal HTTPClient/Route machinery to inject enforce_nonce into the JSON payload manually -- sketched but not implemented in Stage 09, since building and testing a hand-rolled message-send HTTP path (multipart files, embeds, components) without further live coverage risked introducing a subtly broken send path in the most safety-critical part of the system. Documented as an explicit acceptance gap, not a silently omitted feature."
+  "probe_3_enforce_nonce_payload_proof": {
+    "description": "Direct, offline (no network) proof of the exact request payload discord.py builds: does it include enforce_nonce=True whenever a nonce is supplied?",
+    "method": "from discord.http import handle_message_parameters; handle_message_parameters(content='hi', nonce='abc123').payload",
+    "result": {
+      "with_nonce_payload": {"content": "hi", "nonce": "abc123", "enforce_nonce": true, "tts": false},
+      "without_nonce_payload": {"content": "hi", "tts": false}
+    },
+    "conclusion": "Conclusive, source-level proof: discord.py==2.7.1's handle_message_parameters() (discord/http.py) unconditionally sets enforce_nonce=True whenever nonce is not None. This is the exact function every Messageable.send() call goes through, including did.infrastructure.discord_message_sender.DiscordPyMessageSender.send(). See backend/tests/unit/test_stage09_discord_message_sender.py."
+  },
+  "probe_4_live_adapter_end_to_end": {
+    "description": "Live probe through the actual production DiscordPyMessageSender.send() (not a raw discord.py call): same nonce twice, then a different nonce, against a real sandbox channel.",
+    "result": {
+      "same_nonce_dedup_to_same_message": true,
+      "different_nonce_creates_distinct_message": true,
+      "messages_found_before_cleanup": 2
+    },
+    "conclusion": "Confirms end-to-end, through the real adapter code path DID actually uses: a same-nonce resend collapses to the original message (no duplicate), and a different nonce for otherwise-identical content correctly creates a genuinely new message (enforce_nonce does not over-suppress legitimate distinct sends)."
+  },
+  "current_conclusion": "REQ-MSG-029 (nonce + enforce_nonce) is implemented: every campaign send already submits both nonce and enforce_nonce=true via discord.py's standard, supported API -- no low-level HTTP bypass was needed. did.campaigns.delivery_reconciliation's same-nonce retry strategy for UNKNOWN_OUTCOME recovery is backed by Discord's documented strict-dedup contract, not an assumed heuristic. The exact width of Discord's 'past few minutes' dedup window remains undocumented by Discord itself, so SAFE_RETRY_WINDOW (5 minutes) stays a deliberately conservative interpretation of that documented but imprecisely-bounded contract, not a guess about undocumented behavior."
 }

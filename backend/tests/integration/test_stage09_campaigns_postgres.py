@@ -20,6 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 
+from did.campaigns.scheduling import evaluate_recurring
 from did.domain.campaigns import CampaignSchedule as DomainSchedule
 from did.domain.campaigns import CampaignTarget as DomainTarget
 from did.domain.campaigns import (
@@ -58,6 +59,8 @@ CLEANUP_STATEMENTS = (
     "DELETE FROM message_occurrences WHERE owner_discord_user_id IN (:oa,:ob)",
     "DELETE FROM message_campaign_triggers WHERE owner_discord_user_id IN (:oa,:ob)",
     "DELETE FROM message_campaign_schedules WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM message_glossary_entries WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM message_approved_variants WHERE owner_discord_user_id IN (:oa,:ob)",
     "DELETE FROM message_campaigns WHERE owner_discord_user_id IN (:oa,:ob)",
 )
 CLEANUP_PARAMS = {"ga": GUILD_A, "gb": GUILD_B, "oa": OWNER_A, "ob": OWNER_B}
@@ -115,7 +118,9 @@ async def campaigns_context() -> AsyncIterator[CampaignsRepository]:
         await admin_engine.dispose()
 
 
-def _campaign(owner: int) -> MessageCampaign:
+def _campaign(
+    owner: int, *, lifecycle_status: LifecycleStatus = LifecycleStatus.DRAFT
+) -> MessageCampaign:
     return MessageCampaign(
         id=uuid4(),
         owner_discord_user_id=owner,
@@ -125,7 +130,7 @@ def _campaign(owner: int) -> MessageCampaign:
         message_model={"content": "hello"},
         allowed_mentions_policy={"parse": []},
         publication_mode=PublicationMode.IMMEDIATE,
-        lifecycle_status=LifecycleStatus.DRAFT,
+        lifecycle_status=lifecycle_status,
     )
 
 
@@ -357,7 +362,7 @@ class TestScheduleClaimConcurrency:
         self, campaigns_context: CampaignsRepository
     ) -> None:
         repo = campaigns_context
-        campaign = _campaign(OWNER_A)
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
         await repo.create_campaign(campaign)
         schedule = DomainSchedule(
             id=uuid4(),
@@ -382,5 +387,592 @@ class TestScheduleClaimConcurrency:
             )
             claimed_ids = [row["id"] for result in results for row in result]
             assert claimed_ids == [schedule.id]
+        finally:
+            await admin_engine.dispose()
+
+    async def test_paused_campaigns_schedule_is_never_claimed_even_if_due(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """External-review finding: claim_due_schedules previously ignored
+        the owning campaign's lifecycle_status entirely."""
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.PAUSED)
+        await repo.create_campaign(campaign)
+        schedule = DomainSchedule(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            schedule_kind=ScheduleKind.ONE_SHOT,
+            fire_at=datetime.now(UTC) - timedelta(minutes=5),
+            next_fire_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        await repo.create_schedule(schedule)
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            claimed = await repo.claim_due_schedules(
+                admin_factory, now=datetime.now(UTC), lease_owner="worker-1", limit=5
+            )
+            assert claimed == []
+        finally:
+            await admin_engine.dispose()
+
+    async def test_finalize_schedule_claim_fenced_by_lease_token(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        await repo.create_campaign(campaign)
+        schedule = DomainSchedule(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            schedule_kind=ScheduleKind.ONE_SHOT,
+            fire_at=datetime.now(UTC) - timedelta(minutes=5),
+            next_fire_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        await repo.create_schedule(schedule)
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            [claimed] = await repo.claim_due_schedules(
+                admin_factory, now=datetime.now(UTC), lease_owner="worker-1", limit=5
+            )
+            real_token = claimed["lease_token"]
+
+            # A stale/wrong token can never finalize -- safe no-op.
+            wrong_token_result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                uuid4(),
+                new_last_cursor_local=None,
+                new_next_fire_at=None,
+            )
+            assert wrong_token_result is False
+
+            # The rightful lease holder finalizes successfully.
+            correct_result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                real_token,
+                new_last_cursor_local=None,
+                new_next_fire_at=None,
+            )
+            assert correct_result is True
+
+            # Having already finalized (lease released), a second finalize
+            # with the same now-stale token is a no-op, not a double-apply.
+            replay_result = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                real_token,
+                new_last_cursor_local=None,
+                new_next_fire_at=None,
+            )
+            assert replay_result is False
+        finally:
+            await admin_engine.dispose()
+
+
+async def _setup_pending_delivery(
+    repo: CampaignsRepository, *, guild_id: int, owner: int
+) -> MessageDelivery:
+    campaign = _campaign(owner)
+    await repo.create_campaign(campaign)
+    occurrence = MessageOccurrence(
+        id=uuid4(),
+        owner_discord_user_id=owner,
+        campaign_id=campaign.id,
+        occurrence_key=f"occ-{uuid4().hex[:8]}",
+        occurrence_source=OccurrenceSource.EVENT,
+        source_event_id=uuid4(),
+    )
+    await repo.create_occurrence(owner, occurrence)
+    target = DomainTarget(
+        id=uuid4(),
+        guild_id=guild_id,
+        campaign_id=campaign.id,
+        target_kind=DomainTargetKind.CHANNEL,
+        discord_channel_id=999,
+    )
+    await repo.create_target(target)
+    delivery = MessageDelivery(
+        id=uuid4(),
+        guild_id=guild_id,
+        campaign_id=campaign.id,
+        occurrence_id=occurrence.id,
+        target_id=target.id,
+        delivery_key=f"dk-{uuid4().hex[:8]}",
+        discord_channel_id=999,
+        allowed_mentions_snapshot={"parse": []},
+    )
+    await repo.create_delivery(delivery)
+    return delivery
+
+
+@pytest.mark.asyncio
+class TestDeliveryLeaseFencing:
+    async def test_claim_sets_lease_and_returns_the_token(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+        assert claimed["id"] == delivery.id
+        assert claimed["lease_token"] is not None
+
+    async def test_finalize_with_wrong_token_is_a_safe_noop(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+
+        result = await repo.finalize_delivery(
+            delivery.id, GUILD_A, uuid4(), status="SENT", discord_message_id=123456789
+        )
+        assert result is False
+
+    async def test_finalize_with_correct_token_succeeds_exactly_once(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+        token = claimed["lease_token"]
+
+        assert await repo.mark_delivery_sending(delivery.id, GUILD_A, token) is True
+        assert (
+            await repo.finalize_delivery(
+                delivery.id, GUILD_A, token, status="SENT", discord_message_id=123456789
+            )
+            is True
+        )
+        # Lease already released by the successful finalize -- replaying
+        # with the same token must not be able to finalize again.
+        replay = await repo.finalize_delivery(
+            delivery.id, GUILD_A, token, status="SENT", discord_message_id=999999999
+        )
+        assert replay is False
+
+    async def test_expired_claimed_lease_becomes_reclaimable(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """A worker that claimed but crashed before ever calling
+        mark_delivery_sending must not strand the delivery -- a second
+        claim_next_delivery with a near-zero lease duration must be able to
+        reclaim it once the lease has expired."""
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [first_claim] = await repo.claim_next_delivery(
+            GUILD_A, lease_owner="worker-1", lease_seconds=0.01
+        )
+        await asyncio.sleep(0.05)
+
+        [second_claim] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-2")
+        assert second_claim["id"] == delivery.id
+        assert second_claim["lease_token"] != first_claim["lease_token"]
+
+        # The first worker's stale token can no longer finalize.
+        stale_result = await repo.finalize_delivery(
+            delivery.id,
+            GUILD_A,
+            first_claim["lease_token"],
+            status="SENT",
+            discord_message_id=123456789,
+        )
+        assert stale_result is False
+
+    async def test_sending_delivery_is_not_reclaimed_by_a_fresh_claim(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Once mark_delivery_sending succeeds, the delivery must never be
+        picked up again by claim_next_delivery -- an ambiguous outcome past
+        that point is handled by did.campaigns.delivery_reconciliation, not
+        by a blind second claim/second send."""
+        repo = campaigns_context
+        delivery = await _setup_pending_delivery(repo, guild_id=GUILD_A, owner=OWNER_A)
+        [claimed] = await repo.claim_next_delivery(
+            GUILD_A, lease_owner="worker-1", lease_seconds=0.01
+        )
+        sending_ok = await repo.mark_delivery_sending(delivery.id, GUILD_A, claimed["lease_token"])
+        assert sending_ok is True
+        await asyncio.sleep(0.05)  # lease would have expired if it still applied
+
+        still_none = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-2")
+        assert still_none == []
+
+
+@pytest.mark.asyncio
+class TestCrossOwnerCrossCampaignRelationalIntegrity:
+    """External-review CRITICAL finding: composite FKs must prove an owner-
+    scoped child belongs to ITS OWNER's real campaign, and that a delivery's
+    campaign_id matches both its target's and its occurrence's campaign_id
+    -- not just that guild_id/campaign existence checks pass independently.
+    """
+
+    async def _two_campaigns(
+        self, repo: CampaignsRepository
+    ) -> tuple[MessageCampaign, MessageCampaign]:
+        campaign_a = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        campaign_b = _campaign(OWNER_B, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        await repo.create_campaign(campaign_a)
+        await repo.create_campaign(campaign_b)
+        return campaign_a, campaign_b
+
+    async def test_owner_b_schedule_cannot_reference_owner_a_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, _campaign_b = await self._two_campaigns(repo)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_campaign_schedules "
+                            "(id, owner_discord_user_id, campaign_id, schedule_kind, "
+                            "fire_at) "
+                            "VALUES (:id, :owner_b, :campaign_a_id, 'ONE_SHOT', now())"
+                        ),
+                        {"id": uuid4(), "owner_b": OWNER_B, "campaign_a_id": campaign_a.id},
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_owner_b_trigger_cannot_reference_owner_a_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, _campaign_b = await self._two_campaigns(repo)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_campaign_triggers "
+                            "(id, owner_discord_user_id, campaign_id, event_type) "
+                            "VALUES (:id, :owner_b, :campaign_a_id, 'MEMBER_JOIN')"
+                        ),
+                        {"id": uuid4(), "owner_b": OWNER_B, "campaign_a_id": campaign_a.id},
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_owner_b_occurrence_cannot_reference_owner_a_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, _campaign_b = await self._two_campaigns(repo)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_occurrences "
+                            "(id, owner_discord_user_id, campaign_id, occurrence_key, "
+                            "occurrence_source, source_event_id) "
+                            "VALUES (:id, :owner_b, :campaign_a_id, 'occ-x', 'EVENT', :evt)"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "owner_b": OWNER_B,
+                            "campaign_a_id": campaign_a.id,
+                            "evt": uuid4(),
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_owner_b_approved_variant_cannot_reference_owner_a_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, _campaign_b = await self._two_campaigns(repo)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_approved_variants "
+                            "(id, owner_discord_user_id, campaign_id, target_language_code, "
+                            "source_fingerprint, localized_message_model, "
+                            "approved_by_discord_user_id) "
+                            "VALUES (:id, :owner_b, :campaign_a_id, 'fr', :fp, "
+                            "CAST('{}' AS JSONB), :owner_b)"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "owner_b": OWNER_B,
+                            "campaign_a_id": campaign_a.id,
+                            "fp": "a" * 64,
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_owner_b_glossary_campaign_scope_cannot_reference_owner_a_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, _campaign_b = await self._two_campaigns(repo)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_glossary_entries "
+                            "(id, owner_discord_user_id, scope_kind, campaign_id, "
+                            "source_term, behavior) "
+                            "VALUES (:id, :owner_b, 'CAMPAIGN', :campaign_a_id, 'Widget', "
+                            "'DO_NOT_TRANSLATE')"
+                        ),
+                        {"id": uuid4(), "owner_b": OWNER_B, "campaign_a_id": campaign_a.id},
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_glossary_global_user_scope_with_null_campaign_is_unaffected(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """The composite FK must not break the legitimate GLOBAL_USER case
+        (campaign_id NULL) -- Postgres MATCH SIMPLE bypasses the check when
+        any FK column is NULL."""
+        repo = campaigns_context
+        await repo.create_campaign(_campaign(OWNER_A))
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "INSERT INTO message_glossary_entries "
+                        "(id, owner_discord_user_id, scope_kind, campaign_id, "
+                        "source_term, behavior) "
+                        "VALUES (:id, :owner_a, 'GLOBAL_USER', NULL, 'Widget', "
+                        "'DO_NOT_TRANSLATE')"
+                    ),
+                    {"id": uuid4(), "owner_a": OWNER_A},
+                )
+        finally:
+            await engine.dispose()
+
+    async def test_delivery_campaign_id_must_match_its_targets_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Same Guild, but the delivery claims a DIFFERENT campaign than the
+        target it points at -- must be rejected even though guild_id alone
+        would have matched under the old (guild_id, target_id)-only FK."""
+        repo = campaigns_context
+        campaign_a, campaign_b = await self._two_campaigns(repo)
+
+        occurrence_b = MessageOccurrence(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_B,
+            campaign_id=campaign_b.id,
+            occurrence_key="occ-b",
+            occurrence_source=OccurrenceSource.EVENT,
+            source_event_id=uuid4(),
+        )
+        await repo.create_occurrence(OWNER_B, occurrence_b)
+
+        target_a = DomainTarget(
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign_a.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=555,
+        )
+        await repo.create_target(target_a)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            # The delivery claims campaign_b, but target_a actually belongs
+            # to campaign_a -- the composite FK must reject this.
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_deliveries "
+                            "(id, guild_id, campaign_id, occurrence_id, target_id, "
+                            "delivery_key, discord_channel_id, allowed_mentions_snapshot) "
+                            "VALUES (:id, :guild_id, :wrong_campaign_id, :occurrence_id, "
+                            ":target_id, 'dk-mismatch', 555, CAST('{}' AS JSONB))"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "guild_id": GUILD_A,
+                            "wrong_campaign_id": campaign_b.id,
+                            "occurrence_id": occurrence_b.id,
+                            "target_id": target_a.id,
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+    async def test_delivery_occurrence_must_belong_to_the_same_campaign(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign_a, campaign_b = await self._two_campaigns(repo)
+
+        occurrence_b = MessageOccurrence(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_B,
+            campaign_id=campaign_b.id,
+            occurrence_key="occ-b2",
+            occurrence_source=OccurrenceSource.EVENT,
+            source_event_id=uuid4(),
+        )
+        await repo.create_occurrence(OWNER_B, occurrence_b)
+
+        target_a = DomainTarget(
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign_a.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=556,
+        )
+        await repo.create_target(target_a)
+
+        engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            # campaign_id matches target_a's campaign, but occurrence_b
+            # belongs to campaign_b -- the composite FK must reject this.
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as connection:
+                    await connection.execute(
+                        text(
+                            "INSERT INTO message_deliveries "
+                            "(id, guild_id, campaign_id, occurrence_id, target_id, "
+                            "delivery_key, discord_channel_id, allowed_mentions_snapshot) "
+                            "VALUES (:id, :guild_id, :campaign_a_id, :occurrence_b_id, "
+                            ":target_a_id, 'dk-mismatch2', 556, CAST('{}' AS JSONB))"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "guild_id": GUILD_A,
+                            "campaign_a_id": campaign_a.id,
+                            "occurrence_b_id": occurrence_b.id,
+                            "target_a_id": target_a.id,
+                        },
+                    )
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+class TestScheduleCursorPersistenceRoundTrip:
+    """External-review finding: message_campaign_schedules.last_cursor_at
+    was TIMESTAMPTZ in the DB while did.campaigns.scheduling treated it as
+    a naive local wall-clock value -- a real persistence round-trip, not
+    just an in-memory evaluation, is required to prove this is fixed."""
+
+    async def test_persist_reload_and_evaluate_across_a_real_dst_boundary(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A, lifecycle_status=LifecycleStatus.ACTIVE_RUNNING)
+        await repo.create_campaign(campaign)
+
+        # Starts two days before the real 2026-03-29 Europe/Paris
+        # spring-forward transition; daily 09:00 never lands in the gap.
+        # next_fire_at is what a real creation service would compute as the
+        # first occurrence (Europe/Paris is CET/UTC+1 before the transition)
+        # -- schedule creation setting an initial next_fire_at is an
+        # application-layer responsibility not yet wired into a service
+        # (see the WP13 orchestration gap in the handoff); set explicitly
+        # here since this test exercises claim_due_schedules directly.
+        schedule = DomainSchedule(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            schedule_kind=ScheduleKind.RECURRING,
+            rrule="FREQ=DAILY",
+            timezone="Europe/Paris",
+            starts_at=datetime(2026, 3, 27, 9, 0, 0),
+            catch_up_bound=10,
+            next_fire_at=datetime(2026, 3, 27, 8, 0, 0, tzinfo=UTC),
+        )
+        await repo.create_schedule(schedule)
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+
+            # --- First evaluation pass (simulates the scheduler's first run) ---
+            now_1 = datetime(2026, 3, 29, 12, 0, 0, tzinfo=UTC)
+            [claimed_1] = await repo.claim_due_schedules(
+                admin_factory, now=now_1, lease_owner="worker-1", limit=5
+            )
+            reloaded_1 = DomainSchedule(
+                id=claimed_1["id"],
+                owner_discord_user_id=claimed_1["owner_discord_user_id"],
+                campaign_id=claimed_1["campaign_id"],
+                schedule_kind=ScheduleKind.RECURRING,
+                rrule=claimed_1["rrule"],
+                timezone=claimed_1["timezone"],
+                starts_at=claimed_1["starts_at"],
+                catch_up_bound=claimed_1["catch_up_bound"],
+                last_cursor_local=claimed_1["last_cursor_local"],
+            )
+            # This is the exact operation that would raise
+            # "can't compare offset-naive and offset-aware datetimes" if the
+            # persistence layer still round-tripped an aware value here.
+            evaluation_1 = evaluate_recurring(reloaded_1, now=now_1)
+            assert len(evaluation_1.due) >= 1  # crosses the real DST transition day
+
+            finalized_1 = await repo.finalize_schedule_claim(
+                admin_factory,
+                schedule.id,
+                claimed_1["lease_token"],
+                new_last_cursor_local=evaluation_1.new_last_cursor_local,
+                new_next_fire_at=evaluation_1.next_fire_at_utc,
+            )
+            assert finalized_1 is True
+
+            # --- Second evaluation pass after a simulated restart ---
+            persisted = await repo.get_schedule(OWNER_A, schedule.id)
+            assert persisted is not None
+            assert persisted["last_cursor_local"].tzinfo is None  # naive, as stored
+
+            now_2 = datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC)
+            reloaded_2 = DomainSchedule(
+                id=persisted["id"],
+                owner_discord_user_id=persisted["owner_discord_user_id"],
+                campaign_id=persisted["campaign_id"],
+                schedule_kind=ScheduleKind.RECURRING,
+                rrule=persisted["rrule"],
+                timezone=persisted["timezone"],
+                starts_at=persisted["starts_at"],
+                catch_up_bound=persisted["catch_up_bound"],
+                last_cursor_local=persisted["last_cursor_local"],
+            )
+            evaluation_2 = evaluate_recurring(reloaded_2, now=now_2)
+
+            # Deterministic: re-running the exact same evaluation again
+            # produces the identical due set (same occurrence keys).
+            evaluation_2_repeat = evaluate_recurring(reloaded_2, now=now_2)
+            assert [o.occurrence_key for o in evaluation_2.due] == [
+                o.occurrence_key for o in evaluation_2_repeat.due
+            ]
+            # No occurrence from pass 1 is ever repeated in pass 2 (the
+            # cursor genuinely advanced, proving the round trip preserved
+            # local-time semantics rather than silently resetting).
+            assert set(o.occurrence_key for o in evaluation_1.due).isdisjoint(
+                o.occurrence_key for o in evaluation_2.due
+            )
         finally:
             await admin_engine.dispose()

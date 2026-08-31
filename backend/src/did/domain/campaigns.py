@@ -156,7 +156,11 @@ class CampaignSchedule:
     dst_ambiguous_policy: DstAmbiguousPolicy = DstAmbiguousPolicy.EARLIEST
     catch_up_bound: int = 1
     next_fire_at: datetime | None = None
-    last_cursor_at: datetime | None = None
+    #: Naive local wall-clock cursor (interpreted via the schedule's own
+    #: `timezone`, exactly like `starts_at`) -- never timezone-aware. See
+    #: did.campaigns.scheduling for why mixing naive/aware here is a real bug
+    #: class, not a style preference.
+    last_cursor_local: datetime | None = None
     occurrence_count: int = 0
     version: int = 1
 
@@ -173,6 +177,10 @@ class CampaignSchedule:
             raise ValueError("catch_up_bound must be between 0 and 50")
         if self.version <= 0:
             raise ValueError("version must be positive")
+        if self.starts_at is not None and self.starts_at.tzinfo is not None:
+            raise ValueError("starts_at must be a naive local wall-clock datetime")
+        if self.last_cursor_local is not None and self.last_cursor_local.tzinfo is not None:
+            raise ValueError("last_cursor_local must be a naive local wall-clock datetime")
 
 
 class TriggerConditionOp(StrEnum):

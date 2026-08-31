@@ -45,9 +45,10 @@ class DiscordMessageSender(Protocol):
     ) -> DiscordSendOutcome:
         """Every call must pass the same ``nonce`` again on an
         UNKNOWN_OUTCOME retry (see ``did.campaigns.delivery_reconciliation``)
-        -- Discord's default dedup heuristic, empirically verified live,
-        collapses a same-nonce/same-content resend back to the original
-        message instead of creating a duplicate."""
+        -- Discord's documented enforce_nonce dedup contract (always active
+        here: discord.py sets ``enforce_nonce=True`` automatically whenever
+        ``nonce`` is supplied) collapses a same-nonce/same-content resend
+        back to the original message instead of creating a duplicate."""
         ...
 
     async def edit(self, *, channel_id: int, message_id: int, payload: EditPayload) -> None: ...
