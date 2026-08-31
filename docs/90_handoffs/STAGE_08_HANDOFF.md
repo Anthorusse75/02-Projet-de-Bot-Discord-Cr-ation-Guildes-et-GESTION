@@ -20,7 +20,7 @@
 | Merge commit | `d6a8425cff6606cace2ac89705b71519b6a308b1` (deux parents : `252a466…` et `4227483…`, pas de squash/rebase) |
 | Tag | `stage-08-complete` -> `d6a8425cff6606cace2ac89705b71519b6a308b1` |
 | Migration | `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08` ; tête unique `0021_stage_08` ; rehearsal down/up validé |
-| Dernière étape intégrée | `STAGE_07_REACT_DASHBOARD_I18N_AND_INTERACTIONS` |
+| Dernière étape intégrée | `STAGE_08_MULTILINGUAL_CONTENT_AND_TRANSLATION_TOPOLOGY` |
 | Étape suivante | `STAGE_09_READY_NOT_STARTED`; autorisée mais non commencée |
 
 ## Architecture livrée
