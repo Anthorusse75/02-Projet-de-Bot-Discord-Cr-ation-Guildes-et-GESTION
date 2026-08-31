@@ -336,6 +336,107 @@ class CampaignsRepository:
             )
         return cast(CursorResult[Any], result).rowcount == 1
 
+    async def get_occurrence_by_key(
+        self, owner_discord_user_id: int, campaign_id: UUID, occurrence_key: str
+    ) -> dict[str, Any] | None:
+        """The recovery-path lookup for :meth:`create_occurrence` returning
+        False: the occurrence already exists (this could be the very
+        occurrence a prior, possibly-crashed fan-out attempt created) --
+        callers use this to find it and resume via
+        :meth:`claim_occurrence_for_fanout` rather than treating "already
+        exists" as an error."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_occurrences "
+                            "WHERE campaign_id=:campaign_id AND occurrence_key=:key"
+                        ),
+                        {"campaign_id": campaign_id, "key": occurrence_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def claim_occurrence_for_fanout(
+        self,
+        owner_discord_user_id: int,
+        occurrence_id: UUID,
+        *,
+        lease_owner: str,
+        lease_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """WP12 crash-safety: claims exactly ``occurrence_id`` (never an
+        arbitrary other occurrence -- see the identical named-identity
+        rationale in ``CampaignsRepository.claim_delivery``) if it is
+        ``PENDING_FANOUT`` or stuck in ``CLAIMED`` past its lease expiry
+        (a fan-out worker crashed mid-expansion). ``FANNED_OUT``/
+        ``COMPLETED``/``FAILED`` occurrences are never reclaimed -- fan-out
+        is not repeated once it has genuinely finished (successfully or
+        not); a partial-failure retry is a distinct, explicit decision, not
+        an automatic reclaim. Returns ``None`` (idempotent no-op) if not
+        currently claimable, including for a foreign/nonexistent id."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE message_occurrences SET status='CLAIMED', "
+                            "lease_owner=:owner, lease_token=:token, "
+                            "leased_until=now() + (:lease_seconds * interval '1 second'), "
+                            "updated_at=now() "
+                            "WHERE id=:id AND ("
+                            "status='PENDING_FANOUT' OR "
+                            "(status='CLAIMED' AND (leased_until IS NULL OR leased_until < now()))"
+                            ") "
+                            "RETURNING *"
+                        ),
+                        {
+                            "id": occurrence_id,
+                            "owner": lease_owner,
+                            "token": uuid4(),
+                            "lease_seconds": lease_seconds,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def finalize_occurrence_fanout(
+        self,
+        owner_discord_user_id: int,
+        occurrence_id: UUID,
+        lease_token: UUID,
+        *,
+        status: str,
+    ) -> bool:
+        """Fenced CLAIMED -> FANNED_OUT/FAILED transition, releasing the
+        lease. A worker that lost its lease (expiry + reclaim by another
+        worker) gets ``False`` -- a safe no-op, never a silent overwrite of
+        a fan-out another worker already completed or is now responsible
+        for."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_occurrences SET status=:status, "
+                    "lease_owner=NULL, lease_token=NULL, leased_until=NULL, updated_at=now() "
+                    "WHERE id=:id AND status='CLAIMED' AND lease_token=:token"
+                ),
+                {"id": occurrence_id, "token": lease_token, "status": status},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
     async def create_delivery(self, delivery: MessageDelivery) -> bool:
         """Returns False when delivery_key already exists for this Guild --
         the WP6 idempotency ledger's core guarantee. ``delivery.content_snapshot``,
