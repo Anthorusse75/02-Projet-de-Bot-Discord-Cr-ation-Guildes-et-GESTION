@@ -51,6 +51,15 @@ class DeliveryWorkOutcome(StrEnum):
     INTERVENTION_REQUIRED = "INTERVENTION_REQUIRED"
     NOTHING_TO_DO = "NOTHING_TO_DO"
     LEASE_LOST = "LEASE_LOST"
+    #: A named-delivery job (see process_delivery) found its target already
+    #: resolved to a terminal or in-flight status by someone else -- an
+    #: idempotent no-op, never a reason to touch a different delivery.
+    ALREADY_RESOLVED = "ALREADY_RESOLVED"
+    #: A fenced write (mark_delivery_sending or finalize_delivery) reported
+    #: it did not actually commit -- ownership/ordering was lost between the
+    #: attempt and the write. The caller must NOT report SENT/FAILED/
+    #: UNKNOWN as if durable state accepted it.
+    STALE_OUTCOME = "STALE_OUTCOME"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,22 +95,41 @@ async def _send_and_finalize(
     attempt the send, then finalize with the fenced token. Any exception
     that is NOT :class:`DiscordSendError` is, by the
     ``DiscordMessageSender`` contract, an unknown/ambiguous outcome -- never
-    treated as a plain failure."""
+    treated as a plain failure.
+
+    External-review finding (fourth remediation pass): the boolean
+    ``finalize_delivery`` returns MUST be checked. A caller that already
+    lost its fence (e.g. a stalled-SENDING reconciler claimed this same row
+    out from under the original worker between the send attempt and this
+    finalize call) gets ``False`` back -- durable state was NOT updated by
+    this call. Reporting SENT/FAILED/UNKNOWN in that case would be a lie:
+    this worker no longer knows what the durably-recorded outcome is (some
+    other worker's finalize may have already written a different one, or
+    none yet). The one exception is a successful SENT send: the Discord
+    message was genuinely created regardless of whether this worker could
+    still durably record it, so the caller must not re-send -- surfaced as
+    :attr:`DeliveryWorkOutcome.STALE_OUTCOME` (not silently as SENT) so the
+    caller can decide to escalate/audit rather than pretend all is well.
+    """
     try:
         result = await sender.send(
             channel_id=channel_id, message=message, allowed_mentions=allowed_mentions, nonce=nonce
         )
     except DiscordSendError as exc:
-        await repository.finalize_delivery(
+        committed = await repository.finalize_delivery(
             delivery_id,
             guild_id,
             lease_token,
             status=DeliveryStatus.FAILED.value,
             last_error=str(exc),
         )
+        if not committed:
+            return DeliveryWorkResult(
+                DeliveryWorkOutcome.STALE_OUTCOME, delivery_id, error=str(exc)
+            )
         return DeliveryWorkResult(DeliveryWorkOutcome.FAILED, delivery_id, error=str(exc))
     except Exception as exc:
-        await repository.finalize_delivery(
+        committed = await repository.finalize_delivery(
             delivery_id,
             guild_id,
             lease_token,
@@ -109,9 +137,13 @@ async def _send_and_finalize(
             discord_nonce=nonce,
             last_error=str(exc),
         )
+        if not committed:
+            return DeliveryWorkResult(
+                DeliveryWorkOutcome.STALE_OUTCOME, delivery_id, error=str(exc)
+            )
         return DeliveryWorkResult(DeliveryWorkOutcome.UNKNOWN_OUTCOME, delivery_id, error=str(exc))
 
-    await repository.finalize_delivery(
+    committed = await repository.finalize_delivery(
         delivery_id,
         guild_id,
         lease_token,
@@ -119,8 +151,68 @@ async def _send_and_finalize(
         discord_message_id=result.discord_message_id,
         discord_nonce=nonce,
     )
+    if not committed:
+        # The message really was sent -- never re-send -- but this worker
+        # lost the ability to durably record it. Surface distinctly so a
+        # caller can audit/reconcile rather than believe durable state
+        # reflects SENT.
+        return DeliveryWorkResult(
+            DeliveryWorkOutcome.STALE_OUTCOME,
+            delivery_id,
+            discord_message_id=result.discord_message_id,
+            error="finalize_delivery lost fencing after a successful send",
+        )
     return DeliveryWorkResult(
         DeliveryWorkOutcome.SENT, delivery_id, discord_message_id=result.discord_message_id
+    )
+
+
+async def process_delivery(
+    *,
+    repository: CampaignsRepository,
+    sender: DiscordMessageSender,
+    guild_id: int,
+    delivery_id: UUID,
+    lease_owner: str,
+    now: datetime | None = None,
+) -> DeliveryWorkResult:
+    """Claim and process exactly ``delivery_id`` -- the named-identity
+    primitive a durable governor job must use (external-review finding,
+    fourth remediation pass: a job whose identity names one delivery must
+    never be able to consume a different one). Uses
+    :meth:`CampaignsRepository.claim_delivery`, not
+    :meth:`~CampaignsRepository.claim_next_delivery`.
+
+    A delayed/replayed/stale job for a delivery that is no longer claimable
+    (already SENT/FAILED/UNKNOWN/INTERVENTION_REQUIRED, or legitimately
+    ``SENDING`` under another worker's still-valid lease) returns
+    :attr:`DeliveryWorkOutcome.ALREADY_RESOLVED` -- an idempotent no-op,
+    never a fallback to claiming some other delivery."""
+    now = now or datetime.now(UTC)
+    claimed = await repository.claim_delivery(guild_id, delivery_id, lease_owner=lease_owner)
+    if claimed is None:
+        return DeliveryWorkResult(DeliveryWorkOutcome.ALREADY_RESOLVED, delivery_id)
+    row = claimed
+
+    nonce = row.get("discord_nonce") or generate_delivery_nonce()
+    marked = await repository.mark_delivery_sending(
+        row["id"], guild_id, row["lease_token"], now=now, discord_nonce=nonce
+    )
+    if not marked:
+        return DeliveryWorkResult(DeliveryWorkOutcome.LEASE_LOST, row["id"])
+
+    message = MessageModel.from_dict(row["content_snapshot"] or {})
+    mentions = _compiled_mentions_from_snapshot(row.get("allowed_mentions_snapshot") or {})
+    return await _send_and_finalize(
+        repository=repository,
+        sender=sender,
+        guild_id=guild_id,
+        delivery_id=row["id"],
+        lease_token=row["lease_token"],
+        channel_id=row["discord_channel_id"],
+        message=message,
+        allowed_mentions=mentions,
+        nonce=nonce,
     )
 
 
@@ -132,10 +224,14 @@ async def process_one_pending_delivery(
     lease_owner: str,
     now: datetime | None = None,
 ) -> DeliveryWorkResult:
-    """Claim exactly one PENDING (or stale-CLAIMED) delivery for
-    ``guild_id``, send it, and finalize -- the atomic unit of work a
-    worker/governor dispatch submits. Returns
-    :attr:`DeliveryWorkOutcome.NOTHING_TO_DO` when nothing was claimable."""
+    """Guild-scoped queue-drain primitive: claim ANY next PENDING (or
+    stale-CLAIMED) delivery for ``guild_id``, send it, and finalize. Used by
+    a bulk drain sweep that has no specific delivery in mind -- NOT by
+    :func:`submit_delivery_to_governor`, which names a specific
+    ``delivery_id`` and must use :func:`process_delivery` instead so a
+    durable job's identity and the row it may touch are always the same
+    row. Returns :attr:`DeliveryWorkOutcome.NOTHING_TO_DO` when nothing was
+    claimable."""
     now = now or datetime.now(UTC)
     claimed = await repository.claim_next_delivery(guild_id, lease_owner=lease_owner)
     if not claimed:
@@ -283,17 +379,27 @@ def submit_delivery_to_governor(
     lease_owner: str,
     enqueued_at: datetime,
 ) -> Any:
-    """Submit exactly one already-known-pending delivery through the shared
-    governor rather than sending it directly -- this is what keeps campaign
-    bulk work subject to the same global/per-Guild concurrency limits and
-    backpressure as every other Discord workload type."""
+    """Submit exactly ``delivery_id`` through the shared governor rather
+    than sending it directly -- this is what keeps campaign bulk work
+    subject to the same global/per-Guild concurrency limits and
+    backpressure as every other Discord workload type. Uses
+    :func:`process_delivery` (named-identity claim), NOT
+    :func:`process_one_pending_delivery` -- external-review finding (fourth
+    remediation pass): the job's identity names ``delivery_id``, so a
+    delayed/replayed/stale dispatch of this exact job must only ever be
+    able to touch that same row, never "whatever is next pending" in the
+    Guild."""
     job = build_delivery_workload_job(
         guild_id=guild_id, delivery_id=delivery_id, enqueued_at=enqueued_at
     )
 
     async def _operation() -> DeliveryWorkResult:
-        return await process_one_pending_delivery(
-            repository=repository, sender=sender, guild_id=guild_id, lease_owner=lease_owner
+        return await process_delivery(
+            repository=repository,
+            sender=sender,
+            guild_id=guild_id,
+            delivery_id=delivery_id,
+            lease_owner=lease_owner,
         )
 
     return governor.submit(job, _operation)

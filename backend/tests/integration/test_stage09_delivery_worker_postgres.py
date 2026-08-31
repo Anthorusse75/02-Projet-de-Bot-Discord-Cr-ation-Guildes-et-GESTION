@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 
 from did.campaigns.delivery_worker import (
     DeliveryWorkOutcome,
+    process_delivery,
     process_one_pending_delivery,
     reconcile_one_stalled_delivery,
 )
@@ -36,6 +37,7 @@ from did.domain.campaigns import TargetKind as DomainTargetKind
 from did.domain.message_sending import DiscordSendError, DiscordSendOutcome
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import create_database_engine
+from did.infrastructure.discord_message_sender import DiscordPyMessageSender
 from did.messaging.message_model import MessageModel
 
 pytestmark = [pytest.mark.integration, pytest.mark.security, pytest.mark.failure_injection]
@@ -343,3 +345,357 @@ class TestReconcileOneStalledDelivery:
             now=datetime.now(UTC),
         )
         assert result.outcome is DeliveryWorkOutcome.SENT
+
+
+@pytest.mark.asyncio
+class TestProcessDeliveryNamedIdentity:
+    """External-review finding (fourth remediation pass): a durable
+    governor job names ONE delivery_id. It must only ever be able to claim
+    and process that exact row -- never "whatever is next pending" in the
+    Guild, which is what process_one_pending_delivery does and which a
+    delayed/replayed/stale job could otherwise use to steal a different
+    delivery. process_delivery (backed by CampaignsRepository.claim_delivery)
+    is the fix."""
+
+    async def test_job_a_sends_only_a(self, campaigns_context: CampaignsRepository) -> None:
+        repo = campaigns_context
+        delivery_a = await _setup_pending_delivery(repo, content="Content A")
+        delivery_b = await _setup_pending_delivery(repo, content="Content B")
+        sender = _FakeSender(mode="success")
+
+        result = await process_delivery(
+            repository=repo,
+            sender=sender,
+            guild_id=GUILD_A,
+            delivery_id=delivery_a.id,
+            lease_owner="worker-1",
+        )
+        assert result.outcome is DeliveryWorkOutcome.SENT
+        assert result.delivery_id == delivery_a.id
+        assert sender.call_count == 1
+        assert sender.sent_messages[0][1].content == "Content A"
+        assert await repo.get_delivery_status(GUILD_A, delivery_b.id) == "PENDING"
+
+    async def test_job_b_sends_only_b(self, campaigns_context: CampaignsRepository) -> None:
+        repo = campaigns_context
+        delivery_a = await _setup_pending_delivery(repo, content="Content A")
+        delivery_b = await _setup_pending_delivery(repo, content="Content B")
+        sender = _FakeSender(mode="success")
+
+        result = await process_delivery(
+            repository=repo,
+            sender=sender,
+            guild_id=GUILD_A,
+            delivery_id=delivery_b.id,
+            lease_owner="worker-1",
+        )
+        assert result.outcome is DeliveryWorkOutcome.SENT
+        assert result.delivery_id == delivery_b.id
+        assert sender.sent_messages[0][1].content == "Content B"
+        assert await repo.get_delivery_status(GUILD_A, delivery_a.id) == "PENDING"
+
+    async def test_replayed_job_a_after_a_is_sent_does_not_send_b(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        delivery_a = await _setup_pending_delivery(repo, content="Content A")
+        delivery_b = await _setup_pending_delivery(repo, content="Content B")
+        sender = _FakeSender(mode="success")
+
+        first = await process_delivery(
+            repository=repo,
+            sender=sender,
+            guild_id=GUILD_A,
+            delivery_id=delivery_a.id,
+            lease_owner="worker-1",
+        )
+        assert first.outcome is DeliveryWorkOutcome.SENT
+        assert sender.call_count == 1
+
+        # A replayed/duplicate dispatch of the SAME job (same delivery_id)
+        # must be an idempotent no-op -- it must never fall through to
+        # claiming B, which is still genuinely PENDING and available.
+        replay = await process_delivery(
+            repository=repo,
+            sender=sender,
+            guild_id=GUILD_A,
+            delivery_id=delivery_a.id,
+            lease_owner="worker-2",
+        )
+        assert replay.outcome is DeliveryWorkOutcome.ALREADY_RESOLVED
+        assert sender.call_count == 1  # no second send of A, and B untouched
+        assert await repo.get_delivery_status(GUILD_A, delivery_b.id) == "PENDING"
+
+    async def test_stale_job_a_cannot_steal_b_even_while_a_is_still_sending(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """A's job is claimed (SENDING) but not yet finalized; a stale/
+        duplicate dispatch of A's own job must not silently succeed against
+        B instead -- it must report LEASE_LOST for A specifically (its own
+        lease is already held), never touch B."""
+        repo = campaigns_context
+        delivery_a = await _setup_pending_delivery(repo, content="Content A")
+        delivery_b = await _setup_pending_delivery(repo, content="Content B")
+
+        [claimed_a] = await repo.claim_next_delivery(GUILD_A, lease_owner="worker-1")
+        assert claimed_a["id"] == delivery_a.id
+        await repo.mark_delivery_sending(
+            claimed_a["id"],
+            GUILD_A,
+            claimed_a["lease_token"],
+            now=datetime.now(UTC),
+            discord_nonce="n1",
+        )
+
+        stale_replay = await process_delivery(
+            repository=repo,
+            sender=_FakeSender(mode="success"),
+            guild_id=GUILD_A,
+            delivery_id=delivery_a.id,
+            lease_owner="worker-2",
+        )
+        assert stale_replay.outcome is DeliveryWorkOutcome.ALREADY_RESOLVED
+        assert await repo.get_delivery_status(GUILD_A, delivery_b.id) == "PENDING"
+
+    async def test_concurrent_jobs_a_and_b_each_send_exactly_once(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        delivery_a = await _setup_pending_delivery(repo, content="Content A")
+        delivery_b = await _setup_pending_delivery(repo, content="Content B")
+        sender = _FakeSender(mode="success")
+
+        import asyncio
+
+        result_a, result_b = await asyncio.gather(
+            process_delivery(
+                repository=repo,
+                sender=sender,
+                guild_id=GUILD_A,
+                delivery_id=delivery_a.id,
+                lease_owner="worker-1",
+            ),
+            process_delivery(
+                repository=repo,
+                sender=sender,
+                guild_id=GUILD_A,
+                delivery_id=delivery_b.id,
+                lease_owner="worker-2",
+            ),
+        )
+        assert result_a.outcome is DeliveryWorkOutcome.SENT
+        assert result_b.outcome is DeliveryWorkOutcome.SENT
+        assert sender.call_count == 2
+        sent_contents = {m.content for _, m, _ in sender.sent_messages}
+        assert sent_contents == {"Content A", "Content B"}
+
+    async def test_unknown_delivery_id_is_already_resolved_not_an_error(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        result = await process_delivery(
+            repository=repo,
+            sender=_FakeSender(),
+            guild_id=GUILD_A,
+            delivery_id=uuid4(),
+            lease_owner="worker-1",
+        )
+        assert result.outcome is DeliveryWorkOutcome.ALREADY_RESOLVED
+
+
+@pytest.mark.asyncio
+class TestFinalizationFencingResultHonored:
+    """External-review finding (fourth remediation pass):
+    _send_and_finalize must check the bool finalize_delivery() returns
+    rather than assuming its own fenced write always commits."""
+
+    async def test_lost_fencing_after_a_successful_send_reports_stale_not_sent(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Simulates the exact race the review names: a stalled-SENDING
+        reconciler steals the row's lease WHILE the original worker's send
+        call is in flight (before it can finalize). The original worker's
+        Discord call still genuinely succeeds -- but its finalize must fail
+        (wrong token) and it must report STALE_OUTCOME, never SENT, and
+        must never invent a fresh nonce."""
+        repo = campaigns_context
+        await _setup_pending_delivery(repo, content="Race content")
+
+        @dataclass
+        class _RacingSender:
+            repo: CampaignsRepository
+            call_count: int = 0
+            seen_nonce: str | None = None
+
+            async def send(self, *, channel_id, message, allowed_mentions, nonce):  # type: ignore[no-untyped-def]
+                self.call_count += 1
+                self.seen_nonce = nonce
+                # Simulate a reconciler stealing this same row's lease
+                # WHILE this send is still in flight, well past the stall
+                # threshold from this call's perspective.
+                await self.repo.claim_stalled_sending_for_reconciliation(
+                    GUILD_A,
+                    now=datetime.now(UTC) + timedelta(seconds=200),
+                    lease_owner="reconciler-mid-flight",
+                    stall_after_seconds=1.0,
+                )
+                return DiscordSendOutcome(discord_message_id=999888777)
+
+            async def edit(self, *, channel_id, message_id, payload):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+            async def delete(self, *, channel_id, message_id):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+        sender = _RacingSender(repo=repo)
+        result = await process_one_pending_delivery(
+            repository=repo, sender=sender, guild_id=GUILD_A, lease_owner="worker-original"
+        )
+        assert result.outcome is DeliveryWorkOutcome.STALE_OUTCOME
+        assert result.discord_message_id == 999888777
+        assert sender.call_count == 1  # exactly one real Discord call was made
+
+    async def test_lost_fencing_on_ambiguous_outcome_reports_stale_not_unknown(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        await _setup_pending_delivery(repo)
+
+        @dataclass
+        class _RacingAmbiguousSender:
+            repo: CampaignsRepository
+
+            async def send(self, *, channel_id, message, allowed_mentions, nonce):  # type: ignore[no-untyped-def]
+                await self.repo.claim_stalled_sending_for_reconciliation(
+                    GUILD_A,
+                    now=datetime.now(UTC) + timedelta(seconds=200),
+                    lease_owner="reconciler-mid-flight",
+                    stall_after_seconds=1.0,
+                )
+                raise TimeoutError("connection reset before response")
+
+            async def edit(self, *, channel_id, message_id, payload):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+            async def delete(self, *, channel_id, message_id):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+        result = await process_one_pending_delivery(
+            repository=repo,
+            sender=_RacingAmbiguousSender(repo=repo),
+            guild_id=GUILD_A,
+            lease_owner="worker-original",
+        )
+        assert result.outcome is DeliveryWorkOutcome.STALE_OUTCOME
+
+    async def test_lost_fencing_on_discord_error_reports_stale_not_failed(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        await _setup_pending_delivery(repo)
+
+        @dataclass
+        class _RacingErrorSender:
+            repo: CampaignsRepository
+
+            async def send(self, *, channel_id, message, allowed_mentions, nonce):  # type: ignore[no-untyped-def]
+                await self.repo.claim_stalled_sending_for_reconciliation(
+                    GUILD_A,
+                    now=datetime.now(UTC) + timedelta(seconds=200),
+                    lease_owner="reconciler-mid-flight",
+                    stall_after_seconds=1.0,
+                )
+                raise DiscordSendError("403 Forbidden")
+
+            async def edit(self, *, channel_id, message_id, payload):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+            async def delete(self, *, channel_id, message_id):  # type: ignore[no-untyped-def]
+                raise NotImplementedError
+
+        result = await process_one_pending_delivery(
+            repository=repo,
+            sender=_RacingErrorSender(repo=repo),
+            guild_id=GUILD_A,
+            lease_owner="worker-original",
+        )
+        assert result.outcome is DeliveryWorkOutcome.STALE_OUTCOME
+
+
+class _RaisingChannel:
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    async def send(self, **kwargs: object) -> object:
+        raise self._exc
+
+
+class _FakeHttpResponse:
+    def __init__(self, status: int, reason: str = "Error") -> None:
+        self.status = status
+        self.reason = reason
+
+
+@pytest.mark.asyncio
+class TestWorkerUsesRealAdapterExceptionClassification:
+    """External-review finding (fourth remediation pass): failure injection
+    must exercise the REAL DiscordPyMessageSender's exception translation,
+    not only a fake sender that manually raises DiscordSendError -- proves
+    the full worker+real-adapter pipeline, not just each half in isolation."""
+
+    def _real_sender_raising(self, exc: BaseException) -> DiscordPyMessageSender:
+        import discord
+
+        client = discord.Client(intents=discord.Intents.none())
+        sender = DiscordPyMessageSender(client)
+        channel = _RaisingChannel(exc)
+
+        async def _get_channel(channel_id: int) -> object:
+            return channel
+
+        sender._get_channel = _get_channel  # type: ignore[method-assign]
+        return sender
+
+    async def test_real_403_forbidden_finalizes_as_failed(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        import discord
+
+        repo = campaigns_context
+        await _setup_pending_delivery(repo)
+        sender = self._real_sender_raising(
+            discord.Forbidden(_FakeHttpResponse(403), "missing SEND_MESSAGES")
+        )
+
+        result = await process_one_pending_delivery(
+            repository=repo, sender=sender, guild_id=GUILD_A, lease_owner="worker-1"
+        )
+        assert result.outcome is DeliveryWorkOutcome.FAILED
+
+    async def test_real_5xx_server_error_finalizes_as_unknown_outcome(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        import discord
+
+        repo = campaigns_context
+        await _setup_pending_delivery(repo)
+        sender = self._real_sender_raising(
+            discord.DiscordServerError(_FakeHttpResponse(503), "internal server error")
+        )
+
+        result = await process_one_pending_delivery(
+            repository=repo, sender=sender, guild_id=GUILD_A, lease_owner="worker-1"
+        )
+        assert result.outcome is DeliveryWorkOutcome.UNKNOWN_OUTCOME
+
+    async def test_real_connection_reset_finalizes_as_unknown_outcome(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        await _setup_pending_delivery(repo)
+        sender = self._real_sender_raising(ConnectionResetError("connection reset"))
+
+        result = await process_one_pending_delivery(
+            repository=repo, sender=sender, guild_id=GUILD_A, lease_owner="worker-1"
+        )
+        assert result.outcome is DeliveryWorkOutcome.UNKNOWN_OUTCOME

@@ -15,6 +15,7 @@ from discord.http import handle_message_parameters
 
 from did.campaigns.delivery_reconciliation import generate_delivery_nonce
 from did.domain.campaigns import AttachmentPolicy
+from did.domain.message_sending import DiscordSendError
 from did.infrastructure.discord_message_sender import (
     DiscordPyMessageSender,
     _build_discord_allowed_mentions,
@@ -141,3 +142,104 @@ class TestEditReplaceAllAttachmentConversion:
 
 async def _async_return(value: object) -> object:
     return value
+
+
+class _FakeHttpResponse:
+    def __init__(self, status: int, reason: str = "Error") -> None:
+        self.status = status
+        self.reason = reason
+
+
+class _RaisingChannel:
+    """Fake Messageable whose .send() raises a caller-supplied exception --
+    used to prove the adapter classifies REAL discord.py exception classes
+    into the correct Stage09 DiscordSendError/ambiguous-exception category,
+    not just a fake sender manually raising DiscordSendError."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    async def send(self, **kwargs: object) -> object:
+        raise self._exc
+
+
+class TestRealDiscordExceptionClassification:
+    """External-review finding (fourth remediation pass): the REAL adapter
+    must translate discord.py's own exception hierarchy into the
+    DiscordSendError (definitively known failure) vs. ambiguous-exception
+    (UNKNOWN_OUTCOME) contract -- previously nothing did this at all, so
+    every discord.py exception happened to fall through as "ambiguous" by
+    accident, even a clean 403/404."""
+
+    def _sender(self, exc: BaseException) -> DiscordPyMessageSender:
+        client = discord.Client(intents=discord.Intents.none())
+        sender = DiscordPyMessageSender(client)
+        sender._get_channel = lambda channel_id: _async_return(  # type: ignore[method-assign,assignment,return-value]
+            _RaisingChannel(exc)
+        )
+        return sender
+
+    async def _attempt_send(self, sender: DiscordPyMessageSender) -> None:
+        await sender.send(
+            channel_id=123,
+            message=MessageModel(content="hi"),
+            allowed_mentions=NO_MENTIONS,
+            nonce="n1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_forbidden_403_is_a_definitive_known_failure(self) -> None:
+        exc = discord.Forbidden(_FakeHttpResponse(403), "missing SEND_MESSAGES")
+        sender = self._sender(exc)
+        with pytest.raises(DiscordSendError):
+            await self._attempt_send(sender)
+
+    @pytest.mark.asyncio
+    async def test_not_found_404_is_a_definitive_known_failure(self) -> None:
+        exc = discord.NotFound(_FakeHttpResponse(404), "unknown channel")
+        sender = self._sender(exc)
+        with pytest.raises(DiscordSendError):
+            await self._attempt_send(sender)
+
+    @pytest.mark.asyncio
+    async def test_generic_4xx_validation_error_is_a_definitive_known_failure(self) -> None:
+        exc = discord.HTTPException(_FakeHttpResponse(400), "invalid form body")
+        sender = self._sender(exc)
+        with pytest.raises(DiscordSendError):
+            await self._attempt_send(sender)
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_429_is_ambiguous_not_a_known_failure(self) -> None:
+        """discord.py's own client-side rate limiter already retries before
+        ever raising -- a 429 reaching here means that retry was exhausted,
+        which is an operational/transport concern, not proof Discord
+        rejected the message. Must NOT become DiscordSendError."""
+        exc = discord.HTTPException(_FakeHttpResponse(429), "rate limited")
+        sender = self._sender(exc)
+        with pytest.raises(discord.HTTPException) as excinfo:
+            await self._attempt_send(sender)
+        assert not isinstance(excinfo.value, DiscordSendError)
+
+    @pytest.mark.asyncio
+    async def test_server_error_5xx_is_ambiguous_not_a_known_failure(self) -> None:
+        """A 5xx means the request may have been processed server-side
+        before the error response -- outcome-ambiguous."""
+        exc = discord.DiscordServerError(_FakeHttpResponse(503), "internal server error")
+        sender = self._sender(exc)
+        with pytest.raises(discord.HTTPException) as excinfo:
+            await self._attempt_send(sender)
+        assert not isinstance(excinfo.value, DiscordSendError)
+
+    @pytest.mark.asyncio
+    async def test_connection_reset_propagates_unwrapped_as_ambiguous(self) -> None:
+        sender = self._sender(ConnectionResetError("connection reset by peer"))
+        with pytest.raises(ConnectionResetError) as excinfo:
+            await self._attempt_send(sender)
+        assert not isinstance(excinfo.value, DiscordSendError)
+
+    @pytest.mark.asyncio
+    async def test_timeout_propagates_unwrapped_as_ambiguous(self) -> None:
+        sender = self._sender(TimeoutError("timed out"))
+        with pytest.raises(TimeoutError) as excinfo:
+            await self._attempt_send(sender)
+        assert not isinstance(excinfo.value, DiscordSendError)

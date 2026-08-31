@@ -431,6 +431,75 @@ class CampaignsRepository:
             )
         return [dict(row) for row in rows]
 
+    async def claim_delivery(
+        self,
+        guild_id: int,
+        delivery_id: UUID,
+        *,
+        lease_owner: str,
+        lease_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """Named-identity counterpart to :meth:`claim_next_delivery`
+        (external-review finding, fourth remediation pass): claims exactly
+        ``delivery_id`` -- never an arbitrary next-pending row in
+        ``guild_id`` -- with the identical PENDING-or-expired-CLAIMED
+        eligibility and lease semantics. Returns ``None`` (never another
+        delivery) when ``delivery_id`` does not exist, belongs to another
+        Guild, or is not currently eligible (already ``SENDING``, resolved
+        to a terminal status, or still validly leased by another worker) --
+        the caller must treat that as an idempotent no-op, not an error.
+
+        This is what a durable governor job that names one specific
+        ``delivery_id`` must use instead of :meth:`claim_next_delivery`: a
+        job's identity and the row it is allowed to touch must be the same
+        row, so a delayed/replayed/stale job can never consume a different
+        delivery than the one it names.
+        """
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE message_deliveries AS d SET status='CLAIMED', "
+                            "lease_owner=:owner, lease_token=:token, "
+                            "leased_until=now() + (:lease_seconds * interval '1 second'), "
+                            "attempt_count=attempt_count+1, updated_at=now() "
+                            "WHERE d.guild_id=:guild_id AND d.id=:delivery_id AND ("
+                            "status='PENDING' OR "
+                            "(status='CLAIMED' AND (leased_until IS NULL OR leased_until < now()))"
+                            ") "
+                            "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
+                            "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
+                            "d.discord_nonce, d.attempt_count, d.lease_token, "
+                            "d.content_snapshot, d.allowed_mentions_snapshot"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "delivery_id": delivery_id,
+                            "owner": lease_owner,
+                            "token": uuid4(),
+                            "lease_seconds": lease_seconds,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def get_delivery_status(self, guild_id: int, delivery_id: UUID) -> str | None:
+        """Cheap existence/status probe for a job whose named delivery
+        turned out not to be claimable -- lets the caller distinguish
+        "already resolved" (SENT/FAILED/UNKNOWN/INTERVENTION_REQUIRED) from
+        "genuinely gone/foreign" (returns None) for audit/logging, without
+        claiming or mutating anything."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            status = await session.scalar(
+                text("SELECT status FROM message_deliveries WHERE guild_id=:guild_id AND id=:id"),
+                {"guild_id": guild_id, "id": delivery_id},
+            )
+        return str(status) if status is not None else None
+
     async def mark_delivery_sending(
         self,
         delivery_id: UUID,

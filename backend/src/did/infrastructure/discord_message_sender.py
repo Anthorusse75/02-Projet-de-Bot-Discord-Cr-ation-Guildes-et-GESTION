@@ -35,6 +35,49 @@ from did.messaging.allowed_mentions import CompiledAllowedMentions
 from did.messaging.edit_payload import EditPayload
 from did.messaging.message_model import ComponentActionRow, Embed, MessageModel
 
+#: External-review finding (fourth remediation pass): the domain contract
+#: (``did.domain.message_sending.DiscordSendError``) says the adapter must
+#: distinguish a *definitively known* failure from an *ambiguous* one -- but
+#: nothing here ever translated discord.py's real exception hierarchy, so
+#: every discord.py exception (deterministic or ambiguous alike) previously
+#: propagated as a bare, unclassified exception that the worker's
+#: ``except Exception`` branch happened to treat as UNKNOWN_OUTCOME even for
+#: a clean, unambiguous 403/404. That silently degraded a known failure into
+#: a same-nonce retry candidate, wasting a retry attempt (harmless, since
+#: the retry would itself just fail the same way, but imprecise diagnostics
+#: and unnecessary retries).
+#:
+#: ``discord.HTTPException.status`` is the real HTTP status code. A 4xx
+#: status (validation/permission/existence -- the request reached Discord
+#: and Discord definitively rejected it) is treated as known-failed, with
+#: two deliberate exceptions:
+#:
+#: * 429 (rate limited) -- discord.py's own client-side rate limiter already
+#:   retries within the library before ever raising; if a ``HTTPException``
+#:   with status 429 reaches here, that means discord.py's own retry gave
+#:   up (``max_ratelimit_timeout`` exceeded), which is an operational/
+#:   transport exhaustion, not proof the message was rejected -- ambiguous.
+#: * Any 5xx (``discord.DiscordServerError`` and unmapped 5xx) -- the
+#:   request may have been processed server-side before the error response;
+#:   outcome-ambiguous, never treated as a clean failure.
+#:
+#: Every other exception (timeouts, connection resets, ``aiohttp``
+#: transport errors, an unmapped/5xx ``HTTPException``) is left to
+#: propagate completely unwrapped -- the worker's own ``except Exception``
+#: (not ``except DiscordSendError``) branch is what correctly classifies
+#: that as UNKNOWN_OUTCOME; this module does not need its own catch-all.
+_DEFINITIVE_FAILURE_STATUS_RANGE = range(400, 500)
+_AMBIGUOUS_4XX_STATUSES = frozenset({429})
+
+
+def _raise_as_definitive_failure_if_known(exc: discord.HTTPException) -> None:
+    if exc.status in _DEFINITIVE_FAILURE_STATUS_RANGE and exc.status not in _AMBIGUOUS_4XX_STATUSES:
+        raise DiscordSendError(f"Discord rejected the request ({exc.status}): {exc}") from exc
+    # 429 or any non-4xx (5xx) status: outcome-ambiguous -- re-raise the
+    # original exception unwrapped so it is never mistaken for
+    # DiscordSendError.
+    raise exc
+
 
 def _build_discord_embed(embed: Embed) -> discord.Embed:
     result = discord.Embed(
@@ -120,7 +163,11 @@ class DiscordPyMessageSender:
             send_kwargs["embeds"] = embeds
         if view is not None:
             send_kwargs["view"] = view
-        sent = await channel.send(**send_kwargs)
+        try:
+            sent = await channel.send(**send_kwargs)
+        except discord.HTTPException as exc:
+            _raise_as_definitive_failure_if_known(exc)
+            raise  # pragma: no cover -- _raise_as_definitive_failure_if_known always raises
         return DiscordSendOutcome(discord_message_id=sent.id)
 
     async def edit(self, *, channel_id: int, message_id: int, payload: EditPayload) -> None:
