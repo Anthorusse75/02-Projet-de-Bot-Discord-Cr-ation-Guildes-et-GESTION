@@ -4,20 +4,24 @@
 > `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`). La première qualification live sur sandbox
 > réelle (commit `9240cb1`) a révélé un défaut de code réel — pas un problème de sandbox — décrit et
 > corrigé dans la section « Défaut réel découvert par la qualification live » ci-dessous (commit
-> `592b94b`). Une nouvelle qualification live sur sandbox nettoyée a ensuite PASS intégralement. STAGE 08
-> est `STAGE_08_COMPLETE_DRAFT_PR_OPEN`. La PR #8 reste Draft et non mergée, dans l'attente de l'audit
-> externe indépendant final.
+> `592b94b`). Une nouvelle qualification live sur sandbox nettoyée a ensuite PASS intégralement. Après
+> audit externe indépendant final, la PR #8 (head approuvé `4227483`) a été mergée dans `main` par un vrai
+> merge commit et taguée `stage-08-complete`. STAGE 08 est `STAGE_08_INTEGRATED_IN_MAIN`.
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-08-31` |
-| Base main | `252a4661195a3868acd04a2987453e23fc6ee4ff` |
-| Branche | `stage/08-multilingual-topology` |
-| PR | `#8`, Draft, non mergée |
+| Base main (avant merge) | `252a4661195a3868acd04a2987453e23fc6ee4ff` |
+| Branche | `stage/08-multilingual-topology` (conservée après merge) |
+| PR | [#8](https://github.com/Anthorusse75/02-Projet-de-Bot-Discord-Cr-ation-Guildes-et-GESTION/pull/8), merged |
+| Statut | `STAGE_08_INTEGRATED_IN_MAIN` |
+| Functional tested code | `592b94bdee713cfb51e236e29cb979ba60e53ac9` (qualification live PASS testée sur ce commit, code inchangé jusqu'au head approuvé) |
+| Approved final head | `42274836256d2af449678c239c2db4d8e5e6d01d` |
+| Merge commit | `d6a8425cff6606cace2ac89705b71519b6a308b1` (deux parents : `252a466…` et `4227483…`, pas de squash/rebase) |
+| Tag | `stage-08-complete` -> `d6a8425cff6606cace2ac89705b71519b6a308b1` |
 | Migration | `0013_stage_07 → 0014_stage_08 → … → 0021_stage_08` ; tête unique `0021_stage_08` ; rehearsal down/up validé |
-| Statut | `STAGE_08_COMPLETE_DRAFT_PR_OPEN` |
 | Dernière étape intégrée | `STAGE_07_REACT_DASHBOARD_I18N_AND_INTERACTIONS` |
-| Étape suivante | `STAGE_09_NOT_STARTED_FORBIDDEN_UNTIL_STAGE08_MERGED` |
+| Étape suivante | `STAGE_09_READY_NOT_STARTED`; autorisée mais non commencée |
 
 ## Architecture livrée
 
@@ -216,4 +220,5 @@ sanitisée (zéro secret, zéro identifiant Discord, zéro PII) est committée d
 - Aucun secret, identifiant sandbox ou PII membre n'est conservé dans les preuves.
 - Le provider existant reste en configuration manuelle tant qu'une interface d'automation sûre n'est pas
   disponible ; c'est un état supporté et non un blocage de STAGE 08.
-- La candidate n'est pas mergée. Aucun travail STAGE 09 n'a commencé.
+- La candidate est mergée dans `main` (commit `d6a8425`, tag `stage-08-complete`). Aucun travail STAGE 09
+  n'a commencé.
