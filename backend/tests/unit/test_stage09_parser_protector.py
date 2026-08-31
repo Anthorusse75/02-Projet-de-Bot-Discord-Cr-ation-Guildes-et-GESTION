@@ -420,3 +420,102 @@ class TestUrlTrailingPunctuationTrim:
         restored = validate_full_pipeline(nodes, fake_translation, protection)
         assert original_url in restored
         assert restored.count(original_url) == 1
+
+
+class TestUrlTrailingPunctuationTrimAdversarialRobustness:
+    """External-review finding (fourth remediation pass): the trim fix must
+    not be broadened to "pass tests" -- these prove it stays scoped to
+    exactly the trailing-punctuation case while every legitimate URL
+    character (query delimiters/values, fragments, percent-encoding, path
+    punctuation, parenthesised destinations) round-trips unchanged, and that
+    ``render(parse(content)) == content`` always holds regardless."""
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Query with a delimiter and values: https://example.com/search?q=hello&lang=en.",
+            "Query string only, no trailing punctuation: https://example.com/search?q=hello&lang=en",
+            "Fragment: https://example.com/docs#section-2, see above.",
+            "Fragment only: https://example.com/docs#section-2",
+            "Percent-encoded space: https://example.com/a%20b?x=1.",
+            "Percent-encoded punctuation not at the boundary: https://example.com/search?q=a%2Cb!",
+            "Multi-dot path/version string: https://example.com/releases/v1.2.3-beta.",
+            "Markdown-style destination in parens: See [the docs](https://example.com/docs).",
+            "Wikipedia-style balanced parens right after the domain: "
+            "https://en.wikipedia.org/wiki/Discord_(software) is relevant.",
+            "Trailing colon before a clause: https://example.com/api: use with care.",
+            "Semicolon-separated clause: https://example.com/x; then continue.",
+            "Double punctuation at the end: https://example.com/y?!",
+            "Query value that itself ends in a digit: https://example.com/x?v=123.",
+        ],
+    )
+    def test_full_source_text_always_round_trips_exactly(self, content: str) -> None:
+        assert render(parse(content)) == content
+
+    def test_query_delimiter_and_values_survive_the_trim_untouched(self) -> None:
+        content = "Search: https://example.com/search?q=hello&lang=en."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == (
+            "https://example.com/search?q=hello&lang=en"
+        )
+
+    def test_fragment_survives_the_trim_untouched(self) -> None:
+        content = "See https://example.com/docs#section-2, right there."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/docs#section-2"
+
+    def test_percent_encoded_punctuation_mid_url_is_never_mistaken_for_trailing_punctuation(
+        self,
+    ) -> None:
+        """%2E is an encoded period as literal alnum text -- the trim only
+        ever inspects the actual last characters, never decodes
+        percent-escapes, so a URL ending in an encoded period is untouched."""
+        content = "Encoded: https://example.com/x%2E"
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/x%2E"
+
+    def test_multi_dot_path_version_string_is_preserved(self) -> None:
+        content = "Release notes: https://example.com/releases/v1.2.3-beta."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == (
+            "https://example.com/releases/v1.2.3-beta"
+        )
+
+    def test_markdown_style_destination_in_parens_extracts_the_bare_url(self) -> None:
+        """Parens are already excluded from the URL character class
+        (pre-existing behavior, unrelated to the trailing-punctuation fix):
+        the ')' correctly terminates the match, leaving a clean URL with no
+        trim needed here since 's' (from "docs") isn't punctuation."""
+        content = "See [the docs](https://example.com/docs)."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/docs"
+
+    def test_double_trailing_punctuation_is_fully_trimmed(self) -> None:
+        content = "Look: https://example.com/y?!"
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/y"
+
+    def test_glued_query_value_ending_in_a_digit_is_never_trimmed(self) -> None:
+        """A URL whose real last character is a digit must never lose it --
+        proves the trim only ever removes characters actually in the
+        trailing-punctuation set, never digits/letters."""
+        content = "Version: https://example.com/x?v=123."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints[0].restore_value == "https://example.com/x?v=123"
+
+    def test_identity_translation_still_restores_the_full_original_sentence(self) -> None:
+        """End-to-end: for every adversarial case, an identity 'translation'
+        (nothing corrupted) must still restore byte-identically -- proves
+        the trim/restore round trip, not just the isolated protected value."""
+        content = "Search: https://example.com/search?q=hello&lang=en#top, done."
+        nodes = parse(content)
+        protection = protect(nodes)
+        restored = validate_full_pipeline(nodes, protection.masked_text, protection)
+        assert restored == content
