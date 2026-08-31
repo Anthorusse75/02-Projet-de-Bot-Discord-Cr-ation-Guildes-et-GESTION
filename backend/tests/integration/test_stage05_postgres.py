@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 
 from did.application.discord_runtime import normalize_gateway_dispatch
 from did.application.planning.service import PlanningService
+from did.application.translation.lifecycle import Stage08PostVerificationMaterializer
 from did.domain.discord_runtime import (
     DiscordErrorKind,
     DiscordFailure,
@@ -43,11 +44,22 @@ from did.infrastructure.planning_repository import (
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import OutboxPublisher
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    Stage08Conflict,
+    Stage08NotFound,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
+)
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
     CompensationClass,
     DesiredNode,
     DesiredStateGraph,
+    NodePresence,
     OperationType,
     PlanOperation,
     PlanState,
@@ -101,6 +113,569 @@ async def seed() -> None:
                 ),
                 {"a": GUILD_A, "b": GUILD_B, "actor": ACTOR, "bot": BOT},
             )
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_role_binding_is_materialized_only_after_targeted_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case()
+    factory = create_session_factory(engine)
+    languages = LanguageProfileRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(
+            guild_id=GUILD_A,
+            code="fr",
+            display_name="Français",
+        )
+        reservations = await asyncio.gather(
+            lifecycle.reserve_role(
+                guild_id=GUILD_A,
+                binding_kind="LANGUAGE",
+                binding_key=f"language:{language['id']}",
+                language_profile_id=UUID(str(language["id"])),
+                symbol="sym.role.stage05",
+            ),
+            lifecycle.reserve_role(
+                guild_id=GUILD_A,
+                binding_kind="LANGUAGE",
+                binding_key=f"language:{language['id']}",
+                language_profile_id=UUID(str(language["id"])),
+                symbol="sym.role.stage05",
+            ),
+        )
+        assert sum(1 for _, created in reservations if created) == 1
+        reservation = next(row for row, created in reservations if created)
+        assert (
+            await lifecycle.language_binding(
+                guild_id=GUILD_A,
+                language_profile_id=UUID(str(language["id"])),
+            )
+            is None
+        )
+        await lifecycle.attach_role_plan(
+            guild_id=GUILD_A,
+            reservation_id=UUID(str(reservation["id"])),
+            plan_id=plan_id,
+            intent_type="BIND_LANGUAGE_ROLE",
+            payload={
+                "reservation_id": str(reservation["id"]),
+                "language_profile_id": str(language["id"]),
+                "symbol": "sym.role.stage05",
+            },
+        )
+        assert (
+            await lifecycle.language_binding(
+                guild_id=GUILD_A,
+                language_profile_id=UUID(str(language["id"])),
+            )
+            is None
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        binding = await lifecycle.language_binding(
+            guild_id=GUILD_A,
+            language_profile_id=UUID(str(language["id"])),
+        )
+        assert adapter.verify_calls == 1
+        assert binding is not None
+        assert int(binding["discord_role_id"]) == CREATED_ROLE
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_unused_scope_role_is_deleted_then_binding_is_cleaned() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=3)
+    factory = create_session_factory(engine)
+    plans = PlanningRepository(factory)
+    runtime = RuntimeRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    languages = LanguageProfileRepository(factory)
+    scope_roles = VisibilityScopeLanguageRepository(factory)
+    policies = ResourceLanguagePolicyRepository(factory)
+    plan_id = uuid4()
+    correlation = uuid4()
+    scope_id = uuid4()
+    binding_id = uuid4()
+    role_id = CREATED_ROLE
+    node = DesiredNode.build(
+        logical_key=f"stage08.scope-language-role.cleanup.{binding_id}",
+        resource_type=ResourceType.ROLE,
+        discord_id=role_id,
+        presence=NodePresence.ABSENT,
+    )
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.DELETE_ROLE,
+        ResourceType.ROLE,
+        node.logical_key,
+        freeze_json_object({"id": role_id}),
+        freeze_json_object(
+            {
+                "id": role_id,
+                "name": "DID cleanup",
+                "position": 1,
+                "permissions": 0,
+                "managed": False,
+                "color": 0,
+                "hoist": False,
+                "mentionable": False,
+            }
+        ),
+        ("MANAGE_ROLES",),
+        CompensationClass.RECREATABLE_NOT_RESTORABLE,
+        RiskLevel.HIGH,
+        VerificationStrategy.ABSENCE_WITH_OBSERVABILITY,
+        RecoveryStrategy.DELETE_PROVE_ABSENCE,
+        ("GUILD_ROLE_DELETE",),
+        preconditions=freeze_json_object(
+            {
+                "schema_version": "did-operation-precondition-v1",
+                "mode": "MATCH_BEFORE",
+                "resource_type": "ROLE",
+                "resource_id": role_id,
+                "before": {
+                    "id": role_id,
+                    "name": "DID cleanup",
+                    "position": 1,
+                    "permissions": 0,
+                    "managed": False,
+                    "color": 0,
+                    "hoist": False,
+                    "mentionable": False,
+                },
+                "coverage_complete": True,
+            }
+        ),
+    )
+    plan_hash = "9" * 64
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(guild_id=GUILD_A, code="fr", display_name="French")
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO visibility_scopes "
+                    "(id,guild_id,scope_type,scope_key,name,config_json) VALUES "
+                    "(:id,:guild_id,'GLOBAL',:key,'Cleanup scope','{}'::jsonb)"
+                ),
+                {"id": scope_id, "guild_id": GUILD_A, "key": f"cleanup-{scope_id}"},
+            )
+        await scope_roles.create(
+            guild_id=GUILD_A,
+            visibility_scope_id=scope_id,
+            language_profile_id=UUID(str(language["id"])),
+            discord_role_id=role_id,
+            binding_id=binding_id,
+        )
+        await plans.create_plan(
+            plan_id=plan_id,
+            guild_id=GUILD_A,
+            actor_user_id=ACTOR,
+            idempotency_key=f"scope-cleanup-{plan_id}",
+            graph=DesiredStateGraph(GUILD_A, (node,)),
+            operations=(operation,),
+            before_snapshot={"guild_id": str(GUILD_A)},
+            base_structure_version="guild:1|coverage:1",
+            base_structure_hash="8" * 64,
+            capability_version="discord-permissions-2026-08-24",
+            plan_hash=plan_hash,
+            risk=RiskAssessment(
+                RiskLevel.HIGH,
+                40,
+                ("risk.destructive_delete",),
+                ImpactSummary(1),
+                True,
+            ),
+            compiler_version="did-plan-compiler-v1",
+            correlation_id=correlation,
+        )
+        binding_key = f"scope:{scope_id}:language:{language['id']}"
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO stage08_role_reservations "
+                    "(id,guild_id,binding_kind,binding_key,visibility_scope_id,"
+                    "language_profile_id,symbol,status,discord_role_id) VALUES "
+                    "(:id,:guild_id,'SCOPE_LANGUAGE',:key,:scope_id,:language_id,"
+                    ":symbol,'BOUND',:role_id)"
+                ),
+                {
+                    "id": uuid4(),
+                    "guild_id": GUILD_A,
+                    "key": binding_key,
+                    "scope_id": scope_id,
+                    "language_id": language["id"],
+                    "symbol": f"stage08.role.{binding_key}",
+                    "role_id": role_id,
+                },
+            )
+        await lifecycle.attach_scope_role_cleanup(
+            guild_id=GUILD_A,
+            binding_id=binding_id,
+            plan_id=plan_id,
+            discord_role_id=role_id,
+            binding_key=binding_key,
+        )
+        assert (await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id))[
+            "role_state"
+        ] == "PENDING_DELETE"
+        with pytest.raises(Stage08Conflict, match="cleanup is in progress"):
+            await policies.upsert(
+                guild_id=GUILD_A,
+                resource_type="CHANNEL",
+                discord_resource_id=CREATED_CHANNEL,
+                explicit_language_profile_id=UUID(str(language["id"])),
+                visibility_policy="SCOPE_AND_LANGUAGE",
+                visibility_scope_id=scope_id,
+            )
+        await plans.transition_plan(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            expected=PlanState.DRAFT,
+            target=PlanState.VALIDATED,
+            expected_version=1,
+            correlation_id=correlation,
+        )
+        await plans.confirm(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            idempotency_key=f"scope-cleanup-confirm-{plan_id}",
+            plan_hash=plan_hash,
+            risk_level=RiskLevel.HIGH,
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            expected_version=2,
+            correlation_id=correlation,
+        )
+        await plans.enqueue_apply(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            actor_user_id=ACTOR,
+            correlation_id=correlation,
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A, lease_owner="stage08-role-cleanup", lease_seconds=30
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-role-cleanup",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        with pytest.raises(Stage08NotFound, match="not found"):
+            await scope_roles.get_binding(guild_id=GUILD_A, binding_id=binding_id)
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            reservation_count = await session.scalar(
+                text(
+                    "SELECT count(*) FROM stage08_role_reservations "
+                    "WHERE guild_id=:guild_id AND binding_key=:key"
+                ),
+                {"guild_id": GUILD_A, "key": binding_key},
+            )
+        assert reservation_count == 0
+        assert adapter.verify_calls == 1
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_channel_variant_is_materialized_only_after_targeted_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case(channel=True)
+    factory = create_session_factory(engine)
+    languages = LanguageProfileRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        language = await languages.create(
+            guild_id=GUILD_A,
+            code="fr",
+            display_name="French",
+        )
+        group = await groups.create(
+            guild_id=GUILD_A,
+            name="Localized channels",
+            root_kind="CHANNEL_SET",
+            routing_mode="HUB_AND_SPOKE",
+            group_id=uuid4(),
+        )
+        await groups.add_language(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            language_profile_id=UUID(str(language["id"])),
+        )
+        channel_group = await groups.create_channel_group(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            logical_key="general",
+        )
+        variant_id = uuid4()
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key=f"variant:{variant_id}",
+            intent_type="MATERIALIZE_CHANNEL_VARIANT",
+            payload={
+                "variant_id": str(variant_id),
+                "translation_group_id": str(group["id"]),
+                "translation_channel_group_id": str(channel_group["id"]),
+                "language_profile_id": str(language["id"]),
+                "symbol": "sym.channel.stage05",
+            },
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-channel-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-channel-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        variant = await groups.get_variant(
+            guild_id=GUILD_A,
+            translation_group_id=UUID(str(group["id"])),
+            variant_id=variant_id,
+            variant_type="CHANNEL",
+        )
+        assert adapter.verify_calls == 1
+        assert int(variant["discord_channel_id"]) == CREATED_CHANNEL
+        assert variant["state"] == "ACTIVE"
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_provider_becomes_manual_only_after_structure_verification() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case(channel=True)
+    factory = create_session_factory(engine)
+    providers = TranslationProviderBindingRepository(factory)
+    groups = TranslationGroupRepository(factory)
+    lifecycle = Stage08LifecycleRepository(factory)
+    adapter = FakeMutationAdapter()
+    try:
+        provider = await providers.create(
+            guild_id=GUILD_A,
+            provider_type="existing_translation_bot",
+            provider_instance_key="stage08-post-verify",
+            capabilities={"supports_hub_and_spoke": True},
+            status="UNKNOWN",
+        )
+        group = await groups.create(
+            guild_id=GUILD_A,
+            name="Provider lifecycle",
+            root_kind="CHANNEL_SET",
+            routing_mode="HUB_AND_SPOKE",
+            provider_binding_id=UUID(str(provider["id"])),
+        )
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key=f"provider:{provider['id']}",
+            intent_type="VERIFY_PROVIDER",
+            payload={
+                "binding_id": str(provider["id"]),
+                "translation_group_id": str(group["id"]),
+                "verified_status": "MANUAL_CONFIGURATION_REQUIRED",
+            },
+        )
+        assert (await providers.get(guild_id=GUILD_A, binding_id=UUID(str(provider["id"]))))[
+            "status"
+        ] == "UNKNOWN"
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-provider-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-provider-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        verified = await providers.get(
+            guild_id=GUILD_A,
+            binding_id=UUID(str(provider["id"])),
+        )
+        assert adapter.verify_calls == 1
+        assert verified["status"] == "MANUAL_CONFIGURATION_REQUIRED"
+        assert verified["last_validated_at"] is None
+        assert (await groups.get(GUILD_A, UUID(str(group["id"]))))["status"] == ("PROVIDER_PENDING")
+        plan = await plans.get_plan(GUILD_A, plan_id)
+        assert plan["status"] == "APPLIED_WITH_PENDING_PROVIDER"
+        assert plan["error_code"] == "PROVIDER_MANUAL_CONFIGURATION_REQUIRED"
+        assert plan["verification_summary"]["discord_verified"] is True
+        assert plan["verification_summary"]["post_verification_outcome"] == ("PENDING_PROVIDER")
+    finally:
+        await engine.dispose()
+
+
+async def test_stage08_post_verification_failure_never_claims_plan_success() -> None:
+    engine, plans, runtime, plan_id, _, _ = await prepare_apply_case()
+    lifecycle = Stage08LifecycleRepository(create_session_factory(engine))
+    adapter = FakeMutationAdapter()
+    try:
+        await lifecycle.add_plan_intent(
+            guild_id=GUILD_A,
+            plan_id=plan_id,
+            intent_key="unsupported-clone",
+            intent_type="MATERIALIZE_CLONE",
+            payload={"destination_group_id": str(uuid4())},
+        )
+        leased = await runtime.lease_next_job(
+            GUILD_A,
+            lease_owner="stage08-failed-materializer",
+            lease_seconds=30,
+        )
+        assert leased is not None
+        executor = ApplyPlanExecutor(
+            plans,
+            adapter,
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-failed-materializer",
+            authorization=AllowAuthorization(),
+            post_verification=Stage08PostVerificationMaterializer(lifecycle),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        plan = await plans.get_plan(GUILD_A, plan_id)
+        assert adapter.verify_calls == 1
+        assert plan["status"] == "PARTIALLY_APPLIED"
+        assert plan["error_code"] == "STAGE08_POST_VERIFICATION_FAILED"
+        assert plan["verification_summary"]["discord_verified"] is True
+        assert plan["verification_summary"]["post_verification_applied"] is False
+    finally:
+        await engine.dispose()
+
+
+async def test_member_role_operation_runs_through_durable_plan_and_cache_write_through() -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=3)
+    factory = create_session_factory(engine)
+    plans = PlanningRepository(factory)
+    runtime = RuntimeRepository(factory)
+    plan_id = uuid4()
+    correlation = uuid4()
+    node = DesiredNode.build(
+        logical_key=f"stage08.member.{ACTOR}.role.{CREATED_ROLE}",
+        resource_type=ResourceType.MEMBER_ROLE,
+        discord_id=ACTOR,
+        properties={
+            "member_id": ACTOR,
+            "role_id": CREATED_ROLE,
+            "assigned": True,
+            "current_assigned": False,
+        },
+    )
+    operation = PlanOperation(
+        uuid4(),
+        OperationType.ADD_MEMBER_ROLE,
+        ResourceType.MEMBER_ROLE,
+        node.logical_key,
+        freeze_json_object(
+            {"id": ACTOR, "member_id": ACTOR, "role_id": CREATED_ROLE, "assigned": True}
+        ),
+        freeze_json_object(
+            {"id": ACTOR, "member_id": ACTOR, "role_id": CREATED_ROLE, "assigned": False}
+        ),
+        ("MANAGE_ROLES",),
+        CompensationClass.REVERSIBLE,
+        RiskLevel.LOW,
+        VerificationStrategy.TARGETED_GET,
+        RecoveryStrategy.UPDATE_COMPARE_BEFORE_DESIRED,
+        ("GUILD_MEMBER_UPDATE",),
+        preconditions=freeze_json_object(
+            {
+                "schema_version": "did-operation-precondition-v1",
+                "mode": "MATCH_BEFORE",
+                "resource_type": "MEMBER_ROLE",
+                "resource_id": ACTOR,
+                "before": {
+                    "id": ACTOR,
+                    "member_id": ACTOR,
+                    "role_id": CREATED_ROLE,
+                    "assigned": False,
+                },
+            }
+        ),
+    )
+    try:
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO discord_member_authorization_cache "
+                    "(guild_id,discord_user_id,role_ids,source,validity,observed_at) "
+                    "VALUES (:guild_id,:member_id,ARRAY[:everyone_id]::bigint[],"
+                    "'GATEWAY','FRESH',now())"
+                ),
+                {"guild_id": GUILD_A, "member_id": ACTOR, "everyone_id": GUILD_A},
+            )
+        await persist_draft(
+            plans,
+            plan_id=plan_id,
+            guild_id=GUILD_A,
+            actor_user_id=ACTOR,
+            idempotency_key="stage08-member-role-plan",
+            graph=DesiredStateGraph(GUILD_A, (node,)),
+            operations=(operation,),
+            correlation_id=correlation,
+        )
+        _, leased = await confirm_enqueue_and_lease(
+            plans,
+            runtime,
+            plan_id=plan_id,
+            correlation_id=correlation,
+            worker_id="stage08-member-role-worker",
+        )
+        executor = ApplyPlanExecutor(
+            plans,
+            FakeMutationAdapter(),
+            PassLock(),  # type: ignore[arg-type]
+            worker_id="stage08-member-role-worker",
+            authorization=AllowAuthorization(),
+        )
+        await executor.execute_leased(GUILD_A, leased, None)
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            role_ids = await session.scalar(
+                text(
+                    "SELECT role_ids FROM discord_member_authorization_cache "
+                    "WHERE guild_id=:guild_id AND discord_user_id=:member_id"
+                ),
+                {"guild_id": GUILD_A, "member_id": ACTOR},
+            )
+        assert role_ids is not None and CREATED_ROLE in {int(value) for value in role_ids}
+        assert (await plans.get_plan(GUILD_A, plan_id))["status"] == "SUCCEEDED"
     finally:
         await engine.dispose()
 
@@ -456,6 +1031,21 @@ class FakeMutationAdapter:
     async def execute(self, **kwargs: Any) -> MutationResult:
         operation_type = kwargs["operation_type"]
         self.create_calls += 1
+        if operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            payload = kwargs.get("payload", {})
+            return MutationResult(
+                204,
+                {
+                    "id": int(payload["member_id"]),
+                    "member_id": int(payload["member_id"]),
+                    "role_id": int(payload["role_id"]),
+                    "assigned": operation_type is OperationType.ADD_MEMBER_ROLE,
+                },
+                "d" * 64,
+            )
         if operation_type is OperationType.CREATE_CHANNEL:
             return MutationResult(
                 201,

@@ -41,6 +41,7 @@ class EventId(StrEnum):
     DISCORD_BACKPRESSURE = "discord.workload.backpressure"
     REDIS_CACHE_REBUILT = "redis.cache.rebuilt"
     OUTBOX_PUBLISH_FAILED = "outbox.publish.failed"
+    STAGE08_POST_VERIFICATION_FAILED = "stage08.post_verification.failed"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"

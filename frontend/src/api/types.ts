@@ -25,3 +25,14 @@ export type DashboardCapabilities = {
   freshness: string
 }
 export type PlanProgressEvent = { sequence: number; plan_status: string; message_key: string; completed_operations?: number; total_operations?: number; params?: Record<string, string | number> }
+export type LanguageProfile = { id: string; guild_id: DiscordSnowflake; code: string; display_name: string; emoji: string | null; enabled: boolean }
+export type DiscordChannelCacheFact = { present: boolean; name: string | null; type: number | null; observability: string; freshness: string }
+export type DiscordRoleCacheFact = { present: boolean; name: string | null; managed: boolean | null; permissions: string | null; freshness: string }
+export type TranslationVariant = { id: string; language_profile_id: string; discord_category_id?: DiscordSnowflake; discord_channel_id?: DiscordSnowflake; state: string; translation_channel_group_id?: string; translation_category_variant_id?: string | null; discord_cache?: DiscordChannelCacheFact }
+export type TranslationChannelGroup = { id: string; logical_key: string; display_name: string; source_language_profile_id: string | null }
+export type TranslationRoute = { id: string; source_language_profile_id: string; destination_language_profile_id: string; state: string }
+export type TranslationGroup = { id: string; guild_id: DiscordSnowflake; name: string; root_kind: string; routing_mode: string; visibility_scope_id: string | null; source_language_profile_id: string | null; provider_binding_id: string | null; status: string; version: number; languages: LanguageProfile[]; category_variants: TranslationVariant[]; channel_groups: TranslationChannelGroup[]; channel_variants: TranslationVariant[]; routes: TranslationRoute[] }
+export type TranslationProviderBinding = { id: string; provider_type: string; status: string; capabilities_json: Record<string, unknown>; last_validated_at: string | null }
+export type VisibilityBinding = { id: string; visibility_scope_id: string; language_profile_id: string; discord_role_id: DiscordSnowflake; state: string; discord_cache?: DiscordRoleCacheFact }
+export type ResourceLanguagePolicy = { id: string; resource_type: 'CATEGORY'|'CHANNEL'; discord_resource_id: DiscordSnowflake; explicit_language_profile_id: string | null; inherit_language: boolean; visibility_policy: 'OPEN_ALL'|'LANGUAGE_FILTERED'|'SCOPE_AND_LANGUAGE'|'CUSTOM'; visibility_scope_id: string | null }
+export type TranslationWorkspace = { guild_id: DiscordSnowflake; source: 'DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE'; discord_rest_calls: 0; cache_coverage: { mode: string; freshness: string; roles_complete: boolean; channels_complete: boolean; members_complete: boolean; state_version: number }; groups: TranslationGroup[]; providers: TranslationProviderBinding[]; visibility_bindings: VisibilityBinding[]; languages: LanguageProfile[]; resource_language_policies: ResourceLanguagePolicy[] }

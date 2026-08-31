@@ -53,10 +53,16 @@ class PlanningService:
         actor_user_id: int,
         idempotency_key: str,
         correlation_id: UUID,
+        operation_order_policy: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         guild, _ = await self._read_models.guild_snapshot(graph.guild_id, actor_user_id)
         plan_id = uuid4()
-        operations = self._ordered(self._compiler.compile(guild, graph, plan_id=plan_id))
+        compiled = self._compiler.compile(guild, graph, plan_id=plan_id)
+        if operation_order_policy is not None:
+            if operation_order_policy != "STAGE08_STRUCTURAL":
+                raise ValueError("unsupported operation order policy")
+            compiled = self._stage08_structural_order(compiled)
+        operations = self._ordered(compiled)
         impact = await self._impact(guild, operations)
         risk = self._risk.assess(operations, impact)
         snapshot = self.snapshot_payload(guild)
@@ -284,8 +290,29 @@ class PlanningService:
                 OperationType.UPSERT_OVERWRITE,
                 OperationType.DELETE_OVERWRITE,
                 OperationType.DELETE_CHANNEL,
+                OperationType.ADD_MEMBER_ROLE,
+                OperationType.REMOVE_MEMBER_ROLE,
             }
-            if operation_type is OperationType.UPDATE_ROLE and payload.get("id") is not None:
+            if operation_type in {
+                OperationType.ADD_MEMBER_ROLE,
+                OperationType.REMOVE_MEMBER_ROLE,
+            }:
+                member_id = int(payload["member_id"])
+                role_id = int(payload["role_id"])
+                after_subjects = [
+                    replace(
+                        subject,
+                        role_ids=(
+                            tuple(sorted(set(subject.role_ids) | {role_id}))
+                            if operation_type is OperationType.ADD_MEMBER_ROLE
+                            else tuple(value for value in subject.role_ids if value != role_id)
+                        ),
+                    )
+                    if subject.user_id == member_id
+                    else subject
+                    for subject in after_subjects
+                ]
+            elif operation_type is OperationType.UPDATE_ROLE and payload.get("id") is not None:
                 role_id = int(payload["id"])
                 after = replace(
                     after,
@@ -443,6 +470,52 @@ class PlanningService:
     def _ordered(operations: tuple[PlanOperation, ...]) -> tuple[PlanOperation, ...]:
         by_id = {operation.operation_id: operation for operation in operations}
         return tuple(by_id[operation_id] for operation_id in topological_order(operations))
+
+    @classmethod
+    def _stage08_structural_order(
+        cls, operations: tuple[PlanOperation, ...]
+    ) -> tuple[PlanOperation, ...]:
+        """Serialize STAGE 08 structural phases without changing worker semantics."""
+        forward = {
+            ResourceType.GUILD: -1,
+            ResourceType.CATEGORY: 0,
+            ResourceType.CHANNEL: 1,
+            ResourceType.ROLE: 2,
+            ResourceType.OVERWRITE: 3,
+            ResourceType.MEMBER_ROLE: 4,
+        }
+        delete_types = {
+            OperationType.DELETE_OVERWRITE,
+            OperationType.DELETE_ROLE,
+            OperationType.DELETE_CHANNEL,
+        }
+        base_order = cls._ordered(operations)
+
+        def phase(operation: PlanOperation) -> tuple[int, int, int]:
+            index = forward[operation.resource_type]
+            if operation.operation_type in delete_types:
+                return (1, -index, 0)
+            overwrite_order = 0
+            if operation.operation_type is OperationType.UPSERT_OVERWRITE:
+                payload = thaw_json_object(operation.desired_payload)
+                allow = int(payload.get("allow", 0))
+                deny = int(payload.get("deny", 0))
+                overwrite_order = 0 if allow and not deny else 2 if deny and not allow else 1
+            return (0, index, overwrite_order)
+
+        sequenced = sorted(enumerate(base_order), key=lambda item: (phase(item[1]), item[0]))
+        result: list[PlanOperation] = []
+        previous: UUID | None = None
+        for _, operation in sequenced:
+            predecessors = set(operation.predecessors)
+            if previous is not None:
+                predecessors.add(previous)
+            operation = replace(operation, predecessors=tuple(sorted(predecessors, key=str)))
+            result.append(operation)
+            previous = operation.operation_id
+        materialized = tuple(result)
+        topological_order(materialized)
+        return materialized
 
     @staticmethod
     def _operations_from_rows(rows: list[dict[str, Any]]) -> tuple[PlanOperation, ...]:

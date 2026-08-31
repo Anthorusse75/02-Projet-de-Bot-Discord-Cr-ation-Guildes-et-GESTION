@@ -250,6 +250,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Languages */
+        get: operations["list_languages_api_v1_guilds__guild_id__languages_get"];
+        put?: never;
+        /** Create Language */
+        post: operations["create_language_api_v1_guilds__guild_id__languages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/languages/{language_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Language */
+        patch: operations["update_language_api_v1_guilds__guild_id__languages__language_id__patch"];
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/logical-groups": {
         parameters: {
             query?: never;
@@ -284,6 +319,76 @@ export interface paths {
         head?: never;
         /** Patch Logical Group */
         patch: operations["patch_logical_group_api_v1_guilds__guild_id__logical_groups__group_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/members/technical-roles/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile Member Roles */
+        post: operations["reconcile_member_roles_api_v1_guilds__guild_id__members_technical_roles_reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/members/{user_id}/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Member Languages */
+        get: operations["get_member_languages_api_v1_guilds__guild_id__members__user_id__languages_get"];
+        /** Set Member Languages */
+        put: operations["set_member_languages_api_v1_guilds__guild_id__members__user_id__languages_put"];
+        /** Add Member Language */
+        post: operations["add_member_language_api_v1_guilds__guild_id__members__user_id__languages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/members/{user_id}/languages/{language_profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Member Language */
+        delete: operations["remove_member_language_api_v1_guilds__guild_id__members__user_id__languages__language_profile_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/multilingual-clone/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Multilingual Clone Plan */
+        post: operations["multilingual_clone_plan_api_v1_guilds__guild_id__multilingual_clone_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/guilds/{guild_id}/permissions/evaluate": {
@@ -542,6 +647,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/resource-language-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upsert Resource Policy */
+        put: operations["upsert_resource_policy_api_v1_guilds__guild_id__resource_language_policies_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/resources/{channel_id}/effective-language": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Effective Language */
+        get: operations["effective_language_api_v1_guilds__guild_id__resources__channel_id__effective_language_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/roles": {
         parameters: {
             query?: never;
@@ -628,6 +767,315 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/translation-drift/observe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Observe Drift */
+        post: operations["observe_drift_api_v1_guilds__guild_id__translation_drift_observe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Translation Groups */
+        get: operations["list_translation_groups_api_v1_guilds__guild_id__translation_groups_get"];
+        put?: never;
+        /** Create Translation Group */
+        post: operations["create_translation_group_api_v1_guilds__guild_id__translation_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Translation Group */
+        get: operations["get_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename Translation Group */
+        patch: operations["rename_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/channel-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Translation Channel Group */
+        post: operations["create_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/channel-groups/{channel_group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename Translation Channel Group */
+        patch: operations["rename_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups__channel_group_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Group Language */
+        post: operations["add_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_post"];
+        /** Remove Group Language */
+        delete: operations["remove_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link Existing Variant */
+        post: operations["link_existing_variant_api_v1_guilds__guild_id__translation_groups__group_id__link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/access-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Provider Access Preflight */
+        post: operations["provider_access_preflight_api_v1_guilds__guild_id__translation_groups__group_id__provider_access_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Provider Configuration */
+        post: operations["prepare_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/provider/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Provider Configuration */
+        post: operations["verify_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/repair/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Repair Variant Plan */
+        post: operations["repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace Group Routes */
+        put: operations["replace_group_routes_api_v1_guilds__guild_id__translation_groups__group_id__routes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlink Variant */
+        post: operations["unlink_variant_api_v1_guilds__guild_id__translation_groups__group_id__unlink_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/variants/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Variant Plan */
+        post: operations["create_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-groups/{group_id}/visibility/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Visibility Plan */
+        post: operations["create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-routes/compile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compile Routes */
+        post: operations["compile_routes_api_v1_guilds__guild_id__translation_routes_compile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/translation-workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Translation Workspace */
+        get: operations["translation_workspace_api_v1_guilds__guild_id__translation_workspace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/visibility-role-bindings/{binding_id}/cleanup/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Scope Role Cleanup Plan */
+        post: operations["create_scope_role_cleanup_plan_api_v1_guilds__guild_id__visibility_role_bindings__binding_id__cleanup_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/visibility-scopes": {
         parameters: {
             query?: never;
@@ -675,6 +1123,40 @@ export interface paths {
         put?: never;
         /** Resolve Visibility Scope */
         post: operations["resolve_visibility_scope_api_v1_guilds__guild_id__visibility_scopes__scope_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/visibility/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Capacity Preflight */
+        post: operations["capacity_preflight_api_v1_guilds__guild_id__visibility_capacity_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/visibility/compile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compile Visibility */
+        post: operations["compile_visibility_api_v1_guilds__guild_id__visibility_compile_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1042,6 +1524,33 @@ export interface components {
          * @enum {string}
          */
         BotOperation: "CREATE_CHANNEL" | "MANAGE_CHANNEL" | "REORDER_CHANNELS" | "MANAGE_OVERWRITES" | "CREATE_ROLE" | "MANAGE_ROLE" | "REORDER_ROLES" | "ASSIGN_ROLE" | "SEND_MESSAGE" | "MANAGE_THREAD";
+        /** CapacityInput */
+        CapacityInput: {
+            /** Current Overwrites */
+            current_overwrites: number;
+            /** Current Roles */
+            current_roles: number;
+            /** Proposed Overwrite Delta */
+            proposed_overwrite_delta: number;
+            /** Required Bindings */
+            required_bindings: number;
+            /** Reusable Bindings */
+            reusable_bindings: number;
+        };
+        /** ChannelGroupInput */
+        ChannelGroupInput: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Logical Key */
+            logical_key: string;
+            /** Source Language Profile Id */
+            source_language_profile_id?: string | null;
+        };
+        /** ChannelGroupRenameInput */
+        ChannelGroupRenameInput: {
+            /** Display Name */
+            display_name: string;
+        };
         /** ChannelSelection */
         ChannelSelection: {
             /** Channel Ids */
@@ -1104,6 +1613,19 @@ export interface components {
             /** Symbol */
             symbol?: string | null;
         };
+        /** DriftInput */
+        DriftInput: {
+            /** Current State */
+            current_state: string;
+            /** Discord Resource Present */
+            discord_resource_present?: boolean | null;
+            /** Evidence */
+            evidence: string;
+            /** Variant Id */
+            variant_id?: string | null;
+            /** Variant Type */
+            variant_type?: ("CATEGORY" | "CHANNEL") | null;
+        };
         /** ExportInput */
         ExportInput: {
             /** @default EXPORT_BUNDLE */
@@ -1112,10 +1634,50 @@ export interface components {
             name?: string | null;
             selection: components["schemas"]["SelectionInput"];
         };
+        /** GroupLanguageInput */
+        GroupLanguageInput: {
+            /**
+             * Destructive Discord Delete
+             * @default false
+             */
+            destructive_discord_delete: boolean;
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Language Profile Id
+             * Format: uuid
+             */
+            language_profile_id: string;
+        };
+        /** GroupRenameInput */
+        GroupRenameInput: {
+            /** Expected Version */
+            expected_version: number;
+            /** Name */
+            name: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** LanguageCreateInput */
+        LanguageCreateInput: {
+            /** Code */
+            code: string;
+            /** Display Name */
+            display_name: string;
+            /** Emoji */
+            emoji?: string | null;
+        };
+        /** LanguageUpdateInput */
+        LanguageUpdateInput: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Emoji */
+            emoji?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** LiveTransferInput */
         LiveTransferInput: {
@@ -1183,6 +1745,56 @@ export interface components {
             /** Source Logical Ref */
             source_logical_ref: string;
         };
+        /** MemberLanguageInput */
+        MemberLanguageInput: {
+            /**
+             * Language Profile Id
+             * Format: uuid
+             */
+            language_profile_id: string;
+            /**
+             * Source
+             * @default EXPLICIT
+             * @enum {string}
+             */
+            source: "EXPLICIT" | "ONBOARDING" | "SYNC" | "MANUAL";
+        };
+        /** MemberLanguagesInput */
+        MemberLanguagesInput: {
+            /** Language Profile Ids */
+            language_profile_ids?: string[];
+            /**
+             * Source
+             * @default EXPLICIT
+             * @enum {string}
+             */
+            source: "EXPLICIT" | "ONBOARDING" | "SYNC" | "MANUAL";
+        };
+        /** MemberRoleReconcileInput */
+        MemberRoleReconcileInput: {
+            /** Discord User Id */
+            discord_user_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
+        /** MultilingualCloneInput */
+        MultilingualCloneInput: {
+            /** Destination Guild Id */
+            destination_guild_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Mode
+             * @default COPY_AS_NEW
+             * @constant
+             */
+            mode: "COPY_AS_NEW";
+            /**
+             * Translation Group Id
+             * Format: uuid
+             */
+            translation_group_id: string;
+        };
         /**
          * NodePresence
          * @enum {string}
@@ -1238,13 +1850,42 @@ export interface components {
          * PortableResourceType
          * @enum {string}
          */
-        PortableResourceType: "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "LOGICAL_GROUP" | "POLICY" | "SYSTEM_PRINCIPAL" | "PRINCIPAL_REQUIREMENT" | "BOT_REFERENCE" | "WEBHOOK_REFERENCE";
+        PortableResourceType: "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "LOGICAL_GROUP" | "POLICY" | "SYSTEM_PRINCIPAL" | "PRINCIPAL_REQUIREMENT" | "BOT_REFERENCE" | "WEBHOOK_REFERENCE" | "LANGUAGE_PROFILE" | "TRANSLATION_GROUP" | "TRANSLATION_CHANNEL_GROUP" | "TRANSLATION_CATEGORY_VARIANT" | "TRANSLATION_CHANNEL_VARIANT" | "TRANSLATION_ROUTE" | "TRANSLATION_LANGUAGE_ROLE" | "PROVIDER_REQUIREMENT";
         /** PreferenceUpdate */
         PreferenceUpdate: {
             /** Timezone */
             timezone?: string | null;
             /** Ui Locale Override Code */
             ui_locale_override_code?: string | null;
+        };
+        /** ProviderAccessInput */
+        ProviderAccessInput: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+        };
+        /** ProviderPrepareInput */
+        ProviderPrepareInput: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+        };
+        /** ProviderVerifyInput */
+        ProviderVerifyInput: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /**
+             * Confirmed Manual Configuration
+             * @constant
+             */
+            confirmed_manual_configuration: true;
         };
         /** PurgeRequest */
         PurgeRequest: {
@@ -1274,11 +1915,36 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** ResourcePolicyInput */
+        ResourcePolicyInput: {
+            /** Custom Policy */
+            custom_policy?: {
+                [key: string]: unknown;
+            };
+            /** Discord Resource Id */
+            discord_resource_id: string;
+            /** Explicit Language Profile Id */
+            explicit_language_profile_id?: string | null;
+            /**
+             * Inherit Language
+             * @default false
+             */
+            inherit_language: boolean;
+            /**
+             * Resource Type
+             * @enum {string}
+             */
+            resource_type: "CATEGORY" | "CHANNEL";
+            /** @default OPEN_ALL */
+            visibility_policy: components["schemas"]["VisibilityPolicy"];
+            /** Visibility Scope Id */
+            visibility_scope_id?: string | null;
+        };
         /**
          * ResourceType
          * @enum {string}
          */
-        ResourceType: "GUILD" | "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE";
+        ResourceType: "GUILD" | "ROLE" | "CATEGORY" | "CHANNEL" | "OVERWRITE" | "MEMBER_ROLE";
         /** RoleBindingUpdate */
         RoleBindingUpdate: {
             /** Discord Role Id */
@@ -1287,6 +1953,54 @@ export interface components {
             /** Scope Id */
             scope_id: string;
             scope_kind: components["schemas"]["ScopeKind"];
+        };
+        /** RouteCompileInput */
+        RouteCompileInput: {
+            /** Custom Routes */
+            custom_routes?: [
+                string,
+                string
+            ][];
+            /** Hub Language Profile Id */
+            hub_language_profile_id?: string | null;
+            /** Language Profile Ids */
+            language_profile_ids: string[];
+            /** Max Languages Per Group */
+            max_languages_per_group?: number | null;
+            /**
+             * Provider Health
+             * @default UNKNOWN
+             */
+            provider_health: string;
+            /**
+             * Supports Custom
+             * @default false
+             */
+            supports_custom: boolean;
+            /**
+             * Supports Full Mesh
+             * @default false
+             */
+            supports_full_mesh: boolean;
+            /**
+             * Supports Hub And Spoke
+             * @default false
+             */
+            supports_hub_and_spoke: boolean;
+            topology: components["schemas"]["TranslationGroupTopology"];
+        };
+        /** RouteReplaceInput */
+        RouteReplaceInput: {
+            /** Custom Routes */
+            custom_routes?: [
+                string,
+                string
+            ][];
+            /** Expected Version */
+            expected_version: number;
+            /** Hub Language Profile Id */
+            hub_language_profile_id?: string | null;
+            topology: components["schemas"]["TranslationGroupTopology"];
         };
         /**
          * ScopeKind
@@ -1297,6 +2011,11 @@ export interface components {
         ScopeResolveRequest: {
             /** Member Id */
             member_id: string;
+        };
+        /** ScopeRoleCleanupPlanInput */
+        ScopeRoleCleanupPlanInput: {
+            /** Idempotency Key */
+            idempotency_key: string;
         };
         /** ScopeRuleInput */
         ScopeRuleInput: {
@@ -1371,6 +2090,30 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** TranslationGroupCreateInput */
+        TranslationGroupCreateInput: {
+            /** Language Profile Ids */
+            language_profile_ids: string[];
+            /** Name */
+            name: string;
+            /** Provider Binding Id */
+            provider_binding_id?: string | null;
+            /**
+             * Root Kind
+             * @enum {string}
+             */
+            root_kind: "CATEGORY_SET" | "CHANNEL_SET";
+            routing_mode: components["schemas"]["TranslationGroupTopology"];
+            /** Source Language Profile Id */
+            source_language_profile_id?: string | null;
+            /** Visibility Scope Id */
+            visibility_scope_id?: string | null;
+        };
+        /**
+         * TranslationGroupTopology
+         * @enum {string}
+         */
+        TranslationGroupTopology: "HUB_AND_SPOKE" | "FULL_MESH" | "CUSTOM";
         /** UserAccessUpdate */
         UserAccessUpdate: {
             /** Discord User Id */
@@ -1398,11 +2141,123 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VariantLinkInput */
+        VariantLinkInput: {
+            /** Confirmed Explicit Selection */
+            confirmed_explicit_selection: boolean;
+            /** Discord Resource Id */
+            discord_resource_id: string;
+            /**
+             * Language Profile Id
+             * Format: uuid
+             */
+            language_profile_id: string;
+            /** Translation Category Variant Id */
+            translation_category_variant_id?: string | null;
+            /** Translation Channel Group Id */
+            translation_channel_group_id?: string | null;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
+        /** VariantPlanInput */
+        VariantPlanInput: {
+            /**
+             * Channel Type
+             * @default 0
+             * @enum {integer}
+             */
+            channel_type: 0 | 2 | 5 | 13 | 15 | 16;
+            /** Desired Name */
+            desired_name: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Language Profile Id
+             * Format: uuid
+             */
+            language_profile_id: string;
+            /** Translation Channel Group Id */
+            translation_channel_group_id?: string | null;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
+        /** VariantRepairPlanInput */
+        VariantRepairPlanInput: {
+            /** Desired Name */
+            desired_name?: string | null;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
+        /** VariantUnlinkInput */
+        VariantUnlinkInput: {
+            /**
+             * Delete Discord Resource
+             * @default false
+             */
+            delete_discord_resource: boolean;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /**
+             * Variant Type
+             * @enum {string}
+             */
+            variant_type: "CATEGORY" | "CHANNEL";
+        };
         /** VersionCommand */
         VersionCommand: {
             /** Expected Version */
             expected_version: number;
         };
+        /** VisibilityCompileInput */
+        VisibilityCompileInput: {
+            /** Binding Role Id */
+            binding_role_id?: string | null;
+            /** Custom Policy */
+            custom_policy?: {
+                [key: string]: unknown;
+            };
+            /** Language Profile Id */
+            language_profile_id?: string | null;
+            policy: components["schemas"]["VisibilityPolicy"];
+            /** Visibility Scope Id */
+            visibility_scope_id?: string | null;
+        };
+        /** VisibilityPlanInput */
+        VisibilityPlanInput: {
+            /** Discord Resource Id */
+            discord_resource_id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Resource Type
+             * @enum {string}
+             */
+            resource_type: "CATEGORY" | "CHANNEL";
+        };
+        /**
+         * VisibilityPolicy
+         * @enum {string}
+         */
+        VisibilityPolicy: "OPEN_ALL" | "LANGUAGE_FILTERED" | "SCOPE_AND_LANGUAGE" | "CUSTOM";
         /** VisibilityScopeCreate */
         VisibilityScopeCreate: {
             /** Config */
@@ -1958,6 +2813,114 @@ export interface operations {
             };
         };
     };
+    list_languages_api_v1_guilds__guild_id__languages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_language_api_v1_guilds__guild_id__languages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanguageCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_language_api_v1_guilds__guild_id__languages__language_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                language_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanguageUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     logical_groups_api_v1_guilds__guild_id__logical_groups_get: {
         parameters: {
             query?: never;
@@ -2080,6 +3043,225 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_member_roles_api_v1_guilds__guild_id__members_technical_roles_reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleReconcileInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_member_languages_api_v1_guilds__guild_id__members__user_id__languages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_member_languages_api_v1_guilds__guild_id__members__user_id__languages_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberLanguagesInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_member_language_api_v1_guilds__guild_id__members__user_id__languages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberLanguageInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_language_api_v1_guilds__guild_id__members__user_id__languages__language_profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                user_id: string;
+                language_profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    multilingual_clone_plan_api_v1_guilds__guild_id__multilingual_clone_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MultilingualCloneInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
             };
             /** @description Validation Error */
             422: {
@@ -2671,6 +3853,79 @@ export interface operations {
             };
         };
     };
+    upsert_resource_policy_api_v1_guilds__guild_id__resource_language_policies_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourcePolicyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    effective_language_api_v1_guilds__guild_id__resources__channel_id__effective_language_get: {
+        parameters: {
+            query: {
+                category_id: string | null;
+            };
+            header?: never;
+            path: {
+                guild_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     roles_api_v1_guilds__guild_id__roles_get: {
         parameters: {
             query?: never;
@@ -2882,6 +4137,788 @@ export interface operations {
             };
         };
     };
+    observe_drift_api_v1_guilds__guild_id__translation_drift_observe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DriftInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_translation_groups_api_v1_guilds__guild_id__translation_groups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_translation_group_api_v1_guilds__guild_id__translation_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranslationGroupCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_translation_group_api_v1_guilds__guild_id__translation_groups__group_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupRenameInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelGroupInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_translation_channel_group_api_v1_guilds__guild_id__translation_groups__group_id__channel_groups__channel_group_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+                channel_group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelGroupRenameInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupLanguageInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_group_language_api_v1_guilds__guild_id__translation_groups__group_id__languages_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupLanguageInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_existing_variant_api_v1_guilds__guild_id__translation_groups__group_id__link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantLinkInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    provider_access_preflight_api_v1_guilds__guild_id__translation_groups__group_id__provider_access_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderAccessInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderPrepareInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_provider_configuration_api_v1_guilds__guild_id__translation_groups__group_id__provider_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderVerifyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    repair_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__repair_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantRepairPlanInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_group_routes_api_v1_guilds__guild_id__translation_groups__group_id__routes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteReplaceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlink_variant_api_v1_guilds__guild_id__translation_groups__group_id__unlink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantUnlinkInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_variant_plan_api_v1_guilds__guild_id__translation_groups__group_id__variants_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantPlanInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_visibility_plan_api_v1_guilds__guild_id__translation_groups__group_id__visibility_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisibilityPlanInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compile_routes_api_v1_guilds__guild_id__translation_routes_compile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteCompileInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    translation_workspace_api_v1_guilds__guild_id__translation_workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_scope_role_cleanup_plan_api_v1_guilds__guild_id__visibility_role_bindings__binding_id__cleanup_plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScopeRoleCleanupPlanInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     visibility_scopes_api_v1_guilds__guild_id__visibility_scopes_get: {
         parameters: {
             query?: never;
@@ -3029,6 +5066,80 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ScopeResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capacity_preflight_api_v1_guilds__guild_id__visibility_capacity_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapacityInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compile_visibility_api_v1_guilds__guild_id__visibility_compile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisibilityCompileInput"];
             };
         };
         responses: {

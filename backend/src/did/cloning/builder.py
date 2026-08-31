@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from typing import Any
 
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.read_model import GuildSnapshot
@@ -272,6 +273,308 @@ class PortableArtifactBuilder:
             (group_key,),
             structural.provenance,
         )
+
+    def build_live_translation_group(
+        self,
+        guild: GuildSnapshot,
+        group: dict[str, Any],
+        *,
+        policies: tuple[dict[str, Any], ...] = (),
+        language_role_bindings: tuple[dict[str, Any], ...] = (),
+        provider_requirement: dict[str, Any] | None = None,
+    ) -> PortableArtifact:
+        """Extend the Stage 06 snapshot with allowlisted Stage 08 topology metadata."""
+
+        active_categories = tuple(
+            row for row in group["category_variants"] if str(row["state"]) == "ACTIVE"
+        )
+        active_channels = tuple(
+            row for row in group["channel_variants"] if str(row["state"]) == "ACTIVE"
+        )
+        if not active_categories and not active_channels:
+            raise ValueError("translation clone requires at least one active Discord variant")
+        structural = self.build_live(
+            guild,
+            ArtifactSelection(
+                ArtifactType.CUSTOM_BUNDLE,
+                tuple(int(row["discord_category_id"]) for row in active_categories),
+                tuple(int(row["discord_channel_id"]) for row in active_channels),
+            ),
+        )
+        resources = list(structural.resources)
+        dependencies = list(structural.dependencies)
+        languages = tuple(group["languages"])
+        if not languages or any(not bool(row["enabled"]) for row in languages):
+            raise ValueError("portable translation topology requires enabled languages")
+        language_by_id = {str(row["id"]): row for row in languages}
+        language_keys = {
+            identity: self._logical_key(guild.guild_id, "translation_language", identity)
+            for identity in language_by_id
+        }
+        for identity, language in language_by_id.items():
+            resources.append(
+                PortableResource.build(
+                    language_keys[identity],
+                    PortableResourceType.LANGUAGE_PROFILE,
+                    {
+                        "code": str(language["code"]),
+                        "display_name": str(language["display_name"]),
+                    },
+                )
+            )
+        group_identity = str(group["id"])
+        group_key = self._logical_key(guild.guild_id, "translation_group", group_identity)
+        source_language_id = group.get("source_language_profile_id")
+        source_language = (
+            language_by_id.get(str(source_language_id)) if source_language_id is not None else None
+        )
+        resources.append(
+            PortableResource.build(
+                group_key,
+                PortableResourceType.TRANSLATION_GROUP,
+                {
+                    "name": str(group["name"]),
+                    "root_kind": str(group["root_kind"]),
+                    "routing_mode": str(group["routing_mode"]),
+                    "source_language_code": (
+                        str(source_language["code"]) if source_language is not None else None
+                    ),
+                },
+            )
+        )
+        for language_key in language_keys.values():
+            dependencies.append(PortableDependency(group_key, language_key, "language"))
+
+        policy_by_resource = {
+            (str(row["resource_type"]), int(row["discord_resource_id"])): row for row in policies
+        }
+        category_by_id = {str(row["id"]): row for row in active_categories}
+        category_keys: dict[str, str] = {}
+        for row in active_categories:
+            identity = str(row["id"])
+            language_id = str(row["language_profile_id"])
+            language = language_by_id.get(language_id)
+            if language is None:
+                raise ValueError("category variant language is outside its translation group")
+            resource_id = int(row["discord_category_id"])
+            policy = self._portable_visibility_policy(
+                policy_by_resource.get(("CATEGORY", resource_id))
+            )
+            variant_key = self._logical_key(
+                guild.guild_id, "translation_category_variant", identity
+            )
+            category_keys[identity] = variant_key
+            resources.append(
+                PortableResource.build(
+                    variant_key,
+                    PortableResourceType.TRANSLATION_CATEGORY_VARIANT,
+                    {
+                        "language_code": str(language["code"]),
+                        "is_source": bool(row["is_source"]),
+                        "visibility_policy": policy["visibility_policy"],
+                        "inherit_language": policy["inherit_language"],
+                    },
+                )
+            )
+            dependencies.extend(
+                (
+                    PortableDependency(variant_key, group_key, "translation_group"),
+                    PortableDependency(variant_key, language_keys[language_id], "language"),
+                    PortableDependency(
+                        variant_key,
+                        self._logical_key(guild.guild_id, "category", str(resource_id)),
+                        "discord_resource",
+                    ),
+                )
+            )
+
+        channel_group_keys: dict[str, str] = {}
+        for row in group["channel_groups"]:
+            identity = str(row["id"])
+            source_id = row.get("source_language_profile_id")
+            source = language_by_id.get(str(source_id)) if source_id is not None else None
+            channel_group_key = self._logical_key(
+                guild.guild_id, "translation_channel_group", identity
+            )
+            channel_group_keys[identity] = channel_group_key
+            resources.append(
+                PortableResource.build(
+                    channel_group_key,
+                    PortableResourceType.TRANSLATION_CHANNEL_GROUP,
+                    {
+                        "logical_key": str(row["logical_key"]),
+                        "display_name": str(row["display_name"]),
+                        "source_language_code": (
+                            str(source["code"]) if source is not None else None
+                        ),
+                    },
+                )
+            )
+            dependencies.append(
+                PortableDependency(channel_group_key, group_key, "translation_group")
+            )
+
+        for row in active_channels:
+            identity = str(row["id"])
+            language_id = str(row["language_profile_id"])
+            language = language_by_id.get(language_id)
+            resolved_channel_group_key = channel_group_keys.get(
+                str(row["translation_channel_group_id"])
+            )
+            if language is None or resolved_channel_group_key is None:
+                raise ValueError("channel variant references foreign translation metadata")
+            resource_id = int(row["discord_channel_id"])
+            parent = category_by_id.get(str(row["translation_category_variant_id"]))
+            inherited_policy = (
+                policy_by_resource.get(("CATEGORY", int(parent["discord_category_id"])))
+                if parent is not None
+                else None
+            )
+            policy = self._portable_visibility_policy(
+                policy_by_resource.get(("CHANNEL", resource_id)),
+                inherited=inherited_policy,
+            )
+            variant_key = self._logical_key(guild.guild_id, "translation_channel_variant", identity)
+            resources.append(
+                PortableResource.build(
+                    variant_key,
+                    PortableResourceType.TRANSLATION_CHANNEL_VARIANT,
+                    {
+                        "language_code": str(language["code"]),
+                        "visibility_policy": policy["visibility_policy"],
+                        "inherit_language": policy["inherit_language"],
+                    },
+                )
+            )
+            dependencies.extend(
+                (
+                    PortableDependency(variant_key, group_key, "translation_group"),
+                    PortableDependency(variant_key, language_keys[language_id], "language"),
+                    PortableDependency(
+                        variant_key,
+                        resolved_channel_group_key,
+                        "translation_channel_group",
+                    ),
+                    PortableDependency(
+                        variant_key,
+                        self._logical_key(guild.guild_id, "channel", str(resource_id)),
+                        "discord_resource",
+                    ),
+                )
+            )
+            category_identity = row.get("translation_category_variant_id")
+            if category_identity is not None:
+                category_key = category_keys.get(str(category_identity))
+                if category_key is None:
+                    raise ValueError("channel variant category is outside its translation group")
+                dependencies.append(
+                    PortableDependency(variant_key, category_key, "translation_category_variant")
+                )
+
+        for row in group["routes"]:
+            source = language_by_id.get(str(row["source_language_profile_id"]))
+            destination = language_by_id.get(str(row["destination_language_profile_id"]))
+            if source is None or destination is None:
+                raise ValueError("translation route language is outside its group")
+            route_key = self._logical_key(guild.guild_id, "translation_route", str(row["id"]))
+            resources.append(
+                PortableResource.build(
+                    route_key,
+                    PortableResourceType.TRANSLATION_ROUTE,
+                    {
+                        "source_language_code": str(source["code"]),
+                        "destination_language_code": str(destination["code"]),
+                    },
+                )
+            )
+            dependencies.extend(
+                (
+                    PortableDependency(route_key, group_key, "translation_group"),
+                    PortableDependency(
+                        route_key,
+                        language_keys[str(row["source_language_profile_id"])],
+                        "source_language",
+                    ),
+                    PortableDependency(
+                        route_key,
+                        language_keys[str(row["destination_language_profile_id"])],
+                        "destination_language",
+                    ),
+                )
+            )
+
+        role_by_id = {role.role_id: role for role in guild.roles}
+        structural_keys = {resource.logical_key for resource in structural.resources}
+        for binding in language_role_bindings:
+            language_id = str(binding["language_profile_id"])
+            language = language_by_id.get(language_id)
+            role_id = int(binding["discord_role_id"])
+            role = role_by_id.get(role_id)
+            if language is None or role is None or str(binding["role_state"]) != "ACTIVE":
+                continue
+            role_key = self._logical_key(guild.guild_id, "role", str(role_id))
+            if role_key not in structural_keys:
+                continue
+            if role.permissions != 0 or role.hoist or role.mentionable or role.managed:
+                raise ValueError("portable technical language role attributes are unsafe")
+            binding_key = self._logical_key(
+                guild.guild_id, "translation_language_role", language_id
+            )
+            resources.append(
+                PortableResource.build(
+                    binding_key,
+                    PortableResourceType.TRANSLATION_LANGUAGE_ROLE,
+                    {"language_code": str(language["code"])},
+                )
+            )
+            dependencies.extend(
+                (
+                    PortableDependency(binding_key, group_key, "translation_group"),
+                    PortableDependency(binding_key, language_keys[language_id], "language"),
+                    PortableDependency(
+                        binding_key,
+                        role_key,
+                        "discord_resource",
+                    ),
+                )
+            )
+
+        if provider_requirement is not None:
+            provider_key = self._logical_key(
+                guild.guild_id, "translation_provider_requirement", group_identity
+            )
+            resources.append(
+                PortableResource.build(
+                    provider_key,
+                    PortableResourceType.PROVIDER_REQUIREMENT,
+                    provider_requirement,
+                )
+            )
+            dependencies.append(PortableDependency(provider_key, group_key, "translation_group"))
+        return PortableArtifact(
+            ArtifactType.CUSTOM_BUNDLE,
+            tuple(resources),
+            tuple(dependencies),
+            (group_key,),
+            structural.provenance,
+        )
+
+    @staticmethod
+    def _portable_visibility_policy(
+        policy: dict[str, Any] | None,
+        *,
+        inherited: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        effective = policy
+        inherit = bool(policy and policy.get("inherit_language"))
+        if effective is None or inherit:
+            effective = inherited or effective
+        visibility = str(effective["visibility_policy"] if effective is not None else "OPEN_ALL")
+        if visibility not in {"OPEN_ALL", "LANGUAGE_FILTERED"}:
+            raise ValueError(
+                "scope-bound or custom visibility requires explicit destination mapping"
+            )
+        return {"visibility_policy": visibility, "inherit_language": inherit}
 
     @staticmethod
     def _assert_live_source_coverage(guild: GuildSnapshot) -> None:

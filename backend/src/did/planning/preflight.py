@@ -281,7 +281,15 @@ class PreflightEngine:
             OperationType.UPDATE_ROLE: BotOperation.MANAGE_ROLE,
             OperationType.DELETE_ROLE: BotOperation.MANAGE_ROLE,
             OperationType.REORDER_ROLES: BotOperation.REORDER_ROLES,
+            OperationType.ADD_MEMBER_ROLE: BotOperation.ASSIGN_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE: BotOperation.ASSIGN_ROLE,
         }
+        if operation.operation_type in {
+            OperationType.ADD_MEMBER_ROLE,
+            OperationType.REMOVE_MEMBER_ROLE,
+        }:
+            role_id = payload.get("role_id")
+            target_role = guild.role(int(role_id)) if role_id is not None else None
         bot_operation = operation_map[operation.operation_type]
         if operation.operation_type is OperationType.REORDER_ROLES:
             items = payload.get("items")

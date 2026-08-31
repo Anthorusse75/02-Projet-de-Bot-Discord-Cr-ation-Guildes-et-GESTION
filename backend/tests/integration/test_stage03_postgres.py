@@ -13,6 +13,7 @@ from did.infrastructure.database import (
     tenant_transaction,
 )
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.tenancy import TenantContext
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]
@@ -400,6 +401,93 @@ async def test_first_guild_create_establishes_tenant_root_and_active_stays_activ
                 await session.scalar(text("SELECT installation_status FROM guild_installations"))
                 == "ACTIVE"
             )
+    finally:
+        await engine.dispose()
+
+
+async def test_exact_guild_member_inventory_stays_complete_across_add_remove() -> None:
+    await reset_runtime()
+    engine = create_database_engine(APP_URL, pool_size=1)
+    factory = create_session_factory(engine)
+    repository = RuntimeRepository(factory)
+    read_models = Stage04Repository(factory)
+    technical_role = 130303030303030399
+    bot_user = 130303030303030398
+    try:
+        initial = dispatch(
+            "GUILD_CREATE",
+            {
+                "id": str(GUILD_A),
+                "name": "Member complete",
+                "owner_id": str(ACTOR),
+                "channels": [],
+                "roles": [
+                    {
+                        "id": str(GUILD_A),
+                        "name": "@everyone",
+                        "position": 0,
+                        "permissions": "0",
+                    },
+                    {
+                        "id": str(technical_role),
+                        "name": "DID scope language",
+                        "position": 1,
+                        "permissions": "0",
+                    },
+                ],
+                "member_count": 2,
+                "members": [
+                    {"user": {"id": str(ACTOR)}, "roles": [str(technical_role)]},
+                    {"user": {"id": str(bot_user), "bot": True}, "roles": []},
+                ],
+            },
+            sequence=1,
+        )
+        assert await repository.ingest_gateway_event(initial) is True
+        guild, _ = await read_models.guild_snapshot(GUILD_A, ACTOR)
+        assert guild.coverage.members_complete is True
+        assert await read_models.member_ids_with_role(GUILD_A, technical_role) == (ACTOR,)
+
+        removed = dispatch(
+            "GUILD_MEMBER_REMOVE",
+            {"guild_id": str(GUILD_A), "user": {"id": str(ACTOR)}},
+            sequence=2,
+        )
+        assert await repository.ingest_gateway_event(removed) is True
+        guild, _ = await read_models.guild_snapshot(GUILD_A, bot_user)
+        assert guild.coverage.members_complete is True
+        _, bot_member = await read_models.guild_snapshot(GUILD_A, bot_user)
+        assert bot_member.is_bot is True
+        assert await read_models.member_ids_with_role(GUILD_A, technical_role) == ()
+
+        added = dispatch(
+            "GUILD_MEMBER_ADD",
+            {
+                "guild_id": str(GUILD_A),
+                "user": {"id": str(ACTOR)},
+                "roles": [],
+            },
+            sequence=3,
+        )
+        assert await repository.ingest_gateway_event(added) is True
+        guild, _ = await read_models.guild_snapshot(GUILD_A, ACTOR)
+        assert guild.coverage.members_complete is True
+
+        count = await repository.apply_complete_rest_member_snapshot(
+            guild_id=GUILD_A,
+            members=(
+                {
+                    "discord_user_id": bot_user,
+                    "role_ids": [GUILD_A, technical_role],
+                    "is_bot": True,
+                },
+            ),
+            correlation_id=uuid4(),
+        )
+        guild, bot_member = await read_models.guild_snapshot(GUILD_A, bot_user)
+        assert count == 1 and guild.coverage.members_complete is True
+        assert bot_member.is_bot is True
+        assert await read_models.member_ids_with_role(GUILD_A, technical_role) == (bot_user,)
     finally:
         await engine.dispose()
 

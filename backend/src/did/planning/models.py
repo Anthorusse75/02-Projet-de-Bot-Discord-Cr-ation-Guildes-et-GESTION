@@ -61,6 +61,7 @@ class ResourceType(StrEnum):
     CATEGORY = "CATEGORY"
     CHANNEL = "CHANNEL"
     OVERWRITE = "OVERWRITE"
+    MEMBER_ROLE = "MEMBER_ROLE"
 
 
 class NodePresence(StrEnum):
@@ -211,6 +212,8 @@ class OperationType(StrEnum):
     DELETE_CHANNEL = "DELETE_CHANNEL"
     UPSERT_OVERWRITE = "UPSERT_OVERWRITE"
     DELETE_OVERWRITE = "DELETE_OVERWRITE"
+    ADD_MEMBER_ROLE = "ADD_MEMBER_ROLE"
+    REMOVE_MEMBER_ROLE = "REMOVE_MEMBER_ROLE"
 
 
 class CompensationClass(StrEnum):
@@ -244,6 +247,7 @@ class PlanState(StrEnum):
     STALE = "STALE"
     CONFIRMED = "CONFIRMED"
     APPLYING = "APPLYING"
+    APPLIED_WITH_PENDING_PROVIDER = "APPLIED_WITH_PENDING_PROVIDER"
     PARTIALLY_APPLIED = "PARTIALLY_APPLIED"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
@@ -269,6 +273,12 @@ class AttemptState(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
+
+
+class PostVerificationOutcome(StrEnum):
+    APPLIED = "APPLIED"
+    PENDING_PROVIDER = "PENDING_PROVIDER"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True, slots=True)

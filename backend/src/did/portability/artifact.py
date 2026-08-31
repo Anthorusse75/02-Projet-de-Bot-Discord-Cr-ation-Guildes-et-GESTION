@@ -65,6 +65,14 @@ class PortableResourceType(StrEnum):
     PRINCIPAL_REQUIREMENT = "PRINCIPAL_REQUIREMENT"
     BOT_REFERENCE = "BOT_REFERENCE"
     WEBHOOK_REFERENCE = "WEBHOOK_REFERENCE"
+    LANGUAGE_PROFILE = "LANGUAGE_PROFILE"
+    TRANSLATION_GROUP = "TRANSLATION_GROUP"
+    TRANSLATION_CHANNEL_GROUP = "TRANSLATION_CHANNEL_GROUP"
+    TRANSLATION_CATEGORY_VARIANT = "TRANSLATION_CATEGORY_VARIANT"
+    TRANSLATION_CHANNEL_VARIANT = "TRANSLATION_CHANNEL_VARIANT"
+    TRANSLATION_ROUTE = "TRANSLATION_ROUTE"
+    TRANSLATION_LANGUAGE_ROLE = "TRANSLATION_LANGUAGE_ROLE"
+    PROVIDER_REQUIREMENT = "PROVIDER_REQUIREMENT"
 
 
 PORTABLE_ATTRIBUTE_SCHEMA_VERSION = "did-portable-attributes-v2"
@@ -95,6 +103,31 @@ _ATTRIBUTE_KEYS: dict[PortableResourceType, frozenset[str]] = {
     PortableResourceType.PRINCIPAL_REQUIREMENT: frozenset({"kind", "name", "source_binding"}),
     PortableResourceType.BOT_REFERENCE: frozenset({"name"}),
     PortableResourceType.WEBHOOK_REFERENCE: frozenset({"name"}),
+    PortableResourceType.LANGUAGE_PROFILE: frozenset({"code", "display_name"}),
+    PortableResourceType.TRANSLATION_GROUP: frozenset(
+        {"name", "root_kind", "routing_mode", "source_language_code"}
+    ),
+    PortableResourceType.TRANSLATION_CHANNEL_GROUP: frozenset(
+        {"logical_key", "display_name", "source_language_code"}
+    ),
+    PortableResourceType.TRANSLATION_CATEGORY_VARIANT: frozenset(
+        {"language_code", "is_source", "visibility_policy", "inherit_language"}
+    ),
+    PortableResourceType.TRANSLATION_CHANNEL_VARIANT: frozenset(
+        {"language_code", "visibility_policy", "inherit_language"}
+    ),
+    PortableResourceType.TRANSLATION_ROUTE: frozenset(
+        {"source_language_code", "destination_language_code"}
+    ),
+    PortableResourceType.TRANSLATION_LANGUAGE_ROLE: frozenset({"language_code"}),
+    PortableResourceType.PROVIDER_REQUIREMENT: frozenset(
+        {
+            "provider_type",
+            "required_capabilities",
+            "configuration_mode",
+            "requires_message_content",
+        }
+    ),
 }
 
 
@@ -202,6 +235,61 @@ def validate_portable_attributes(
         PortableResourceType.WEBHOOK_REFERENCE,
     }:
         string("name", maximum=100)
+    elif resource_type is PortableResourceType.LANGUAGE_PROFILE:
+        string("code", maximum=64)
+        string("display_name", maximum=128)
+    elif resource_type is PortableResourceType.TRANSLATION_GROUP:
+        string("name", maximum=128)
+        string("root_kind", maximum=32)
+        string("routing_mode", maximum=32)
+        string("source_language_code", maximum=64, nullable=True)
+        if attributes.get("root_kind") not in {"CATEGORY_SET", "CHANNEL_SET"}:
+            raise ValueError("portable translation root kind is unsupported")
+        if attributes.get("routing_mode") not in {
+            "HUB_AND_SPOKE",
+            "FULL_MESH",
+            "CUSTOM",
+        }:
+            raise ValueError("portable translation routing mode is unsupported")
+    elif resource_type is PortableResourceType.TRANSLATION_CHANNEL_GROUP:
+        string("logical_key", maximum=160)
+        string("display_name", maximum=160)
+        string("source_language_code", maximum=64, nullable=True)
+    elif resource_type in {
+        PortableResourceType.TRANSLATION_CATEGORY_VARIANT,
+        PortableResourceType.TRANSLATION_CHANNEL_VARIANT,
+    }:
+        string("language_code", maximum=64)
+        string("visibility_policy", maximum=32)
+        boolean("inherit_language")
+        if resource_type is PortableResourceType.TRANSLATION_CATEGORY_VARIANT:
+            boolean("is_source")
+        if attributes.get("visibility_policy") not in {"OPEN_ALL", "LANGUAGE_FILTERED"}:
+            raise ValueError(
+                "portable translation variants require a scope-independent visibility policy"
+            )
+    elif resource_type is PortableResourceType.TRANSLATION_ROUTE:
+        string("source_language_code", maximum=64)
+        string("destination_language_code", maximum=64)
+        if attributes.get("source_language_code") == attributes.get("destination_language_code"):
+            raise ValueError("portable translation route cannot target itself")
+    elif resource_type is PortableResourceType.TRANSLATION_LANGUAGE_ROLE:
+        string("language_code", maximum=64)
+    elif resource_type is PortableResourceType.PROVIDER_REQUIREMENT:
+        string("provider_type", maximum=64)
+        string("configuration_mode", maximum=64)
+        boolean("requires_message_content")
+        capabilities = attributes.get("required_capabilities")
+        if not isinstance(capabilities, list) or not all(
+            isinstance(item, str) and item in {"HUB_AND_SPOKE", "FULL_MESH", "CUSTOM"}
+            for item in capabilities
+        ):
+            raise ValueError("portable provider capabilities are invalid")
+        if attributes.get("configuration_mode") not in {
+            "AUTOMATIC",
+            "MANUAL_CONFIGURATION_REQUIRED",
+        }:
+            raise ValueError("portable provider configuration mode is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,7 +347,27 @@ def _walk_keys(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             normalized = key.lower()
-            if normalized in _FORBIDDEN_OPERATIONAL_KEYS or normalized.endswith("_token"):
+            compact = "".join(character for character in normalized if character.isalnum())
+            secret_keys = {
+                "token",
+                "accesstoken",
+                "refreshtoken",
+                "clientsecret",
+                "apisecret",
+                "providersecret",
+                "apikey",
+                "credential",
+                "credentials",
+                "authorization",
+                "password",
+                "configencrypted",
+            }
+            if (
+                normalized in _FORBIDDEN_OPERATIONAL_KEYS
+                or compact in secret_keys
+                or compact.endswith("token")
+                or compact.endswith("secret")
+            ):
                 raise ValueError(f"forbidden portable field: {key}")
             _walk_keys(item)
     elif isinstance(value, list):

@@ -717,6 +717,91 @@ def stage_07(
     return tuple(base_steps)
 
 
+def stage_08(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    npm = executable("npm")
+    if profile == "e2e":
+        return (
+            Step("frontend lock install", (npm, "ci"), 600, ROOT / "frontend"),
+            Step(
+                "STAGE 08 Playwright translation topology",
+                (npm, "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+            ),
+        )
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    base_steps[migration_index : migration_index + 1] = [
+        Step(
+            "migration upgrade STAGE 08 head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration downgrade STAGE 08 to STAGE 07",
+            (uv, "run", "alembic", "downgrade", "0013_stage_07"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration re-upgrade STAGE 07 to STAGE 08",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step("single Alembic STAGE 08 head", (uv, "run", "alembic", "heads"), environment=TEST_ENV),
+    ]
+    base_steps.append(
+        Step(
+            "STAGE 08 topology unit tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage08_translation_topology.py",
+                "backend/tests/unit/test_stage08_services.py",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage08-unit.xml')}",
+            ),
+            environment=TEST_ENV,
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 08 persistence PostgreSQL tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage08_persistence.py",
+                "backend/tests/integration/test_stage08_application_postgres.py",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage08-persistence.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage08.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage08.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(
+        Step("Discord live STAGE 08 multilingual topology", tuple(live_arguments), 600)
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -792,6 +877,13 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-UX-{index:03d}" for index in range(1, 8)),
             *(f"REQ-UX-CTX-{index:03d}" for index in range(1, 6)),
             *(f"REQ-UI18N-{index:03d}" for index in range(1, 22)),
+        ),
+    ),
+    "08": StageDefinition(
+        steps=stage_08,
+        requirements=(
+            *(f"REQ-I18N-{index:03d}" for index in range(1, 43)),
+            "REQ-I18N-026A",
         ),
     ),
 }
@@ -989,8 +1081,8 @@ def main() -> int:
     if arguments.profile == "failure-injection" and stage != "05":
         print("The failure-injection profile is defined only for STAGE 05")
         return 2
-    if arguments.profile == "e2e" and stage != "07":
-        print("The e2e profile is defined only for STAGE 07")
+    if arguments.profile == "e2e" and stage not in {"07", "08"}:
+        print("The e2e profile is defined only for STAGE 07 and STAGE 08")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []

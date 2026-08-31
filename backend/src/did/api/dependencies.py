@@ -6,10 +6,19 @@ from fastapi import Depends, Request
 
 from did.application.auth.service import AuthorizationService, AuthService
 from did.application.installations.service import InstallationService
+from did.application.translation import LanguageProfileService, TranslationTopologyService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    Stage08AuditRepository,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
+)
 from did.oauth.stores import RedisSessionStore, SessionData
 from did.settings import AppEnvironment, Settings
 
@@ -47,6 +56,16 @@ class ServiceContainer:
     portability_repository: Any = None
     portability: Any = None
     localization_repository: Any = None
+    stage08_language_repository: LanguageProfileRepository | None = None
+    stage08_policy_repository: ResourceLanguagePolicyRepository | None = None
+    stage08_group_repository: TranslationGroupRepository | None = None
+    stage08_provider_repository: TranslationProviderBindingRepository | None = None
+    stage08_visibility_repository: VisibilityScopeLanguageRepository | None = None
+    stage08_languages: LanguageProfileService | None = None
+    stage08_topology: TranslationTopologyService | None = None
+    stage08_audit_repository: Stage08AuditRepository | None = None
+    stage08_structural_planning: Any = None
+    stage08_provider_orchestration: Any = None
 
 
 def services(request: Request) -> ServiceContainer:

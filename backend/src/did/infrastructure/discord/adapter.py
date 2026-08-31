@@ -14,6 +14,8 @@ class DiscordStructurePort(Protocol):
 
     async def fetch_member(self, guild_id: int, user_id: int) -> dict[str, Any]: ...
 
+    async def fetch_members(self, guild_id: int) -> list[dict[str, Any]]: ...
+
 
 class DiscordAdapterError(RuntimeError):
     def __init__(self, failure: DiscordFailure) -> None:
@@ -108,7 +110,25 @@ class DiscordPyStructureAdapter:
             "guild_id": guild_id,
             "discord_user_id": int(member.id),
             "role_ids": [int(role.id) for role in member.roles],
+            "is_bot": bool(member.bot),
         }
+
+    async def fetch_members(self, guild_id: int) -> list[dict[str, Any]]:
+        """Fetch the complete paginated member inventory (privileged intent required)."""
+        guild = await self._guild(guild_id)
+        try:
+            members = [member async for member in guild.fetch_members(limit=None)]
+        except Exception as exc:
+            raise self._translate(exc) from exc
+        return [
+            {
+                "guild_id": guild_id,
+                "discord_user_id": int(member.id),
+                "role_ids": [int(role.id) for role in member.roles],
+                "is_bot": bool(member.bot),
+            }
+            for member in members
+        ]
 
     @staticmethod
     def _translate(exc: Exception) -> DiscordAdapterError:

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-CATALOG_VERSION = "did-ui-v1"
+CATALOG_VERSION = "did-ui-v2"
 # The frontend OpenAPI/i18n gate verifies the exact manifest. The public backend
 # advertises its immutable compatibility hash without importing frontend code.
 CATALOG_CONTENT_HASH = hashlib.sha256(CATALOG_VERSION.encode()).hexdigest()

@@ -127,6 +127,7 @@ class PlanCompiler:
         node = entry.node
         operation_type = self._operation_type(entry)
         payload = self._payload(desired, node)
+        payload.pop("current_assigned", None)
         if non_move_fields:
             identity_fields = {
                 key
@@ -148,7 +149,8 @@ class PlanCompiler:
         is_delete = operation_type in {OperationType.DELETE_ROLE, OperationType.DELETE_CHANNEL}
         capability = (
             "MANAGE_ROLES"
-            if node.resource_type in {ResourceType.ROLE, ResourceType.OVERWRITE}
+            if node.resource_type
+            in {ResourceType.ROLE, ResourceType.OVERWRITE, ResourceType.MEMBER_ROLE}
             else "MANAGE_CHANNELS"
         )
         if node.resource_type is ResourceType.OVERWRITE:
@@ -408,6 +410,12 @@ class PlanCompiler:
                 if entry.action is DiffAction.DELETE
                 else OperationType.UPSERT_OVERWRITE
             )
+        if resource is ResourceType.MEMBER_ROLE:
+            return (
+                OperationType.ADD_MEMBER_ROLE
+                if bool(entry.node.property_map().get("assigned", False))
+                else OperationType.REMOVE_MEMBER_ROLE
+            )
         raise ValueError(f"unsupported diff resource/action: {resource}/{entry.action}")
 
     @staticmethod
@@ -449,6 +457,8 @@ class PlanCompiler:
             return ("GUILD_ROLE_DELETE",)
         if operation_type in {OperationType.UPDATE_ROLE, OperationType.REORDER_ROLES}:
             return ("GUILD_ROLE_UPDATE",)
+        if operation_type in {OperationType.ADD_MEMBER_ROLE, OperationType.REMOVE_MEMBER_ROLE}:
+            return ("GUILD_MEMBER_UPDATE",)
         if operation_type is OperationType.CREATE_CHANNEL:
             return ("CHANNEL_CREATE",)
         if operation_type is OperationType.DELETE_CHANNEL:
@@ -491,7 +501,7 @@ class PlanCompiler:
             "before_fingerprint": canonical_hash(before),
             "coverage_complete": (
                 observed.roles_complete
-                if resource_type is ResourceType.ROLE
+                if resource_type in {ResourceType.ROLE, ResourceType.MEMBER_ROLE}
                 else observed.channels_complete
             ),
         }

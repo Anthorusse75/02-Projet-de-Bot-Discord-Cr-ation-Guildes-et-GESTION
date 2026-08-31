@@ -22,11 +22,18 @@ from did.api.stage05 import invalid_planning_input
 from did.api.stage05 import router as stage05_router
 from did.api.stage06 import router as stage06_router
 from did.api.stage07 import router as stage07_router
+from did.api.stage08 import router as stage08_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
 from did.application.planning import PlanningService
 from did.application.portability import PortabilityService
+from did.application.translation import (
+    LanguageProfileService,
+    Stage08ProviderOrchestrationService,
+    TranslationTopologyService,
+)
+from did.application.translation.planning import Stage08StructuralPlanningService
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.database import (
     create_database_engine,
@@ -52,6 +59,17 @@ from did.infrastructure.redis import create_redis_client, redis_is_ready
 from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    ResourceLanguagePolicyRepository,
+    Stage08AuditRepository,
+    Stage08Conflict,
+    Stage08NotFound,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+    VisibilityScopeLanguageRepository,
+)
 from did.oauth.crypto import TokenCipher, decode_encryption_key
 from did.oauth.discord import (
     DiscordMemberClient,
@@ -159,6 +177,36 @@ def create_app(
             portability_repository = None
             portability = None
             localization_repository = LocalizationRepository(session_factory)
+            stage08_language_repository = LanguageProfileRepository(session_factory)
+            stage08_policy_repository = ResourceLanguagePolicyRepository(session_factory)
+            stage08_group_repository = TranslationGroupRepository(session_factory)
+            stage08_provider_repository = TranslationProviderBindingRepository(session_factory)
+            stage08_visibility_repository = VisibilityScopeLanguageRepository(session_factory)
+            stage08_lifecycle_repository = Stage08LifecycleRepository(session_factory)
+            stage08_languages = LanguageProfileService(
+                stage08_language_repository, stage08_policy_repository
+            )
+            stage08_topology = TranslationTopologyService(
+                stage08_group_repository,
+                stage08_provider_repository,
+                stage08_visibility_repository,
+                stage04_repository,
+            )
+            stage08_audit_repository = Stage08AuditRepository(session_factory)
+            stage08_structural_planning = Stage08StructuralPlanningService(
+                planning=planning,
+                read_models=stage04_repository,
+                groups=stage08_group_repository,
+                languages=stage08_language_repository,
+                policies=stage08_policy_repository,
+                scope_roles=stage08_visibility_repository,
+                lifecycle=stage08_lifecycle_repository,
+            )
+            stage08_provider_orchestration = Stage08ProviderOrchestrationService(
+                read_models=stage04_repository,
+                groups=stage08_group_repository,
+                providers=stage08_provider_repository,
+            )
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -188,6 +236,10 @@ def create_app(
                     clipboard_ttl_seconds=configured.artifact_clipboard_ttl_seconds,
                     export_ttl_seconds=configured.artifact_export_ttl_seconds,
                     metrics=runtime_repository.metrics,
+                    translation_groups=stage08_group_repository,
+                    translation_policies=stage08_policy_repository,
+                    translation_providers=stage08_provider_repository,
+                    translation_lifecycle=stage08_lifecycle_repository,
                 )
             application.state.services = ServiceContainer(
                 settings=configured,
@@ -205,6 +257,16 @@ def create_app(
                 portability_repository=portability_repository,
                 portability=portability,
                 localization_repository=localization_repository,
+                stage08_language_repository=stage08_language_repository,
+                stage08_policy_repository=stage08_policy_repository,
+                stage08_group_repository=stage08_group_repository,
+                stage08_provider_repository=stage08_provider_repository,
+                stage08_visibility_repository=stage08_visibility_repository,
+                stage08_languages=stage08_languages,
+                stage08_topology=stage08_topology,
+                stage08_audit_repository=stage08_audit_repository,
+                stage08_structural_planning=stage08_structural_planning,
+                stage08_provider_orchestration=stage08_provider_orchestration,
             )
         try:
             yield
@@ -245,6 +307,7 @@ def create_app(
     application.include_router(stage05_router)
     application.include_router(stage06_router)
     application.include_router(stage07_router)
+    application.include_router(stage08_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -333,6 +396,26 @@ def create_app(
     @application.exception_handler(ValueError)
     async def handle_planning_value_error(request: Request, exc: ValueError) -> JSONResponse:
         problem = invalid_planning_input(exc)
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(Stage08NotFound)
+    async def handle_stage08_not_found(request: Request, exc: Stage08NotFound) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="MULTILINGUAL_RESOURCE_NOT_FOUND",
+            message_key="errors.translations.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(Stage08Conflict)
+    async def handle_stage08_conflict(request: Request, exc: Stage08Conflict) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=409,
+            code="MULTILINGUAL_CONFLICT",
+            message_key="errors.translations.conflict",
+        )
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 
     return application

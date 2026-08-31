@@ -152,6 +152,7 @@ class RuntimeRepository:
                 "GUILD_ROLE_CREATE",
                 "GUILD_ROLE_UPDATE",
                 "GUILD_ROLE_DELETE",
+                "GUILD_MEMBER_UPDATE",
             }:
                 await self._classify_plan_gateway_event(session, envelope)
             await session.execute(
@@ -182,7 +183,10 @@ class RuntimeRepository:
     ) -> None:
         """Match inferred own events conservatively; never claim native plan correlation."""
         resource_id = int(
-            envelope.payload.get("channel_id") or envelope.payload.get("role_id") or 0
+            envelope.payload.get("channel_id")
+            or envelope.payload.get("role_id")
+            or envelope.payload.get("discord_user_id")
+            or 0
         )
         if resource_id <= 0:
             return
@@ -340,6 +344,13 @@ class RuntimeRepository:
         expected: dict[str, Any],
         observed: dict[str, Any],
     ) -> bool:
+        if operation_type in {"ADD_MEMBER_ROLE", "REMOVE_MEMBER_ROLE"}:
+            role_id = expected.get("role_id")
+            role_ids = observed.get("role_ids")
+            if role_id is None or not isinstance(role_ids, list):
+                return False
+            assigned = int(role_id) in {int(value) for value in role_ids}
+            return assigned is (operation_type == "ADD_MEMBER_ROLE")
         if operation_type in {"UPSERT_OVERWRITE", "DELETE_OVERWRITE"}:
             expected_channel_id = expected.get("channel_id")
             if expected_channel_id is None or str(observed.get("channel_id")) != str(
@@ -444,6 +455,8 @@ class RuntimeRepository:
 
     @staticmethod
     def _gateway_resource_type(event_type: str) -> str:
+        if event_type == "GUILD_MEMBER_UPDATE":
+            return "MEMBER"
         return "ROLE" if event_type.startswith("GUILD_ROLE_") else "CHANNEL"
 
     async def _project(self, session: AsyncSession, envelope: EventEnvelope) -> bool:
@@ -487,8 +500,23 @@ class RuntimeRepository:
         elif event_type == "GUILD_DELETE":
             await self._project_guild_delete(session, envelope)
             return True
-        elif event_type == "GUILD_MEMBER_UPDATE":
+        elif event_type in {"GUILD_MEMBER_ADD", "GUILD_MEMBER_UPDATE"}:
             await self._project_member(session, envelope)
+            if event_type == "GUILD_MEMBER_ADD":
+                await self._refresh_member_coverage(session, envelope, delta=1)
+            return True
+        elif event_type == "GUILD_MEMBER_REMOVE":
+            await session.execute(
+                text(
+                    "DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id "
+                    "AND discord_user_id=:user_id"
+                ),
+                {
+                    "guild_id": envelope.guild_id,
+                    "user_id": int(envelope.payload["discord_user_id"]),
+                },
+            )
+            await self._refresh_member_coverage(session, envelope, delta=-1)
             return True
         return False
 
@@ -538,6 +566,45 @@ class RuntimeRepository:
         await self._record_thread_sync_coverage(session, envelope, parent_ids=None)
         for role in payload.get("roles", []):
             await self._project_role(session, envelope, role, audit=False)
+        if bool(payload.get("members_complete")):
+            await session.execute(
+                text("DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"),
+                {"guild_id": envelope.guild_id},
+            )
+            for member in payload.get("members", []):
+                member_envelope = EventEnvelope(
+                    event_id=envelope.event_id,
+                    guild_id=envelope.guild_id,
+                    event_type="GUILD_MEMBER_UPDATE",
+                    discord_sequence=envelope.discord_sequence,
+                    discord_session_id=envelope.discord_session_id,
+                    occurred_at=envelope.occurred_at,
+                    received_at=envelope.received_at,
+                    correlation_id=envelope.correlation_id,
+                    causation_id=envelope.causation_id,
+                    schema_version=envelope.schema_version,
+                    payload=member,
+                    source=envelope.source,
+                    origin=envelope.origin,
+                )
+                await self._project_member(session, member_envelope)
+        known_members = len(payload.get("members", [])) if payload.get("members_complete") else 0
+        await session.execute(
+            text(
+                "UPDATE discord_cache_coverage SET known_members=:known_members,"
+                "member_count=:member_count,members_complete=:members_complete,"
+                "last_full_member_sync_at=CASE WHEN :members_complete "
+                "THEN CAST(:seen_at AS timestamptz) ELSE NULL END,"
+                "state_version=state_version+1,updated_at=now() WHERE guild_id=:guild_id"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "known_members": known_members,
+                "member_count": int(payload.get("member_count", 0)),
+                "members_complete": bool(payload.get("members_complete")),
+                "seen_at": envelope.received_at,
+            },
+        )
         await self._append_audit(
             session,
             envelope,
@@ -620,6 +687,8 @@ class RuntimeRepository:
                 self._channel_parameters(envelope, payload),
             )
             applied = result.scalar_one_or_none() is not None
+            if applied:
+                await self._project_stage08_channel_delete(session, envelope, channel_id)
             drift_type = (
                 "THREAD_DELETED" if envelope.event_type == "THREAD_DELETE" else "CHANNEL_DELETED"
             )
@@ -1032,6 +1101,8 @@ class RuntimeRepository:
                 },
             )
             applied = result.scalar_one_or_none() is not None
+            if applied:
+                await self._project_stage08_role_delete(session, envelope, role_id)
             drift_type = "ROLE_DELETED"
         else:
             result = await session.execute(
@@ -1095,20 +1166,115 @@ class RuntimeRepository:
             )
         return applied
 
+    async def _project_stage08_channel_delete(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        channel_id: int,
+    ) -> None:
+        statements = (
+            (
+                "CATEGORY_VARIANT",
+                "UPDATE translation_category_variants SET state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_category_id=:resource_id "
+                "AND state<>'MISSING' RETURNING id",
+            ),
+            (
+                "CHANNEL_VARIANT",
+                "UPDATE translation_channel_variants SET state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_channel_id=:resource_id "
+                "AND state<>'MISSING' RETURNING id",
+            ),
+        )
+        for target_type, statement in statements:
+            rows = (
+                await session.execute(
+                    text(statement),
+                    {"guild_id": envelope.guild_id, "resource_id": channel_id},
+                )
+            ).scalars()
+            for variant_id in rows:
+                await self._append_audit(
+                    session,
+                    envelope,
+                    event_type="TRANSLATION_VARIANT_MISSING",
+                    target_type=target_type,
+                    target_id=variant_id,
+                    result_state="MISSING",
+                )
+
+    async def _project_stage08_role_delete(
+        self,
+        session: AsyncSession,
+        envelope: EventEnvelope,
+        role_id: int,
+    ) -> None:
+        statements = (
+            (
+                "LANGUAGE_ROLE_BINDING",
+                "UPDATE language_profile_roles SET role_state='MISSING',updated_at=now() "
+                "WHERE guild_id=:guild_id AND discord_role_id=:resource_id "
+                "AND role_state<>'MISSING' RETURNING id",
+            ),
+            (
+                "SCOPE_LANGUAGE_ROLE_BINDING",
+                "UPDATE visibility_scope_language_roles SET role_state='MISSING',"
+                "updated_at=now() WHERE guild_id=:guild_id AND discord_role_id=:resource_id "
+                "AND role_state<>'MISSING' RETURNING id",
+            ),
+        )
+        for target_type, statement in statements:
+            rows = (
+                await session.execute(
+                    text(statement),
+                    {"guild_id": envelope.guild_id, "resource_id": role_id},
+                )
+            ).scalars()
+            for binding_id in rows:
+                await self._append_audit(
+                    session,
+                    envelope,
+                    event_type="TRANSLATION_ROLE_BINDING_MISSING",
+                    target_type=target_type,
+                    target_id=binding_id,
+                    result_state="MISSING",
+                )
+
     async def _project_member(self, session: AsyncSession, envelope: EventEnvelope) -> None:
         await session.execute(
             text(
                 "INSERT INTO discord_member_authorization_cache "
-                "(guild_id, discord_user_id, role_ids, source, validity, observed_at) VALUES "
-                "(:guild_id, :user_id, :role_ids, 'GATEWAY', 'FRESH', :seen_at) "
+                "(guild_id, discord_user_id, role_ids, is_bot, source, validity, observed_at) "
+                "VALUES (:guild_id, :user_id, :role_ids, :is_bot, 'GATEWAY', 'FRESH', :seen_at) "
                 "ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET "
-                "role_ids=EXCLUDED.role_ids, source='GATEWAY', validity='FRESH', "
+                "role_ids=EXCLUDED.role_ids,is_bot=EXCLUDED.is_bot,source='GATEWAY',"
+                "validity='FRESH', "
                 "observed_at=EXCLUDED.observed_at, invalidated_at=NULL, cache_updated_at=now()"
             ).bindparams(bindparam("role_ids")),
             {
                 "guild_id": envelope.guild_id,
                 "user_id": int(envelope.payload["discord_user_id"]),
                 "role_ids": [int(role_id) for role_id in envelope.payload["role_ids"]],
+                "is_bot": bool(envelope.payload.get("is_bot", False)),
+                "seen_at": envelope.received_at,
+            },
+        )
+
+    async def _refresh_member_coverage(
+        self, session: AsyncSession, envelope: EventEnvelope, *, delta: int
+    ) -> None:
+        await session.execute(
+            text(
+                "UPDATE discord_cache_coverage SET known_members=(SELECT count(*) FROM "
+                "discord_member_authorization_cache WHERE guild_id=:guild_id),"
+                "member_count=CASE WHEN members_complete THEN (SELECT count(*) FROM "
+                "discord_member_authorization_cache WHERE guild_id=:guild_id) ELSE "
+                "GREATEST(member_count+:delta,0) END,state_version=state_version+1,"
+                "last_gateway_event_at=:seen_at,updated_at=now() WHERE guild_id=:guild_id"
+            ),
+            {
+                "guild_id": envelope.guild_id,
+                "delta": delta,
                 "seen_at": envelope.received_at,
             },
         )
@@ -1625,6 +1791,76 @@ class RuntimeRepository:
                 correlation_id=correlation_id,
                 causation_id=None,
             )
+
+    async def apply_complete_rest_member_snapshot(
+        self,
+        *,
+        guild_id: int,
+        members: Iterable[dict[str, Any]],
+        correlation_id: UUID,
+        observed_at: datetime | None = None,
+    ) -> int:
+        """Replace member authorization cache after a fully paginated Discord REST listing."""
+        observed = observed_at or datetime.now(UTC)
+        rows = tuple(members)
+        member_ids = [int(row["discord_user_id"]) for row in rows]
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("complete member snapshot contains duplicate users")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text("DELETE FROM discord_member_authorization_cache WHERE guild_id=:guild_id"),
+                {"guild_id": guild_id},
+            )
+            for member in rows:
+                await session.execute(
+                    text(
+                        "INSERT INTO discord_member_authorization_cache "
+                        "(guild_id,discord_user_id,role_ids,is_bot,source,validity,observed_at) "
+                        "VALUES (:guild_id,:user_id,:role_ids,:is_bot,'FULL_REST_LIST','FRESH',"
+                        ":observed_at)"
+                    ).bindparams(bindparam("role_ids")),
+                    {
+                        "guild_id": guild_id,
+                        "user_id": int(member["discord_user_id"]),
+                        "role_ids": sorted({int(value) for value in member.get("role_ids", [])}),
+                        "is_bot": bool(member.get("is_bot", False)),
+                        "observed_at": observed,
+                    },
+                )
+            await session.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id,coverage_mode,freshness_state,known_members,member_count,"
+                    "members_complete,last_full_member_sync_at,last_successful_rest_sync_at) "
+                    "VALUES (:guild_id,'PARTIAL','FRESH',:count,:count,true,:observed_at,"
+                    ":observed_at) ON CONFLICT (guild_id) DO UPDATE SET "
+                    "known_members=:count,member_count=:count,members_complete=true,"
+                    "last_full_member_sync_at=:observed_at,"
+                    "last_successful_rest_sync_at=:observed_at,"
+                    "freshness_state=CASE WHEN discord_cache_coverage.gateway_continuity IN "
+                    "('GAP_DETECTED','NON_RESUMED','DISCONNECTED') THEN 'STALE' ELSE 'FRESH' END,"
+                    "state_version=discord_cache_coverage.state_version+1,updated_at=now()"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "count": len(rows),
+                    "observed_at": observed,
+                },
+            )
+            await self._append_outbox(
+                session,
+                guild_id=guild_id,
+                topic="discord.cache.members.reconciled",
+                payload={
+                    "guild_id": str(guild_id),
+                    "resource_type": "members",
+                    "count": len(rows),
+                    "complete": True,
+                },
+                correlation_id=correlation_id,
+                causation_id=None,
+            )
+        return len(rows)
 
     async def mark_structure_sync_complete(
         self, guild_id: int, *, completed_at: datetime | None = None

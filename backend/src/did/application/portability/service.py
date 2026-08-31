@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -10,6 +10,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from did.application.planning import PlanningService
+from did.application.translation.service import VIEW_CHANNEL
 from did.cloning import (
     ArtifactSelection,
     DestinationPlanCompiler,
@@ -21,6 +22,19 @@ from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.portability_repository import PortabilityRepository, TransferConflict
 from did.infrastructure.runtime_metrics import RuntimeMetrics
 from did.infrastructure.stage04_repository import Stage04Repository
+from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import (
+    ResourceLanguagePolicyRepository,
+    TranslationGroupRepository,
+    TranslationProviderBindingRepository,
+)
+from did.planning import (
+    DesiredNode,
+    DesiredStateGraph,
+    ReferenceKind,
+    ResourceReference,
+    ResourceType,
+)
 from did.portability import (
     CloneMode,
     DependencyGraph,
@@ -59,6 +73,10 @@ class PortabilityService:
         clipboard_ttl_seconds: int = 3_600,
         export_ttl_seconds: int = 2_592_000,
         metrics: RuntimeMetrics | None = None,
+        translation_groups: TranslationGroupRepository | None = None,
+        translation_policies: ResourceLanguagePolicyRepository | None = None,
+        translation_providers: TranslationProviderBindingRepository | None = None,
+        translation_lifecycle: Stage08LifecycleRepository | None = None,
     ) -> None:
         self.repository = repository
         self._read_models = read_models
@@ -70,6 +88,10 @@ class PortabilityService:
         self._clipboard_ttl = clipboard_ttl_seconds
         self._export_ttl = export_ttl_seconds
         self._metrics = metrics
+        self._translation_groups = translation_groups
+        self._translation_policies = translation_policies
+        self._translation_providers = translation_providers
+        self._translation_lifecycle = translation_lifecycle
 
     async def export_live(
         self,
@@ -113,6 +135,86 @@ class PortabilityService:
                 actor_user_id=actor_user_id,
                 transfer_id=UUID(str(metadata["id"])),
                 event_type="PORTABLE_ARTIFACT_EXPORTED",
+                artifact_hash=artifact.content_hash,
+                correlation_id=correlation_id,
+                target_type="ARTIFACT",
+            )
+        return metadata, created
+
+    async def export_live_translation_group(
+        self,
+        *,
+        source_guild_id: int,
+        translation_group_id: UUID,
+        actor_user_id: int,
+        kind: ArtifactKind,
+        name: str | None,
+        idempotency_key: str,
+        correlation_id: UUID,
+    ) -> tuple[dict[str, Any], bool]:
+        if (
+            self._translation_groups is None
+            or self._translation_policies is None
+            or self._translation_lifecycle is None
+        ):
+            raise ValueError("translation portability is not configured")
+        guild, _ = await self._read_models.guild_snapshot(source_guild_id, actor_user_id)
+        group = await self._translation_groups.workspace_group(
+            guild_id=source_guild_id,
+            group_id=translation_group_id,
+        )
+        policies = tuple(await self._translation_policies.list_policies(source_guild_id))
+        language_bindings = tuple(
+            await self._translation_lifecycle.list_language_bindings(guild_id=source_guild_id)
+        )
+        provider_requirement: dict[str, Any] | None = None
+        provider_binding_id = group.get("provider_binding_id")
+        if provider_binding_id is not None:
+            if self._translation_providers is None:
+                raise ValueError("translation provider portability is not configured")
+            binding = await self._translation_providers.get(
+                guild_id=source_guild_id,
+                binding_id=UUID(str(provider_binding_id)),
+            )
+            capabilities = dict(binding.get("capabilities_json") or {})
+            provider_requirement = {
+                "provider_type": str(binding["provider_type"]),
+                "required_capabilities": [str(group["routing_mode"])],
+                "configuration_mode": "MANUAL_CONFIGURATION_REQUIRED",
+                "requires_message_content": bool(
+                    capabilities.get("requires_message_content", False)
+                ),
+            }
+        started = perf_counter()
+        artifact = self._builder.build_live_translation_group(
+            guild,
+            group,
+            policies=policies,
+            language_role_bindings=language_bindings,
+            provider_requirement=provider_requirement,
+        )
+        if self._metrics is not None:
+            self._metrics.artifact_built(perf_counter() - started, len(artifact_to_bytes(artifact)))
+        metadata, created = await self.repository.create_artifact(
+            owner_user_id=actor_user_id,
+            kind=kind.value,
+            artifact=artifact,
+            name=name,
+            expires_at=self._expiry(kind),
+            idempotency_operation="TRANSLATION_GROUP_EXPORT",
+            idempotency_key=self._translation_export_idempotency_key(
+                source_guild_id,
+                translation_group_id,
+                kind,
+                idempotency_key,
+            ),
+        )
+        if created:
+            await self.repository.audit_boundary(
+                guild_id=source_guild_id,
+                actor_user_id=actor_user_id,
+                transfer_id=UUID(str(metadata["id"])),
+                event_type="TRANSLATION_PORTABLE_ARTIFACT_EXPORTED",
                 artifact_hash=artifact.content_hash,
                 correlation_id=correlation_id,
                 target_type="ARTIFACT",
@@ -308,6 +410,17 @@ class PortabilityService:
             candidates=candidates,
             reconcile_scope=owned_scope if mode is CloneMode.RECONCILE else None,
         )
+        is_multilingual_clone = any(
+            resource.resource_type is PortableResourceType.TRANSLATION_GROUP
+            for resource in artifact.resources
+        )
+        if is_multilingual_clone and compilation.graph is not None:
+            compilation = replace(
+                compilation,
+                graph=await self._with_control_plane_access(
+                    compilation.graph, destination_guild_id=destination_guild_id
+                ),
+            )
         if self._metrics is not None:
             self._metrics.portability_outcome("transfer_state", TransferState.READY.value)
         report_json = [self._report_json(item) for item in compilation.report.entries]
@@ -340,6 +453,7 @@ class PortabilityService:
             actor_user_id=actor_user_id,
             idempotency_key=planning_key,
             correlation_id=correlation_id,
+            operation_order_policy=("STAGE08_STRUCTURAL" if is_multilingual_clone else None),
         )
         if self._metrics is not None:
             self._metrics.portability_outcome(
@@ -367,6 +481,51 @@ class PortabilityService:
             destination_plan_id=UUID(str(plan["id"])),
         )
         return transfer, plan, plan_created
+
+    async def _with_control_plane_access(
+        self, graph: DesiredStateGraph, *, destination_guild_id: int
+    ) -> DesiredStateGraph:
+        """Ensure the DID control-plane bot keeps access to cloned visibility-restricted channels.
+
+        A cloned Scope x Language/language-filtered channel replicates the source's
+        deny-VIEW_CHANNEL overwrite verbatim. Discord resolves permissions from the
+        final overwrite state, not from write order: without an explicit allow for
+        the destination bot's own principal, the deny leaves the bot unable to see
+        or manage the channel it just created, even though it still holds
+        MANAGE_CHANNELS at the guild level. This mirrors the durable
+        `bot_identity()`-based control-plane check already used by the Stage05
+        preflight (see PlanningService.recheck) rather than granting the bot any
+        human business-scope role.
+        """
+        bot_id, _ = await self._read_models.bot_identity(destination_guild_id)
+        if bot_id is None:
+            return graph
+        restricted_channel_keys = sorted(
+            {
+                relation.value
+                for node in graph.nodes
+                if node.resource_type is ResourceType.OVERWRITE
+                and int(node.property_map().get("deny", 0)) & VIEW_CHANNEL
+                for name, relation in node.relations
+                if name == "channel" and relation.kind is ReferenceKind.LOGICAL
+            }
+        )
+        if not restricted_channel_keys:
+            return graph
+        bot_ref = ResourceReference(ReferenceKind.DISCORD_ID, str(bot_id))
+        extra_nodes = tuple(
+            DesiredNode.build(
+                logical_key=f"stage08.overwrite.control_plane_bot.{channel_key}",
+                resource_type=ResourceType.OVERWRITE,
+                properties={"target_type": 1, "allow": str(VIEW_CHANNEL), "deny": "0"},
+                relations={
+                    "channel": ResourceReference(ReferenceKind.LOGICAL, channel_key),
+                    "subject": bot_ref,
+                },
+            )
+            for channel_key in restricted_channel_keys
+        )
+        return DesiredStateGraph(graph.guild_id, graph.nodes + extra_nodes)
 
     async def prepare_stored_transfer(
         self,
@@ -635,6 +794,13 @@ class PortabilityService:
             artifact_hash=artifact.content_hash,
             bindings=durable_bindings,
         )
+        translation_result = await self._finalize_translation_topology(
+            artifact=artifact,
+            destination_guild_id=destination_guild_id,
+            transfer_id=transfer_id,
+            mappings=mappings,
+            symbol_bindings=bindings,
+        )
         created_groups: list[dict[str, str]] = []
         created_policies: list[dict[str, str]] = []
         for group in artifact.resources:
@@ -727,6 +893,7 @@ class PortabilityService:
         result = {
             "logical_groups": created_groups,
             "policy_definitions": created_policies,
+            "translation_topology": translation_result,
         }
         transfer = await self.repository.record_local_result(actor_user_id, transfer_id, result)
         await self.repository.audit_boundary(
@@ -739,6 +906,137 @@ class PortabilityService:
             destination_plan_id=plan_id,
         )
         return transfer
+
+    async def _finalize_translation_topology(
+        self,
+        *,
+        artifact: Any,
+        destination_guild_id: int,
+        transfer_id: UUID,
+        mappings: dict[str, dict[str, Any]],
+        symbol_bindings: dict[str, int],
+    ) -> dict[str, Any] | None:
+        translation_groups = tuple(
+            resource
+            for resource in artifact.resources
+            if resource.resource_type is PortableResourceType.TRANSLATION_GROUP
+        )
+        if not translation_groups:
+            return None
+        if len(translation_groups) != 1 or self._translation_groups is None:
+            raise ValueError("portable translation topology is unavailable or ambiguous")
+        dependencies = {(edge.source, edge.relation): edge.target for edge in artifact.dependencies}
+
+        def identity(logical_ref: str, kind: str) -> UUID:
+            return uuid5(
+                NAMESPACE_URL,
+                f"did:portable-translation:{kind}:{transfer_id}:{logical_ref}",
+            )
+
+        def destination_resource(logical_ref: str) -> int:
+            mapping = mappings[logical_ref]
+            destination_ref = mapping.get("destination_ref")
+            if mapping["decision"] == MappingDecision.CREATE.value:
+                destination_ref = symbol_bindings.get(f"portable:{logical_ref}")
+            if destination_ref is None:
+                raise ValueError("portable translation Discord binding is unresolved")
+            return int(destination_ref)
+
+        group_resource = translation_groups[0]
+        group_attributes = group_resource.attribute_map()
+        language_resources = tuple(
+            resource
+            for resource in artifact.resources
+            if resource.resource_type is PortableResourceType.LANGUAGE_PROFILE
+        )
+        topology: dict[str, Any] = {
+            "languages": [
+                {
+                    "id": identity(resource.logical_key, "language"),
+                    **resource.attribute_map(),
+                }
+                for resource in language_resources
+            ],
+            "group": {
+                "id": identity(group_resource.logical_key, "group"),
+                **group_attributes,
+            },
+            "channel_groups": [],
+            "category_variants": [],
+            "channel_variants": [],
+            "routes": [],
+            "language_roles": [],
+        }
+        for resource in artifact.resources:
+            attributes = resource.attribute_map()
+            if resource.resource_type is PortableResourceType.TRANSLATION_CHANNEL_GROUP:
+                topology["channel_groups"].append(
+                    {
+                        "id": identity(resource.logical_key, "channel-group"),
+                        "logical_ref": resource.logical_key,
+                        **attributes,
+                    }
+                )
+            elif resource.resource_type is PortableResourceType.TRANSLATION_CATEGORY_VARIANT:
+                discord_ref = dependencies.get((resource.logical_key, "discord_resource"))
+                if discord_ref is None:
+                    raise ValueError("portable category variant has no Discord dependency")
+                topology["category_variants"].append(
+                    {
+                        "id": identity(resource.logical_key, "category-variant"),
+                        "policy_id": identity(resource.logical_key, "category-policy"),
+                        "logical_ref": resource.logical_key,
+                        "discord_resource_id": destination_resource(discord_ref),
+                        **attributes,
+                    }
+                )
+            elif resource.resource_type is PortableResourceType.TRANSLATION_CHANNEL_VARIANT:
+                discord_ref = dependencies.get((resource.logical_key, "discord_resource"))
+                channel_group_ref = dependencies.get(
+                    (resource.logical_key, "translation_channel_group")
+                )
+                if discord_ref is None or channel_group_ref is None:
+                    raise ValueError("portable channel variant dependencies are incomplete")
+                topology["channel_variants"].append(
+                    {
+                        "id": identity(resource.logical_key, "channel-variant"),
+                        "policy_id": identity(resource.logical_key, "channel-policy"),
+                        "logical_ref": resource.logical_key,
+                        "discord_resource_id": destination_resource(discord_ref),
+                        "translation_channel_group_ref": channel_group_ref,
+                        "translation_category_variant_ref": dependencies.get(
+                            (resource.logical_key, "translation_category_variant")
+                        ),
+                        **attributes,
+                    }
+                )
+            elif resource.resource_type is PortableResourceType.TRANSLATION_ROUTE:
+                topology["routes"].append(
+                    {"id": identity(resource.logical_key, "route"), **attributes}
+                )
+            elif resource.resource_type is PortableResourceType.TRANSLATION_LANGUAGE_ROLE:
+                discord_ref = dependencies.get((resource.logical_key, "discord_resource"))
+                if discord_ref is None:
+                    raise ValueError("portable language role has no Discord dependency")
+                topology["language_roles"].append(
+                    {
+                        "id": identity(resource.logical_key, "language-role"),
+                        "discord_role_id": destination_resource(discord_ref),
+                        **attributes,
+                    }
+                )
+        result = await self._translation_groups.materialize_portable_topology(
+            guild_id=destination_guild_id,
+            topology=topology,
+        )
+        result["source_translation_group_id_propagated"] = False
+        result["provider_requirements"] = [
+            resource.attribute_map()
+            for resource in artifact.resources
+            if resource.resource_type is PortableResourceType.PROVIDER_REQUIREMENT
+        ]
+        result["provider_bindings_omitted"] = True
+        return result
 
     def _expiry(self, kind: ArtifactKind) -> datetime | None:
         if kind is ArtifactKind.LIBRARY:
@@ -1054,3 +1352,22 @@ class PortabilityService:
             separators=(",", ":"),
         ).encode()
         return "portable-export:" + hashlib.sha256(material).hexdigest()
+
+    @staticmethod
+    def _translation_export_idempotency_key(
+        source_guild_id: int,
+        translation_group_id: UUID,
+        kind: ArtifactKind,
+        caller_key: str,
+    ) -> str:
+        material = json.dumps(
+            {
+                "source_guild_id": str(source_guild_id),
+                "translation_group_id": str(translation_group_id),
+                "kind": kind.value,
+                "caller_key": caller_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return "translation-portable-export:" + hashlib.sha256(material).hexdigest()

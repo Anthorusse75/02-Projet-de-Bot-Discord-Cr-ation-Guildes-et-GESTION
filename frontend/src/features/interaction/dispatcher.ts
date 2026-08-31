@@ -6,6 +6,14 @@ export type ActionIntent = {
   actionId: ActionId
   source: ResourceRef[]
   destination?: ResourceRef
+  translation?: {
+    variantType?: 'CATEGORY' | 'CHANNEL'
+    desiredName?: string
+    channelType?: 0 | 2 | 5 | 13 | 15 | 16
+    translationChannelGroupId?: string
+    translationCategoryVariantId?: string
+    discordResourceId?: string
+  }
   createdAt: number
 }
 
@@ -14,13 +22,15 @@ export type DispatchResult =
   | { kind: 'PLAN'; planId: string; path: string }
   | { kind: 'TRANSFER'; transferStatus: string; planId?: string; path: string }
   | { kind: 'EXPORT'; artifactId: string; path: string }
+  | { kind: 'LINK'; variantId: string; path: string }
+  | { kind: 'PREVIEW'; group: Record<string, unknown>; path: string }
 
-export const handledActionIds = new Set<ActionId>(['open','move','copy','clone','export','explain','bulk'])
+export const handledActionIds = new Set<ActionId>(['open','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
 
-export function createActionIntent(actionId: string, source: ResourceRef[], destination?: ResourceRef): ActionIntent {
+export function createActionIntent(actionId: string, source: ResourceRef[], destination?: ResourceRef, translation?: ActionIntent['translation']): ActionIntent {
   if (!actions.some((action) => action.id === actionId)) throw new Error('ACTION_UNKNOWN')
   if (source.length === 0) throw new Error('ACTION_SOURCE_REQUIRED')
-  return { actionId: actionId as ActionId, source: [...source], ...(destination ? { destination } : {}), createdAt: Date.now() }
+  return { actionId: actionId as ActionId, source: [...source], ...(destination ? { destination } : {}), ...(translation ? { translation } : {}), createdAt: Date.now() }
 }
 
 function moveGraph(intent: ActionIntent) {
@@ -77,6 +87,58 @@ async function createAndValidatePlan(intent: ActionIntent, guildId: DiscordSnowf
 
 export async function dispatchAction(intent: ActionIntent, activeGuildId: DiscordSnowflake, phase: 'PREVIEW'|'EXECUTE' = 'EXECUTE'): Promise<DispatchResult> {
   switch (intent.actionId) {
+    case 'PREVIEW': {
+      const source = intent.source[0]
+      if (!source || source.type !== 'TRANSLATION_GROUP') throw new Error('TRANSLATION_GROUP_REQUIRED')
+      const group = await apiRequest<Record<string, unknown>>(`/api/v1/guilds/${source.guildId}/translation-groups/${source.id}`)
+      return { kind: 'PREVIEW', group, path: `/guild/${source.guildId}/translations` }
+    }
+    case 'CREATE_VARIANT': {
+      const source = intent.source[0]; const destination = intent.destination; const fields = intent.translation
+      if (!source || source.type !== 'TRANSLATION_GROUP') throw new Error('TRANSLATION_GROUP_REQUIRED')
+      if (!destination || destination.type !== 'LANGUAGE_TARGET' || destination.parentId !== source.id) throw new Error('LANGUAGE_TARGET_REQUIRED')
+      if (!fields?.variantType || !fields.desiredName) throw new Error('VARIANT_DETAILS_REQUIRED')
+      const response = await apiRequest<{plan_id:string}>(`/api/v1/guilds/${source.guildId}/translation-groups/${source.id}/variants/plan`, {
+        method: 'POST',
+        body: {
+          variant_type: fields.variantType,
+          language_profile_id: destination.id,
+          desired_name: fields.desiredName,
+          channel_type: fields.channelType ?? 0,
+          translation_channel_group_id: fields.translationChannelGroupId ?? null,
+          idempotency_key: crypto.randomUUID(),
+        },
+      })
+      return { kind: 'PLAN', planId: response.plan_id, path: `/guild/${source.guildId}/plans` }
+    }
+    case 'LINK_EXISTING_VARIANT': {
+      const source = intent.source[0]; const destination = intent.destination; const fields = intent.translation
+      if (!source || source.type !== 'TRANSLATION_GROUP') throw new Error('TRANSLATION_GROUP_REQUIRED')
+      if (!destination || destination.type !== 'LANGUAGE_TARGET' || destination.parentId !== source.id) throw new Error('LANGUAGE_TARGET_REQUIRED')
+      if (!fields?.variantType || !fields.discordResourceId) throw new Error('LINK_DETAILS_REQUIRED')
+      const response = await apiRequest<{id:string}>(`/api/v1/guilds/${source.guildId}/translation-groups/${source.id}/link`, {
+        method: 'POST',
+        body: {
+          language_profile_id: destination.id,
+          variant_type: fields.variantType,
+          discord_resource_id: fields.discordResourceId,
+          confirmed_explicit_selection: true,
+          translation_channel_group_id: fields.translationChannelGroupId ?? null,
+          translation_category_variant_id: fields.translationCategoryVariantId ?? null,
+        },
+      })
+      return { kind: 'LINK', variantId: response.id, path: `/guild/${source.guildId}/translations` }
+    }
+    case 'CLONE_UNLINKED': {
+      const source = intent.source[0]; const destination = intent.destination
+      if (!source || source.type !== 'TRANSLATION_GROUP') throw new Error('TRANSLATION_GROUP_REQUIRED')
+      if (!destination || destination.type !== 'GUILD' || destination.guildId === source.guildId) throw new Error('CROSS_GUILD_DESTINATION_REQUIRED')
+      const response = await apiRequest<{destination_plan_id:string|null;transfer_status:string}>(`/api/v1/guilds/${source.guildId}/multilingual-clone/plan`, {
+        method: 'POST',
+        body: { destination_guild_id: destination.guildId, translation_group_id: source.id, mode: 'COPY_AS_NEW', idempotency_key: crypto.randomUUID() },
+      })
+      return { kind: 'TRANSFER', transferStatus: response.transfer_status, ...(response.destination_plan_id ? { planId: response.destination_plan_id } : {}), path: `/guild/${destination.guildId}/plans` }
+    }
     case 'explain': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/permissions` }
     case 'open': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/structure` }
     case 'move':

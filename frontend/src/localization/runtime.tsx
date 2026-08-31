@@ -4,7 +4,7 @@ import { I18nextProvider } from 'react-i18next'
 import { apiRequest } from '../api/client'
 import { bootstrapPacks, en, type BootstrapLocaleCode, type LocaleCode, type MessageKey, type MessagePack } from './catalog'
 
-export const CATALOG_VERSION = 'did-ui-v1'
+export const CATALOG_VERSION = 'did-ui-v2'
 const bootstrap = Object.keys(bootstrapPacks) as BootstrapLocaleCode[]
 const htmlPattern = /<\/?[a-z][^>]*>|javascript:|on\w+\s*=/i
 const interpolationPattern = /{{\s*([A-Za-z0-9_.-]+)\s*}}/g
