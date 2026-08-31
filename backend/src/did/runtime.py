@@ -17,9 +17,14 @@ from did.application.reconciliation import (
 )
 from did.application.translation.lifecycle import Stage08PostVerificationMaterializer
 from did.bot.gateway import DiscordGatewayClient
+from did.campaigns.authorization import CampaignGuildAuthorizationChecker
+from did.campaigns.dispatch import CampaignDeliveryExecutor
+from did.campaigns.runtime import CampaignSchedulerRuntime
 from did.infrastructure.auth_repository import AuthRepository
+from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import create_database_engine, create_session_factory
 from did.infrastructure.discord import DiscordPyMutableAdapter, DiscordPyStructureAdapter
+from did.infrastructure.discord_message_sender import DiscordPyMessageSender
 from did.infrastructure.logging import EventId, configure_logging, emit_event
 from did.infrastructure.planning_lock import RedisGuildMutationLock
 from did.infrastructure.planning_repository import PlanningRepository
@@ -35,11 +40,17 @@ from did.infrastructure.runtime_redis import (
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
+from did.infrastructure.stage08_repository import (
+    LanguageProfileRepository,
+    TranslationGroupRepository,
+)
 from did.oauth.discord import HttpDiscordMemberClient
 from did.oauth.stores import (
     RedisActorMembershipStore,
 )
+from did.permissions.capabilities import BotCapabilityChecker
 from did.settings import Settings
+from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
 from did.worker.io import (
     ApplyPlanExecutor,
     DiscordWorkerRuntime,
@@ -174,6 +185,11 @@ async def run_process(
                             Stage08LifecycleRepository(session_factory)
                         ),
                     ),
+                    campaign_delivery_executor=CampaignDeliveryExecutor(
+                        CampaignsRepository(session_factory),
+                        DiscordPyMessageSender(rest_client),
+                        worker_id=worker_id,
+                    ),
                 )
                 runtime = DiscordWorkerRuntime(
                     repository=repository,
@@ -220,7 +236,8 @@ async def run_process(
         elif process_name == "scheduler":
             engine = create_database_engine(settings.database_url.get_secret_value())
             redis = create_redis_client(settings.redis_url.get_secret_value())
-            repository = RuntimeRepository(create_session_factory(engine))
+            session_factory = create_session_factory(engine)
+            repository = RuntimeRepository(session_factory)
             scheduler = ReconcileScheduler(
                 repository,
                 AdaptiveReconcilePolicy(
@@ -231,14 +248,69 @@ async def run_process(
                 poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
                 routing_batch_size=settings.discord_runtime_routing_batch_size,
             )
+            runners: list[Awaitable[None]] = [scheduler.run(stop_event)]
+            scheduler_member: HttpDiscordMemberClient | None = None
+            admin_engine = None
+            if settings.discord_bot_token is not None:
+                # Stage09 campaign scheduling shares the exact same
+                # live-authorization contract the "worker" process already
+                # needs (a re-checked Guild capability/bot-can-send, never a
+                # cached value) -- see did.campaigns.authorization
+                # .CampaignGuildAuthorizationChecker. Without a configured
+                # bot token, only the pre-existing structural
+                # ReconcileScheduler runs, exactly as before this pass.
+                admin_engine = create_database_engine(
+                    settings.database_admin_url.get_secret_value()
+                )
+                admin_factory = create_session_factory(admin_engine)
+                campaigns_repository = CampaignsRepository(session_factory)
+                scheduler_member = HttpDiscordMemberClient(
+                    bot_token=settings.discord_bot_token.get_secret_value()
+                )
+                scheduler_authorization = AuthorizationService(
+                    auth=None,
+                    repository=AuthRepository(session_factory),
+                    membership_store=RedisActorMembershipStore(
+                        redis, ttl_seconds=settings.authorization_freshness_seconds
+                    ),
+                    member_client=scheduler_member,
+                    freshness_seconds=settings.authorization_freshness_seconds,
+                    membership_singleflight=RedisSingleFlight(redis),
+                    metrics=repository.metrics,
+                )
+                campaign_scheduler = CampaignSchedulerRuntime(
+                    campaigns_repository=campaigns_repository,
+                    runtime_repository=repository,
+                    admin_factory=admin_factory,
+                    language_profiles=LanguageProfileRepository(session_factory),
+                    translation_groups=TranslationGroupRepository(session_factory),
+                    checker=CampaignGuildAuthorizationChecker(
+                        authorization=scheduler_authorization,
+                        read_models=Stage04Repository(session_factory),
+                        bot_checker=BotCapabilityChecker(),
+                        translation_groups=TranslationGroupRepository(session_factory),
+                    ),
+                    translation_provider=GoogletransCampaignTranslationProvider(),
+                    lease_owner=f"campaign-scheduler-{uuid4().hex}",
+                    poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
+                )
+                runners.append(campaign_scheduler.run(stop_event))
+
+            async def run_schedulers() -> None:
+                await asyncio.gather(*runners)
+
             background_task = asyncio.create_task(
-                scheduler.run(stop_event), name="reconcile-scheduler"
+                run_schedulers(), name="campaign-and-reconcile-scheduler"
             )
             background_task.add_done_callback(lambda _: stop_event.set())
 
             async def close_scheduler() -> None:
                 stop_event.set()
                 failure = await background_failure()
+                if scheduler_member is not None:
+                    await scheduler_member.aclose()
+                if admin_engine is not None:
+                    await admin_engine.dispose()
                 await redis.aclose()
                 await engine.dispose()
                 if failure is not None:

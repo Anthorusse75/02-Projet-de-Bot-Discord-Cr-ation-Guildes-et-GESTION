@@ -199,7 +199,7 @@ class TestFanOutSourceLanguage:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=None,
+            translate_masked_text_for_language=None,
         )
         assert outcome.deliveries_created == 1
         assert outcome.is_fully_healthy
@@ -234,7 +234,7 @@ class TestFanOutSourceLanguage:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=None,
+            translate_masked_text_for_language=None,
         )
         first = await fan_out_occurrence(**kwargs)  # type: ignore[arg-type]
         assert first.deliveries_created == 1
@@ -282,7 +282,7 @@ class TestFanOutSourceLanguage:
                     compiled_mentions=NO_MENTIONS,
                     template_variable_definitions={},
                     glossary_entries=(),
-                    translate_masked_text=None,
+                    translate_masked_text_for_language=None,
                 )
             except OccurrenceNotClaimable as exc:
                 return exc
@@ -379,7 +379,7 @@ class TestFanOutTranslation:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=_translate_should_never_be_called,
+            translate_masked_text_for_language=lambda _lang: _translate_should_never_be_called,
         )
         assert outcome.is_fully_healthy
         # Source channel (no translation) + fr variant (reused) = 2 deliveries.
@@ -439,7 +439,7 @@ class TestFanOutTranslation:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions=definitions,
             glossary_entries=(),
-            translate_masked_text=_identity_translate,
+            translate_masked_text_for_language=lambda _lang: _identity_translate,
         )
         assert outcome.is_fully_healthy
         assert outcome.deliveries_created == 1  # SELECTED_LANGUAGES: only the fr variant
@@ -516,11 +516,88 @@ class TestFanOutTranslation:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=None,  # no provider configured
+            translate_masked_text_for_language=None,  # no provider configured
         )
         assert outcome.deliveries_created == 0
         assert len(outcome.render_failures) == 1
         assert not outcome.is_fully_healthy
+
+    async def test_each_destination_is_translated_into_its_own_target_language(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Regression test for a real defect found while wiring a live
+        translation provider into the runtime: a single fan-out call
+        routinely spans destinations in several different target languages,
+        but the old `translate_masked_text: TranslateMaskedText` parameter
+        (no language argument of its own) was bound ONCE for the whole
+        call -- a real provider would have silently translated every
+        non-source destination into whichever language happened to be
+        bound first. `translate_masked_text_for_language` fixes this by
+        being invoked once per destination with that destination's own
+        resolved target language."""
+        repo = campaigns_context
+        campaign = _campaign(message_model=MessageModel(content="Hello!").to_dict())
+        await repo.create_campaign(campaign)
+        fr_language_profile_id = uuid4()
+        de_language_profile_id = uuid4()
+
+        from did.campaigns.target_resolution import TranslationGroupTopologySnapshot
+        from did.domain.campaigns import TranslationPublicationMode
+
+        group_target = DomainTarget(
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.TRANSLATION_GROUP,
+            translation_group_id=uuid4(),
+            translation_publication_mode=TranslationPublicationMode.DID_TRANSLATED_FANOUT,
+        )
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            async with admin_engine.begin() as connection:
+                await _insert_translation_group(
+                    connection, GUILD_A, group_target.translation_group_id
+                )
+        finally:
+            await admin_engine.dispose()
+        await repo.create_target(group_target)
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=999,
+            variants=((fr_language_profile_id, 1000), (de_language_profile_id, 2000)),
+        )
+
+        requested_languages: list[str] = []
+
+        def _translate_for_language(target_language: str):  # type: ignore[no-untyped-def]
+            async def _translate(masked_text: str) -> str:
+                requested_languages.append(target_language)
+                return f"[{target_language}] {masked_text}"
+
+            return _translate
+
+        outcome = await fan_out_occurrence(
+            repository=repo,
+            checker=_FakeChecker(),
+            campaign=campaign,
+            targets=(group_target,),
+            occurrence=_occurrence(campaign.id),
+            lease_owner="worker-1",
+            topology_by_target={group_target.id: topology},
+            language_profile_codes={
+                fr_language_profile_id: "fr",
+                de_language_profile_id: "de",
+            },
+            compiled_mentions=NO_MENTIONS,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text_for_language=_translate_for_language,
+        )
+        assert outcome.is_fully_healthy
+        # Source + fr + de = 3 deliveries, and each translation call was
+        # requested for exactly the language its own destination needed --
+        # never a single language reused across both.
+        assert outcome.deliveries_created == 3
+        assert sorted(requested_languages) == ["de", "fr"]
 
 
 @pytest.mark.asyncio
@@ -553,7 +630,7 @@ class TestFanOutAuthorizationAndPreflight:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=None,
+            translate_masked_text_for_language=None,
         )
         assert outcome.deliveries_created == 0
         assert len(outcome.blocked_destinations) == 1
@@ -638,7 +715,7 @@ class TestFanOutLeaseFencing:
                     compiled_mentions=NO_MENTIONS,
                     template_variable_definitions={},
                     glossary_entries=(),
-                    translate_masked_text=_steal_lease_mid_render,
+                    translate_masked_text_for_language=lambda _lang: _steal_lease_mid_render,
                 )
         finally:
             await admin_engine.dispose()
@@ -707,7 +784,7 @@ class TestFanOutLeaseFencing:
             compiled_mentions=NO_MENTIONS,
             template_variable_definitions={},
             glossary_entries=(),
-            translate_masked_text=_slow_translate,
+            translate_masked_text_for_language=lambda _lang: _slow_translate,
             lease_seconds=0.1,
         )
         assert outcome.is_fully_healthy

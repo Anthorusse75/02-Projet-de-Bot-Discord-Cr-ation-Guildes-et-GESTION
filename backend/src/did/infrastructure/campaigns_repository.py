@@ -302,6 +302,43 @@ class CampaignsRepository:
                 },
             )
 
+    async def list_targets_for_campaign(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """System/runtime-only read: every target across every Guild a
+        campaign touches -- a campaign header is owner-scoped, not
+        Guild-scoped (REQ-MSG-002: a single campaign may target several
+        Guilds), so there is no single ``TenantContext`` that could see all
+        of a campaign's targets at once under ordinary RLS. Mirrors
+        :meth:`claim_due_schedules`'s exact system-process exception: runs
+        on the admin (RLS-bypassing) session factory, with ownership
+        verified in the query itself (the join to ``message_campaigns``)
+        rather than relied upon from the caller. Never used to serve a
+        user-facing request directly -- callers are the campaign runtime
+        (schedulers/event consumers/simulation), which already durably
+        loaded ``owner_discord_user_id`` from the campaign row itself."""
+        async with admin_factory() as session, session.begin():
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT t.* FROM message_campaign_targets t "
+                            "JOIN message_campaigns c ON c.id = t.campaign_id "
+                            "WHERE t.campaign_id = :campaign_id "
+                            "AND c.owner_discord_user_id = :owner "
+                            "ORDER BY t.id"
+                        ),
+                        {"campaign_id": campaign_id, "owner": owner_discord_user_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def create_occurrence(
         self, owner_discord_user_id: int, occurrence: MessageOccurrence
     ) -> bool:
@@ -466,6 +503,26 @@ class CampaignsRepository:
                 {"id": occurrence_id, "token": lease_token, "status": status},
             )
         return cast(CursorResult[Any], result).rowcount == 1
+
+    async def list_pending_delivery_ids(self, guild_id: int, *, limit: int = 200) -> list[UUID]:
+        """Read-only: every currently-PENDING delivery id for ``guild_id``,
+        oldest first -- the durable delivery-dispatch routing sweep
+        (``did.campaigns.dispatch.route_pending_deliveries_to_jobs``) uses
+        this to (re-)enqueue a discord_io_jobs row for each one. Never
+        claims/mutates anything itself."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("pending delivery listing limit must be between 1 and 1000")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id FROM message_deliveries WHERE guild_id=:guild_id "
+                        "AND status='PENDING' ORDER BY created_at LIMIT :limit"
+                    ),
+                    {"guild_id": guild_id, "limit": limit},
+                )
+            ).scalars()
+        return [UUID(str(value)) for value in rows]
 
     async def create_delivery(self, delivery: MessageDelivery) -> bool:
         """Returns False when delivery_key already exists for this Guild --

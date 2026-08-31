@@ -42,6 +42,8 @@ class EventId(StrEnum):
     REDIS_CACHE_REBUILT = "redis.cache.rebuilt"
     OUTBOX_PUBLISH_FAILED = "outbox.publish.failed"
     STAGE08_POST_VERIFICATION_FAILED = "stage08.post_verification.failed"
+    CAMPAIGN_SCHEDULE_EVALUATION_FAILED = "campaign.schedule.evaluation_failed"
+    CAMPAIGN_SCHEDULER_TICK_FAILED = "campaign.scheduler.tick_failed"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"

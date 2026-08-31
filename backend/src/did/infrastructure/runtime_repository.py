@@ -1946,6 +1946,7 @@ class RuntimeRepository:
             "runtime_job_guilds",
             "runtime_outbox_guilds",
             "runtime_reconcile_guilds",
+            "runtime_campaign_delivery_guilds",
         }:
             raise ValueError("runtime routing function is not allowlisted")
         if not 1 <= limit <= 1000:
@@ -1955,6 +1956,9 @@ class RuntimeRepository:
             "runtime_outbox_guilds": text("SELECT guild_id FROM app.runtime_outbox_guilds(:limit)"),
             "runtime_reconcile_guilds": text(
                 "SELECT guild_id FROM app.runtime_reconcile_guilds(:limit)"
+            ),
+            "runtime_campaign_delivery_guilds": text(
+                "SELECT guild_id FROM app.runtime_campaign_delivery_guilds(:limit)"
             ),
         }
         async with tenant_transaction(self._factory, None) as session:
@@ -1974,6 +1978,15 @@ class RuntimeRepository:
 
     async def runtime_reconcile_guilds(self, *, limit: int = 256) -> list[int]:
         return await self._runtime_guild_ids("runtime_reconcile_guilds", limit=limit)
+
+    async def runtime_campaign_delivery_guilds(self, *, limit: int = 256) -> list[int]:
+        """Guilds with a PENDING message_deliveries row that has no live
+        (PENDING/LEASED) discord_io_jobs job yet -- the durable "delivery
+        exists, job missing" recovery signal (0026_stage_09's SECURITY
+        DEFINER function). A Guild drops out of this list the moment its
+        durable job is enqueued, regardless of whether that job has been
+        leased/executed yet."""
+        return await self._runtime_guild_ids("runtime_campaign_delivery_guilds", limit=limit)
 
     async def reconcile_signals(self, guild_id: int, *, rate_limit_pressure: float) -> Any:
         from did.application.reconciliation.scheduler import ReconcileSignals

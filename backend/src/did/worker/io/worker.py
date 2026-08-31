@@ -27,6 +27,16 @@ class ApplyPlanPort(Protocol):
     ) -> None: ...
 
 
+class CampaignDeliveryPort(Protocol):
+    """A single Discord send per leased job -- unlike ApplyPlanPort (a
+    multi-operation DAG that manages its own governor.run_distributed calls
+    per operation), this executes as one call already wrapped by the
+    Governor at the outer level (see DurableDiscordIOWorker.operation()'s
+    default else-branch), so it takes no governor parameter of its own."""
+
+    async def execute_leased(self, guild_id: int, leased: dict[str, Any]) -> None: ...
+
+
 class UnsupportedWorkloadError(RuntimeError):
     pass
 
@@ -46,6 +56,7 @@ class DurableDiscordIOWorker:
         worker_id: str,
         lease_seconds: float = 30.0,
         plan_executor: ApplyPlanPort | None = None,
+        campaign_delivery_executor: CampaignDeliveryPort | None = None,
     ) -> None:
         if not worker_id or len(worker_id) > 128:
             raise ValueError("worker_id must be present and bounded")
@@ -53,6 +64,7 @@ class DurableDiscordIOWorker:
         self._sync = sync
         self._worker_id = worker_id
         self._plan_executor = plan_executor
+        self._campaign_delivery_executor = campaign_delivery_executor
         if lease_seconds < 0.05:
             raise ValueError("lease_seconds must be at least 50ms")
         self._lease_seconds = lease_seconds
@@ -217,6 +229,11 @@ class DurableDiscordIOWorker:
                 await self._sync.initial_sync(guild_id)
             elif workload_type == "APPLY_PLAN" and self._plan_executor is not None:
                 await self._plan_executor.execute_leased(guild_id, leased, governor)
+            elif (
+                workload_type == "SEND_CAMPAIGN_MESSAGE"
+                and self._campaign_delivery_executor is not None
+            ):
+                await self._campaign_delivery_executor.execute_leased(guild_id, leased)
             else:
                 raise UnsupportedWorkloadError(workload_type)
 

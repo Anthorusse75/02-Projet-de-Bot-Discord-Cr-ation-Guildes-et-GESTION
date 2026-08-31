@@ -28,6 +28,7 @@ idempotent per destination, not just per occurrence.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
@@ -127,7 +128,7 @@ async def fan_out_occurrence(
     compiled_mentions: CompiledAllowedMentions,
     template_variable_definitions: dict[str, TemplateVariableDefinition],
     glossary_entries: tuple[GlossaryEntry, ...],
-    translate_masked_text: TranslateMaskedText | None,
+    translate_masked_text_for_language: Callable[[str], TranslateMaskedText] | None,
     lease_seconds: float = 30.0,
 ) -> FanOutOutcome:
     """Expand ``occurrence`` into deliveries for every ready, authorized
@@ -136,6 +137,17 @@ async def fan_out_occurrence(
     row for :func:`did.campaigns.delivery_worker.process_delivery` to pick
     up later, exactly the multi-Guild-parent-never-calls-Discord-directly
     contract.
+
+    ``translate_masked_text_for_language``, when given, is called with each
+    destination's own resolved target-language code and must return a
+    ``TranslateMaskedText`` callable already bound to translate INTO that
+    exact language -- a single fan-out call routinely spans destinations in
+    several different target languages, so passing one static
+    ``TranslateMaskedText`` (with no language parameter of its own) here
+    would silently translate every destination into whatever language the
+    caller happened to bind first. ``did.campaigns.context`` is the real
+    caller that binds this against a live ``CampaignTranslationProvider``
+    per language; tests may pass a trivial ``lambda _: identity_fn``.
 
     A destination whose translation is MISSING/STALE gets a fresh render
     here, but that render is NEVER auto-recorded as an approved variant --
@@ -264,7 +276,7 @@ async def fan_out_occurrence(
                         assert resolution.localized_message_model is not None
                         content_model = MessageModel.from_dict(resolution.localized_message_model)
                     else:
-                        if translate_masked_text is None:
+                        if translate_masked_text_for_language is None:
                             render_failures.append(
                                 RenderFailure(
                                     dest,
@@ -282,7 +294,9 @@ async def fan_out_occurrence(
                                 guild_id=dest.guild_id,
                                 template_variable_definitions=template_variable_definitions,
                                 glossary_entries=glossary_entries,
-                                translate_masked_text=translate_masked_text,
+                                translate_masked_text=translate_masked_text_for_language(
+                                    target_language_code
+                                ),
                             )
                         except IntegrityViolation as exc:
                             render_failures.append(RenderFailure(dest, target.id, str(exc)))
