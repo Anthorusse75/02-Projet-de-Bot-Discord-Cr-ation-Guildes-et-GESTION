@@ -37,9 +37,12 @@ class TestResolveApplicableEntries:
         assert resolve_applicable_entries(
             [entry], campaign_id=campaign_id, target_language_code="fr"
         ) == [entry]
-        assert resolve_applicable_entries(
-            [entry], campaign_id=other_campaign_id, target_language_code="fr"
-        ) == []
+        assert (
+            resolve_applicable_entries(
+                [entry], campaign_id=other_campaign_id, target_language_code="fr"
+            )
+            == []
+        )
 
     def test_global_user_entry_applies_to_any_campaign(self) -> None:
         entry = _entry(scope_kind=GlossaryScope.GLOBAL_USER)
@@ -52,9 +55,10 @@ class TestResolveApplicableEntries:
         assert resolve_applicable_entries(
             [entry], campaign_id=uuid4(), target_language_code="fr"
         ) == [entry]
-        assert resolve_applicable_entries(
-            [entry], campaign_id=uuid4(), target_language_code="de"
-        ) == []
+        assert (
+            resolve_applicable_entries([entry], campaign_id=uuid4(), target_language_code="de")
+            == []
+        )
 
     def test_language_agnostic_entry_applies_to_every_language(self) -> None:
         entry = _entry(target_language_code=None)
@@ -106,9 +110,7 @@ class TestApplyGlossaryProtection:
             forced_translation="Gadgeto",
         )
         application = apply_glossary_protection(nodes, [entry])
-        protection = protect(
-            application.nodes, restore_overrides=application.restore_overrides
-        )
+        protection = protect(application.nodes, restore_overrides=application.restore_overrides)
         # Identity "translation": the placeholder survives untouched, but
         # restoration must substitute the *forced* text, not the original.
         restored = validate_and_restore(protection.masked_text, protection)

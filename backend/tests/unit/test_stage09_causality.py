@@ -211,9 +211,7 @@ class TestShouldTrigger:
         assert should_trigger(trigger, [binding], context) is True
 
     def test_condition_ast_must_also_match(self) -> None:
-        trigger = self._trigger(
-            condition_ast={"op": "EQUALS", "path": "tier", "value": "gold"}
-        )
+        trigger = self._trigger(condition_ast={"op": "EQUALS", "path": "tier", "value": "gold"})
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
             event_id=uuid4(),

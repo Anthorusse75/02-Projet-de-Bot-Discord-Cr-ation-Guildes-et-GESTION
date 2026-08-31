@@ -97,13 +97,7 @@ class CampaignsRepository:
             self._factory, UserContext(user_id=owner_discord_user_id)
         ) as session:
             rows = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT * FROM message_campaigns ORDER BY created_at"
-                        )
-                    )
-                )
+                (await session.execute(text("SELECT * FROM message_campaigns ORDER BY created_at")))
                 .mappings()
                 .all()
             )
@@ -188,9 +182,7 @@ class CampaignsRepository:
         return [dict(row) for row in rows]
 
     async def create_target(self, target: CampaignTarget) -> None:
-        async with tenant_transaction(
-            self._factory, TenantContext(target.guild_id)
-        ) as session:
+        async with tenant_transaction(self._factory, TenantContext(target.guild_id)) as session:
             await session.execute(
                 text(
                     "INSERT INTO message_campaign_targets "
@@ -257,9 +249,7 @@ class CampaignsRepository:
     async def create_delivery(self, delivery: MessageDelivery) -> bool:
         """Returns False when delivery_key already exists for this Guild --
         the WP6 idempotency ledger's core guarantee."""
-        async with tenant_transaction(
-            self._factory, TenantContext(delivery.guild_id)
-        ) as session:
+        async with tenant_transaction(self._factory, TenantContext(delivery.guild_id)) as session:
             result = await session.execute(
                 text(
                     "INSERT INTO message_deliveries "
@@ -337,9 +327,7 @@ class CampaignsRepository:
             )
 
     async def create_trigger_source(self, binding: TriggerSourceBinding) -> None:
-        async with tenant_transaction(
-            self._factory, TenantContext(binding.guild_id)
-        ) as session:
+        async with tenant_transaction(self._factory, TenantContext(binding.guild_id)) as session:
             await session.execute(
                 text(
                     "INSERT INTO message_campaign_trigger_sources "

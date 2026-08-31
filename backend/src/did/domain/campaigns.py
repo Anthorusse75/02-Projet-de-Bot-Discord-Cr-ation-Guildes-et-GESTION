@@ -357,9 +357,7 @@ _DELIVERY_TRANSITIONS: dict[DeliveryStatus, frozenset[DeliveryStatus]] = {
     DeliveryStatus.UNKNOWN: frozenset(
         {DeliveryStatus.INTERVENTION_REQUIRED, DeliveryStatus.SENT, DeliveryStatus.FAILED}
     ),
-    DeliveryStatus.INTERVENTION_REQUIRED: frozenset(
-        {DeliveryStatus.SENT, DeliveryStatus.FAILED}
-    ),
+    DeliveryStatus.INTERVENTION_REQUIRED: frozenset({DeliveryStatus.SENT, DeliveryStatus.FAILED}),
 }
 
 

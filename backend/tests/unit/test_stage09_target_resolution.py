@@ -72,9 +72,7 @@ class TestChannelTargetResolution:
     async def test_authorized_and_sendable_resolves_ready(self) -> None:
         target = _channel_target()
         auth = _FakeAuthorization()
-        [resolved] = await resolve_target(
-            target, owner_discord_user_id=1, authorization=auth
-        )
+        [resolved] = await resolve_target(target, owner_discord_user_id=1, authorization=auth)
         assert resolved.is_ready
         assert resolved.discord_channel_id == 111
 
@@ -82,9 +80,7 @@ class TestChannelTargetResolution:
     async def test_unauthorized_guild_blocks(self) -> None:
         target = _channel_target()
         auth = _FakeAuthorization(authorized_guilds=set())
-        [resolved] = await resolve_target(
-            target, owner_discord_user_id=1, authorization=auth
-        )
+        [resolved] = await resolve_target(target, owner_discord_user_id=1, authorization=auth)
         assert not resolved.is_ready
         assert resolved.blocked_reason is BlockReason.GUILD_NOT_AUTHORIZED
 
@@ -92,9 +88,7 @@ class TestChannelTargetResolution:
     async def test_bot_cannot_send_blocks(self) -> None:
         target = _channel_target()
         auth = _FakeAuthorization(sendable_channels=set())
-        [resolved] = await resolve_target(
-            target, owner_discord_user_id=1, authorization=auth
-        )
+        [resolved] = await resolve_target(target, owner_discord_user_id=1, authorization=auth)
         assert not resolved.is_ready
         assert resolved.blocked_reason is BlockReason.BOT_CANNOT_SEND
 

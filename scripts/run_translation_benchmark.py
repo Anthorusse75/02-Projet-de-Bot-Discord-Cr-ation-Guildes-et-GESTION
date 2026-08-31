@@ -147,9 +147,7 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
     for target_language in target_languages:
         for strategy in strategies:
             for item in items:
-                record = await _run_one(
-                    provider, item, strategy, source_language, target_language
-                )
+                record = await _run_one(provider, item, strategy, source_language, target_language)
                 records.append(record)
 
     return {
@@ -198,9 +196,7 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
         checked = int(bucket["integrity_checked"])
         integrity_rate = (int(bucket["integrity_ok"]) / checked) if checked else None
         latency_count = int(bucket["latency_count"])
-        avg_latency = (
-            float(bucket["latency_sum"]) / latency_count if latency_count else None
-        )
+        avg_latency = float(bucket["latency_sum"]) / latency_count if latency_count else None
         summary[strategy] = {
             "total_calls": bucket["total"],
             "errors": bucket["errors"],

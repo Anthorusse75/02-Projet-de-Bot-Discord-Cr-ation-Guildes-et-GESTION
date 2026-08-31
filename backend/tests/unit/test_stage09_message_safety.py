@@ -55,9 +55,7 @@ class TestMessageModelLimits:
 
     def test_embed_title_over_limit_rejected(self) -> None:
         with pytest.raises(MessageModelViolation, match="title"):
-            validate_message_model(
-                MessageModel(content="ok", embeds=(Embed(title="x" * 257),))
-            )
+            validate_message_model(MessageModel(content="ok", embeds=(Embed(title="x" * 257),)))
 
     def test_more_than_25_fields_rejected(self) -> None:
         fields = tuple(EmbedField(name=f"n{i}", value="v") for i in range(26))
@@ -70,9 +68,7 @@ class TestMessageModelLimits:
             validate_message_model(MessageModel(content="ok", embeds=(embed,)))
 
     def test_more_than_five_action_rows_rejected(self) -> None:
-        row = ComponentActionRow(
-            buttons=(ComponentButton(label="b", custom_id="x"),)
-        )
+        row = ComponentActionRow(buttons=(ComponentButton(label="b", custom_id="x"),))
         with pytest.raises(MessageModelViolation, match="action rows"):
             validate_message_model(
                 MessageModel(content="ok", action_rows=tuple(row for _ in range(6)))

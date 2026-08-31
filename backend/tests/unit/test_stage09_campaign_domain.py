@@ -48,6 +48,30 @@ def _campaign(**overrides: object) -> MessageCampaign:
     return MessageCampaign(**fields)
 
 
+class TestSourceLanguageIndependentOfUiLocale:
+    """REQ-MSG-028: campaign source language is an explicit campaign
+    property, never derived from or coupled to the dashboard UI locale."""
+
+    def test_source_language_is_a_required_explicit_field(self) -> None:
+        campaign = _campaign(source_language_code="de")
+        assert campaign.source_language_code == "de"
+
+    def test_source_language_survives_independent_of_any_ui_locale_value(self) -> None:
+        """Simulates a UI session whose locale is 'fr' while the campaign's
+        own source language is 'ja' -- the two must never be conflated;
+        MessageCampaign has no field, default, or derivation path that reads
+        a UI/session locale at all."""
+        simulated_ui_locale = "fr"
+        campaign = _campaign(source_language_code="ja")
+        assert campaign.source_language_code == "ja"
+        assert campaign.source_language_code != simulated_ui_locale
+        assert not hasattr(campaign, "ui_locale")
+
+    def test_blank_source_language_is_rejected_not_defaulted_from_locale(self) -> None:
+        with pytest.raises(ValueError, match="source_language_code"):
+            _campaign(source_language_code="")
+
+
 class TestCampaignLifecycle:
     def test_draft_to_scheduled_armed_increments_version(self) -> None:
         campaign = _campaign()

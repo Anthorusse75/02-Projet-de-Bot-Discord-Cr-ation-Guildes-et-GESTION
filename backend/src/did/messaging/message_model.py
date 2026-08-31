@@ -111,9 +111,7 @@ def validate_message_model(model: MessageModel) -> None:
             if len(embed_field.name) > DiscordLimits.MAX_EMBED_FIELD_NAME:
                 raise MessageModelViolation(f"embed[{index}].fields[{field_index}].name too long")
             if len(embed_field.value) > DiscordLimits.MAX_EMBED_FIELD_VALUE:
-                raise MessageModelViolation(
-                    f"embed[{index}].fields[{field_index}].value too long"
-                )
+                raise MessageModelViolation(f"embed[{index}].fields[{field_index}].value too long")
         total_embed_chars += embed.character_budget()
 
     if total_embed_chars > DiscordLimits.MAX_TOTAL_EMBED_CHARS:
@@ -141,8 +139,6 @@ def validate_message_model(model: MessageModel) -> None:
                     raise MessageModelViolation("LINK buttons must not carry a custom_id")
             else:
                 if not button.custom_id:
-                    raise MessageModelViolation(
-                        "non-LINK buttons require a custom_id"
-                    )
+                    raise MessageModelViolation("non-LINK buttons require a custom_id")
                 if button.url:
                     raise MessageModelViolation("non-LINK buttons must not carry a url")

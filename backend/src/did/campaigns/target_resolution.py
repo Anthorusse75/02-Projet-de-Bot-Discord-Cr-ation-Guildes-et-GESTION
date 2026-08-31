@@ -167,9 +167,7 @@ async def resolve_translation_group_target(
 
     # SELECTED_LANGUAGES
     selected = set(target.selected_language_profile_ids)
-    matching = [
-        (lp, ch) for lp, ch in topology.variants if lp in selected
-    ]
+    matching = [(lp, ch) for lp, ch in topology.variants if lp in selected]
     if not matching:
         return [
             ResolvedDestination(

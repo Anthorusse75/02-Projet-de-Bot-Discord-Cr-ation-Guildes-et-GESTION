@@ -113,6 +113,4 @@ class TestStrategySelection:
         )
 
     def test_long_message_falls_back_to_paragraph_grouping(self) -> None:
-        assert select_translation_strategy("x" * 2000) is (
-            SegmentationStrategy.PARAGRAPH_GROUPING
-        )
+        assert select_translation_strategy("x" * 2000) is (SegmentationStrategy.PARAGRAPH_GROUPING)

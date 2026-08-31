@@ -176,26 +176,40 @@ class TestGuildRlsIsolation:
         assert await repo.create_occurrence(OWNER_A, occurrence)
 
         target_a = DomainTarget(
-            id=uuid4(), guild_id=GUILD_A, campaign_id=campaign.id,
-            target_kind=DomainTargetKind.CHANNEL, discord_channel_id=111,
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=111,
         )
         target_b = DomainTarget(
-            id=uuid4(), guild_id=GUILD_B, campaign_id=campaign.id,
-            target_kind=DomainTargetKind.CHANNEL, discord_channel_id=222,
+            id=uuid4(),
+            guild_id=GUILD_B,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=222,
         )
         await repo.create_target(target_a)
         await repo.create_target(target_b)
 
         delivery_a = MessageDelivery(
-            id=uuid4(), guild_id=GUILD_A, campaign_id=campaign.id,
-            occurrence_id=occurrence.id, target_id=target_a.id,
-            delivery_key="dk-a", discord_channel_id=111,
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            occurrence_id=occurrence.id,
+            target_id=target_a.id,
+            delivery_key="dk-a",
+            discord_channel_id=111,
             allowed_mentions_snapshot={"parse": []},
         )
         delivery_b = MessageDelivery(
-            id=uuid4(), guild_id=GUILD_B, campaign_id=campaign.id,
-            occurrence_id=occurrence.id, target_id=target_b.id,
-            delivery_key="dk-b", discord_channel_id=222,
+            id=uuid4(),
+            guild_id=GUILD_B,
+            campaign_id=campaign.id,
+            occurrence_id=occurrence.id,
+            target_id=target_b.id,
+            delivery_key="dk-b",
+            discord_channel_id=222,
             allowed_mentions_snapshot={"parse": []},
         )
         assert await repo.create_delivery(delivery_a)
@@ -227,14 +241,20 @@ class TestCompositeForeignKeyRejection:
         campaign = _campaign(OWNER_A)
         await repo.create_campaign(campaign)
         occurrence = MessageOccurrence(
-            id=uuid4(), owner_discord_user_id=OWNER_A, campaign_id=campaign.id,
-            occurrence_key="occ-fk", occurrence_source=OccurrenceSource.EVENT,
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            occurrence_key="occ-fk",
+            occurrence_source=OccurrenceSource.EVENT,
             source_event_id=uuid4(),
         )
         await repo.create_occurrence(OWNER_A, occurrence)
         target_b = DomainTarget(
-            id=uuid4(), guild_id=GUILD_B, campaign_id=campaign.id,
-            target_kind=DomainTargetKind.CHANNEL, discord_channel_id=333,
+            id=uuid4(),
+            guild_id=GUILD_B,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=333,
         )
         await repo.create_target(target_b)
 
@@ -271,14 +291,20 @@ class TestOccurrenceAndDeliveryUniqueness:
         campaign = _campaign(OWNER_A)
         await repo.create_campaign(campaign)
         occurrence = MessageOccurrence(
-            id=uuid4(), owner_discord_user_id=OWNER_A, campaign_id=campaign.id,
-            occurrence_key="dup-key", occurrence_source=OccurrenceSource.EVENT,
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            occurrence_key="dup-key",
+            occurrence_source=OccurrenceSource.EVENT,
             source_event_id=uuid4(),
         )
         first = await repo.create_occurrence(OWNER_A, occurrence)
         duplicate = MessageOccurrence(
-            id=uuid4(), owner_discord_user_id=OWNER_A, campaign_id=campaign.id,
-            occurrence_key="dup-key", occurrence_source=OccurrenceSource.EVENT,
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            occurrence_key="dup-key",
+            occurrence_source=OccurrenceSource.EVENT,
             source_event_id=uuid4(),
         )
         second = await repo.create_occurrence(OWNER_A, duplicate)
@@ -292,22 +318,32 @@ class TestOccurrenceAndDeliveryUniqueness:
         campaign = _campaign(OWNER_A)
         await repo.create_campaign(campaign)
         occurrence = MessageOccurrence(
-            id=uuid4(), owner_discord_user_id=OWNER_A, campaign_id=campaign.id,
-            occurrence_key="occ-dk", occurrence_source=OccurrenceSource.EVENT,
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            campaign_id=campaign.id,
+            occurrence_key="occ-dk",
+            occurrence_source=OccurrenceSource.EVENT,
             source_event_id=uuid4(),
         )
         await repo.create_occurrence(OWNER_A, occurrence)
         target = DomainTarget(
-            id=uuid4(), guild_id=GUILD_A, campaign_id=campaign.id,
-            target_kind=DomainTargetKind.CHANNEL, discord_channel_id=444,
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.CHANNEL,
+            discord_channel_id=444,
         )
         await repo.create_target(target)
 
         def _delivery() -> MessageDelivery:
             return MessageDelivery(
-                id=uuid4(), guild_id=GUILD_A, campaign_id=campaign.id,
-                occurrence_id=occurrence.id, target_id=target.id,
-                delivery_key="same-key", discord_channel_id=444,
+                id=uuid4(),
+                guild_id=GUILD_A,
+                campaign_id=campaign.id,
+                occurrence_id=occurrence.id,
+                target_id=target.id,
+                delivery_key="same-key",
+                discord_channel_id=444,
                 allowed_mentions_snapshot={"parse": []},
             )
 

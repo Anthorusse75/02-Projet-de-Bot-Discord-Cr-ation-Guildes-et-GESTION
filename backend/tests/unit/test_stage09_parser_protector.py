@@ -185,9 +185,7 @@ class TestFuzzProtectedTokenIntegrity:
     @given(
         words=st.lists(
             st.text(
-                alphabet=st.characters(
-                    blacklist_categories=["Cs"], blacklist_characters="<>`{}@"
-                ),
+                alphabet=st.characters(blacklist_categories=["Cs"], blacklist_characters="<>`{}@"),
                 min_size=1,
                 max_size=12,
             ),

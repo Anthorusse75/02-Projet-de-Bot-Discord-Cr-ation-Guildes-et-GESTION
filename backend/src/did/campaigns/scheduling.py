@@ -59,8 +59,10 @@ def localize_wall_clock(
     back1 = fold1.astimezone(tz).replace(tzinfo=None)
 
     if back0 == naive_local and back1 == naive_local:
-        return min(fold0, fold1) if ambiguous_policy is DstAmbiguousPolicy.EARLIEST else max(
-            fold0, fold1
+        return (
+            min(fold0, fold1)
+            if ambiguous_policy is DstAmbiguousPolicy.EARLIEST
+            else max(fold0, fold1)
         )
 
     if nonexistent_policy is DstNonexistentPolicy.SKIP:
