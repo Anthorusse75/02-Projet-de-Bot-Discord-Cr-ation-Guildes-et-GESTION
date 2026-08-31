@@ -337,16 +337,22 @@ class CampaignsRepository:
 
     async def create_delivery(self, delivery: MessageDelivery) -> bool:
         """Returns False when delivery_key already exists for this Guild --
-        the WP6 idempotency ledger's core guarantee."""
+        the WP6 idempotency ledger's core guarantee. ``delivery.content_snapshot``,
+        when given, is the exact resolved MessageModel (already
+        translated/glossary-applied/approved as appropriate) the caller has
+        decided this specific delivery must send -- the delivery worker
+        (``did.campaigns.delivery_worker``) sends precisely this and never
+        re-derives content of its own at send time."""
         async with tenant_transaction(self._factory, TenantContext(delivery.guild_id)) as session:
             result = await session.execute(
                 text(
                     "INSERT INTO message_deliveries "
                     "(id, guild_id, campaign_id, occurrence_id, target_id, "
                     "language_profile_id, delivery_key, discord_channel_id, status, "
-                    "allowed_mentions_snapshot) "
+                    "allowed_mentions_snapshot, content_snapshot) "
                     "VALUES (:id, :guild_id, :campaign_id, :occurrence_id, :target_id, "
-                    ":language_id, :key, :channel_id, :status, CAST(:mentions AS JSONB)) "
+                    ":language_id, :key, :channel_id, :status, CAST(:mentions AS JSONB), "
+                    "CAST(:content AS JSONB)) "
                     "ON CONFLICT (guild_id, delivery_key) DO NOTHING"
                 ),
                 {
@@ -360,6 +366,11 @@ class CampaignsRepository:
                     "channel_id": delivery.discord_channel_id,
                     "status": delivery.status.value,
                     "mentions": _to_json(delivery.allowed_mentions_snapshot),
+                    "content": (
+                        _to_json(delivery.content_snapshot)
+                        if delivery.content_snapshot is not None
+                        else None
+                    ),
                 },
             )
         return cast(CursorResult[Any], result).rowcount == 1
@@ -403,7 +414,8 @@ class CampaignsRepository:
                             "FROM candidate WHERE d.id=candidate.id "
                             "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
                             "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
-                            "d.discord_nonce, d.attempt_count, d.lease_token"
+                            "d.discord_nonce, d.attempt_count, d.lease_token, "
+                            "d.content_snapshot, d.allowed_mentions_snapshot"
                         ),
                         {
                             "guild_id": guild_id,
@@ -420,7 +432,13 @@ class CampaignsRepository:
         return [dict(row) for row in rows]
 
     async def mark_delivery_sending(
-        self, delivery_id: UUID, guild_id: int, lease_token: UUID, *, now: datetime
+        self,
+        delivery_id: UUID,
+        guild_id: int,
+        lease_token: UUID,
+        *,
+        now: datetime,
+        discord_nonce: str | None = None,
     ) -> bool:
         """CLAIMED -> SENDING, fenced by ``lease_token`` AND an unexpired
         ``leased_until`` (external-review finding, second remediation pass:
@@ -432,16 +450,33 @@ class CampaignsRepository:
         reclaim by :meth:`claim_next_delivery` -- only :meth:`finalize_delivery`
         (by the same worker, using the same token) may resolve it further,
         and deliberately does NOT re-check ``leased_until`` (see that
-        method's docstring for why)."""
+        method's docstring for why).
+
+        ``discord_nonce``, when given, is durably persisted in the SAME
+        fenced transition that is about to make the delivery worker attempt
+        the actual external send -- this is the one and only point a fresh
+        nonce is ever generated for a delivery's first attempt. If the
+        worker then crashes before :meth:`finalize_delivery`, the stalled-
+        SENDING reconciliation path (:meth:`claim_stalled_sending_for_reconciliation`)
+        reads this same already-persisted nonce back and reuses it for a
+        same-nonce retry -- a fresh nonce is never generated for a retry.
+        """
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             result = await session.execute(
                 text(
-                    "UPDATE message_deliveries SET status='SENDING', updated_at=now() "
+                    "UPDATE message_deliveries SET status='SENDING', updated_at=now(), "
+                    "discord_nonce=COALESCE(:nonce, discord_nonce) "
                     "WHERE id=:id AND guild_id=:guild_id AND status='CLAIMED' "
                     "AND lease_token=:token "
                     "AND leased_until IS NOT NULL AND leased_until > :now"
                 ),
-                {"id": delivery_id, "guild_id": guild_id, "token": lease_token, "now": now},
+                {
+                    "id": delivery_id,
+                    "guild_id": guild_id,
+                    "token": lease_token,
+                    "now": now,
+                    "nonce": discord_nonce,
+                },
             )
         return cast(CursorResult[Any], result).rowcount == 1
 
@@ -457,8 +492,9 @@ class CampaignsRepository:
         content_snapshot: dict[str, object] | None = None,
         last_error: str | None = None,
     ) -> bool:
-        """Resolve a CLAIMED/SENDING delivery, fenced by ``lease_token`` --
-        deliberately NOT additionally fenced by ``leased_until`` freshness.
+        """Resolve a CLAIMED/SENDING/UNKNOWN delivery, fenced by
+        ``lease_token`` -- deliberately NOT additionally fenced by
+        ``leased_until`` freshness.
         Design rationale (external review, second remediation pass): once
         :meth:`mark_delivery_sending` has succeeded, the external Discord
         mutation may already be irrevocably in flight or committed; the
@@ -475,11 +511,15 @@ class CampaignsRepository:
         worker that legitimately crashed and never calls this at all is a
         distinct concern, handled by the stalled-``SENDING`` reconciliation
         sweep (:meth:`claim_stalled_sending_for_reconciliation`) feeding
-        ``did.campaigns.delivery_reconciliation``, not by this method. A
-        worker that lost its lease to another worker's reclaim (only
-        possible pre-``SENDING``, i.e. before this method could ever apply)
-        is already excluded by :meth:`mark_delivery_sending`'s own fencing.
-        Always releases the lease on success."""
+        ``did.campaigns.delivery_reconciliation``, not by this method. Also
+        accepts an ``UNKNOWN``-status row: this is the SAME fenced call a
+        reconciliation worker uses to resolve a delivery to SENT/FAILED/
+        INTERVENTION_REQUIRED after claiming it via
+        :meth:`claim_unknown_deliveries_for_reconciliation`. A worker that
+        lost its lease to another worker's reclaim (only possible pre-
+        ``SENDING`` or, for reconciliation, pre-claim of the ``UNKNOWN``
+        row) is already excluded by the respective claim method's own
+        fencing. Always releases the lease on success."""
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
             result = await session.execute(
                 text(
@@ -489,7 +529,8 @@ class CampaignsRepository:
                     "content_snapshot=COALESCE(CAST(:snapshot AS JSONB), content_snapshot), "
                     "last_error=:last_error, "
                     "lease_owner=NULL, lease_token=NULL, leased_until=NULL, updated_at=now() "
-                    "WHERE id=:id AND guild_id=:guild_id AND status IN ('CLAIMED','SENDING') "
+                    "WHERE id=:id AND guild_id=:guild_id "
+                    "AND status IN ('CLAIMED','SENDING','UNKNOWN') "
                     "AND lease_token=:token"
                 ),
                 {
@@ -542,7 +583,8 @@ class CampaignsRepository:
                 (
                     await session.execute(
                         text(
-                            "WITH candidate AS (SELECT id FROM message_deliveries "
+                            "WITH candidate AS (SELECT id, updated_at AS original_updated_at "
+                            "FROM message_deliveries "
                             "WHERE guild_id=:guild_id AND status='SENDING' "
                             "AND updated_at < CAST(:now AS timestamptz) "
                             "- (:stall_seconds * interval '1 second') "
@@ -555,13 +597,76 @@ class CampaignsRepository:
                             "FROM candidate WHERE d.id=candidate.id "
                             "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
                             "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
-                            "d.discord_nonce, d.content_snapshot, d.attempt_count, "
-                            "d.lease_token"
+                            "d.discord_nonce, d.content_snapshot, d.allowed_mentions_snapshot, "
+                            "d.attempt_count, d.lease_token, "
+                            "candidate.original_updated_at AS attempted_at"
                         ),
                         {
                             "guild_id": guild_id,
                             "now": now,
                             "stall_seconds": stall_after_seconds,
+                            "owner": lease_owner,
+                            "token": uuid4(),
+                            "lease_seconds": lease_seconds,
+                            "limit": limit,
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def claim_unknown_deliveries_for_reconciliation(
+        self,
+        guild_id: int,
+        *,
+        now: datetime,
+        lease_owner: str,
+        lease_seconds: float = 30.0,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Atomically claim ``UNKNOWN`` deliveries -- the ordinary
+        UNKNOWN_OUTCOME reconciliation path: the original worker itself
+        caught an ambiguous send exception, already finalized the delivery
+        to ``UNKNOWN`` (releasing its own lease in the same call -- see
+        :meth:`finalize_delivery`), and a reconciliation pass now decides,
+        via ``did.campaigns.delivery_reconciliation``, whether a same-nonce
+        retry is still safe or the delivery must go to
+        ``INTERVENTION_REQUIRED``. Distinct from
+        :meth:`claim_stalled_sending_for_reconciliation`, which recovers a
+        delivery whose worker crashed before it could even reach that
+        finalize call -- both feed the same
+        did.campaigns.delivery_worker.reconcile_one_stalled_delivery entry
+        point. No stall-time requirement here: a released UNKNOWN lease has
+        no live worker to race with.
+        """
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH candidate AS (SELECT id, updated_at AS original_updated_at "
+                            "FROM message_deliveries "
+                            "WHERE guild_id=:guild_id AND status='UNKNOWN' "
+                            "AND (leased_until IS NULL "
+                            "OR leased_until < CAST(:now AS timestamptz)) "
+                            "ORDER BY updated_at LIMIT :limit FOR UPDATE SKIP LOCKED) "
+                            "UPDATE message_deliveries AS d SET "
+                            "lease_owner=:owner, lease_token=:token, "
+                            "leased_until=CAST(:now AS timestamptz) "
+                            "+ (:lease_seconds * interval '1 second'), "
+                            "updated_at=now() "
+                            "FROM candidate WHERE d.id=candidate.id "
+                            "RETURNING d.id, d.campaign_id, d.occurrence_id, d.target_id, "
+                            "d.language_profile_id, d.delivery_key, d.discord_channel_id, "
+                            "d.discord_nonce, d.content_snapshot, d.allowed_mentions_snapshot, "
+                            "d.attempt_count, d.lease_token, "
+                            "candidate.original_updated_at AS attempted_at"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "now": now,
                             "owner": lease_owner,
                             "token": uuid4(),
                             "lease_seconds": lease_seconds,

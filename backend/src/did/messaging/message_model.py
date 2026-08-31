@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class MessageModelViolation(ValueError):
@@ -76,6 +77,78 @@ class MessageModel:
     content: str = ""
     embeds: tuple[Embed, ...] = field(default=())
     action_rows: tuple[ComponentActionRow, ...] = field(default=())
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-serializable snapshot -- the exact shape stored in
+        ``message_deliveries.content_snapshot`` (WP13 delivery worker)."""
+        return {
+            "content": self.content,
+            "embeds": [
+                {
+                    "title": e.title,
+                    "description": e.description,
+                    "url": e.url,
+                    "color": e.color,
+                    "footer_text": e.footer_text,
+                    "author_name": e.author_name,
+                    "fields": [
+                        {"name": f.name, "value": f.value, "inline": f.inline} for f in e.fields
+                    ],
+                }
+                for e in self.embeds
+            ],
+            "action_rows": [
+                {
+                    "buttons": [
+                        {
+                            "label": b.label,
+                            "style": b.style.value,
+                            "custom_id": b.custom_id,
+                            "url": b.url,
+                        }
+                        for b in row.buttons
+                    ]
+                }
+                for row in self.action_rows
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MessageModel:
+        """Inverse of :meth:`to_dict` -- reconstructs a MessageModel from a
+        durably-stored snapshot exactly, never re-deriving it from anything
+        else (the delivery worker must send precisely what was decided/
+        approved, not a freshly-rendered value)."""
+        embeds = tuple(
+            Embed(
+                title=e.get("title"),
+                description=e.get("description"),
+                url=e.get("url"),
+                color=e.get("color"),
+                footer_text=e.get("footer_text"),
+                author_name=e.get("author_name"),
+                fields=tuple(
+                    EmbedField(name=f["name"], value=f["value"], inline=f.get("inline", False))
+                    for f in e.get("fields", [])
+                ),
+            )
+            for e in data.get("embeds", [])
+        )
+        action_rows = tuple(
+            ComponentActionRow(
+                buttons=tuple(
+                    ComponentButton(
+                        label=b["label"],
+                        style=ButtonStyle(b.get("style", ButtonStyle.PRIMARY.value)),
+                        custom_id=b.get("custom_id"),
+                        url=b.get("url"),
+                    )
+                    for b in row.get("buttons", [])
+                )
+            )
+            for row in data.get("action_rows", [])
+        )
+        return cls(content=data.get("content", ""), embeds=embeds, action_rows=action_rows)
 
 
 def validate_message_model(model: MessageModel) -> None:
