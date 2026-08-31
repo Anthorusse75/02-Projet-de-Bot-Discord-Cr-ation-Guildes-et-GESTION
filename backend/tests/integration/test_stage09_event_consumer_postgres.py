@@ -10,8 +10,9 @@ dedup and deterministic occurrence creation are both real and durable.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
-from uuid import uuid4
+from collections.abc import AsyncIterator, Mapping
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 from did.campaigns.event_consumer import consume_event_for_trigger
 from did.domain.campaigns import CampaignTrigger, TriggerSourceBinding
 from did.domain.campaigns import TriggerSourceScopeKind as ScopeKind
+from did.domain.discord_runtime import EventEnvelope, EventOrigin, EventSource
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import create_database_engine
 
@@ -44,6 +46,36 @@ CLEANUP_STATEMENTS = (
     "DELETE FROM message_campaigns WHERE owner_discord_user_id = :oa",
 )
 CLEANUP_PARAMS = {"ga": GUILD_A, "gb": GUILD_B, "oa": OWNER_A}
+
+
+def _envelope(
+    *,
+    guild_id: int,
+    event_type: str = "MEMBER_JOIN",
+    payload: Mapping[str, object] | None = None,
+    causation_depth: int = 0,
+    event_id: UUID | None = None,
+) -> EventEnvelope:
+    """A real EventEnvelope -- the exact shape a durable Stage03
+    discord_gateway_inbox row (or, for the synthetic non-Gateway-captured
+    event_type used by these tests, an analogous durable event) carries."""
+    identity = event_id or uuid4()
+    return EventEnvelope(
+        event_id=identity,
+        guild_id=guild_id,
+        event_type=event_type,
+        discord_sequence=None,
+        discord_session_id="test-session",
+        occurred_at=None,
+        received_at=datetime.now(UTC),
+        correlation_id=identity,
+        causation_id=None,
+        schema_version=1,
+        payload=dict(payload or {}),
+        source=EventSource.GATEWAY,
+        origin=EventOrigin.DISCORD_EXTERNAL,
+        causation_depth=causation_depth,
+    )
 
 
 async def _insert_installation(connection: AsyncConnection, guild_id: int) -> None:
@@ -98,7 +130,10 @@ async def campaigns_context() -> AsyncIterator[CampaignsRepository]:
 
 
 async def _campaign_and_trigger(
-    repo: CampaignsRepository, *, requires_message_content: bool = False
+    repo: CampaignsRepository,
+    *,
+    requires_message_content: bool = False,
+    event_type: str = "MEMBER_JOIN",
 ) -> CampaignTrigger:
     from did.domain.campaigns import LifecycleStatus, MessageCampaign, PublicationMode
 
@@ -118,7 +153,7 @@ async def _campaign_and_trigger(
         id=uuid4(),
         owner_discord_user_id=OWNER_A,
         campaign_id=campaign.id,
-        event_type="MEMBER_JOIN",
+        event_type=event_type,
         condition_ast={"op": "ALWAYS"},
         requires_message_content=requires_message_content,
     )
@@ -141,22 +176,21 @@ class TestConsumeEventForTrigger:
                 source_scope_kind=ScopeKind.GUILD,
             )
         )
-        event_id = uuid4()
 
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=event_id,
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A),
             discord_resource_id=None,
-            payload={},
-            causation_depth=0,
         )
         assert result.fired is True
         assert result.already_consumed is False
         assert result.occurrence is not None
         assert result.occurrence.campaign_id == trigger.campaign_id
+        # Ownership is derived from the durably-loaded trigger, never a
+        # caller-supplied parameter (this function no longer even accepts
+        # one) -- REQ-MSG-020/027 external-review finding.
+        assert result.occurrence.owner_discord_user_id == trigger.owner_discord_user_id
 
     async def test_duplicate_event_id_is_a_safe_no_op_replay(
         self, campaigns_context: CampaignsRepository
@@ -171,22 +205,16 @@ class TestConsumeEventForTrigger:
                 source_scope_kind=ScopeKind.GUILD,
             )
         )
-        event_id = uuid4()
-        kwargs = dict(
-            repository=repo,
-            owner_discord_user_id=OWNER_A,
-            trigger=trigger,
-            event_id=event_id,
-            guild_id=GUILD_A,
-            discord_resource_id=None,
-            payload={},
-            causation_depth=0,
-        )
+        event = _envelope(guild_id=GUILD_A)
 
-        first = await consume_event_for_trigger(**kwargs)  # type: ignore[arg-type]
+        first = await consume_event_for_trigger(
+            repository=repo, trigger=trigger, event=event, discord_resource_id=None
+        )
         assert first.already_consumed is False
 
-        second = await consume_event_for_trigger(**kwargs)  # type: ignore[arg-type]
+        second = await consume_event_for_trigger(
+            repository=repo, trigger=trigger, event=event, discord_resource_id=None
+        )
         assert second.fired is True
         assert second.already_consumed is True
         assert second.occurrence is not None
@@ -208,16 +236,48 @@ class TestConsumeEventForTrigger:
         # Event arrives from GUILD_B, which has no source binding for this trigger.
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_B,
+            event=_envelope(guild_id=GUILD_B),
             discord_resource_id=None,
-            payload={},
-            causation_depth=0,
         )
         assert result.fired is False
         assert result.occurrence is None
+
+    async def test_wrong_event_type_does_not_fire_even_with_matching_binding_and_payload(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """External-review finding: a trigger configured for event_type X
+        bound to this exact Guild/channel, whose condition AST matches the
+        payload, must still NOT fire for an envelope of a different
+        event_type Y. Before this pass, consume_event_for_trigger never
+        even received or checked event_type at all."""
+        repo = campaigns_context
+        trigger = await _campaign_and_trigger(repo, event_type="MEMBER_JOIN")
+        await repo.create_trigger_source(
+            TriggerSourceBinding(
+                id=uuid4(),
+                guild_id=GUILD_A,
+                trigger_id=trigger.id,
+                source_scope_kind=ScopeKind.GUILD,
+            )
+        )
+        result = await consume_event_for_trigger(
+            repository=repo,
+            trigger=trigger,
+            event=_envelope(guild_id=GUILD_A, event_type="MESSAGE_CREATE"),
+            discord_resource_id=None,
+        )
+        assert result.fired is False
+        assert result.occurrence is None
+
+        # The identical envelope shape, but the correct event_type, DOES fire.
+        matching = await consume_event_for_trigger(
+            repository=repo,
+            trigger=trigger,
+            event=_envelope(guild_id=GUILD_A, event_type="MEMBER_JOIN"),
+            discord_resource_id=None,
+        )
+        assert matching.fired is True
 
     async def test_message_content_dependent_trigger_fails_closed_when_unavailable(
         self, campaigns_context: CampaignsRepository
@@ -234,13 +294,9 @@ class TestConsumeEventForTrigger:
         )
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A),
             discord_resource_id=None,
-            payload={},
-            causation_depth=0,
             message_content_available=False,
         )
         assert result.fired is False
@@ -260,13 +316,9 @@ class TestConsumeEventForTrigger:
         )
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A),
             discord_resource_id=None,
-            payload={},
-            causation_depth=0,
             message_content_available=True,
         )
         assert result.fired is True
@@ -284,13 +336,9 @@ class TestConsumeEventForTrigger:
         )
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A, causation_depth=trigger.max_causation_depth + 1),
             discord_resource_id=None,
-            payload={},
-            causation_depth=trigger.max_causation_depth + 1,
         )
         assert result.fired is False
 
@@ -310,13 +358,9 @@ class TestConsumeEventForTrigger:
         looping_payload = with_campaign_ancestry({}, trigger.campaign_id)
         result = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A, payload=looping_payload, causation_depth=1),
             discord_resource_id=None,
-            payload=looping_payload,
-            causation_depth=1,
         )
         assert result.fired is False
 
@@ -340,24 +384,16 @@ class TestConsumeEventForTrigger:
         )
         matching = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A),
             discord_resource_id=555,
-            payload={},
-            causation_depth=0,
         )
         assert matching.fired is True
 
         non_matching = await consume_event_for_trigger(
             repository=repo,
-            owner_discord_user_id=OWNER_A,
             trigger=trigger,
-            event_id=uuid4(),
-            guild_id=GUILD_A,
+            event=_envelope(guild_id=GUILD_A),
             discord_resource_id=999,  # different channel, binding does not match
-            payload={},
-            causation_depth=0,
         )
         assert non_matching.fired is False

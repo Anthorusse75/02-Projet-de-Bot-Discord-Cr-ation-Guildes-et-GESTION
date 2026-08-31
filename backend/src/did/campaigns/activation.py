@@ -27,6 +27,7 @@ idempotent per destination, not just per occurrence.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
@@ -58,6 +59,18 @@ class OccurrenceNotClaimable(RuntimeError):
     for this owner, is already FANNED_OUT/COMPLETED/FAILED (fan-out is a
     one-time, explicit-retry-only operation -- never silently repeated), or
     is currently validly leased by another worker."""
+
+
+class FanOutLeaseLostError(RuntimeError):
+    """The occurrence fan-out lease was lost mid-expansion (expired and
+    possibly reclaimed by another worker) before this attempt could
+    finalize. Deliveries already created up to that point remain durable
+    and idempotent (each has its own unique delivery_key) -- but this
+    attempt must NEVER report a normal successful FanOutOutcome, since it
+    no longer provably owns the occurrence and cannot know whether a
+    concurrent reclaimer is also expanding it right now. A future retry
+    (this worker or another) safely resumes via the same crash-safety
+    contract: create_delivery is idempotent per destination."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +128,7 @@ async def fan_out_occurrence(
     template_variable_definitions: dict[str, TemplateVariableDefinition],
     glossary_entries: tuple[GlossaryEntry, ...],
     translate_masked_text: TranslateMaskedText | None,
-    approve_fresh_translations: bool = False,
+    lease_seconds: float = 30.0,
 ) -> FanOutOutcome:
     """Expand ``occurrence`` into deliveries for every ready, authorized
     destination across ``targets``. Never sends anything to Discord --
@@ -124,15 +137,21 @@ async def fan_out_occurrence(
     up later, exactly the multi-Guild-parent-never-calls-Discord-directly
     contract.
 
-    ``approve_fresh_translations``: when a destination requires a translation
-    that is MISSING/STALE and one is freshly rendered here, whether to also
-    immediately upsert it as the new approved variant (REUSABLE for the next
-    occurrence of an otherwise-unchanged recurring campaign) -- False by
-    default, since auto-approving a machine translation without any human
-    review contradicts REQ-MSG-016's explicit "never claim semantic
-    perfection" stance; a caller representing an explicit human-reviewed
-    approval flow should pass True only when that review has actually
-    happened.
+    A destination whose translation is MISSING/STALE gets a fresh render
+    here, but that render is NEVER auto-recorded as an approved variant --
+    doing so would silently claim human review that never happened
+    (REQ-MSG-016). Only an explicit, caller-driven review action (see
+    ``did.campaigns.approved_variants.approve_variant``) carrying its own
+    authenticated approving principal may create an approved variant.
+
+    ``lease_seconds`` bounds the occurrence's fan-out lease; a background
+    heartbeat renews it every ``lease_seconds / 5`` for the duration of this
+    call so a slow fan-out (many Guilds/destinations/translation-provider
+    calls) does not outlive a short fixed lease. If the lease is lost mid-
+    expansion or at finalize time, this raises :class:`FanOutLeaseLostError`
+    instead of ever returning a normal successful :class:`FanOutOutcome` --
+    deliveries already durably created remain valid and idempotent for a
+    future retry.
     """
     created = await repository.create_occurrence(campaign.owner_discord_user_id, occurrence)
     if created:
@@ -177,108 +196,160 @@ async def fan_out_occurrence(
     source_model = MessageModel.from_dict(campaign.message_model)
     mentions_dict = _compiled_mentions_dict(compiled_mentions)
 
-    deliveries_created = 0
-    deliveries_already_existed = 0
-    blocked: list[ResolvedDestination] = []
-    render_failures: list[RenderFailure] = []
+    stopped = asyncio.Event()
+    lease_lost = asyncio.Event()
 
-    for target in targets:
-        destinations = await resolve_target(
-            target,
-            owner_discord_user_id=campaign.owner_discord_user_id,
-            authorization=checker,
-            topology=topology_by_target.get(target.id),
-        )
-        for dest in destinations:
-            if not dest.is_ready:
-                blocked.append(dest)
-                continue
-
-            if dest.language_profile_id is None:
-                content_model = await render_message_model(
-                    source_model,
-                    target_language=campaign.source_language_code,
-                    campaign_id=campaign.id,
-                    guild_id=dest.guild_id,
-                    template_variable_definitions=template_variable_definitions,
-                    glossary_entries=glossary_entries,
-                    translate_masked_text=None,
+    async def renew_lease() -> None:
+        interval = max(0.01, lease_seconds / 5)
+        while not stopped.is_set():
+            try:
+                await asyncio.wait_for(stopped.wait(), timeout=interval)
+                return
+            except TimeoutError:
+                pass
+            try:
+                renewed = await repository.renew_occurrence_fanout_lease(
+                    campaign.owner_discord_user_id,
+                    occurrence_id,
+                    lease_token,
+                    lease_seconds=lease_seconds,
                 )
-            else:
-                target_language_code = language_profile_codes.get(dest.language_profile_id)
-                if target_language_code is None:
-                    render_failures.append(
-                        RenderFailure(
-                            dest, target.id, "unknown language_profile_id (no code mapping)"
-                        )
-                    )
+            except Exception:
+                renewed = False
+            if not renewed:
+                lease_lost.set()
+                return
+
+    async def expand() -> tuple[int, int, list[ResolvedDestination], list[RenderFailure]]:
+        deliveries_created = 0
+        deliveries_already_existed = 0
+        blocked: list[ResolvedDestination] = []
+        render_failures: list[RenderFailure] = []
+
+        for target in targets:
+            destinations = await resolve_target(
+                target,
+                owner_discord_user_id=campaign.owner_discord_user_id,
+                authorization=checker,
+                topology=topology_by_target.get(target.id),
+            )
+            for dest in destinations:
+                if not dest.is_ready:
+                    blocked.append(dest)
                     continue
-                resolution = resolve_variant_for_delivery(
-                    campaign, target_language_code, approved_variants
-                )
-                if resolution.outcome is VariantOutcome.REUSABLE:
-                    assert resolution.localized_message_model is not None
-                    content_model = MessageModel.from_dict(resolution.localized_message_model)
+
+                if dest.language_profile_id is None:
+                    content_model = await render_message_model(
+                        source_model,
+                        target_language=campaign.source_language_code,
+                        campaign_id=campaign.id,
+                        guild_id=dest.guild_id,
+                        template_variable_definitions=template_variable_definitions,
+                        glossary_entries=glossary_entries,
+                        translate_masked_text=None,
+                    )
                 else:
-                    if translate_masked_text is None:
+                    target_language_code = language_profile_codes.get(dest.language_profile_id)
+                    if target_language_code is None:
                         render_failures.append(
                             RenderFailure(
-                                dest,
-                                target.id,
-                                f"translation required ({resolution.outcome.value}) but no "
-                                "translation provider was supplied",
+                                dest, target.id, "unknown language_profile_id (no code mapping)"
                             )
                         )
                         continue
-                    try:
-                        content_model = await render_message_model(
-                            source_model,
-                            target_language=target_language_code,
-                            campaign_id=campaign.id,
-                            guild_id=dest.guild_id,
-                            template_variable_definitions=template_variable_definitions,
-                            glossary_entries=glossary_entries,
-                            translate_masked_text=translate_masked_text,
-                        )
-                    except IntegrityViolation as exc:
-                        render_failures.append(RenderFailure(dest, target.id, str(exc)))
-                        continue
-                    if approve_fresh_translations:
-                        from did.campaigns.approved_variants import compute_source_fingerprint
-
-                        await repository.upsert_approved_variant(
-                            ApprovedVariant(
-                                id=uuid4(),
-                                owner_discord_user_id=campaign.owner_discord_user_id,
+                    resolution = resolve_variant_for_delivery(
+                        campaign, target_language_code, approved_variants
+                    )
+                    if resolution.outcome is VariantOutcome.REUSABLE:
+                        assert resolution.localized_message_model is not None
+                        content_model = MessageModel.from_dict(resolution.localized_message_model)
+                    else:
+                        if translate_masked_text is None:
+                            render_failures.append(
+                                RenderFailure(
+                                    dest,
+                                    target.id,
+                                    f"translation required ({resolution.outcome.value}) but no "
+                                    "translation provider was supplied",
+                                )
+                            )
+                            continue
+                        try:
+                            content_model = await render_message_model(
+                                source_model,
+                                target_language=target_language_code,
                                 campaign_id=campaign.id,
-                                target_language_code=target_language_code,
-                                source_fingerprint=compute_source_fingerprint(campaign),
-                                localized_message_model=content_model.to_dict(),
-                                approved_by_discord_user_id=campaign.owner_discord_user_id,
+                                guild_id=dest.guild_id,
+                                template_variable_definitions=template_variable_definitions,
+                                glossary_entries=glossary_entries,
+                                translate_masked_text=translate_masked_text,
                             )
-                        )
+                        except IntegrityViolation as exc:
+                            render_failures.append(RenderFailure(dest, target.id, str(exc)))
+                            continue
+                        # Machine fan-out NEVER records this fresh render as a
+                        # human-approved variant -- see approved_variants
+                        # .approve_variant for the only path that may (an
+                        # explicit, caller-driven review action carrying its
+                        # own authenticated principal).
 
-            delivery = MessageDelivery(
-                id=uuid4(),
-                guild_id=dest.guild_id,
-                campaign_id=campaign.id,
-                occurrence_id=occurrence_id,
-                target_id=target.id,
-                language_profile_id=dest.language_profile_id,
-                delivery_key=_delivery_key(occurrence, target.id, dest),
-                discord_channel_id=dest.discord_channel_id,
-                allowed_mentions_snapshot=mentions_dict,
-                content_snapshot=content_model.to_dict(),
+                delivery = MessageDelivery(
+                    id=uuid4(),
+                    guild_id=dest.guild_id,
+                    campaign_id=campaign.id,
+                    occurrence_id=occurrence_id,
+                    target_id=target.id,
+                    language_profile_id=dest.language_profile_id,
+                    delivery_key=_delivery_key(occurrence, target.id, dest),
+                    discord_channel_id=dest.discord_channel_id,
+                    allowed_mentions_snapshot=mentions_dict,
+                    content_snapshot=content_model.to_dict(),
+                )
+                if await repository.create_delivery(delivery):
+                    deliveries_created += 1
+                else:
+                    deliveries_already_existed += 1
+
+        return deliveries_created, deliveries_already_existed, blocked, render_failures
+
+    heartbeat = asyncio.create_task(renew_lease())
+    expand_task = asyncio.create_task(expand())
+    lost_task = asyncio.create_task(lease_lost.wait())
+    try:
+        done, _ = await asyncio.wait({expand_task, lost_task}, return_when=asyncio.FIRST_COMPLETED)
+        if lost_task in done and lease_lost.is_set() and not expand_task.done():
+            expand_task.cancel()
+            await asyncio.gather(expand_task, return_exceptions=True)
+            raise FanOutLeaseLostError(
+                f"occurrence {occurrence_id} fan-out lease was lost mid-expansion"
             )
-            if await repository.create_delivery(delivery):
-                deliveries_created += 1
-            else:
-                deliveries_already_existed += 1
+        (
+            deliveries_created,
+            deliveries_already_existed,
+            blocked,
+            render_failures,
+        ) = await expand_task
+    finally:
+        stopped.set()
+        if not expand_task.done():
+            expand_task.cancel()
+        heartbeat.cancel()
+        lost_task.cancel()
+        await asyncio.gather(heartbeat, lost_task, expand_task, return_exceptions=True)
 
     final_status = "FANNED_OUT" if not render_failures else "FAILED"
-    await repository.finalize_occurrence_fanout(
+    finalized = await repository.finalize_occurrence_fanout(
         campaign.owner_discord_user_id, occurrence_id, lease_token, status=final_status
     )
+    if not finalized:
+        # The lease was lost between the last successful renewal and this
+        # finalize call (or was never renewed in time for a very short
+        # lease_seconds). Deliveries already created above remain durable
+        # and idempotent; this attempt must not claim success it can no
+        # longer prove it owns.
+        raise FanOutLeaseLostError(
+            f"occurrence {occurrence_id} fan-out lease was lost before finalize"
+        )
 
     return FanOutOutcome(
         occurrence_id=occurrence_id,

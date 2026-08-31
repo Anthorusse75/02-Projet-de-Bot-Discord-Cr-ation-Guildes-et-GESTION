@@ -179,6 +179,13 @@ def evaluate_condition(node: Mapping[str, object], payload: Mapping[str, object]
 class TriggerEvaluationContext:
     event_id: UUID
     guild_id: int
+    #: The real Gateway dispatch type of the event being evaluated (e.g.
+    #: "GUILD_MEMBER_ADD"). REQ-MSG-027 external-review finding: an
+    #: event_type mismatch must be rejected here, not merely assumed
+    #: pre-filtered by the caller -- a trigger configured for event_type X
+    #: must never fire off an event of a different type Y just because a
+    #: source binding and condition AST happen to match its payload shape.
+    event_type: str
     discord_resource_id: int | None
     causation_depth: int
     payload: Mapping[str, object]
@@ -214,6 +221,8 @@ def should_trigger(
     DB uniqueness constraint (WP1) -- this function is pure and does not
     itself guarantee idempotency across repeated calls.
     """
+    if trigger.event_type != context.event_type:
+        return False
     if context.causation_depth > trigger.max_causation_depth:
         return False
     if str(trigger.campaign_id) in read_campaign_ancestry(context.payload):

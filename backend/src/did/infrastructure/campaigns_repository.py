@@ -411,6 +411,36 @@ class CampaignsRepository:
             )
         return dict(row) if row is not None else None
 
+    async def renew_occurrence_fanout_lease(
+        self,
+        owner_discord_user_id: int,
+        occurrence_id: UUID,
+        lease_token: UUID,
+        *,
+        lease_seconds: float,
+    ) -> bool:
+        """Heartbeat renewal for a long-running fan-out (many Guilds/
+        destinations/translation-provider calls can easily outlive a short
+        fixed lease). Fenced by the exact lease token the caller was granted
+        by :meth:`claim_occurrence_for_fanout` -- ``False`` means the lease
+        was already lost (expired and possibly reclaimed by another worker),
+        and the caller must stop and never report success."""
+        if lease_seconds < 0.05:
+            raise ValueError("occurrence fan-out lease duration must be at least 50ms")
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_occurrences SET "
+                    "leased_until=now() + (:lease_seconds * interval '1 second'), "
+                    "updated_at=now() "
+                    "WHERE id=:id AND status='CLAIMED' AND lease_token=:token"
+                ),
+                {"id": occurrence_id, "token": lease_token, "lease_seconds": lease_seconds},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
     async def finalize_occurrence_fanout(
         self,
         owner_discord_user_id: int,

@@ -149,22 +149,54 @@ class TestShouldTrigger:
         trigger = self._trigger()
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=0, payload={}
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
         )
         assert should_trigger(trigger, [binding], context) is True
+
+    def test_wrong_event_type_never_fires_even_with_matching_binding_and_condition(self) -> None:
+        """External-review finding: event_type was never checked at all --
+        a trigger configured for MEMBER_JOIN must not fire for an envelope
+        of a different type just because its binding/condition also match
+        that envelope's guild_id/payload shape."""
+        trigger = self._trigger(event_type="MEMBER_JOIN")
+        binding = self._guild_binding(trigger.id, 111)
+        context = TriggerEvaluationContext(
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MESSAGE_CREATE",
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
+        )
+        assert should_trigger(trigger, [binding], context) is False
 
     def test_unbound_guild_b_cannot_trigger_guild_a_campaign(self) -> None:
         trigger = self._trigger()
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=222, discord_resource_id=None, causation_depth=0, payload={}
+            event_id=uuid4(),
+            guild_id=222,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
         )
         assert should_trigger(trigger, [binding], context) is False
 
     def test_event_type_alone_never_authorizes_without_any_binding(self) -> None:
         trigger = self._trigger()
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=0, payload={}
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
         )
         assert should_trigger(trigger, [], context) is False
 
@@ -172,7 +204,12 @@ class TestShouldTrigger:
         trigger = self._trigger(max_causation_depth=2)
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=3, payload={}
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=3,
+            payload={},
         )
         assert should_trigger(trigger, [binding], context) is False
 
@@ -180,7 +217,12 @@ class TestShouldTrigger:
         trigger = self._trigger(max_causation_depth=2)
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=2, payload={}
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=2,
+            payload={},
         )
         assert should_trigger(trigger, [binding], context) is True
 
@@ -191,6 +233,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=1,
             payload=looping_payload,
@@ -204,6 +247,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=1,
             payload=other_campaign_payload,
@@ -216,6 +260,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=0,
             payload={"tier": "bronze"},
@@ -231,6 +276,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=0,
             payload={},
@@ -244,6 +290,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=0,
             payload={},
@@ -257,6 +304,7 @@ class TestShouldTrigger:
         context = TriggerEvaluationContext(
             event_id=uuid4(),
             guild_id=111,
+            event_type="MEMBER_JOIN",
             discord_resource_id=None,
             causation_depth=0,
             payload={},
@@ -271,6 +319,11 @@ class TestShouldTrigger:
         trigger = self._trigger(requires_message_content=True)
         binding = self._guild_binding(trigger.id, 111)
         context = TriggerEvaluationContext(
-            event_id=uuid4(), guild_id=111, discord_resource_id=None, causation_depth=0, payload={}
+            event_id=uuid4(),
+            guild_id=111,
+            event_type="MEMBER_JOIN",
+            discord_resource_id=None,
+            causation_depth=0,
+            payload={},
         )
         assert should_trigger(trigger, [binding], context) is True

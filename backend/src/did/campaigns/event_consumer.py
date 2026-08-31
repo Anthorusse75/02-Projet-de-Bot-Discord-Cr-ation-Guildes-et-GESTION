@@ -26,7 +26,6 @@ complete, and neither can double-fire on its own.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -38,6 +37,7 @@ from did.domain.campaigns import (
     TriggerSourceScopeKind,
 )
 from did.domain.campaigns import MessageOccurrence as DomainOccurrence
+from did.domain.discord_runtime import EventEnvelope
 from did.infrastructure.campaigns_repository import CampaignsRepository
 
 
@@ -58,28 +58,45 @@ class EventConsumptionResult:
 async def consume_event_for_trigger(
     *,
     repository: CampaignsRepository,
-    owner_discord_user_id: int,
     trigger: CampaignTrigger,
-    event_id: UUID,
-    guild_id: int,
+    event: EventEnvelope,
     discord_resource_id: int | None,
-    payload: Mapping[str, object],
-    causation_depth: int,
-    correlation_id: UUID | None = None,
     message_content_available: bool = True,
 ) -> EventConsumptionResult:
     """The single REQ-MSG-020/021/027/030 gate for one (trigger, event)
-    pair: loads this trigger's real ``TriggerSourceBinding`` rows for
-    ``guild_id`` (Guild-scoped RLS -- a binding for a different Guild could
-    never match this envelope's guild_id regardless, so this is exactly the
-    minimal correct read), evaluates ``did.campaigns.causality.should_trigger``
-    (source binding + depth + ancestor-loop + MESSAGE_CONTENT + condition
-    AST, all required), and if it fires, durably records the trigger/event
-    consumption and returns a deterministic occurrence ready for
-    ``did.campaigns.activation.fan_out_occurrence`` -- this function never
-    calls fan-out itself, callers do so as an explicit next step, keeping
-    the "decide to fire" and "expand into deliveries" concerns separate and
-    independently testable/idempotent."""
+    pair. Takes the REAL shared Stage03 ``EventEnvelope`` object -- never a
+    caller-unpacked bag of loose fields -- so ``event.event_type``,
+    ``event.guild_id``, ``event.causation_depth`` and ``event.payload`` are
+    exactly what a durably-captured Gateway dispatch actually carries, not a
+    caller's possibly-stale or mistaken restatement of them.
+
+    Two external-review findings closed here (this pass):
+
+    1. ``trigger.event_type`` is never checked against the event being
+       evaluated by this function's caller alone -- it is now enforced
+       inside ``did.campaigns.causality.should_trigger`` itself via
+       ``TriggerEvaluationContext.event_type``, so a caller can never
+       accidentally (or a compromised caller never deliberately) fire a
+       trigger configured for a different event_type just because a source
+       binding and condition AST happen to also match.
+    2. Ownership is derived from ``trigger.owner_discord_user_id`` -- the
+       value durably loaded with the trigger row itself -- never from a
+       separately caller-supplied ``owner_discord_user_id`` parameter. A
+       caller cannot make this function attribute an occurrence to a
+       different owner than the trigger's actual owner, cross-owner or
+       otherwise.
+
+    Loads this trigger's real ``TriggerSourceBinding`` rows for
+    ``event.guild_id`` (Guild-scoped RLS -- a binding for a different Guild
+    could never match this envelope's guild_id regardless, so this is
+    exactly the minimal correct read), evaluates ``should_trigger`` (event
+    type + source binding + depth + ancestor-loop + MESSAGE_CONTENT +
+    condition AST, all required), and if it fires, durably records the
+    trigger/event consumption and returns a deterministic occurrence ready
+    for ``did.campaigns.activation.fan_out_occurrence`` -- this function
+    never calls fan-out itself, callers do so as an explicit next step,
+    keeping the "decide to fire" and "expand into deliveries" concerns
+    separate and independently testable/idempotent."""
     source_bindings = [
         TriggerSourceBinding(
             id=row["id"],
@@ -88,38 +105,39 @@ async def consume_event_for_trigger(
             source_scope_kind=TriggerSourceScopeKind(row["source_scope_kind"]),
             discord_resource_id=row["discord_resource_id"],
         )
-        for row in await repository.load_trigger_sources(guild_id, trigger.id)
+        for row in await repository.load_trigger_sources(event.guild_id, trigger.id)
     ]
 
     context = TriggerEvaluationContext(
-        event_id=event_id,
-        guild_id=guild_id,
+        event_id=event.event_id,
+        guild_id=event.guild_id,
+        event_type=event.event_type,
         discord_resource_id=discord_resource_id,
-        causation_depth=causation_depth,
-        payload=payload,
+        causation_depth=event.causation_depth,
+        payload=event.payload,
         message_content_available=message_content_available,
     )
     if not should_trigger(trigger, source_bindings, context):
         return EventConsumptionResult(
             fired=False,
             reason=(
-                "source binding, depth, ancestor-loop, MESSAGE_CONTENT, or "
-                "condition gate rejected this event"
+                "event_type, source binding, depth, ancestor-loop, "
+                "MESSAGE_CONTENT, or condition gate rejected this event"
             ),
         )
 
     occurrence = DomainOccurrence(
-        id=_deterministic_occurrence_id(trigger.id, event_id),
-        owner_discord_user_id=owner_discord_user_id,
+        id=_deterministic_occurrence_id(trigger.id, event.event_id),
+        owner_discord_user_id=trigger.owner_discord_user_id,
         campaign_id=trigger.campaign_id,
-        occurrence_key=f"trigger:{trigger.id}:event:{event_id}",
+        occurrence_key=f"trigger:{trigger.id}:event:{event.event_id}",
         occurrence_source=OccurrenceSource.EVENT,
-        source_event_id=event_id,
-        source_correlation_id=correlation_id,
+        source_event_id=event.event_id,
+        source_correlation_id=event.correlation_id,
     )
 
     consumed_now = await repository.record_trigger_consumption(
-        guild_id, trigger.id, event_id, occurrence.id
+        event.guild_id, trigger.id, event.event_id, occurrence.id
     )
     return EventConsumptionResult(
         fired=True,

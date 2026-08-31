@@ -385,7 +385,7 @@ class TestFanOutTranslation:
         # Source channel (no translation) + fr variant (reused) = 2 deliveries.
         assert outcome.deliveries_created == 2
 
-    async def test_missing_variant_renders_fresh_and_can_be_auto_approved(
+    async def test_missing_variant_renders_fresh_but_is_never_auto_approved(
         self, campaigns_context: CampaignsRepository
     ) -> None:
         repo = campaigns_context
@@ -440,13 +440,36 @@ class TestFanOutTranslation:
             template_variable_definitions=definitions,
             glossary_entries=(),
             translate_masked_text=_identity_translate,
-            approve_fresh_translations=True,
         )
         assert outcome.is_fully_healthy
         assert outcome.deliveries_created == 1  # SELECTED_LANGUAGES: only the fr variant
 
+        # Fan-out never silently records a fresh machine render as a
+        # human-approved variant (REQ-MSG-016) -- it must remain absent
+        # until an explicit, separately-authenticated approval call.
         variants = await repo.list_approved_variants(OWNER_A, campaign.id)
-        assert "fr" in variants
+        assert "fr" not in variants
+
+        from did.campaigns.approved_variants import (
+            VariantApproval,
+            approve_variant,
+            compute_source_fingerprint,
+        )
+
+        approved = await approve_variant(
+            repo,
+            owner_discord_user_id=OWNER_A,
+            approving_discord_user_id=OWNER_A,
+            approval=VariantApproval(
+                campaign_id=campaign.id,
+                target_language_code="fr",
+                localized_message_model={"content": "Bonjour Sam!"},
+                source_fingerprint=compute_source_fingerprint(campaign),
+            ),
+        )
+        assert approved.approved_by_discord_user_id == OWNER_A
+        variants_after = await repo.list_approved_variants(OWNER_A, campaign.id)
+        assert "fr" in variants_after
 
     async def test_missing_variant_with_no_provider_is_a_render_failure_not_a_crash(
         self, campaigns_context: CampaignsRepository
@@ -535,3 +558,157 @@ class TestFanOutAuthorizationAndPreflight:
         assert outcome.deliveries_created == 0
         assert len(outcome.blocked_destinations) == 1
         assert not outcome.is_fully_healthy
+
+
+@pytest.mark.asyncio
+class TestFanOutLeaseFencing:
+    """External-review finding (this pass): fan_out_occurrence ignored
+    finalize_occurrence_fanout's boolean fencing result, and a real fan-out
+    (many Guilds/destinations/translation calls) can easily outlive a short
+    fixed lease -- both must be closed, not merely acknowledged."""
+
+    async def test_lease_stolen_mid_expansion_raises_instead_of_reporting_success(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Simulates a reconciler reclaiming this exact occurrence's lease
+        WHILE this fan-out's own translate callback is still running (well
+        past what a real stall-detection reconciler would consider
+        abandoned). The original fan-out must never report a healthy
+        FanOutOutcome once it can no longer prove it owns the occurrence."""
+        repo = campaigns_context
+        campaign = _campaign(
+            message_model=MessageModel(content="Hello {{name}}!").to_dict(),
+            source_language_code="en",
+        )
+        await repo.create_campaign(campaign)
+        language_profile_id = uuid4()
+
+        from did.campaigns.target_resolution import TranslationGroupTopologySnapshot
+        from did.domain.campaigns import TranslationPublicationMode
+
+        group_target = DomainTarget(
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.TRANSLATION_GROUP,
+            translation_group_id=uuid4(),
+            translation_publication_mode=TranslationPublicationMode.SELECTED_LANGUAGES,
+            selected_language_profile_ids=(language_profile_id,),
+        )
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        async with admin_engine.begin() as connection:
+            await _insert_translation_group(connection, GUILD_A, group_target.translation_group_id)
+        await repo.create_target(group_target)
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=999, variants=((language_profile_id, 1000),)
+        )
+        occurrence = _occurrence(campaign.id)
+
+        async def _steal_lease_mid_render(masked_text: str) -> str:
+            # A second worker reclaims the occurrence once its lease looks
+            # expired -- force that by directly expiring leased_until (real
+            # wall-clock waiting would make this test slow and flaky).
+            async with admin_engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE message_occurrences SET leased_until = now() - "
+                        "interval '1 second' WHERE campaign_id = :campaign_id"
+                    ),
+                    {"campaign_id": campaign.id},
+                )
+            reclaimed = await repo.claim_occurrence_for_fanout(
+                OWNER_A, occurrence.id, lease_owner="reconciler-mid-flight"
+            )
+            assert reclaimed is not None  # the theft must actually succeed
+            return masked_text
+
+        try:
+            from did.campaigns.activation import FanOutLeaseLostError
+
+            with pytest.raises(FanOutLeaseLostError):
+                await fan_out_occurrence(
+                    repository=repo,
+                    checker=_FakeChecker(),
+                    campaign=campaign,
+                    targets=(group_target,),
+                    occurrence=occurrence,
+                    lease_owner="worker-original",
+                    topology_by_target={group_target.id: topology},
+                    language_profile_codes={language_profile_id: "fr"},
+                    compiled_mentions=NO_MENTIONS,
+                    template_variable_definitions={},
+                    glossary_entries=(),
+                    translate_masked_text=_steal_lease_mid_render,
+                )
+        finally:
+            await admin_engine.dispose()
+
+        # The reconciler's own claim is still valid -- it, not the original
+        # worker, now owns the occurrence, and no delivery was left behind
+        # claiming a health this worker could no longer prove.
+        row = await repo.get_occurrence_by_key(OWNER_A, campaign.id, occurrence.occurrence_key)
+        assert row is not None
+        assert row["status"] == "CLAIMED"
+        assert row["lease_owner"] == "reconciler-mid-flight"
+
+    async def test_heartbeat_renews_lease_across_a_slow_fanout(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """A translate callback slower than the configured lease_seconds
+        must not cause the occurrence's own lease to expire underneath a
+        still-healthy worker -- the heartbeat must renew it in time."""
+        repo = campaigns_context
+        campaign = _campaign(
+            message_model=MessageModel(content="Hello {{name}}!").to_dict(),
+            source_language_code="en",
+        )
+        await repo.create_campaign(campaign)
+        language_profile_id = uuid4()
+
+        from did.campaigns.target_resolution import TranslationGroupTopologySnapshot
+        from did.domain.campaigns import TranslationPublicationMode
+
+        group_target = DomainTarget(
+            id=uuid4(),
+            guild_id=GUILD_A,
+            campaign_id=campaign.id,
+            target_kind=DomainTargetKind.TRANSLATION_GROUP,
+            translation_group_id=uuid4(),
+            translation_publication_mode=TranslationPublicationMode.SELECTED_LANGUAGES,
+            selected_language_profile_ids=(language_profile_id,),
+        )
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            async with admin_engine.begin() as connection:
+                await _insert_translation_group(
+                    connection, GUILD_A, group_target.translation_group_id
+                )
+        finally:
+            await admin_engine.dispose()
+        await repo.create_target(group_target)
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=999, variants=((language_profile_id, 1000),)
+        )
+        occurrence = _occurrence(campaign.id)
+
+        async def _slow_translate(masked_text: str) -> str:
+            await asyncio.sleep(0.3)
+            return masked_text
+
+        outcome = await fan_out_occurrence(
+            repository=repo,
+            checker=_FakeChecker(),
+            campaign=campaign,
+            targets=(group_target,),
+            occurrence=occurrence,
+            lease_owner="worker-original",
+            topology_by_target={group_target.id: topology},
+            language_profile_codes={language_profile_id: "fr"},
+            compiled_mentions=NO_MENTIONS,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_slow_translate,
+            lease_seconds=0.1,
+        )
+        assert outcome.is_fully_healthy
+        assert outcome.deliveries_created == 1  # SELECTED_LANGUAGES: only the fr variant
