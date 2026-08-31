@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -10,6 +10,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from did.application.planning import PlanningService
+from did.application.translation.service import VIEW_CHANNEL
 from did.cloning import (
     ArtifactSelection,
     DestinationPlanCompiler,
@@ -26,6 +27,13 @@ from did.infrastructure.stage08_repository import (
     ResourceLanguagePolicyRepository,
     TranslationGroupRepository,
     TranslationProviderBindingRepository,
+)
+from did.planning import (
+    DesiredNode,
+    DesiredStateGraph,
+    ReferenceKind,
+    ResourceReference,
+    ResourceType,
 )
 from did.portability import (
     CloneMode,
@@ -402,6 +410,17 @@ class PortabilityService:
             candidates=candidates,
             reconcile_scope=owned_scope if mode is CloneMode.RECONCILE else None,
         )
+        is_multilingual_clone = any(
+            resource.resource_type is PortableResourceType.TRANSLATION_GROUP
+            for resource in artifact.resources
+        )
+        if is_multilingual_clone and compilation.graph is not None:
+            compilation = replace(
+                compilation,
+                graph=await self._with_control_plane_access(
+                    compilation.graph, destination_guild_id=destination_guild_id
+                ),
+            )
         if self._metrics is not None:
             self._metrics.portability_outcome("transfer_state", TransferState.READY.value)
         report_json = [self._report_json(item) for item in compilation.report.entries]
@@ -434,14 +453,7 @@ class PortabilityService:
             actor_user_id=actor_user_id,
             idempotency_key=planning_key,
             correlation_id=correlation_id,
-            operation_order_policy=(
-                "STAGE08_STRUCTURAL"
-                if any(
-                    resource.resource_type is PortableResourceType.TRANSLATION_GROUP
-                    for resource in artifact.resources
-                )
-                else None
-            ),
+            operation_order_policy=("STAGE08_STRUCTURAL" if is_multilingual_clone else None),
         )
         if self._metrics is not None:
             self._metrics.portability_outcome(
@@ -469,6 +481,51 @@ class PortabilityService:
             destination_plan_id=UUID(str(plan["id"])),
         )
         return transfer, plan, plan_created
+
+    async def _with_control_plane_access(
+        self, graph: DesiredStateGraph, *, destination_guild_id: int
+    ) -> DesiredStateGraph:
+        """Ensure the DID control-plane bot keeps access to cloned visibility-restricted channels.
+
+        A cloned Scope x Language/language-filtered channel replicates the source's
+        deny-VIEW_CHANNEL overwrite verbatim. Discord resolves permissions from the
+        final overwrite state, not from write order: without an explicit allow for
+        the destination bot's own principal, the deny leaves the bot unable to see
+        or manage the channel it just created, even though it still holds
+        MANAGE_CHANNELS at the guild level. This mirrors the durable
+        `bot_identity()`-based control-plane check already used by the Stage05
+        preflight (see PlanningService.recheck) rather than granting the bot any
+        human business-scope role.
+        """
+        bot_id, _ = await self._read_models.bot_identity(destination_guild_id)
+        if bot_id is None:
+            return graph
+        restricted_channel_keys = sorted(
+            {
+                relation.value
+                for node in graph.nodes
+                if node.resource_type is ResourceType.OVERWRITE
+                and int(node.property_map().get("deny", 0)) & VIEW_CHANNEL
+                for name, relation in node.relations
+                if name == "channel" and relation.kind is ReferenceKind.LOGICAL
+            }
+        )
+        if not restricted_channel_keys:
+            return graph
+        bot_ref = ResourceReference(ReferenceKind.DISCORD_ID, str(bot_id))
+        extra_nodes = tuple(
+            DesiredNode.build(
+                logical_key=f"stage08.overwrite.control_plane_bot.{channel_key}",
+                resource_type=ResourceType.OVERWRITE,
+                properties={"target_type": 1, "allow": str(VIEW_CHANNEL), "deny": "0"},
+                relations={
+                    "channel": ResourceReference(ReferenceKind.LOGICAL, channel_key),
+                    "subject": bot_ref,
+                },
+            )
+            for channel_key in restricted_channel_keys
+        )
+        return DesiredStateGraph(graph.guild_id, graph.nodes + extra_nodes)
 
     async def prepare_stored_transfer(
         self,

@@ -58,7 +58,11 @@ PREFIX = "DID-STAGE05-TEST-"
 
 
 class LiveCapabilityBlocked(RuntimeError):
-    pass
+    def __init__(self, message: str, *, capabilities: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        # Sanitized Discord permission names only (e.g. "MANAGE_CHANNELS"); never
+        # a Discord ID, token, or other PII.
+        self.capabilities = capabilities
 
 
 def load_local_environment(path: Path) -> None:
@@ -264,7 +268,18 @@ async def create_validated_plan(
     )
     if not preflight.allowed:
         if all(error.startswith("capability.permission_missing") for error in preflight.errors):
-            raise LiveCapabilityBlocked("sandbox bot lacks structural mutation capabilities")
+            names = tuple(
+                sorted(
+                    {
+                        error.rsplit(".", 1)[-1].upper()
+                        for error in preflight.errors
+                        if error.startswith("capability.permission_missing")
+                    }
+                )
+            )
+            raise LiveCapabilityBlocked(
+                "sandbox bot lacks structural mutation capabilities", capabilities=names
+            )
         raise RuntimeError(f"live preflight blocked: {','.join(preflight.errors)}")
     return await service.confirm(
         guild_id=graph.guild_id,

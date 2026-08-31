@@ -95,6 +95,7 @@ def write_report(
     counts: dict[str, int] | None = None,
     hashes: dict[str, str] | None = None,
     blocker: str | None = None,
+    missing_capabilities: list[str] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -109,6 +110,9 @@ def write_report(
                 "counts": counts or {},
                 "evidence_hashes": hashes or {},
                 "blocker": blocker,
+                # Sanitized Discord permission names only (e.g. "MANAGE_CHANNELS");
+                # never a Discord ID, token, or other PII.
+                "missing_capabilities": missing_capabilities or [],
                 "resource_prefix_family": PREFIX,
                 "secrets_recorded": False,
                 "discord_identifiers_recorded": False,
@@ -1397,13 +1401,21 @@ def main() -> int:
         return 2
     try:
         counts, hashes = asyncio.run(run_live())
-    except LiveCapabilityBlocked:
+    except LiveCapabilityBlocked as exc:
+        capabilities = list(getattr(exc, "capabilities", ()))
+        blocker = (
+            f"required Discord permission unavailable for the control-plane bot: "
+            f"{', '.join(capabilities)}"
+            if capabilities
+            else "required Discord privileged intent or permissions are unavailable"
+        )
         write_report(
             arguments.report,
             status="BLOCKED_CAPABILITY_CONFIGURATION",
             checks=["live sandbox configuration failed closed"],
             missing=[],
-            blocker="required Discord privileged intent or permissions are unavailable",
+            blocker=blocker,
+            missing_capabilities=capabilities,
         )
         return 3
     except Exception as exc:
