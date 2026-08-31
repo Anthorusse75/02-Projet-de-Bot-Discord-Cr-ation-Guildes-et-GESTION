@@ -202,7 +202,7 @@ class CampaignsRepository:
                             "leased_until=:now + (:lease_seconds * interval '1 second') "
                             "FROM candidate WHERE s.id=candidate.id "
                             "RETURNING s.id, s.owner_discord_user_id, s.campaign_id, "
-                            "s.schedule_kind, s.rrule, s.timezone, s.starts_at, "
+                            "s.schedule_kind, s.fire_at, s.rrule, s.timezone, s.starts_at, "
                             "s.misfire_policy, s.dst_nonexistent_policy, s.dst_ambiguous_policy, "
                             "s.catch_up_bound, s.last_cursor_local, s.version, s.lease_token"
                         ),

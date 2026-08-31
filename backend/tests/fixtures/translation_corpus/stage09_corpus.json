@@ -1,7 +1,12 @@
 {
-  "version": 2,
-  "languages": ["en", "fr", "de", "es"],
-  "note": "Synthetic, non-private Discord-safe campaign message samples for the WP10 real googletrans benchmark. No user data, no real Guild/channel/message ids. Natively authored (not machine-translated) in each of the four languages so the full directed FR/EN/DE/ES matrix has genuine, non-circular source content in every direction, per REQ-MSG-024.",
+  "version": 3,
+  "languages": [
+    "en",
+    "fr",
+    "de",
+    "es"
+  ],
+  "note": "Synthetic, non-private Discord-safe campaign message samples for the WP10 real googletrans benchmark. No user data, no real Guild/channel/message ids. Natively authored (not machine-translated) in each of the four languages so the full directed FR/EN/DE/ES matrix has genuine, non-circular source content in every direction, per REQ-MSG-024. Expanded (fourth remediation pass, external-review request) to cover the full normative class list: short/long sentences, negation/pronouns, multi-sentence and multi-paragraph text, Markdown lists/emphasis, adversarial URLs (query/fragment/parens), literal @everyone/@here-shaped text, static/animated custom emoji, multiple timestamp formats, slash-command references, a dense multi-placeholder sentence, domain terminology/proper names/acronyms, mixed inline-code-and-code-block prose, embed-title/description/field-style short items, a button-label-style item, and one deliberately long (multi-KB) item. Embed/button-field items are represented as plain text content (the same shape did.messaging.translation_policy extracts per typed field) since the benchmark harness translates masked text, not a full MessageModel -- the field-typing logic itself is unit-tested separately in test_stage09_translation_policy.py.",
   "items_by_language": {
     "en": [
       {
@@ -33,6 +38,106 @@
         "id": "en-mixed-everything",
         "class": "mixed_technical_and_linguistic",
         "content": "Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>."
+      },
+      {
+        "id": "en-short-sentence",
+        "class": "short_sentence",
+        "content": "See you tomorrow!"
+      },
+      {
+        "id": "en-long-sentence",
+        "class": "long_sentence",
+        "content": "Even though the winter update introduced a large number of balance changes across nearly every class, the community response has been overwhelmingly positive, with most players agreeing that the new pacing feels far more rewarding than before."
+      },
+      {
+        "id": "en-negation-pronouns",
+        "class": "negation_and_pronouns",
+        "content": "She said she would not be attending the event herself, but she asked us to remind everyone that it is still happening without her."
+      },
+      {
+        "id": "en-multi-sentence-paragraph",
+        "class": "multi_sentence_paragraph",
+        "content": "The maintenance window starts at midnight. It should last about two hours. During this time, you will not be able to log in. We appreciate your patience."
+      },
+      {
+        "id": "en-multi-paragraph",
+        "class": "multi_paragraph",
+        "content": "Season three is finally here, bringing a fresh set of challenges and rewards for everyone to enjoy.\n\nWe have also rebalanced several older items that had fallen out of use, so it might be worth revisiting your old builds.\n\nAs always, thank you for being part of this community and for your continued feedback."
+      },
+      {
+        "id": "en-list-markdown",
+        "class": "list_markdown",
+        "content": "Before the event, please make sure to:\n- Update your client to the latest version\n- Read the updated rules\n- Join the voice channel five minutes early"
+      },
+      {
+        "id": "en-markdown-emphasis",
+        "class": "markdown_emphasis",
+        "content": "This is **very important**: please read the __updated__ rules before the ~~old~~ event starts, or your entry may be ||disqualified||."
+      },
+      {
+        "id": "en-url-adversarial",
+        "class": "url_adversarial",
+        "content": "Full details, including the updated schedule, are available at https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule. See also (the archived version): https://example.com/archive/2025."
+      },
+      {
+        "id": "en-everyone-literal",
+        "class": "everyone_here_literal",
+        "content": "Attention @everyone: the vote closes tonight, so if you haven't voted yet, now is the time -- this message is not directed at @here specifically, but at all of you."
+      },
+      {
+        "id": "en-custom-emoji",
+        "class": "custom_emoji",
+        "content": "Great job everyone <a:party:456789012345678901>! Give yourself a well-deserved <:trophy:567890123456789013> and celebrate <:confetti:678901234567890124>."
+      },
+      {
+        "id": "en-timestamps",
+        "class": "timestamps",
+        "content": "Registration opens <t:1735689600:F> and closes <t:1735776000:R>; the event itself starts <t:1735862400:t> sharp."
+      },
+      {
+        "id": "en-slash-command",
+        "class": "slash_command",
+        "content": "If you want to check your current standing, just run </leaderboard:789012345678901234> or ask a moderator to use </audit:890123456789012345> on your behalf."
+      },
+      {
+        "id": "en-dense-placeholders",
+        "class": "multiple_placeholders_dense",
+        "content": "Hey <@123456789012345678> and <@!234567890123456789>, your team {{team_name}} placed in <#345678901234567890>! Ceremony <t:1735689600:F>, details at https://example.com/results/{{season_id}}, react with <a:party:456789012345678901> and run </rsvp:789012345678901234>."
+      },
+      {
+        "id": "en-terminology-names-acronyms",
+        "class": "terminology_names_acronyms",
+        "content": "Congratulations to Hero Wars champion Alexandra Petrova (AKA \"Lexi\") for winning the NA regional finals -- her signature build, the DPS/support hybrid, was the MVP of the entire tournament."
+      },
+      {
+        "id": "en-inline-code-and-block-mixed",
+        "class": "inline_code_and_block_mixed",
+        "content": "To reproduce the issue, first call `campaign.simulate()` and then run the following snippet:\n```py\nresult = campaign.dry_run(target=\"guild-a\")\nprint(result.summary)\n```\nIf `result.summary` mentions an error, check the logs before retrying."
+      },
+      {
+        "id": "en-embed-title-style",
+        "class": "embed_title_style",
+        "content": "Season Three Championship Results"
+      },
+      {
+        "id": "en-embed-description-style",
+        "class": "embed_description_style",
+        "content": "After three intense weeks of competition, sixteen teams battled down to a single champion. Below you will find the final standings, the most valuable players, and a link to the full match replays."
+      },
+      {
+        "id": "en-embed-field-style",
+        "class": "embed_field_style",
+        "content": "Prize pool: $10,000 distributed across the top eight finishers."
+      },
+      {
+        "id": "en-button-label-style",
+        "class": "button_label_style",
+        "content": "View Full Standings"
+      },
+      {
+        "id": "en-long-multi-kb",
+        "class": "long_multi_kb",
+        "content": "This season's patch notes cover an unusually large number of changes, so please take the time to read through everything carefully before the new content goes live. First, we have substantially reworked the itemization system: legendary items now roll with two guaranteed affixes instead of one, and the drop rates for rare crafting materials have been increased across every difficulty tier. Second, the matchmaking algorithm has been rewritten from scratch to reduce queue times during off-peak hours, particularly for players in smaller regional pools. Third, we have addressed a long list of community-reported bugs, including several desynchronization issues that could occur during high-latency matches, a rare crash on the character-select screen, and an exploit that allowed certain abilities to bypass their cooldown under specific conditions. Fourth, the seasonal event area has been completely redesigned with new environmental hazards, hidden collectibles, and a boss encounter that scales dynamically with party size. Finally, we want to thank everyone who submitted feedback during the public test phase -- your reports directly shaped many of the balance decisions in this release, and we could not have gotten here without such an engaged community testing every build along the way."
       }
     ],
     "fr": [
@@ -65,6 +170,106 @@
         "id": "fr-mixed-everything",
         "class": "mixed_technical_and_linguistic",
         "content": "Salut <@123456789012345678> ! Votre événement {{event_name}} commence <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>."
+      },
+      {
+        "id": "fr-short-sentence",
+        "class": "short_sentence",
+        "content": "À demain !"
+      },
+      {
+        "id": "fr-long-sentence",
+        "class": "long_sentence",
+        "content": "Bien que la mise à jour d'hiver ait introduit un grand nombre de changements d'équilibrage pour presque toutes les classes, la réaction de la communauté a été extrêmement positive, la plupart des joueurs estimant que le nouveau rythme est bien plus gratifiant qu'auparavant."
+      },
+      {
+        "id": "fr-negation-pronouns",
+        "class": "negation_and_pronouns",
+        "content": "Elle a dit qu'elle n'assisterait pas elle-même à l'événement, mais elle nous a demandé de rappeler à tout le monde qu'il aura quand même lieu sans elle."
+      },
+      {
+        "id": "fr-multi-sentence-paragraph",
+        "class": "multi_sentence_paragraph",
+        "content": "La fenêtre de maintenance commence à minuit. Elle devrait durer environ deux heures. Pendant ce temps, vous ne pourrez pas vous connecter. Merci de votre patience."
+      },
+      {
+        "id": "fr-multi-paragraph",
+        "class": "multi_paragraph",
+        "content": "La saison trois est enfin arrivée, apportant un nouveau lot de défis et de récompenses pour tout le monde.\n\nNous avons également rééquilibré plusieurs objets plus anciens tombés en désuétude, il pourrait donc être utile de revoir vos anciennes configurations.\n\nComme toujours, merci de faire partie de cette communauté et pour vos retours continus."
+      },
+      {
+        "id": "fr-list-markdown",
+        "class": "list_markdown",
+        "content": "Avant l'événement, merci de :\n- Mettre à jour votre client vers la dernière version\n- Lire le règlement mis à jour\n- Rejoindre le salon vocal cinq minutes à l'avance"
+      },
+      {
+        "id": "fr-markdown-emphasis",
+        "class": "markdown_emphasis",
+        "content": "C'est **très important** : merci de lire le règlement __mis à jour__ avant le début de l'événement ~~précédent~~, sinon votre participation pourrait être ||disqualifiée||."
+      },
+      {
+        "id": "fr-url-adversarial",
+        "class": "url_adversarial",
+        "content": "Tous les détails, y compris le calendrier mis à jour, sont disponibles à https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule. Voir aussi (la version archivée) : https://example.com/archive/2025."
+      },
+      {
+        "id": "fr-everyone-literal",
+        "class": "everyone_here_literal",
+        "content": "Attention @everyone : le vote se termine ce soir, donc si vous n'avez pas encore voté, c'est le moment -- ce message ne s'adresse pas spécifiquement à @here, mais à vous tous."
+      },
+      {
+        "id": "fr-custom-emoji",
+        "class": "custom_emoji",
+        "content": "Excellent travail à tous <a:party:456789012345678901> ! Offrez-vous un <:trophy:567890123456789013> bien mérité et célébrez <:confetti:678901234567890124>."
+      },
+      {
+        "id": "fr-timestamps",
+        "class": "timestamps",
+        "content": "Les inscriptions ouvrent <t:1735689600:F> et ferment <t:1735776000:R> ; l'événement lui-même commence <t:1735862400:t> précises."
+      },
+      {
+        "id": "fr-slash-command",
+        "class": "slash_command",
+        "content": "Si vous souhaitez consulter votre classement actuel, exécutez simplement </leaderboard:789012345678901234> ou demandez à un modérateur d'utiliser </audit:890123456789012345> en votre nom."
+      },
+      {
+        "id": "fr-dense-placeholders",
+        "class": "multiple_placeholders_dense",
+        "content": "Salut <@123456789012345678> et <@!234567890123456789>, votre équipe {{team_name}} s'est classée dans <#345678901234567890> ! Cérémonie <t:1735689600:F>, détails sur https://example.com/results/{{season_id}}, réagissez avec <a:party:456789012345678901> et exécutez </rsvp:789012345678901234>."
+      },
+      {
+        "id": "fr-terminology-names-acronyms",
+        "class": "terminology_names_acronyms",
+        "content": "Félicitations à Alexandra Petrova, championne de Hero Wars (alias « Lexi »), pour sa victoire en finale régionale NA -- sa configuration signature, l'hybride DPS/support, a été le MVP de tout le tournoi."
+      },
+      {
+        "id": "fr-inline-code-and-block-mixed",
+        "class": "inline_code_and_block_mixed",
+        "content": "Pour reproduire le problème, appelez d'abord `campaign.simulate()` puis exécutez l'extrait suivant :\n```py\nresult = campaign.dry_run(target=\"guild-a\")\nprint(result.summary)\n```\nSi `result.summary` mentionne une erreur, vérifiez les journaux avant de réessayer."
+      },
+      {
+        "id": "fr-embed-title-style",
+        "class": "embed_title_style",
+        "content": "Résultats du championnat de la saison trois"
+      },
+      {
+        "id": "fr-embed-description-style",
+        "class": "embed_description_style",
+        "content": "Après trois semaines de compétition intense, seize équipes se sont affrontées jusqu'à un unique champion. Vous trouverez ci-dessous le classement final, les joueurs les plus précieux et un lien vers les rediffusions complètes des matchs."
+      },
+      {
+        "id": "fr-embed-field-style",
+        "class": "embed_field_style",
+        "content": "Cagnotte : 10 000 $ répartis entre les huit meilleurs finalistes."
+      },
+      {
+        "id": "fr-button-label-style",
+        "class": "button_label_style",
+        "content": "Voir le classement complet"
+      },
+      {
+        "id": "fr-long-multi-kb",
+        "class": "long_multi_kb",
+        "content": "Les notes de mise à jour de cette saison couvrent un nombre inhabituellement élevé de changements, alors prenez le temps de tout lire attentivement avant que le nouveau contenu ne soit publié. Premièrement, nous avons profondément retravaillé le système d'objets : les objets légendaires disposent désormais de deux affixes garantis au lieu d'un seul, et les taux de drop des matériaux d'artisanat rares ont été augmentés à tous les niveaux de difficulté. Deuxièmement, l'algorithme de matchmaking a été entièrement réécrit afin de réduire les temps d'attente en dehors des heures de pointe, en particulier pour les joueurs des plus petites zones régionales. Troisièmement, nous avons corrigé une longue liste de bugs signalés par la communauté, notamment plusieurs problèmes de désynchronisation pouvant survenir lors de matchs à forte latence, un crash rare sur l'écran de sélection de personnage, ainsi qu'un exploit permettant à certaines capacités de contourner leur temps de recharge dans des conditions précises. Quatrièmement, la zone d'événement saisonnier a été entièrement repensée avec de nouveaux dangers environnementaux, des objets cachés à collectionner et un combat de boss qui s'adapte dynamiquement à la taille du groupe. Enfin, nous tenons à remercier toutes les personnes ayant transmis leurs retours durant la phase de test public -- vos signalements ont directement influencé de nombreuses décisions d'équilibrage de cette mise à jour, et rien de tout cela n'aurait été possible sans une communauté aussi impliquée testant chaque version en cours de route."
       }
     ],
     "de": [
@@ -97,6 +302,106 @@
         "id": "de-mixed-everything",
         "class": "mixed_technical_and_linguistic",
         "content": "Hallo <@123456789012345678>! Dein Event {{event_name}} beginnt <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in <#234567890123456789>."
+      },
+      {
+        "id": "de-short-sentence",
+        "class": "short_sentence",
+        "content": "Bis morgen!"
+      },
+      {
+        "id": "de-long-sentence",
+        "class": "long_sentence",
+        "content": "Obwohl das Winterupdate zahlreiche Balance-Änderungen für fast jede Klasse mit sich brachte, war die Reaktion der Community überwältigend positiv, da die meisten Spieler das neue Tempo als deutlich lohnender empfinden als zuvor."
+      },
+      {
+        "id": "de-negation-pronouns",
+        "class": "negation_and_pronouns",
+        "content": "Sie sagte, dass sie selbst nicht an der Veranstaltung teilnehmen werde, bat uns aber, alle daran zu erinnern, dass sie trotzdem ohne sie stattfindet."
+      },
+      {
+        "id": "de-multi-sentence-paragraph",
+        "class": "multi_sentence_paragraph",
+        "content": "Das Wartungsfenster beginnt um Mitternacht. Es sollte etwa zwei Stunden dauern. Während dieser Zeit können Sie sich nicht anmelden. Wir danken Ihnen für Ihre Geduld."
+      },
+      {
+        "id": "de-multi-paragraph",
+        "class": "multi_paragraph",
+        "content": "Staffel drei ist endlich da und bringt neue Herausforderungen und Belohnungen für alle mit sich.\n\nAußerdem haben wir mehrere ältere Gegenstände neu ausbalanciert, die kaum noch genutzt wurden, es könnte sich also lohnen, eure alten Builds erneut anzuschauen.\n\nWie immer, danke, dass ihr Teil dieser Community seid und für euer anhaltendes Feedback."
+      },
+      {
+        "id": "de-list-markdown",
+        "class": "list_markdown",
+        "content": "Bitte stelle vor der Veranstaltung sicher, dass du:\n- Deinen Client auf die neueste Version aktualisierst\n- Die aktualisierten Regeln liest\n- Dem Sprachkanal fünf Minuten vorher beitrittst"
+      },
+      {
+        "id": "de-markdown-emphasis",
+        "class": "markdown_emphasis",
+        "content": "Das ist **sehr wichtig**: Bitte lies die __aktualisierten__ Regeln, bevor die ~~alte~~ Veranstaltung beginnt, sonst könnte deine Teilnahme ||disqualifiziert|| werden."
+      },
+      {
+        "id": "de-url-adversarial",
+        "class": "url_adversarial",
+        "content": "Alle Details, einschließlich des aktualisierten Zeitplans, findest du unter https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule. Siehe auch (die archivierte Version): https://example.com/archive/2025."
+      },
+      {
+        "id": "de-everyone-literal",
+        "class": "everyone_here_literal",
+        "content": "Achtung @everyone: Die Abstimmung endet heute Abend. Falls du noch nicht abgestimmt hast, ist jetzt der richtige Zeitpunkt -- diese Nachricht richtet sich nicht speziell an @here, sondern an euch alle."
+      },
+      {
+        "id": "de-custom-emoji",
+        "class": "custom_emoji",
+        "content": "Tolle Arbeit, alle zusammen <a:party:456789012345678901>! Gönnt euch eine wohlverdiente <:trophy:567890123456789013> und feiert <:confetti:678901234567890124>."
+      },
+      {
+        "id": "de-timestamps",
+        "class": "timestamps",
+        "content": "Die Anmeldung öffnet <t:1735689600:F> und schließt <t:1735776000:R>; die Veranstaltung selbst beginnt pünktlich um <t:1735862400:t>."
+      },
+      {
+        "id": "de-slash-command",
+        "class": "slash_command",
+        "content": "Wenn du deinen aktuellen Stand überprüfen möchtest, führe einfach </leaderboard:789012345678901234> aus oder bitte einen Moderator, </audit:890123456789012345> für dich zu verwenden."
+      },
+      {
+        "id": "de-dense-placeholders",
+        "class": "multiple_placeholders_dense",
+        "content": "Hallo <@123456789012345678> und <@!234567890123456789>, euer Team {{team_name}} hat sich in <#345678901234567890> platziert! Zeremonie <t:1735689600:F>, Details unter https://example.com/results/{{season_id}}, reagiert mit <a:party:456789012345678901> und führt </rsvp:789012345678901234> aus."
+      },
+      {
+        "id": "de-terminology-names-acronyms",
+        "class": "terminology_names_acronyms",
+        "content": "Herzlichen Glückwunsch an Hero-Wars-Champion Alexandra Petrova (alias „Lexi“) zum Sieg im NA-Regionalfinale -- ihr Signature-Build, der DPS/Support-Hybrid, war der MVP des gesamten Turniers."
+      },
+      {
+        "id": "de-inline-code-and-block-mixed",
+        "class": "inline_code_and_block_mixed",
+        "content": "Um das Problem zu reproduzieren, rufe zuerst `campaign.simulate()` auf und führe dann folgenden Codeausschnitt aus:\n```py\nresult = campaign.dry_run(target=\"guild-a\")\nprint(result.summary)\n```\nWenn `result.summary` einen Fehler erwähnt, überprüfe die Protokolle, bevor du es erneut versuchst."
+      },
+      {
+        "id": "de-embed-title-style",
+        "class": "embed_title_style",
+        "content": "Ergebnisse der Meisterschaft der dritten Staffel"
+      },
+      {
+        "id": "de-embed-description-style",
+        "class": "embed_description_style",
+        "content": "Nach drei intensiven Wochen des Wettbewerbs kämpften sich sechzehn Teams bis zu einem einzigen Champion durch. Unten findest du die Endtabelle, die wertvollsten Spieler und einen Link zu den vollständigen Match-Wiederholungen."
+      },
+      {
+        "id": "de-embed-field-style",
+        "class": "embed_field_style",
+        "content": "Preispool: 10.000 $, verteilt auf die besten acht Platzierten."
+      },
+      {
+        "id": "de-button-label-style",
+        "class": "button_label_style",
+        "content": "Vollständige Rangliste ansehen"
+      },
+      {
+        "id": "de-long-multi-kb",
+        "class": "long_multi_kb",
+        "content": "Die Patchnotes dieser Saison umfassen eine ungewöhnlich große Anzahl an Änderungen. Bitte nimm dir daher die Zeit, alles sorgfältig durchzulesen, bevor die neuen Inhalte live gehen. Erstens haben wir das Item-System grundlegend überarbeitet: Legendäre Gegenstände erhalten nun zwei garantierte Affixe statt einem, und die Dropraten für seltene Crafting-Materialien wurden über alle Schwierigkeitsstufen hinweg erhöht. Zweitens wurde der Matchmaking-Algorithmus komplett neu geschrieben, um die Wartezeiten außerhalb der Stoßzeiten zu verkürzen, insbesondere für Spieler in kleineren regionalen Pools. Drittens haben wir eine lange Liste von aus der Community gemeldeten Fehlern behoben, darunter mehrere Desynchronisationsprobleme bei Matches mit hoher Latenz, einen seltenen Absturz im Charakterauswahlbildschirm und einen Exploit, der es bestimmten Fähigkeiten unter bestimmten Bedingungen ermöglichte, ihre Abklingzeit zu umgehen. Viertens wurde der saisonale Eventbereich vollständig neu gestaltet, mit neuen Umweltgefahren, versteckten Sammelobjekten und einem Bosskampf, der sich dynamisch an die Gruppengröße anpasst. Abschließend möchten wir uns bei allen bedanken, die während der öffentlichen Testphase Feedback eingereicht haben -- eure Meldungen haben viele der Balance-Entscheidungen in diesem Release direkt beeinflusst, und ohne eine derart engagierte Community, die jede Version getestet hat, wäre all das nicht möglich gewesen."
       }
     ],
     "es": [
@@ -129,6 +434,106 @@
         "id": "es-mixed-everything",
         "class": "mixed_technical_and_linguistic",
         "content": "¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en <#234567890123456789>."
+      },
+      {
+        "id": "es-short-sentence",
+        "class": "short_sentence",
+        "content": "¡Hasta mañana!"
+      },
+      {
+        "id": "es-long-sentence",
+        "class": "long_sentence",
+        "content": "Aunque la actualización de invierno introdujo una gran cantidad de cambios de equilibrio en casi todas las clases, la respuesta de la comunidad ha sido abrumadoramente positiva, y la mayoría de los jugadores coincide en que el nuevo ritmo resulta mucho más gratificante que antes."
+      },
+      {
+        "id": "es-negation-pronouns",
+        "class": "negation_and_pronouns",
+        "content": "Ella dijo que no asistiría personalmente al evento, pero nos pidió que le recordáramos a todos que de todos modos se llevará a cabo sin ella."
+      },
+      {
+        "id": "es-multi-sentence-paragraph",
+        "class": "multi_sentence_paragraph",
+        "content": "La ventana de mantenimiento comienza a medianoche. Debería durar unas dos horas. Durante ese tiempo no podrás iniciar sesión. Agradecemos tu paciencia."
+      },
+      {
+        "id": "es-multi-paragraph",
+        "class": "multi_paragraph",
+        "content": "La temporada tres por fin ha llegado, trayendo nuevos desafíos y recompensas para que todos disfruten.\n\nTambién hemos reequilibrado varios objetos antiguos que habían caído en desuso, así que podría valer la pena revisar tus antiguas construcciones.\n\nComo siempre, gracias por formar parte de esta comunidad y por vuestros comentarios continuos."
+      },
+      {
+        "id": "es-list-markdown",
+        "class": "list_markdown",
+        "content": "Antes del evento, asegúrate de:\n- Actualizar tu cliente a la última versión\n- Leer las reglas actualizadas\n- Unirte al canal de voz cinco minutos antes"
+      },
+      {
+        "id": "es-markdown-emphasis",
+        "class": "markdown_emphasis",
+        "content": "Esto es **muy importante**: lee las reglas __actualizadas__ antes de que comience el ~~antiguo~~ evento, o tu participación podría ser ||descalificada||."
+      },
+      {
+        "id": "es-url-adversarial",
+        "class": "url_adversarial",
+        "content": "Todos los detalles, incluido el calendario actualizado, están disponibles en https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule. Consulta también (la versión archivada): https://example.com/archive/2025."
+      },
+      {
+        "id": "es-everyone-literal",
+        "class": "everyone_here_literal",
+        "content": "Atención @everyone: la votación cierra esta noche, así que si aún no has votado, este es el momento -- este mensaje no va dirigido específicamente a @here, sino a todos vosotros."
+      },
+      {
+        "id": "es-custom-emoji",
+        "class": "custom_emoji",
+        "content": "¡Buen trabajo a todos <a:party:456789012345678901>! Daos un merecido <:trophy:567890123456789013> y celebrad <:confetti:678901234567890124>."
+      },
+      {
+        "id": "es-timestamps",
+        "class": "timestamps",
+        "content": "La inscripción se abre <t:1735689600:F> y se cierra <t:1735776000:R>; el evento en sí comienza exactamente a las <t:1735862400:t>."
+      },
+      {
+        "id": "es-slash-command",
+        "class": "slash_command",
+        "content": "Si quieres consultar tu posición actual, simplemente ejecuta </leaderboard:789012345678901234> o pide a un moderador que use </audit:890123456789012345> en tu nombre."
+      },
+      {
+        "id": "es-dense-placeholders",
+        "class": "multiple_placeholders_dense",
+        "content": "Hola <@123456789012345678> y <@!234567890123456789>, ¡tu equipo {{team_name}} se clasificó en <#345678901234567890>! Ceremonia <t:1735689600:F>, detalles en https://example.com/results/{{season_id}}, reacciona con <a:party:456789012345678901> y ejecuta </rsvp:789012345678901234>."
+      },
+      {
+        "id": "es-terminology-names-acronyms",
+        "class": "terminology_names_acronyms",
+        "content": "Felicidades a la campeona de Hero Wars Alexandra Petrova (alias «Lexi») por ganar la final regional de NA -- su build característica, el híbrido DPS/soporte, fue el MVP de todo el torneo."
+      },
+      {
+        "id": "es-inline-code-and-block-mixed",
+        "class": "inline_code_and_block_mixed",
+        "content": "Para reproducir el problema, primero llama a `campaign.simulate()` y luego ejecuta el siguiente fragmento:\n```py\nresult = campaign.dry_run(target=\"guild-a\")\nprint(result.summary)\n```\nSi `result.summary` menciona un error, revisa los registros antes de volver a intentarlo."
+      },
+      {
+        "id": "es-embed-title-style",
+        "class": "embed_title_style",
+        "content": "Resultados del campeonato de la tercera temporada"
+      },
+      {
+        "id": "es-embed-description-style",
+        "class": "embed_description_style",
+        "content": "Tras tres intensas semanas de competición, dieciséis equipos lucharon hasta dejar un único campeón. A continuación encontrarás la clasificación final, los jugadores más valiosos y un enlace a las repeticiones completas de las partidas."
+      },
+      {
+        "id": "es-embed-field-style",
+        "class": "embed_field_style",
+        "content": "Bolsa de premios: 10.000 $ repartidos entre los ocho primeros clasificados."
+      },
+      {
+        "id": "es-button-label-style",
+        "class": "button_label_style",
+        "content": "Ver clasificación completa"
+      },
+      {
+        "id": "es-long-multi-kb",
+        "class": "long_multi_kb",
+        "content": "Las notas del parche de esta temporada cubren una cantidad inusualmente grande de cambios, así que tómate el tiempo de leerlo todo con atención antes de que el nuevo contenido se publique. Primero, hemos rediseñado sustancialmente el sistema de objetos: los objetos legendarios ahora incluyen dos afijos garantizados en lugar de uno, y las tasas de aparición de materiales de fabricación raros se han incrementado en todos los niveles de dificultad. Segundo, el algoritmo de emparejamiento ha sido reescrito desde cero para reducir los tiempos de espera fuera de las horas punta, especialmente para los jugadores de las regiones más pequeñas. Tercero, hemos solucionado una larga lista de errores reportados por la comunidad, incluidos varios problemas de desincronización que podían ocurrir durante partidas con alta latencia, un extraño fallo en la pantalla de selección de personaje, y un exploit que permitía que ciertas habilidades evitaran su tiempo de reutilización bajo condiciones específicas. Cuarto, la zona del evento estacional ha sido completamente rediseñada con nuevos peligros ambientales, objetos coleccionables ocultos y un enfrentamiento contra un jefe que se adapta dinámicamente al tamaño del grupo. Por último, queremos agradecer a todos los que enviaron comentarios durante la fase de prueba pública -- vuestros informes han influido directamente en muchas de las decisiones de equilibrio de esta versión, y nada de esto habría sido posible sin una comunidad tan comprometida probando cada compilación en el camino."
       }
     ]
   }
