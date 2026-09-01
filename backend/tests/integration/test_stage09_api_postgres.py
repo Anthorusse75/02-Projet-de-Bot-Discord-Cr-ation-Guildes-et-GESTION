@@ -1078,3 +1078,106 @@ async def test_owned_edit_and_delete_never_accept_a_client_supplied_message_id()
                     assert "DELETE_CAMPAIGN_MESSAGE" in job_types
             finally:
                 await engine2.dispose()
+
+
+async def test_template_variable_crud_validation_and_ownership() -> None:
+    """REQ-MSG-018 (mission section 10): full authoring CRUD, ownership
+    isolation (same generic not-found shape as every other resource in
+    this router), and shape validation delegated to the same domain type
+    the render pipeline actually consumes (did.messaging.template_variables
+    .TemplateVariableDefinition) -- never a second, looser validation path."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register("owner-a", DiscordUser(OWNER_A, "owner-a", None, None), ())
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            csrf_b = await _login(client_b, "owner-b")
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "template-variable-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            # LOCALIZED_VALUE must not also carry a single `value` --
+            # rejected before persistence, the exact shape rule
+            # TemplateVariableDefinition.__post_init__ enforces.
+            invalid = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/template-variables",
+                json={
+                    "name": "price",
+                    "variable_type": "LOCALIZED_VALUE",
+                    "value": "not allowed here",
+                    "values_by_language": {"en": "$10"},
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "tv-invalid"},
+            )
+            assert invalid.status_code == 422
+
+            first = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/template-variables",
+                json={"name": "name", "variable_type": "TRANSLATABLE_TEXT", "value": "Alex"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "tv-create-1"},
+            )
+            assert first.status_code == 201
+            variable_id = first.json()["id"]
+            assert first.json()["value"] == "Alex"
+
+            # A foreign owner can never create/list/update/delete another
+            # owner's campaign's template variables -- identical not-found
+            # shape, never a 403.
+            foreign_create = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/template-variables",
+                json={"name": "other", "variable_type": "TRANSLATABLE_TEXT", "value": "x"},
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "tv-foreign-create"},
+            )
+            assert foreign_create.status_code == 404
+            foreign_update = await client_b.patch(
+                f"/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}",
+                json={"variable_type": "TRANSLATABLE_TEXT", "value": "hijacked"},
+                headers={"X-CSRF-Token": csrf_b},
+            )
+            assert foreign_update.status_code == 404
+            foreign_delete = await client_b.delete(
+                f"/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}",
+                headers={"X-CSRF-Token": csrf_b},
+            )
+            assert foreign_delete.status_code == 404
+
+            # Duplicate name within the same campaign is a conflict, never
+            # a silent overwrite.
+            duplicate = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/template-variables",
+                json={"name": "name", "variable_type": "TRANSLATABLE_TEXT", "value": "Jordan"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "tv-create-dup"},
+            )
+            assert duplicate.status_code == 409
+
+            listed = await client_a.get(f"/api/v1/campaigns/{campaign_id}/template-variables")
+            assert listed.status_code == 200
+            assert len(listed.json()["template_variables"]) == 1
+
+            updated = await client_a.patch(
+                f"/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}",
+                json={"variable_type": "NON_TRANSLATABLE", "value": "Fixed"},
+                headers={"X-CSRF-Token": csrf_a},
+            )
+            assert updated.status_code == 200
+            assert updated.json()["variable_type"] == "NON_TRANSLATABLE"
+            assert updated.json()["value"] == "Fixed"
+            # The name itself is never editable through this endpoint.
+            assert updated.json()["name"] == "name"
+
+            deleted = await client_a.delete(
+                f"/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}",
+                headers={"X-CSRF-Token": csrf_a},
+            )
+            assert deleted.status_code == 204
+            listed_after_delete = await client_a.get(
+                f"/api/v1/campaigns/{campaign_id}/template-variables"
+            )
+            assert listed_after_delete.json()["template_variables"] == []

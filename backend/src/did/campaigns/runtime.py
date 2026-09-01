@@ -113,13 +113,12 @@ class CampaignSchedulerRuntime:
             logical_group_expansion_by_target=context.logical_group_expansion_by_target,
             language_profile_codes=context.language_profile_codes,
             compiled_mentions=context.compiled_mentions,
-            # No durable persistence exists yet for author-defined template
-            # variable definitions (REQ-MSG-018's typed semantics are fully
-            # implemented; only authoring-time storage is missing) -- an
-            # empty mapping is the documented, safe default: every
-            # {{variable}} in message content fails safe to NON_TRANSLATABLE
-            # protected text rather than being guessed or silently dropped.
-            template_variable_definitions={},
+            # REQ-MSG-018 (mission section 10): the author's own durably
+            # persisted declarations -- an undeclared {{variable}} still
+            # fails safe to NON_TRANSLATABLE (did.messaging
+            # .template_variables' own documented default), never guessed
+            # or silently dropped.
+            template_variable_definitions=context.template_variable_definitions,
             glossary_entries=context.glossary_entries,
             translate_masked_text_for_language=context.translate_masked_text_for_language,
         )

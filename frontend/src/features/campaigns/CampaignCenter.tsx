@@ -11,6 +11,7 @@ import type { MessageKey } from '../../localization/catalog'
 import { attachmentPolicyKey, blockedReasonKey, campaignErrorKey, campaignStatusKey, deliveryStatusKey, publicationModeKey, targetKindKey, translationPublicationModeKey, translationStateKey, variantOutcomeKey } from '../../localization/presentation'
 import { Badge, Button, EmptyState, ErrorState, Input, Select, Skeleton, Status, Toast } from '../../shared/components/ui'
 import { MessageModelEditor } from './MessageModelEditor'
+import { TemplateVariableEditor } from './TemplateVariableEditor'
 import './campaigns.css'
 
 const publicationModes: readonly PublicationMode[] = ['IMMEDIATE', 'ONE_SHOT_DEFERRED', 'RECURRING', 'EVENT_TRIGGERED']
@@ -421,6 +422,8 @@ export function CampaignCenter() {
         </div>}
       </section>
 
+      <TemplateVariableEditor campaignId={selected.id} userId={userId} />
+
       <section className="campaign-simulate">
         <h3>{t('campaigns.simulate')}</h3>
         <Button labelKey="campaigns.simulate.run" variant="primary" disabled={simulating} onClick={() => void runSimulation()} />
@@ -437,6 +440,7 @@ export function CampaignCenter() {
           {simulation.message_content_warnings.length > 0 && <div><h4>{t('campaigns.simulate.messageContentWarnings')}</h4><ul>{simulation.message_content_warnings.map((warning) => <li key={warning.trigger_id}>
             <Badge tone={warning.is_blocking ? 'danger' : 'ok'}>{t(warning.is_blocking ? 'campaigns.simulate.messageContentBlocked' : 'campaigns.simulate.messageContentAvailable')}</Badge>
           </li>)}</ul></div>}
+          {simulation.undeclared_template_variable_names.length > 0 && <div><h4>{t('campaigns.simulate.undeclaredTemplateVariables')}</h4><ul>{simulation.undeclared_template_variable_names.map((name) => <li key={name}><Badge tone="warning">{`{{${name}}}`}</Badge></li>)}</ul></div>}
         </div> : <p>{t('campaigns.simulate.empty')}</p>}
       </section>
 

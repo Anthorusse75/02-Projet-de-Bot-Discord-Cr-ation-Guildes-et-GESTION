@@ -35,6 +35,7 @@ from did.domain.campaigns import (
     ApprovedVariant,
     CampaignSchedule,
     CampaignTarget,
+    CampaignTemplateVariable,
     CampaignTrigger,
     GlossaryEntry,
     GlossaryScope,
@@ -1570,6 +1571,116 @@ class CampaignsRepository:
                 .all()
             )
         return [dict(row) for row in rows]
+
+    async def create_template_variable(self, variable: CampaignTemplateVariable) -> None:
+        """REQ-MSG-018 (mission section 10). Owner-scoped, same posture as
+        :meth:`create_trigger` -- a template variable belongs to the
+        campaign header, never to a specific Guild. ``UNIQUE(campaign_id,
+        name)`` (migration 0032_stage_09) means a duplicate name raises
+        ``IntegrityError``, mapped by the API layer to a dedicated
+        conflict response rather than silently overwriting."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=variable.owner_discord_user_id)
+        ) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO message_campaign_template_variables "
+                    "(id, owner_discord_user_id, campaign_id, name, variable_type, "
+                    "value, values_by_language) "
+                    "VALUES (:id, :owner, :campaign_id, :name, :variable_type, "
+                    ":value, CAST(:values_by_language AS JSONB))"
+                ),
+                {
+                    "id": variable.id,
+                    "owner": variable.owner_discord_user_id,
+                    "campaign_id": variable.campaign_id,
+                    "name": variable.name,
+                    "variable_type": variable.variable_type.value,
+                    "value": variable.value,
+                    "values_by_language": (
+                        _to_json(variable.values_by_language)
+                        if variable.values_by_language is not None
+                        else None
+                    ),
+                },
+            )
+
+    async def list_template_variables_for_campaign(
+        self, owner_discord_user_id: int, campaign_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Every declared template variable for this campaign, owner-scoped
+        -- used both by the authoring API (lists what the caller can edit/
+        delete) and by :func:`did.campaigns.context.load_fan_out_context`
+        (converted to the ``dict[str, TemplateVariableDefinition]`` the
+        render pipeline actually consumes)."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_campaign_template_variables "
+                            "WHERE campaign_id=:campaign_id ORDER BY name"
+                        ),
+                        {"campaign_id": campaign_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def update_template_variable(
+        self,
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        variable_id: UUID,
+        *,
+        variable_type: str,
+        value: str | None,
+        values_by_language: dict[str, str] | None,
+    ) -> bool:
+        """Never changes ``name`` -- renaming is a delete + create (a
+        different logical identity, since {{var}} references in the
+        message content are matched by name). Returns ``False`` if the
+        variable does not exist or does not belong to this owner/campaign."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_campaign_template_variables SET "
+                    "variable_type=:variable_type, value=:value, "
+                    "values_by_language=CAST(:values_by_language AS JSONB), updated_at=now() "
+                    "WHERE id=:id AND campaign_id=:campaign_id"
+                ),
+                {
+                    "id": variable_id,
+                    "campaign_id": campaign_id,
+                    "variable_type": variable_type,
+                    "value": value,
+                    "values_by_language": (
+                        _to_json(values_by_language) if values_by_language is not None else None
+                    ),
+                },
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
+    async def delete_template_variable(
+        self, owner_discord_user_id: int, campaign_id: UUID, variable_id: UUID
+    ) -> bool:
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "DELETE FROM message_campaign_template_variables "
+                    "WHERE id=:id AND campaign_id=:campaign_id"
+                ),
+                {"id": variable_id, "campaign_id": campaign_id},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
 
     async def create_trigger(self, trigger: CampaignTrigger) -> None:
         """Raises :class:`ConditionEvaluationError` for a malformed/disallowed/

@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TranslationWorkspace } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -55,6 +55,10 @@ export const useCampaignTargets = (u: DiscordSnowflake, campaignId: string | und
 export const useCampaignDeliveries = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
   enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'deliveries'),
   queryFn: () => apiRequest<{deliveries:CampaignDelivery[]}>(`/api/v1/campaigns/${campaignId}/deliveries`),
+})
+export const useCampaignTemplateVariables = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'template-variables'),
+  queryFn: () => apiRequest<{template_variables:TemplateVariable[]}>(`/api/v1/campaigns/${campaignId}/template-variables`),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

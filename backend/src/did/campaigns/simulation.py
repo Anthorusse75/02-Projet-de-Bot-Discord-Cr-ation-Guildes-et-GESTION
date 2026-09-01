@@ -37,6 +37,11 @@ from did.campaigns.target_resolution import (
     resolve_target,
 )
 from did.domain.campaigns import ApprovedVariant, CampaignTarget, CampaignTrigger, MessageCampaign
+from did.messaging.message_model import MessageModel
+from did.messaging.template_variables import (
+    TemplateVariableDefinition,
+    undeclared_template_variable_names_in_message_model,
+)
 
 
 class DestinationTranslationState(StrEnum):
@@ -100,6 +105,11 @@ class CampaignSimulationReport:
     message_content_warnings: tuple[MessageContentSimulationWarning, ...] = field(
         default_factory=tuple
     )
+    #: REQ-MSG-018 (mission section 10): every {{variable}} referenced in
+    #: the campaign's translatable text with no declared definition -- a
+    #: preview-time authoring aid, never a hard block (an undeclared
+    #: variable still renders safely, failing closed to NON_TRANSLATABLE).
+    undeclared_template_variable_names: frozenset[str] = frozenset()
 
 
 async def simulate_campaign(
@@ -115,11 +125,13 @@ async def simulate_campaign(
     message_content_checker: MessageContentCapabilityChecker | None = None,
     message_content_guild_id: int | None = None,
     logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None] | None = None,
+    template_variable_definitions: dict[str, TemplateVariableDefinition] | None = None,
 ) -> CampaignSimulationReport:
     """The complete, non-mutating preview. ``triggers``/
-    ``message_content_checker``/``message_content_guild_id`` are optional --
-    a purely schedule-driven campaign has no triggers to warn about and may
-    omit them entirely."""
+    ``message_content_checker``/``message_content_guild_id``/
+    ``template_variable_definitions`` are optional -- a purely
+    schedule-driven campaign has no triggers to warn about and may omit
+    them entirely."""
     destinations: list[DestinationSimulation] = []
     blockers: dict[str, int] = {}
     estimated_deliveries = 0
@@ -179,6 +191,10 @@ async def simulate_campaign(
             if warning is not None:
                 message_content_warnings.append(warning)
 
+    undeclared_variables = undeclared_template_variable_names_in_message_model(
+        MessageModel.from_dict(campaign.message_model), template_variable_definitions or {}
+    )
+
     ready_count = sum(1 for d in destinations if d.ready)
     return CampaignSimulationReport(
         destinations=tuple(destinations),
@@ -188,6 +204,7 @@ async def simulate_campaign(
         estimated_delivery_count=estimated_deliveries,
         blockers=blockers,
         message_content_warnings=tuple(message_content_warnings),
+        undeclared_template_variable_names=undeclared_variables,
     )
 
 

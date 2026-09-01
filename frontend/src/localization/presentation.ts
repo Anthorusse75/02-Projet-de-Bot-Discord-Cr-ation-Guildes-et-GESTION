@@ -107,6 +107,12 @@ const translationStates: Record<string, MessageKey> = {
 const variantOutcomes: Record<string, MessageKey> = {
   REUSABLE: 'campaigns.variants.outcome.reusable', STALE: 'campaigns.variants.outcome.stale', MISSING: 'campaigns.variants.outcome.missing',
 }
+const templateVariableTypes: Record<string, MessageKey> = {
+  TRANSLATABLE_TEXT: 'campaigns.templateVariables.type.translatableText',
+  NON_TRANSLATABLE: 'campaigns.templateVariables.type.nonTranslatable',
+  LOCALIZED_VALUE: 'campaigns.templateVariables.type.localizedValue',
+  PROTECTED: 'campaigns.templateVariables.type.protected',
+}
 // Every code did.api.main / did.api.stage09 raise for a campaign-scoped
 // request -- an unrecognized code (a future backend addition this UI has
 // not been updated for yet) always falls back to errors.generic rather
@@ -127,6 +133,8 @@ const campaignErrorCodes: Record<string, MessageKey> = {
   CAMPAIGN_DELIVERY_EDIT_INPUT_INVALID: 'errors.campaigns.deliveryEditInputInvalid',
   CAMPAIGN_DELIVERY_NOT_EDITABLE: 'errors.campaigns.deliveryNotEditable',
   CAMPAIGN_DELIVERY_NOT_DELETABLE: 'errors.campaigns.deliveryNotDeletable',
+  CAMPAIGN_TEMPLATE_VARIABLE_INPUT_INVALID: 'errors.campaigns.templateVariableInputInvalid',
+  CAMPAIGN_TEMPLATE_VARIABLE_NAME_CONFLICT: 'errors.campaigns.templateVariableNameConflict',
 }
 export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'
@@ -139,6 +147,7 @@ export const blockedReasonKey = (value: string | null): MessageKey => (value ? b
 export const translationStateKey = (value: string): MessageKey => translationStates[value] ?? 'common.unknown'
 export const variantOutcomeKey = (value: string): MessageKey => variantOutcomes[value] ?? 'common.unknown'
 export const campaignErrorKey = (code: string): MessageKey => campaignErrorCodes[code] ?? 'errors.generic'
+export const templateVariableTypeKey = (value: string): MessageKey => templateVariableTypes[value] ?? 'common.unknown'
 
 export function auditTargetKey(value: string): MessageKey {
   if (value === 'ROLE') return 'resource.role'

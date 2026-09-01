@@ -16,6 +16,8 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from did.messaging.template_variables import TemplateVariableDefinition, TemplateVariableType
+
 
 class PublicationMode(StrEnum):
     IMMEDIATE = "IMMEDIATE"
@@ -574,3 +576,37 @@ class ApprovedVariant:
     def is_stale_for(self, current_source_fingerprint: str) -> bool:
         """REQ-MSG-016/017: reuse only while the source fingerprint still matches."""
         return current_source_fingerprint != self.source_fingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignTemplateVariable:
+    """REQ-MSG-018 (mission section 10): the durable, campaign-owned
+    persistence identity for a ``{{variable}}`` declaration -- wraps
+    ``did.messaging.template_variables.TemplateVariableDefinition`` (the
+    pure, already-built typed-semantics value object the render pipeline
+    actually consumes) with the id/owner/campaign a repository row needs.
+    Never duplicates that module's value/values_by_language shape
+    validation -- :meth:`to_definition` delegates to
+    ``TemplateVariableDefinition.__post_init__`` for that, so there is
+    exactly one place the four types' shape rules are enforced."""
+
+    id: UUID
+    owner_discord_user_id: int
+    campaign_id: UUID
+    name: str
+    variable_type: TemplateVariableType
+    value: str | None = None
+    values_by_language: dict[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.owner_discord_user_id <= 0:
+            raise ValueError("owner_discord_user_id must be positive")
+        self.to_definition()
+
+    def to_definition(self) -> TemplateVariableDefinition:
+        return TemplateVariableDefinition(
+            name=self.name,
+            variable_type=self.variable_type,
+            value=self.value,
+            values_by_language=self.values_by_language,
+        )

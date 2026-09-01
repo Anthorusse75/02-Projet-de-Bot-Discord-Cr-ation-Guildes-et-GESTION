@@ -80,6 +80,7 @@ from did.domain.campaigns import (
     AttachmentPolicy,
     CampaignSchedule,
     CampaignTarget,
+    CampaignTemplateVariable,
     CampaignTrigger,
     DstAmbiguousPolicy,
     DstNonexistentPolicy,
@@ -101,6 +102,7 @@ from did.infrastructure.stage08_repository import (
     TranslationGroupRepository,
 )
 from did.messaging.message_model import MessageModel, MessageModelViolation, validate_message_model
+from did.messaging.template_variables import TemplateVariableType
 from did.permissions.capabilities import BotCapabilityChecker
 
 router = APIRouter(tags=["stage-09-campaigns"])
@@ -194,6 +196,21 @@ class TriggerSourceCreateInput(BaseModel):
     @classmethod
     def resource_snowflake(cls, value: str | None) -> str | None:
         return str(parse_snowflake(value)) if value is not None else None
+
+
+class TemplateVariableCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    variable_type: TemplateVariableType
+    value: str | None = None
+    values_by_language: dict[str, str] | None = None
+
+
+class TemplateVariableUpdateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    variable_type: TemplateVariableType
+    value: str | None = None
+    values_by_language: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +433,17 @@ def _trigger_source_response_from_domain(binding: TriggerSourceBinding) -> dict[
     }
 
 
+def _template_variable_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "campaign_id": str(row["campaign_id"]),
+        "name": row["name"],
+        "variable_type": row["variable_type"],
+        "value": row.get("value"),
+        "values_by_language": row.get("values_by_language"),
+    }
+
+
 def _simulation_response(report: CampaignSimulationReport) -> dict[str, Any]:
     return {
         "destinations": [
@@ -451,6 +479,7 @@ def _simulation_response(report: CampaignSimulationReport) -> dict[str, Any]:
             }
             for warning in report.message_content_warnings
         ],
+        "undeclared_template_variable_names": sorted(report.undeclared_template_variable_names),
     }
 
 
@@ -753,6 +782,7 @@ async def simulate(
         message_content_checker=PermanentlyUnavailableMessageContentChecker(),
         message_content_guild_id=0,
         logical_group_expansion_by_target=context.logical_group_expansion_by_target,
+        template_variable_definitions=context.template_variable_definitions,
     )
     return _simulation_response(report)
 
@@ -835,11 +865,9 @@ async def activate_campaign(
                 logical_group_expansion_by_target=context.logical_group_expansion_by_target,
                 language_profile_codes=context.language_profile_codes,
                 compiled_mentions=context.compiled_mentions,
-                # No durable authoring-time storage exists yet for
-                # template variable definitions (matches
-                # did.campaigns.runtime.CampaignSchedulerRuntime's own
-                # documented default).
-                template_variable_definitions={},
+                # REQ-MSG-018 (mission section 10): the author's own
+                # durably persisted declarations.
+                template_variable_definitions=context.template_variable_definitions,
                 glossary_entries=context.glossary_entries,
                 translate_masked_text_for_language=context.translate_masked_text_for_language,
             )
@@ -1313,3 +1341,130 @@ async def create_trigger_source(
         binding=binding,
     )
     return _trigger_source_response_from_domain(result.binding)
+
+
+# ---------------------------------------------------------------------------
+# 9. Template variables
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/v1/campaigns/{campaign_id}/template-variables")
+async def list_template_variables(
+    campaign_id: UUID, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    rows = await repo.list_template_variables_for_campaign(session.discord_user_id, campaign_id)
+    return {"template_variables": [_template_variable_response(row) for row in rows]}
+
+
+@router.post(
+    "/api/v1/campaigns/{campaign_id}/template-variables", status_code=status.HTTP_201_CREATED
+)
+async def create_template_variable(
+    campaign_id: UUID,
+    body: TemplateVariableCreateInput,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-MSG-018 (mission section 10): the shape rule (LOCALIZED_VALUE
+    carries values_by_language only, every other type carries a single
+    value only) is enforced by did.messaging.template_variables
+    .TemplateVariableDefinition itself -- never duplicated here."""
+    del idempotency_key
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    try:
+        variable = CampaignTemplateVariable(
+            id=uuid4(),
+            owner_discord_user_id=session.discord_user_id,
+            campaign_id=campaign_id,
+            name=body.name,
+            variable_type=body.variable_type,
+            value=body.value,
+            values_by_language=body.values_by_language,
+        )
+    except ValueError as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_TEMPLATE_VARIABLE_INPUT_INVALID",
+            message_key="errors.campaigns.templateVariableInputInvalid",
+        ) from exc
+    try:
+        await repo.create_template_variable(variable)
+    except IntegrityError as exc:
+        raise ApiProblem(
+            status_code=409,
+            code="CAMPAIGN_TEMPLATE_VARIABLE_NAME_CONFLICT",
+            message_key="errors.campaigns.templateVariableNameConflict",
+        ) from exc
+    rows = await repo.list_template_variables_for_campaign(session.discord_user_id, campaign_id)
+    created_row = next(row for row in rows if row["id"] == variable.id)
+    return _template_variable_response(created_row)
+
+
+@router.patch("/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}")
+async def update_template_variable(
+    campaign_id: UUID,
+    variable_id: UUID,
+    body: TemplateVariableUpdateInput,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    rows = await repo.list_template_variables_for_campaign(session.discord_user_id, campaign_id)
+    existing = next((row for row in rows if row["id"] == variable_id), None)
+    if existing is None:
+        raise CampaignNotOwnedByCaller(str(variable_id))
+    try:
+        # Validated the same way as creation, via the same domain type --
+        # never a second, looser validation path for updates. The name is
+        # never editable through this endpoint (see the repository
+        # method's own docstring for why).
+        CampaignTemplateVariable(
+            id=variable_id,
+            owner_discord_user_id=session.discord_user_id,
+            campaign_id=campaign_id,
+            name=existing["name"],
+            variable_type=body.variable_type,
+            value=body.value,
+            values_by_language=body.values_by_language,
+        )
+    except ValueError as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_TEMPLATE_VARIABLE_INPUT_INVALID",
+            message_key="errors.campaigns.templateVariableInputInvalid",
+        ) from exc
+    updated = await repo.update_template_variable(
+        session.discord_user_id,
+        campaign_id,
+        variable_id,
+        variable_type=body.variable_type.value,
+        value=body.value,
+        values_by_language=body.values_by_language,
+    )
+    if not updated:
+        raise CampaignNotOwnedByCaller(str(variable_id))
+    rows = await repo.list_template_variables_for_campaign(session.discord_user_id, campaign_id)
+    updated_row = next(row for row in rows if row["id"] == variable_id)
+    return _template_variable_response(updated_row)
+
+
+@router.delete(
+    "/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_template_variable(
+    campaign_id: UUID,
+    variable_id: UUID,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> None:
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    deleted = await repo.delete_template_variable(session.discord_user_id, campaign_id, variable_id)
+    if not deleted:
+        raise CampaignNotOwnedByCaller(str(variable_id))

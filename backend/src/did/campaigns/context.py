@@ -54,6 +54,7 @@ from did.messaging.allowed_mentions import (
     CompiledAllowedMentions,
     MentionPolicyError,
 )
+from did.messaging.template_variables import TemplateVariableDefinition, TemplateVariableType
 
 
 class FanOutContextError(RuntimeError):
@@ -71,6 +72,7 @@ class FanOutContext:
     language_profile_codes: dict[UUID, str]
     compiled_mentions: CompiledAllowedMentions
     glossary_entries: tuple[GlossaryEntry, ...]
+    template_variable_definitions: dict[str, TemplateVariableDefinition]
     translate_masked_text_for_language: Callable[[str], TranslateMaskedText] | None
 
 
@@ -141,6 +143,15 @@ async def load_campaign(
 ) -> MessageCampaign | None:
     row = await campaigns_repository.get_campaign(owner_discord_user_id, campaign_id)
     return campaign_from_row(row) if row is not None else None
+
+
+def _template_variable_definition_from_row(row: dict[str, Any]) -> TemplateVariableDefinition:
+    return TemplateVariableDefinition(
+        name=row["name"],
+        variable_type=TemplateVariableType(row["variable_type"]),
+        value=row.get("value"),
+        values_by_language=row.get("values_by_language"),
+    )
 
 
 def _glossary_entry_from_row(row: dict[str, Any]) -> GlossaryEntry:
@@ -327,6 +338,13 @@ async def load_fan_out_context(
     # multi-Guild campaign does not glossary-protect the same term twice.
     deduped_glossary = tuple({entry.id: entry for entry in glossary_entries}.values())
 
+    template_variable_rows = await campaigns_repository.list_template_variables_for_campaign(
+        campaign.owner_discord_user_id, campaign.id
+    )
+    template_variable_definitions = {
+        row["name"]: _template_variable_definition_from_row(row) for row in template_variable_rows
+    }
+
     try:
         compiled_mentions = AllowedMentionsCompiler().compile(
             _allowed_mentions_policy_from_dict(campaign.allowed_mentions_policy),
@@ -350,5 +368,6 @@ async def load_fan_out_context(
         language_profile_codes=language_profile_codes,
         compiled_mentions=compiled_mentions,
         glossary_entries=deduped_glossary,
+        template_variable_definitions=template_variable_definitions,
         translate_masked_text_for_language=translate_masked_text_for_language,
     )

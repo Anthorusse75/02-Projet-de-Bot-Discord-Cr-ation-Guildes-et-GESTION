@@ -13,6 +13,7 @@ type Stage09State = {
   campaigns: Array<Record<string, unknown>>
   targets: Array<Record<string, unknown>>
   deliveries: Array<Record<string, unknown>>
+  templateVariables: Array<Record<string, unknown>>
 }
 function freshState(): Stage09State {
   return {
@@ -27,6 +28,7 @@ function freshState(): Stage09State {
       delivery_key: 'dk-1', discord_channel_id: CHANNEL, status: 'SENT', discord_message_id: '1', attempt_count: 1, last_error: null,
       created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z',
     }],
+    templateVariables: [],
   }
 }
 
@@ -79,7 +81,14 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
       const body = route.request().postDataJSON() as Record<string, unknown>
       return route.fulfill({ status: 201, json: { id: 'schedule-1', campaign_id: path.split('/')[4], schedule_kind: body.schedule_kind, fire_at: body.fire_at ?? null, rrule: body.rrule ?? null, timezone: body.timezone ?? null, starts_at: body.starts_at ?? null, misfire_policy: 'SKIP_MISSED', dst_nonexistent_policy: 'SHIFT_FORWARD', dst_ambiguous_policy: 'EARLIEST', catch_up_bound: 1, next_fire_at: '2026-09-05T12:00:00Z', version: 1 } })
     }
-    if (path.endsWith('/simulate') && method === 'POST') return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [] } })
+    if (path.endsWith('/simulate') && method === 'POST') {
+      const campaign = state.campaigns.find((item) => item.id === path.split('/')[4])
+      const content = String((campaign?.message_model as { content?: string } | undefined)?.content ?? '')
+      const declaredNames = new Set(state.templateVariables.map((item) => item.name))
+      const referencedNames = [...content.matchAll(/\{\{([^}]+)\}\}/g)].map((match) => match[1])
+      const undeclared = [...new Set(referencedNames.filter((name) => !declaredNames.has(name)))].sort()
+      return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [], undeclared_template_variable_names: undeclared } })
+    }
     const lifecycleMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/(activate|pause|resume|cancel)$/)
     if (lifecycleMatch && method === 'POST') {
       const [, id, action] = lifecycleMatch
@@ -118,6 +127,30 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     const deleteMatch = path.match(/\/deliveries\/([^/]+)\/delete$/)
     if (deleteMatch && method === 'POST') {
       return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === deleteMatch[1]) } })
+    }
+    if (path.endsWith('/template-variables') && method === 'GET') {
+      return route.fulfill({ json: { template_variables: state.templateVariables } })
+    }
+    if (path.endsWith('/template-variables') && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const created = {
+        id: `tv-${state.templateVariables.length + 1}`, campaign_id: path.split('/')[4], name: body.name,
+        variable_type: body.variable_type, value: body.value ?? null, values_by_language: body.values_by_language ?? null,
+      }
+      state.templateVariables.push(created)
+      return route.fulfill({ status: 201, json: created })
+    }
+    const templateVariableMatch = path.match(/\/template-variables\/([^/]+)$/)
+    if (templateVariableMatch && method === 'PATCH') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      state.templateVariables = state.templateVariables.map((item) => item.id === templateVariableMatch[1]
+        ? { ...item, variable_type: body.variable_type, value: body.value ?? null, values_by_language: body.values_by_language ?? null }
+        : item)
+      return route.fulfill({ json: state.templateVariables.find((item) => item.id === templateVariableMatch[1]) })
+    }
+    if (templateVariableMatch && method === 'DELETE') {
+      state.templateVariables = state.templateVariables.filter((item) => item.id !== templateVariableMatch[1])
+      return route.fulfill({ status: 204, body: '' })
     }
     return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message_key: 'errors.resource.notFound', params: {}, request_id: 'stage09-e2e' } } })
   })
@@ -328,12 +361,52 @@ test('REQ-MSG owned edit/delete: a sent delivery can be edited and deleted throu
   expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
+test('@a11y REQ-MSG-018 mission section 10: a typed template variable is authored, edited and deleted, and simulation surfaces undeclared ones', async ({ page }) => {
+  const state = freshState()
+  state.campaigns[0].message_model = { content: 'Hello {{name}}, {{unbound}} is waiting!', embeds: [], action_rows: [] }
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.locator('.campaign-detail')).toBeVisible()
+  const templateVariables = page.locator('.campaign-template-variables')
+
+  await templateVariables.locator('#tv-create-name').fill('name')
+  await templateVariables.locator('#tv-create-type').selectOption('TRANSLATABLE_TEXT')
+  await templateVariables.locator('#tv-create-value').fill('Alex')
+  await templateVariables.getByRole('button', { name: 'Add variable' }).click()
+  await expect(page.getByText('Template variable created.')).toBeVisible()
+  await expect(templateVariables.getByText('{{name}}')).toBeVisible()
+
+  await templateVariables.getByRole('button', { name: 'Edit' }).click()
+  await templateVariables.locator('[id^="tv-edit-"][id$="-value"]').fill('Jordan')
+  await templateVariables.getByRole('button', { name: 'Confirm' }).click()
+  await expect(page.getByText('Template variable updated.')).toBeVisible()
+
+  // The simulation panel surfaces {{unbound}} (never declared) but not
+  // {{name}} (declared, now with a real value).
+  await page.getByRole('button', { name: 'Run preview' }).click()
+  const simulationResult = page.locator('.simulation-result')
+  await expect(simulationResult.getByText('Undeclared template variables')).toBeVisible()
+  await expect(simulationResult.getByText('{{unbound}}')).toBeVisible()
+  await expect(simulationResult.getByText('{{name}}', { exact: true })).toHaveCount(0)
+
+  await templateVariables.getByRole('button', { name: 'Delete' }).click()
+  await expect(page.getByText('Template variable deleted.')).toBeVisible()
+  await expect(templateVariables.getByText('No template variable has been declared yet.')).toBeVisible()
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 const localeHeadings = { en: 'Message & campaign center', fr: 'Centre de messages et campagnes', de: 'Nachrichten- und Kampagnenzentrale', es: 'Centro de mensajes y campañas' }
 for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized STAGE 09 surface has no raw enums or keys (${locale})`, async ({ page }) => {
   const state = freshState(); state.campaigns[0].lifecycle_status = 'PAUSED'
   state.deliveries.push(
     { id: 'delivery-2', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-2', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-2', discord_channel_id: CHANNEL, status: 'INTERVENTION_REQUIRED', discord_message_id: null, attempt_count: 4, last_error: 'ambiguous send outcome', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
     { id: 'delivery-3', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-3', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-3', discord_channel_id: CHANNEL, status: 'FAILED', discord_message_id: null, attempt_count: 1, last_error: 'discord rejected the request', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
+  )
+  state.templateVariables.push(
+    { id: 'tv-1', campaign_id: CAMPAIGN_ID, name: 'price', variable_type: 'LOCALIZED_VALUE', value: null, values_by_language: { en: '$10', fr: '10 €' } },
   )
   await mockStage09(page, locale, state)
   await page.goto(`/guild/${A}/campaigns`)

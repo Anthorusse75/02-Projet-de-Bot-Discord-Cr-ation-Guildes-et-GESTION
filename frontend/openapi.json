@@ -2056,6 +2056,99 @@
         "title": "TemplateCreateInput",
         "type": "object"
       },
+      "TemplateVariableCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "values_by_language": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values By Language"
+          },
+          "variable_type": {
+            "$ref": "#/components/schemas/TemplateVariableType"
+          }
+        },
+        "required": [
+          "name",
+          "variable_type"
+        ],
+        "title": "TemplateVariableCreateInput",
+        "type": "object"
+      },
+      "TemplateVariableType": {
+        "enum": [
+          "TRANSLATABLE_TEXT",
+          "NON_TRANSLATABLE",
+          "LOCALIZED_VALUE",
+          "PROTECTED"
+        ],
+        "title": "TemplateVariableType",
+        "type": "string"
+      },
+      "TemplateVariableUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "values_by_language": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values By Language"
+          },
+          "variable_type": {
+            "$ref": "#/components/schemas/TemplateVariableType"
+          }
+        },
+        "required": [
+          "variable_type"
+        ],
+        "title": "TemplateVariableUpdateInput",
+        "type": "object"
+      },
       "TranslationGroupCreateInput": {
         "additionalProperties": false,
         "properties": {
@@ -3666,6 +3759,225 @@
           }
         },
         "summary": "Create Target",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/template-variables": {
+      "get": {
+        "operationId": "list_template_variables_api_v1_campaigns__campaign_id__template_variables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Template Variables Api V1 Campaigns  Campaign Id  Template Variables Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Template Variables",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "post": {
+        "description": "REQ-MSG-018 (mission section 10): the shape rule (LOCALIZED_VALUE\ncarries values_by_language only, every other type carries a single\nvalue only) is enforced by did.messaging.template_variables\n.TemplateVariableDefinition itself -- never duplicated here.",
+        "operationId": "create_template_variable_api_v1_campaigns__campaign_id__template_variables_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateVariableCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Template Variable Api V1 Campaigns  Campaign Id  Template Variables Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Template Variable",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}": {
+      "delete": {
+        "operationId": "delete_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "variable_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variable Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Template Variable",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "patch": {
+        "operationId": "update_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "variable_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Variable Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateVariableUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Template Variable Api V1 Campaigns  Campaign Id  Template Variables  Variable Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Template Variable",
         "tags": [
           "stage-09-campaigns"
         ]

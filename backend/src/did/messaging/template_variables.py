@@ -44,7 +44,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from did.messaging.parser import MessageNode, ProtectedKind, ProtectedNode, TextNode
+from did.messaging.message_model import MessageModel
+from did.messaging.parser import MessageNode, ProtectedKind, ProtectedNode, TextNode, parse
+from did.messaging.translation_policy import extract_translatable_units
 
 _TEMPLATE_VARIABLE_NAME = "TEMPLATE_VARIABLE"
 
@@ -116,6 +118,23 @@ def undeclared_variable_names(nodes: tuple[MessageNode, ...]) -> frozenset[str]:
         for node in nodes
         if isinstance(node, ProtectedNode) and node.kind is ProtectedKind.TEMPLATE_VARIABLE
     )
+
+
+def undeclared_template_variable_names_in_message_model(
+    model: MessageModel, definitions: dict[str, TemplateVariableDefinition]
+) -> frozenset[str]:
+    """REQ-MSG-018 simulation/preview integration (mission section 10):
+    every ``{{variable}}`` name referenced anywhere in ``model``'s
+    translatable text (``did.messaging.translation_policy
+    .extract_translatable_units`` -- never a raw JSON walk, and never a
+    technical field like embed url/color or button custom_id/url) that has
+    no declared definition. An undeclared variable still renders safely
+    (fails closed to NON_TRANSLATABLE, see the module docstring) -- this is
+    purely a preview-time authoring aid, never a hard block."""
+    referenced: set[str] = set()
+    for unit in extract_translatable_units(model):
+        referenced |= undeclared_variable_names(parse(unit.text))
+    return frozenset(referenced - set(definitions.keys()))
 
 
 def resolve_template_variables(

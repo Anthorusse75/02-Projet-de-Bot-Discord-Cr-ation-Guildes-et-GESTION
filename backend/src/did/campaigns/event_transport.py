@@ -375,7 +375,7 @@ async def consume_new_events_for_guild(
                     logical_group_expansion_by_target=context.logical_group_expansion_by_target,
                     language_profile_codes=context.language_profile_codes,
                     compiled_mentions=context.compiled_mentions,
-                    template_variable_definitions={},
+                    template_variable_definitions=context.template_variable_definitions,
                     glossary_entries=context.glossary_entries,
                     translate_masked_text_for_language=context.translate_masked_text_for_language,
                 )

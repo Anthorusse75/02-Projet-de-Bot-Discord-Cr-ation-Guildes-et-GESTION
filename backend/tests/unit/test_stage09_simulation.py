@@ -331,3 +331,61 @@ class TestSimulateCampaignMessageContentWarnings:
             translation_provider_available=True,
         )
         assert report.message_content_warnings == ()
+
+
+class TestSimulateCampaignTemplateVariables:
+    """REQ-MSG-018 simulation/preview integration (mission section 10)."""
+
+    async def test_a_referenced_but_undeclared_variable_is_surfaced(self) -> None:
+        campaign = _campaign(message_model={"content": "Hello {{name}}, welcome to {{event}}!"})
+        target = _channel_target(campaign_id=campaign.id)
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+        )
+        assert report.undeclared_template_variable_names == frozenset({"name", "event"})
+        # Never a hard block -- the destination is still ready/executable.
+        assert report.estimated_delivery_count == 1
+
+    async def test_a_declared_variable_is_never_surfaced_as_undeclared(self) -> None:
+        from did.messaging.template_variables import (
+            TemplateVariableDefinition,
+            TemplateVariableType,
+        )
+
+        campaign = _campaign(message_model={"content": "Hello {{name}}!"})
+        target = _channel_target(campaign_id=campaign.id)
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+            template_variable_definitions={
+                "name": TemplateVariableDefinition(
+                    name="name", variable_type=TemplateVariableType.TRANSLATABLE_TEXT, value="Alex"
+                )
+            },
+        )
+        assert report.undeclared_template_variable_names == frozenset()
+
+    async def test_no_variables_referenced_yields_an_empty_set(self) -> None:
+        campaign = _campaign(message_model={"content": "Hello there"})
+        target = _channel_target(campaign_id=campaign.id)
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+        )
+        assert report.undeclared_template_variable_names == frozenset()

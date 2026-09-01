@@ -280,6 +280,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns/{campaign_id}/template-variables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Template Variables */
+        get: operations["list_template_variables_api_v1_campaigns__campaign_id__template_variables_get"];
+        put?: never;
+        /**
+         * Create Template Variable
+         * @description REQ-MSG-018 (mission section 10): the shape rule (LOCALIZED_VALUE
+         *     carries values_by_language only, every other type carries a single
+         *     value only) is enforced by did.messaging.template_variables
+         *     .TemplateVariableDefinition itself -- never duplicated here.
+         */
+        post: operations["create_template_variable_api_v1_campaigns__campaign_id__template_variables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Template Variable */
+        delete: operations["delete_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Template Variable */
+        patch: operations["update_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__patch"];
+        trace?: never;
+    };
     "/api/v1/campaigns/{campaign_id}/triggers": {
         parameters: {
             query?: never;
@@ -2560,6 +2602,33 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** TemplateVariableCreateInput */
+        TemplateVariableCreateInput: {
+            /** Name */
+            name: string;
+            /** Value */
+            value?: string | null;
+            /** Values By Language */
+            values_by_language?: {
+                [key: string]: string;
+            } | null;
+            variable_type: components["schemas"]["TemplateVariableType"];
+        };
+        /**
+         * TemplateVariableType
+         * @enum {string}
+         */
+        TemplateVariableType: "TRANSLATABLE_TEXT" | "NON_TRANSLATABLE" | "LOCALIZED_VALUE" | "PROTECTED";
+        /** TemplateVariableUpdateInput */
+        TemplateVariableUpdateInput: {
+            /** Value */
+            value?: string | null;
+            /** Values By Language */
+            values_by_language?: {
+                [key: string]: string;
+            } | null;
+            variable_type: components["schemas"]["TemplateVariableType"];
+        };
         /** TranslationGroupCreateInput */
         TranslationGroupCreateInput: {
             /** Language Profile Ids */
@@ -3394,6 +3463,146 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_template_variables_api_v1_campaigns__campaign_id__template_variables_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_template_variable_api_v1_campaigns__campaign_id__template_variables_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateVariableCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                variable_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                variable_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateVariableUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
