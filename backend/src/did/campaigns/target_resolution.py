@@ -19,6 +19,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from did.campaigns.logical_groups import LogicalGroupExpansion
 from did.domain.campaigns import CampaignTarget, TargetKind, TranslationPublicationMode
 
 
@@ -40,6 +41,12 @@ class BlockReason(StrEnum):
     BOT_CANNOT_SEND = "BOT_CANNOT_SEND"
     TRANSLATION_GROUP_NOT_FOUND = "TRANSLATION_GROUP_NOT_FOUND"
     NO_MATCHING_LANGUAGE_VARIANTS = "NO_MATCHING_LANGUAGE_VARIANTS"
+    LOGICAL_GROUP_NOT_FOUND = "LOGICAL_GROUP_NOT_FOUND"
+    #: The logical group exists but currently names zero messageable
+    #: channels (e.g. every resource is a ROLE, or a CATEGORY resource has
+    #: no member channels right now) -- distinct from "not found" so a
+    #: caller can tell "misconfigured target" from "empty group right now".
+    LOGICAL_GROUP_EMPTY = "LOGICAL_GROUP_EMPTY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,12 +187,79 @@ async def resolve_translation_group_target(
     return [await _resolve_channel(channel_id, lp) for lp, channel_id in matching]
 
 
+async def resolve_logical_group_target(
+    target: CampaignTarget,
+    *,
+    owner_discord_user_id: int,
+    authorization: TargetAuthorizationChecker,
+    expansion: LogicalGroupExpansion | None,
+) -> list[ResolvedDestination]:
+    """REQ-MSG-002: every channel a logical group currently names still
+    undergoes the exact same fresh Guild-authorization/bot-can-send
+    re-check as any other destination -- expansion only answers WHICH
+    channels; it never implies they are reachable."""
+    assert target.target_kind is TargetKind.LOGICAL_GROUP
+    if not await authorization.is_guild_authorized(
+        guild_id=target.guild_id, owner_discord_user_id=owner_discord_user_id
+    ):
+        return [
+            ResolvedDestination(
+                guild_id=target.guild_id,
+                discord_channel_id=0,
+                language_profile_id=None,
+                blocked_reason=BlockReason.GUILD_NOT_AUTHORIZED,
+            )
+        ]
+    if expansion is None:
+        return [
+            ResolvedDestination(
+                guild_id=target.guild_id,
+                discord_channel_id=0,
+                language_profile_id=None,
+                blocked_reason=BlockReason.LOGICAL_GROUP_NOT_FOUND,
+            )
+        ]
+    if not expansion.discord_channel_ids:
+        return [
+            ResolvedDestination(
+                guild_id=target.guild_id,
+                discord_channel_id=0,
+                language_profile_id=None,
+                blocked_reason=BlockReason.LOGICAL_GROUP_EMPTY,
+            )
+        ]
+
+    destinations: list[ResolvedDestination] = []
+    for channel_id in expansion.discord_channel_ids:
+        if not await authorization.bot_can_send(
+            guild_id=target.guild_id, discord_channel_id=channel_id
+        ):
+            destinations.append(
+                ResolvedDestination(
+                    guild_id=target.guild_id,
+                    discord_channel_id=channel_id,
+                    language_profile_id=None,
+                    blocked_reason=BlockReason.BOT_CANNOT_SEND,
+                )
+            )
+        else:
+            destinations.append(
+                ResolvedDestination(
+                    guild_id=target.guild_id,
+                    discord_channel_id=channel_id,
+                    language_profile_id=None,
+                )
+            )
+    return destinations
+
+
 async def resolve_target(
     target: CampaignTarget,
     *,
     owner_discord_user_id: int,
     authorization: TargetAuthorizationChecker,
     topology: TranslationGroupTopologySnapshot | None = None,
+    logical_group_expansion: LogicalGroupExpansion | None = None,
 ) -> list[ResolvedDestination]:
     if target.target_kind is TargetKind.CHANNEL:
         return [
@@ -193,6 +267,13 @@ async def resolve_target(
                 target, owner_discord_user_id=owner_discord_user_id, authorization=authorization
             )
         ]
+    if target.target_kind is TargetKind.LOGICAL_GROUP:
+        return await resolve_logical_group_target(
+            target,
+            owner_discord_user_id=owner_discord_user_id,
+            authorization=authorization,
+            expansion=logical_group_expansion,
+        )
     return await resolve_translation_group_target(
         target,
         owner_discord_user_id=owner_discord_user_id,

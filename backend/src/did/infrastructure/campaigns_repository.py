@@ -278,9 +278,9 @@ class CampaignsRepository:
                     "INSERT INTO message_campaign_targets "
                     "(id, guild_id, campaign_id, target_kind, discord_channel_id, "
                     "translation_group_id, translation_publication_mode, "
-                    "selected_language_profile_ids) "
+                    "selected_language_profile_ids, logical_group_id) "
                     "VALUES (:id, :guild_id, :campaign_id, :kind, :channel_id, :group_id, "
-                    ":pub_mode, CAST(:languages AS JSONB))"
+                    ":pub_mode, CAST(:languages AS JSONB), :logical_group_id)"
                 ),
                 {
                     "id": target.id,
@@ -299,6 +299,7 @@ class CampaignsRepository:
                         if target.selected_language_profile_ids
                         else None
                     ),
+                    "logical_group_id": target.logical_group_id,
                 },
             )
 

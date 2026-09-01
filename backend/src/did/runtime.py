@@ -292,6 +292,7 @@ async def run_process(
                     ),
                     translation_provider=GoogletransCampaignTranslationProvider(),
                     lease_owner=f"campaign-scheduler-{uuid4().hex}",
+                    stage04_repository=Stage04Repository(session_factory),
                     poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
                 )
                 runners.append(campaign_scheduler.run(stop_event))

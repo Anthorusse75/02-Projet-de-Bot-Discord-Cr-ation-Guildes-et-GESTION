@@ -266,6 +266,13 @@ class TriggerSourceBinding:
 class TargetKind(StrEnum):
     CHANNEL = "CHANNEL"
     TRANSLATION_GROUP = "TRANSLATION_GROUP"
+    #: REQ-MSG-002: a Stage04 dashboard logical group -- reuses the
+    #: existing Stage04 logical-group abstraction rather than inventing a
+    #: parallel Discord hierarchy. Resolved to real, currently-existing
+    #: channels at execution time by
+    #: did.campaigns.logical_groups.expand_logical_group, never a cached
+    #: snapshot from target-creation time.
+    LOGICAL_GROUP = "LOGICAL_GROUP"
 
 
 class TranslationPublicationMode(StrEnum):
@@ -291,6 +298,7 @@ class CampaignTarget:
     translation_group_id: UUID | None = None
     translation_publication_mode: TranslationPublicationMode | None = None
     selected_language_profile_ids: tuple[UUID, ...] = ()
+    logical_group_id: UUID | None = None
     authorized_at: datetime | None = None
 
     def __post_init__(self) -> None:
@@ -301,11 +309,22 @@ class CampaignTarget:
                 raise ValueError("CHANNEL target requires a positive discord_channel_id")
             if self.translation_group_id is not None:
                 raise ValueError("CHANNEL target must not carry a translation_group_id")
+            if self.logical_group_id is not None:
+                raise ValueError("CHANNEL target must not carry a logical_group_id")
+        elif self.target_kind is TargetKind.LOGICAL_GROUP:
+            if self.logical_group_id is None:
+                raise ValueError("LOGICAL_GROUP target requires logical_group_id")
+            if self.discord_channel_id is not None:
+                raise ValueError("LOGICAL_GROUP target must not carry discord_channel_id")
+            if self.translation_group_id is not None:
+                raise ValueError("LOGICAL_GROUP target must not carry a translation_group_id")
         else:
             if self.translation_group_id is None:
                 raise ValueError("TRANSLATION_GROUP target requires translation_group_id")
             if self.discord_channel_id is not None:
                 raise ValueError("TRANSLATION_GROUP target must not carry discord_channel_id")
+            if self.logical_group_id is not None:
+                raise ValueError("TRANSLATION_GROUP target must not carry a logical_group_id")
             if self.translation_publication_mode is None:
                 raise ValueError("TRANSLATION_GROUP target requires an explicit publication mode")
             if (

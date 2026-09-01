@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 from did.campaigns.approved_variants import VariantOutcome, resolve_variant_for_delivery
+from did.campaigns.logical_groups import LogicalGroupExpansion
 from did.campaigns.rendering import TranslateMaskedText, render_message_model
 from did.campaigns.target_resolution import (
     ResolvedDestination,
@@ -105,14 +106,24 @@ def _compiled_mentions_dict(compiled_mentions: CompiledAllowedMentions) -> dict[
 
 def _delivery_key(occurrence: MessageOccurrence, target_id: UUID, dest: ResolvedDestination) -> str:
     """Deterministic and restart-safe: the same (occurrence, target,
-    resolved language) triple always produces the same key, so a re-run of
-    fan-out after a crash creates no duplicate delivery for a destination
-    that was already created, and produces exactly one delivery for a
-    destination that was not (message_deliveries UNIQUE(guild_id,
-    delivery_key) is the durable source of truth, not this function alone).
+    resolved channel, resolved language) quadruple always produces the same
+    key, so a re-run of fan-out after a crash creates no duplicate delivery
+    for a destination that was already created, and produces exactly one
+    delivery for a destination that was not (message_deliveries
+    UNIQUE(guild_id, delivery_key) is the durable source of truth, not this
+    function alone).
+
+    The channel id is REQUIRED here, not merely descriptive: a CHANNEL or
+    TRANSLATION_GROUP target only ever resolves to at most one destination
+    per language, but a LOGICAL_GROUP target (REQ-MSG-002) can resolve to
+    several same-language (all source, ``language_profile_id=None``)
+    destinations at once -- keying only on (target, language) would
+    silently collapse them onto the same delivery_key and drop every
+    destination but the first (a real defect this module's own tests found
+    the moment a multi-channel-per-target kind was added).
     """
     language_component = str(dest.language_profile_id) if dest.language_profile_id else "source"
-    return f"{occurrence.occurrence_key}:{target_id}:{language_component}"
+    return f"{occurrence.occurrence_key}:{target_id}:{dest.discord_channel_id}:{language_component}"
 
 
 async def fan_out_occurrence(
@@ -124,6 +135,7 @@ async def fan_out_occurrence(
     occurrence: MessageOccurrence,
     lease_owner: str,
     topology_by_target: dict[UUID, TranslationGroupTopologySnapshot | None],
+    logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None] | None = None,
     language_profile_codes: dict[UUID, str],
     compiled_mentions: CompiledAllowedMentions,
     template_variable_definitions: dict[str, TemplateVariableDefinition],
@@ -244,6 +256,11 @@ async def fan_out_occurrence(
                 owner_discord_user_id=campaign.owner_discord_user_id,
                 authorization=checker,
                 topology=topology_by_target.get(target.id),
+                logical_group_expansion=(
+                    logical_group_expansion_by_target.get(target.id)
+                    if logical_group_expansion_by_target
+                    else None
+                ),
             )
             for dest in destinations:
                 if not dest.is_ready:

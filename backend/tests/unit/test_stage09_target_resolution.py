@@ -212,6 +212,80 @@ class TestTranslationGroupResolution:
         assert resolved[0].blocked_reason is BlockReason.GUILD_NOT_AUTHORIZED
 
 
+def _logical_group_target(**overrides: object) -> CampaignTarget:
+    fields: dict[str, object] = dict(
+        id=uuid4(),
+        guild_id=880000001,
+        campaign_id=uuid4(),
+        target_kind=TargetKind.LOGICAL_GROUP,
+        logical_group_id=uuid4(),
+    )
+    fields.update(overrides)
+    return CampaignTarget(**fields)  # type: ignore[arg-type]
+
+
+class TestLogicalGroupResolution:
+    @pytest.mark.asyncio
+    async def test_unauthorized_guild_blocks_before_any_expansion_is_consulted(self) -> None:
+        from did.campaigns.logical_groups import LogicalGroupExpansion
+
+        target = _logical_group_target()
+        resolved = await resolve_target(
+            target,
+            owner_discord_user_id=1,
+            authorization=_FakeAuthorization(authorized_guilds=set()),
+            logical_group_expansion=LogicalGroupExpansion(discord_channel_ids=(111, 222)),
+        )
+        assert len(resolved) == 1
+        assert resolved[0].blocked_reason is BlockReason.GUILD_NOT_AUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_missing_expansion_is_logical_group_not_found(self) -> None:
+        target = _logical_group_target()
+        resolved = await resolve_target(
+            target,
+            owner_discord_user_id=1,
+            authorization=_FakeAuthorization(),
+            logical_group_expansion=None,
+        )
+        assert len(resolved) == 1
+        assert resolved[0].blocked_reason is BlockReason.LOGICAL_GROUP_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_expansion_with_zero_channels_is_logical_group_empty(self) -> None:
+        from did.campaigns.logical_groups import LogicalGroupExpansion
+
+        target = _logical_group_target()
+        resolved = await resolve_target(
+            target,
+            owner_discord_user_id=1,
+            authorization=_FakeAuthorization(),
+            logical_group_expansion=LogicalGroupExpansion(discord_channel_ids=()),
+        )
+        assert len(resolved) == 1
+        assert resolved[0].blocked_reason is BlockReason.LOGICAL_GROUP_EMPTY
+
+    @pytest.mark.asyncio
+    async def test_every_expanded_channel_is_individually_re_authorized(self) -> None:
+        from did.campaigns.logical_groups import LogicalGroupExpansion
+
+        target = _logical_group_target()
+        checker = _FakeAuthorization(sendable_channels={111})
+        resolved = await resolve_target(
+            target,
+            owner_discord_user_id=1,
+            authorization=checker,
+            logical_group_expansion=LogicalGroupExpansion(discord_channel_ids=(111, 222)),
+        )
+        assert len(resolved) == 2
+        by_channel = {dest.discord_channel_id: dest for dest in resolved}
+        assert by_channel[111].is_ready is True
+        assert by_channel[222].blocked_reason is BlockReason.BOT_CANNOT_SEND
+        # bot_can_send is re-checked once per channel, never assumed from
+        # one check applying to the whole group.
+        assert checker.channel_checks == 2
+
+
 class TestSimulationSummary:
     @pytest.mark.asyncio
     async def test_simulation_never_creates_deliveries_just_counts(self) -> None:

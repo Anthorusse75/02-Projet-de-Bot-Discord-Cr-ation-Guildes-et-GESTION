@@ -22,6 +22,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from did.campaigns.logical_groups import LogicalGroupExpansion, expand_logical_group
 from did.campaigns.rendering import TranslateMaskedText
 from did.campaigns.target_resolution import TranslationGroupTopologySnapshot
 from did.domain.campaigns import (
@@ -39,6 +40,7 @@ from did.domain.campaigns import (
 )
 from did.domain.translation_provider import CampaignTranslationProvider
 from did.infrastructure.campaigns_repository import CampaignsRepository
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     Stage08NotFound,
@@ -63,6 +65,7 @@ class FanOutContextError(RuntimeError):
 class FanOutContext:
     targets: tuple[CampaignTarget, ...]
     topology_by_target: dict[UUID, TranslationGroupTopologySnapshot | None]
+    logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None]
     language_profile_codes: dict[UUID, str]
     compiled_mentions: CompiledAllowedMentions
     glossary_entries: tuple[GlossaryEntry, ...]
@@ -104,6 +107,7 @@ def _target_from_row(row: dict[str, Any]) -> CampaignTarget:
             else None
         ),
         selected_language_profile_ids=tuple(UUID(str(value)) for value in languages_raw),
+        logical_group_id=row.get("logical_group_id"),
     )
 
 
@@ -253,6 +257,7 @@ async def load_fan_out_context(
     translation_groups: TranslationGroupRepository,
     campaign: MessageCampaign,
     translation_provider: CampaignTranslationProvider | None,
+    stage04_repository: Stage04Repository | None = None,
 ) -> FanOutContext:
     """Assemble a complete :class:`FanOutContext` for ``campaign`` from
     durable storage. ``translation_provider=None`` yields a context that can
@@ -274,12 +279,23 @@ async def load_fan_out_context(
             language_profile_codes[UUID(str(profile["id"]))] = str(profile["code"])
 
     topology_by_target: dict[UUID, TranslationGroupTopologySnapshot | None] = {}
+    logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None] = {}
     for target in targets:
         if target.target_kind is TargetKind.TRANSLATION_GROUP and target.translation_group_id:
             topology_by_target[target.id] = await load_translation_group_topology(
                 translation_groups,
                 guild_id=target.guild_id,
                 translation_group_id=target.translation_group_id,
+            )
+        elif (
+            target.target_kind is TargetKind.LOGICAL_GROUP
+            and target.logical_group_id
+            and stage04_repository is not None
+        ):
+            logical_group_expansion_by_target[target.id] = await expand_logical_group(
+                stage04_repository,
+                guild_id=target.guild_id,
+                logical_group_id=target.logical_group_id,
             )
         else:
             topology_by_target[target.id] = None
@@ -314,6 +330,7 @@ async def load_fan_out_context(
     return FanOutContext(
         targets=targets,
         topology_by_target=topology_by_target,
+        logical_group_expansion_by_target=logical_group_expansion_by_target,
         language_profile_codes=language_profile_codes,
         compiled_mentions=compiled_mentions,
         glossary_entries=deduped_glossary,

@@ -34,6 +34,7 @@ from did.domain.translation_provider import CampaignTranslationProvider
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.logging import EventId, emit_event
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
@@ -54,6 +55,7 @@ class CampaignSchedulerRuntime:
         checker: TargetAuthorizationChecker,
         translation_provider: CampaignTranslationProvider | None,
         lease_owner: str,
+        stage04_repository: Stage04Repository | None = None,
         poll_interval_seconds: float = 5.0,
         schedule_limit: int = 20,
         routing_limit: int = 200,
@@ -65,6 +67,7 @@ class CampaignSchedulerRuntime:
         self._admin_factory = admin_factory
         self._language_profiles = language_profiles
         self._translation_groups = translation_groups
+        self._stage04_repository = stage04_repository
         self._checker = checker
         self._translation_provider = translation_provider
         self._lease_owner = lease_owner
@@ -93,6 +96,7 @@ class CampaignSchedulerRuntime:
             translation_groups=self._translation_groups,
             campaign=campaign,
             translation_provider=self._translation_provider,
+            stage04_repository=self._stage04_repository,
         )
         return await fan_out_occurrence(
             repository=self._campaigns_repository,
@@ -102,6 +106,7 @@ class CampaignSchedulerRuntime:
             occurrence=occurrence,
             lease_owner=self._lease_owner,
             topology_by_target=context.topology_by_target,
+            logical_group_expansion_by_target=context.logical_group_expansion_by_target,
             language_profile_codes=context.language_profile_codes,
             compiled_mentions=context.compiled_mentions,
             # No durable persistence exists yet for author-defined template

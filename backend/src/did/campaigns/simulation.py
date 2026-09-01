@@ -23,6 +23,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from did.campaigns.approved_variants import VariantOutcome, resolve_variant_for_delivery
+from did.campaigns.logical_groups import LogicalGroupExpansion
 from did.campaigns.message_content_policy import (
     MessageContentCapabilityChecker,
     MessageContentSimulationWarning,
@@ -113,6 +114,7 @@ async def simulate_campaign(
     triggers: Sequence[CampaignTrigger] = (),
     message_content_checker: MessageContentCapabilityChecker | None = None,
     message_content_guild_id: int | None = None,
+    logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None] | None = None,
 ) -> CampaignSimulationReport:
     """The complete, non-mutating preview. ``triggers``/
     ``message_content_checker``/``message_content_guild_id`` are optional --
@@ -128,6 +130,11 @@ async def simulate_campaign(
             owner_discord_user_id=campaign.owner_discord_user_id,
             authorization=authorization,
             topology=topology_by_target.get(target.id),
+            logical_group_expansion=(
+                logical_group_expansion_by_target.get(target.id)
+                if logical_group_expansion_by_target
+                else None
+            ),
         )
         for dest in resolved:
             translation_state = _translation_state(
