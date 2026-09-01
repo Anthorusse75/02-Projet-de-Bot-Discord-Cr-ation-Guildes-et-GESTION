@@ -22,6 +22,15 @@
         "title": "ArtifactType",
         "type": "string"
       },
+      "AttachmentPolicy": {
+        "enum": [
+          "PRESERVE_EXISTING",
+          "REPLACE_ALL",
+          "REMOVE_ALL"
+        ],
+        "title": "AttachmentPolicy",
+        "type": "string"
+      },
       "BotOperation": {
         "enum": [
           "CREATE_CHANNEL",
@@ -37,6 +46,109 @@
         ],
         "title": "BotOperation",
         "type": "string"
+      },
+      "CampaignCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_mentions_policy": {
+            "additionalProperties": true,
+            "title": "Allowed Mentions Policy",
+            "type": "object"
+          },
+          "attachment_policy": {
+            "$ref": "#/components/schemas/AttachmentPolicy",
+            "default": "PRESERVE_EXISTING"
+          },
+          "message_model": {
+            "additionalProperties": true,
+            "title": "Message Model",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "publication_mode": {
+            "$ref": "#/components/schemas/PublicationMode"
+          },
+          "source_language_code": {
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Source Language Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source_language_code",
+          "publication_mode"
+        ],
+        "title": "CampaignCreateInput",
+        "type": "object"
+      },
+      "CampaignUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_mentions_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Mentions Policy"
+          },
+          "attachment_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "message_model": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "CampaignUpdateInput",
+        "type": "object"
       },
       "CapacityInput": {
         "additionalProperties": false,
@@ -396,6 +508,24 @@
         ],
         "title": "DriftInput",
         "type": "object"
+      },
+      "DstAmbiguousPolicy": {
+        "description": "Fall-back: a wall-clock time that occurs twice that day.",
+        "enum": [
+          "EARLIEST",
+          "LATEST"
+        ],
+        "title": "DstAmbiguousPolicy",
+        "type": "string"
+      },
+      "DstNonexistentPolicy": {
+        "description": "Spring-forward: a wall-clock time that never occurs that day.",
+        "enum": [
+          "SHIFT_FORWARD",
+          "SKIP"
+        ],
+        "title": "DstNonexistentPolicy",
+        "type": "string"
       },
       "ExportInput": {
         "additionalProperties": false,
@@ -862,6 +992,14 @@
         "title": "MemberRoleReconcileInput",
         "type": "object"
       },
+      "MisfirePolicy": {
+        "enum": [
+          "SKIP_MISSED",
+          "FIRE_ONCE_IMMEDIATELY"
+        ],
+        "title": "MisfirePolicy",
+        "type": "string"
+      },
       "MultilingualCloneInput": {
         "additionalProperties": false,
         "properties": {
@@ -1139,6 +1277,16 @@
         ],
         "title": "ProviderVerifyInput",
         "type": "object"
+      },
+      "PublicationMode": {
+        "enum": [
+          "IMMEDIATE",
+          "ONE_SHOT_DEFERRED",
+          "RECURRING",
+          "EVENT_TRIGGERED"
+        ],
+        "title": "PublicationMode",
+        "type": "string"
       },
       "PurgeRequest": {
         "additionalProperties": false,
@@ -1448,6 +1596,95 @@
         "title": "RouteReplaceInput",
         "type": "object"
       },
+      "ScheduleCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "catch_up_bound": {
+            "default": 1,
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Catch Up Bound",
+            "type": "integer"
+          },
+          "dst_ambiguous_policy": {
+            "$ref": "#/components/schemas/DstAmbiguousPolicy",
+            "default": "EARLIEST"
+          },
+          "dst_nonexistent_policy": {
+            "$ref": "#/components/schemas/DstNonexistentPolicy",
+            "default": "SHIFT_FORWARD"
+          },
+          "fire_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fire At"
+          },
+          "misfire_policy": {
+            "$ref": "#/components/schemas/MisfirePolicy",
+            "default": "SKIP_MISSED"
+          },
+          "rrule": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrule"
+          },
+          "schedule_kind": {
+            "$ref": "#/components/schemas/ScheduleKind"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "schedule_kind"
+        ],
+        "title": "ScheduleCreateInput",
+        "type": "object"
+      },
+      "ScheduleKind": {
+        "enum": [
+          "IMMEDIATE",
+          "ONE_SHOT",
+          "RECURRING"
+        ],
+        "title": "ScheduleKind",
+        "type": "string"
+      },
       "ScopeKind": {
         "enum": [
           "GUILD",
@@ -1653,6 +1890,87 @@
         "title": "SimulationRequest",
         "type": "object"
       },
+      "TargetCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Channel Id"
+          },
+          "guild_id": {
+            "title": "Guild Id",
+            "type": "string"
+          },
+          "logical_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Group Id"
+          },
+          "selected_language_profile_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Selected Language Profile Ids",
+            "type": "array"
+          },
+          "target_kind": {
+            "$ref": "#/components/schemas/TargetKind"
+          },
+          "translation_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation Group Id"
+          },
+          "translation_publication_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranslationPublicationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "guild_id",
+          "target_kind"
+        ],
+        "title": "TargetCreateInput",
+        "type": "object"
+      },
+      "TargetKind": {
+        "enum": [
+          "CHANNEL",
+          "TRANSLATION_GROUP",
+          "LOGICAL_GROUP"
+        ],
+        "title": "TargetKind",
+        "type": "string"
+      },
       "TemplateApplyInput": {
         "additionalProperties": false,
         "properties": {
@@ -1779,6 +2097,89 @@
         "title": "TranslationGroupTopology",
         "type": "string"
       },
+      "TranslationPublicationMode": {
+        "description": "WP12: how a Translation Group destination is published to.\n\nNever inferred -- the campaign author must pick one explicitly whenever\n``target_kind`` is ``TRANSLATION_GROUP``.",
+        "enum": [
+          "SOURCE_ONLY",
+          "EXISTING_PROVIDER",
+          "DID_TRANSLATED_FANOUT",
+          "SELECTED_LANGUAGES"
+        ],
+        "title": "TranslationPublicationMode",
+        "type": "string"
+      },
+      "TriggerCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "condition_ast": {
+            "additionalProperties": true,
+            "title": "Condition Ast",
+            "type": "object"
+          },
+          "event_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Event Type",
+            "type": "string"
+          },
+          "max_causation_depth": {
+            "default": 8,
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Causation Depth",
+            "type": "integer"
+          },
+          "requires_message_content": {
+            "default": false,
+            "title": "Requires Message Content",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "event_type",
+          "condition_ast"
+        ],
+        "title": "TriggerCreateInput",
+        "type": "object"
+      },
+      "TriggerSourceCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Resource Id"
+          },
+          "guild_id": {
+            "title": "Guild Id",
+            "type": "string"
+          },
+          "source_scope_kind": {
+            "$ref": "#/components/schemas/TriggerSourceScopeKind"
+          }
+        },
+        "required": [
+          "guild_id",
+          "source_scope_kind"
+        ],
+        "title": "TriggerSourceCreateInput",
+        "type": "object"
+      },
+      "TriggerSourceScopeKind": {
+        "enum": [
+          "GUILD",
+          "CHANNEL",
+          "CATEGORY"
+        ],
+        "title": "TriggerSourceScopeKind",
+        "type": "string"
+      },
       "UserAccessUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -1850,6 +2251,21 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VariantApprovalInput": {
+        "additionalProperties": false,
+        "properties": {
+          "localized_message_model": {
+            "additionalProperties": true,
+            "title": "Localized Message Model",
+            "type": "object"
+          }
+        },
+        "required": [
+          "localized_message_model"
+        ],
+        "title": "VariantApprovalInput",
         "type": "object"
       },
       "VariantLinkInput": {
@@ -2259,6 +2675,941 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/campaigns": {
+      "get": {
+        "operationId": "list_campaigns_api_v1_campaigns_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Campaigns Api V1 Campaigns Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Campaigns",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "post": {
+        "operationId": "create_campaign_api_v1_campaigns_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Campaign Api V1 Campaigns Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}": {
+      "get": {
+        "operationId": "get_campaign_api_v1_campaigns__campaign_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Campaign Api V1 Campaigns  Campaign Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "patch": {
+        "operationId": "update_campaign_api_v1_campaigns__campaign_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Campaign Api V1 Campaigns  Campaign Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/activate": {
+      "post": {
+        "operationId": "activate_campaign_api_v1_campaigns__campaign_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Activate Campaign Api V1 Campaigns  Campaign Id  Activate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/cancel": {
+      "post": {
+        "operationId": "cancel_campaign_api_v1_campaigns__campaign_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Campaign Api V1 Campaigns  Campaign Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/deliveries": {
+      "get": {
+        "operationId": "list_deliveries_api_v1_campaigns__campaign_id__deliveries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Deliveries Api V1 Campaigns  Campaign Id  Deliveries Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Deliveries",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/pause": {
+      "post": {
+        "operationId": "pause_campaign_api_v1_campaigns__campaign_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Pause Campaign Api V1 Campaigns  Campaign Id  Pause Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pause Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/resume": {
+      "post": {
+        "operationId": "resume_campaign_api_v1_campaigns__campaign_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resume Campaign Api V1 Campaigns  Campaign Id  Resume Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume Campaign",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/schedule": {
+      "post": {
+        "operationId": "create_schedule_api_v1_campaigns__campaign_id__schedule_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Schedule Api V1 Campaigns  Campaign Id  Schedule Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Schedule",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/simulate": {
+      "post": {
+        "operationId": "simulate_api_v1_campaigns__campaign_id__simulate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Simulate Api V1 Campaigns  Campaign Id  Simulate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/targets": {
+      "get": {
+        "operationId": "list_targets_api_v1_campaigns__campaign_id__targets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Targets Api V1 Campaigns  Campaign Id  Targets Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Targets",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "post": {
+        "operationId": "create_target_api_v1_campaigns__campaign_id__targets_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Target Api V1 Campaigns  Campaign Id  Targets Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Target",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/triggers": {
+      "post": {
+        "operationId": "create_trigger_api_v1_campaigns__campaign_id__triggers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Trigger Api V1 Campaigns  Campaign Id  Triggers Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Trigger",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources": {
+      "post": {
+        "operationId": "create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "trigger_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trigger Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerSourceCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Trigger Source Api V1 Campaigns  Campaign Id  Triggers  Trigger Id  Sources Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Trigger Source",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}": {
+      "get": {
+        "operationId": "preview_variant_api_v1_campaigns__campaign_id__variants__language_code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "language_code",
+            "required": true,
+            "schema": {
+              "title": "Language Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Variant Api V1 Campaigns  Campaign Id  Variants  Language Code  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Variant",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}/approve": {
+      "post": {
+        "operationId": "approve_variant_endpoint_api_v1_campaigns__campaign_id__variants__language_code__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "language_code",
+            "required": true,
+            "schema": {
+              "title": "Language Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariantApprovalInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Approve Variant Endpoint Api V1 Campaigns  Campaign Id  Variants  Language Code  Approve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Variant Endpoint",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
     "/api/v1/guilds": {
       "get": {
         "operationId": "guilds_api_v1_guilds_get",

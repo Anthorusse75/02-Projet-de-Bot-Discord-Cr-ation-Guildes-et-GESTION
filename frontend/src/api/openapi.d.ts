@@ -4,6 +4,247 @@
  */
 
 export interface paths {
+    "/api/v1/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Campaigns */
+        get: operations["list_campaigns_api_v1_campaigns_get"];
+        put?: never;
+        /** Create Campaign */
+        post: operations["create_campaign_api_v1_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Campaign */
+        get: operations["get_campaign_api_v1_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Campaign */
+        patch: operations["update_campaign_api_v1_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Campaign */
+        post: operations["activate_campaign_api_v1_campaigns__campaign_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Campaign */
+        post: operations["cancel_campaign_api_v1_campaigns__campaign_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deliveries */
+        get: operations["list_deliveries_api_v1_campaigns__campaign_id__deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause Campaign */
+        post: operations["pause_campaign_api_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Campaign */
+        post: operations["resume_campaign_api_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Schedule */
+        post: operations["create_schedule_api_v1_campaigns__campaign_id__schedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate */
+        post: operations["simulate_api_v1_campaigns__campaign_id__simulate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Targets */
+        get: operations["list_targets_api_v1_campaigns__campaign_id__targets_get"];
+        put?: never;
+        /** Create Target */
+        post: operations["create_target_api_v1_campaigns__campaign_id__targets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Trigger */
+        post: operations["create_trigger_api_v1_campaigns__campaign_id__triggers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Trigger Source */
+        post: operations["create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Variant */
+        get: operations["preview_variant_api_v1_campaigns__campaign_id__variants__language_code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Variant Endpoint */
+        post: operations["approve_variant_endpoint_api_v1_campaigns__campaign_id__variants__language_code__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds": {
         parameters: {
             query?: never;
@@ -1520,10 +1761,49 @@ export interface components {
          */
         ArtifactType: "CHANNEL" | "CATEGORY" | "LOGICAL_GROUP" | "GUILD_CONFIG" | "CUSTOM_BUNDLE";
         /**
+         * AttachmentPolicy
+         * @enum {string}
+         */
+        AttachmentPolicy: "PRESERVE_EXISTING" | "REPLACE_ALL" | "REMOVE_ALL";
+        /**
          * BotOperation
          * @enum {string}
          */
         BotOperation: "CREATE_CHANNEL" | "MANAGE_CHANNEL" | "REORDER_CHANNELS" | "MANAGE_OVERWRITES" | "CREATE_ROLE" | "MANAGE_ROLE" | "REORDER_ROLES" | "ASSIGN_ROLE" | "SEND_MESSAGE" | "MANAGE_THREAD";
+        /** CampaignCreateInput */
+        CampaignCreateInput: {
+            /** Allowed Mentions Policy */
+            allowed_mentions_policy?: {
+                [key: string]: unknown;
+            };
+            /** @default PRESERVE_EXISTING */
+            attachment_policy: components["schemas"]["AttachmentPolicy"];
+            /** Message Model */
+            message_model?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            publication_mode: components["schemas"]["PublicationMode"];
+            /** Source Language Code */
+            source_language_code: string;
+        };
+        /** CampaignUpdateInput */
+        CampaignUpdateInput: {
+            /** Allowed Mentions Policy */
+            allowed_mentions_policy?: {
+                [key: string]: unknown;
+            } | null;
+            attachment_policy?: components["schemas"]["AttachmentPolicy"] | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Message Model */
+            message_model?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name?: string | null;
+        };
         /** CapacityInput */
         CapacityInput: {
             /** Current Overwrites */
@@ -1626,6 +1906,18 @@ export interface components {
             /** Variant Type */
             variant_type?: ("CATEGORY" | "CHANNEL") | null;
         };
+        /**
+         * DstAmbiguousPolicy
+         * @description Fall-back: a wall-clock time that occurs twice that day.
+         * @enum {string}
+         */
+        DstAmbiguousPolicy: "EARLIEST" | "LATEST";
+        /**
+         * DstNonexistentPolicy
+         * @description Spring-forward: a wall-clock time that never occurs that day.
+         * @enum {string}
+         */
+        DstNonexistentPolicy: "SHIFT_FORWARD" | "SKIP";
         /** ExportInput */
         ExportInput: {
             /** @default EXPORT_BUNDLE */
@@ -1777,6 +2069,11 @@ export interface components {
             /** Idempotency Key */
             idempotency_key: string;
         };
+        /**
+         * MisfirePolicy
+         * @enum {string}
+         */
+        MisfirePolicy: "SKIP_MISSED" | "FIRE_ONCE_IMMEDIATELY";
         /** MultilingualCloneInput */
         MultilingualCloneInput: {
             /** Destination Guild Id */
@@ -1887,6 +2184,11 @@ export interface components {
              */
             confirmed_manual_configuration: true;
         };
+        /**
+         * PublicationMode
+         * @enum {string}
+         */
+        PublicationMode: "IMMEDIATE" | "ONE_SHOT_DEFERRED" | "RECURRING" | "EVENT_TRIGGERED";
         /** PurgeRequest */
         PurgeRequest: {
             /** Channel Ids */
@@ -2002,6 +2304,34 @@ export interface components {
             hub_language_profile_id?: string | null;
             topology: components["schemas"]["TranslationGroupTopology"];
         };
+        /** ScheduleCreateInput */
+        ScheduleCreateInput: {
+            /**
+             * Catch Up Bound
+             * @default 1
+             */
+            catch_up_bound: number;
+            /** @default EARLIEST */
+            dst_ambiguous_policy: components["schemas"]["DstAmbiguousPolicy"];
+            /** @default SHIFT_FORWARD */
+            dst_nonexistent_policy: components["schemas"]["DstNonexistentPolicy"];
+            /** Fire At */
+            fire_at?: string | null;
+            /** @default SKIP_MISSED */
+            misfire_policy: components["schemas"]["MisfirePolicy"];
+            /** Rrule */
+            rrule?: string | null;
+            schedule_kind: components["schemas"]["ScheduleKind"];
+            /** Starts At */
+            starts_at?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
+        /**
+         * ScheduleKind
+         * @enum {string}
+         */
+        ScheduleKind: "IMMEDIATE" | "ONE_SHOT" | "RECURRING";
         /**
          * ScopeKind
          * @enum {string}
@@ -2073,6 +2403,26 @@ export interface components {
             /** Subject Ids */
             subject_ids: string[];
         };
+        /** TargetCreateInput */
+        TargetCreateInput: {
+            /** Discord Channel Id */
+            discord_channel_id?: string | null;
+            /** Guild Id */
+            guild_id: string;
+            /** Logical Group Id */
+            logical_group_id?: string | null;
+            /** Selected Language Profile Ids */
+            selected_language_profile_ids?: string[];
+            target_kind: components["schemas"]["TargetKind"];
+            /** Translation Group Id */
+            translation_group_id?: string | null;
+            translation_publication_mode?: components["schemas"]["TranslationPublicationMode"] | null;
+        };
+        /**
+         * TargetKind
+         * @enum {string}
+         */
+        TargetKind: "CHANNEL" | "TRANSLATION_GROUP" | "LOGICAL_GROUP";
         /** TemplateApplyInput */
         TemplateApplyInput: {
             /** Mappings */
@@ -2114,6 +2464,47 @@ export interface components {
          * @enum {string}
          */
         TranslationGroupTopology: "HUB_AND_SPOKE" | "FULL_MESH" | "CUSTOM";
+        /**
+         * TranslationPublicationMode
+         * @description WP12: how a Translation Group destination is published to.
+         *
+         *     Never inferred -- the campaign author must pick one explicitly whenever
+         *     ``target_kind`` is ``TRANSLATION_GROUP``.
+         * @enum {string}
+         */
+        TranslationPublicationMode: "SOURCE_ONLY" | "EXISTING_PROVIDER" | "DID_TRANSLATED_FANOUT" | "SELECTED_LANGUAGES";
+        /** TriggerCreateInput */
+        TriggerCreateInput: {
+            /** Condition Ast */
+            condition_ast: {
+                [key: string]: unknown;
+            };
+            /** Event Type */
+            event_type: string;
+            /**
+             * Max Causation Depth
+             * @default 8
+             */
+            max_causation_depth: number;
+            /**
+             * Requires Message Content
+             * @default false
+             */
+            requires_message_content: boolean;
+        };
+        /** TriggerSourceCreateInput */
+        TriggerSourceCreateInput: {
+            /** Discord Resource Id */
+            discord_resource_id?: string | null;
+            /** Guild Id */
+            guild_id: string;
+            source_scope_kind: components["schemas"]["TriggerSourceScopeKind"];
+        };
+        /**
+         * TriggerSourceScopeKind
+         * @enum {string}
+         */
+        TriggerSourceScopeKind: "GUILD" | "CHANNEL" | "CATEGORY";
         /** UserAccessUpdate */
         UserAccessUpdate: {
             /** Discord User Id */
@@ -2140,6 +2531,13 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VariantApprovalInput */
+        VariantApprovalInput: {
+            /** Localized Message Model */
+            localized_message_model: {
+                [key: string]: unknown;
+            };
         };
         /** VariantLinkInput */
         VariantLinkInput: {
@@ -2298,6 +2696,605 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_campaigns_api_v1_campaigns_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    create_campaign_api_v1_campaigns_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_api_v1_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_campaign_api_v1_campaigns__campaign_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_campaign_api_v1_campaigns__campaign_id__activate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_campaign_api_v1_campaigns__campaign_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deliveries_api_v1_campaigns__campaign_id__deliveries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_campaign_api_v1_campaigns__campaign_id__pause_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_campaign_api_v1_campaigns__campaign_id__resume_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_schedule_api_v1_campaigns__campaign_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_api_v1_campaigns__campaign_id__simulate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_targets_api_v1_campaigns__campaign_id__targets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_target_api_v1_campaigns__campaign_id__targets_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TargetCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trigger_api_v1_campaigns__campaign_id__triggers_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerSourceCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_variant_api_v1_campaigns__campaign_id__variants__language_code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                language_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_variant_endpoint_api_v1_campaigns__campaign_id__variants__language_code__approve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                language_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantApprovalInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     guilds_api_v1_guilds_get: {
         parameters: {
             query?: never;
