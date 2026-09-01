@@ -1173,6 +1173,43 @@ class CampaignsRepository:
             )
         return cast(CursorResult[Any], result).rowcount == 1
 
+    async def list_candidate_triggers_for_event(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        *,
+        guild_id: int,
+        event_type: str,
+    ) -> list[dict[str, Any]]:
+        """System/runtime-only read: every trigger bound to ``guild_id``
+        whose own ``event_type`` matches. Triggers are owner-scoped, not
+        Guild-scoped, but their source bindings are Guild-scoped -- there is
+        no single RLS context that can see both at once, so (mirroring
+        :meth:`list_targets_for_campaign`'s identical system-process
+        exception) this runs on the admin session factory, joining the two
+        directly rather than trusting a caller-supplied owner id. The real
+        event_type match still happens again inside
+        did.campaigns.causality.should_trigger via
+        TriggerEvaluationContext.event_type -- this is a coarse pre-filter
+        to avoid loading every trigger bound to a Guild for every event,
+        never the sole authorization gate."""
+        async with admin_factory() as session, session.begin():
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT DISTINCT t.* FROM message_campaign_triggers t "
+                            "JOIN message_campaign_trigger_sources s "
+                            "ON s.trigger_id = t.id "
+                            "WHERE s.guild_id = :guild_id AND t.event_type = :event_type"
+                        ),
+                        {"guild_id": guild_id, "event_type": event_type},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def load_trigger_sources(
         self, guild_id: int, trigger_id: UUID
     ) -> Sequence[dict[str, Any]]:

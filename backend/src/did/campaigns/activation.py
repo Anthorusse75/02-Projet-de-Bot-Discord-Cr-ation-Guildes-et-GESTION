@@ -28,6 +28,7 @@ idempotent per destination, not just per occurrence.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
@@ -121,9 +122,20 @@ def _delivery_key(occurrence: MessageOccurrence, target_id: UUID, dest: Resolved
     silently collapse them onto the same delivery_key and drop every
     destination but the first (a real defect this module's own tests found
     the moment a multi-channel-per-target kind was added).
+
+    Hashed rather than concatenated raw: ``message_deliveries.delivery_key``
+    is only ``VARCHAR(128)``, and an event-triggered occurrence's own key
+    (``trigger:{trigger_id}:event:{event_id}``, two UUIDs) already leaves
+    little headroom -- a second real defect this module's own tests found,
+    this time from event-triggered fan-out specifically (schedule-driven
+    occurrence keys happened to stay just short enough to mask it). A
+    stable sha256 hex digest is fixed-length (64 chars) regardless of how
+    long any component grows, and remains exactly as deterministic and
+    collision-resistant as the raw concatenation it replaces.
     """
     language_component = str(dest.language_profile_id) if dest.language_profile_id else "source"
-    return f"{occurrence.occurrence_key}:{target_id}:{dest.discord_channel_id}:{language_component}"
+    raw = f"{occurrence.occurrence_key}:{target_id}:{dest.discord_channel_id}:{language_component}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 async def fan_out_occurrence(

@@ -1947,6 +1947,7 @@ class RuntimeRepository:
             "runtime_outbox_guilds",
             "runtime_reconcile_guilds",
             "runtime_campaign_delivery_guilds",
+            "runtime_campaign_event_guilds",
         }:
             raise ValueError("runtime routing function is not allowlisted")
         if not 1 <= limit <= 1000:
@@ -1959,6 +1960,9 @@ class RuntimeRepository:
             ),
             "runtime_campaign_delivery_guilds": text(
                 "SELECT guild_id FROM app.runtime_campaign_delivery_guilds(:limit)"
+            ),
+            "runtime_campaign_event_guilds": text(
+                "SELECT guild_id FROM app.runtime_campaign_event_guilds(:limit)"
             ),
         }
         async with tenant_transaction(self._factory, None) as session:
@@ -1987,6 +1991,85 @@ class RuntimeRepository:
         durable job is enqueued, regardless of whether that job has been
         leased/executed yet."""
         return await self._runtime_guild_ids("runtime_campaign_delivery_guilds", limit=limit)
+
+    async def runtime_campaign_event_guilds(self, *, limit: int = 256) -> list[int]:
+        """Guilds with at least one campaign trigger source AND a
+        discord_gateway_inbox event newer than
+        message_campaign_event_cursor's durable per-Guild cursor
+        (0028_stage_09's SECURITY DEFINER function) -- the discovery half
+        of the real Stage03 event transport for event-triggered campaigns."""
+        return await self._runtime_guild_ids("runtime_campaign_event_guilds", limit=limit)
+
+    async def claim_new_campaign_events(
+        self, guild_id: int, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Read-only: every discord_gateway_inbox row for ``guild_id``
+        strictly after the durable campaign-event cursor, oldest first.
+        Does not itself advance the cursor -- see
+        :meth:`advance_campaign_event_cursor`, called only after the caller
+        has durably recorded consumption of every row in this batch (via
+        did.campaigns.event_consumer's own trigger/event dedup), so a crash
+        mid-batch simply replays it next tick rather than skipping events."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("campaign event batch limit must be between 1 and 1000")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            cursor = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT last_event_received_at, last_event_id "
+                            "FROM message_campaign_event_cursor WHERE guild_id=:guild_id"
+                        ),
+                        {"guild_id": guild_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if cursor is None or cursor["last_event_received_at"] is None:
+                rows = await session.execute(
+                    text(
+                        "SELECT * FROM discord_gateway_inbox WHERE guild_id=:guild_id "
+                        "ORDER BY received_at, event_id LIMIT :limit"
+                    ),
+                    {"guild_id": guild_id, "limit": limit},
+                )
+            else:
+                rows = await session.execute(
+                    text(
+                        "SELECT * FROM discord_gateway_inbox WHERE guild_id=:guild_id "
+                        "AND (received_at, event_id) > (:last_received_at, :last_event_id) "
+                        "ORDER BY received_at, event_id LIMIT :limit"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "last_received_at": cursor["last_event_received_at"],
+                        "last_event_id": cursor["last_event_id"],
+                        "limit": limit,
+                    },
+                )
+        return [dict(row) for row in rows.mappings().all()]
+
+    async def advance_campaign_event_cursor(
+        self, guild_id: int, *, last_event_id: UUID, last_event_received_at: datetime
+    ) -> None:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO message_campaign_event_cursor "
+                    "(guild_id, last_event_id, last_event_received_at, updated_at) "
+                    "VALUES (:guild_id, :event_id, :received_at, now()) "
+                    "ON CONFLICT (guild_id) DO UPDATE SET "
+                    "last_event_id=EXCLUDED.last_event_id, "
+                    "last_event_received_at=EXCLUDED.last_event_received_at, "
+                    "updated_at=now()"
+                ),
+                {
+                    "guild_id": guild_id,
+                    "event_id": last_event_id,
+                    "received_at": last_event_received_at,
+                },
+            )
 
     async def reconcile_signals(self, guild_id: int, *, rate_limit_pressure: float) -> Any:
         from did.application.reconciliation.scheduler import ReconcileSignals

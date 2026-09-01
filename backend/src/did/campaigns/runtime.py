@@ -121,7 +121,8 @@ class CampaignSchedulerRuntime:
         )
 
     async def tick(self, now: datetime) -> int:
-        """One scheduling cycle: claim+expand due schedules, then route any
+        """One scheduling cycle: claim+expand due schedules, consume any new
+        Stage03 events for event-triggered campaigns, then route any
         newly-created (or previously stranded) PENDING deliveries to durable
         discord_io_jobs. Returns the number of deliveries routed this
         tick."""
@@ -141,12 +142,33 @@ class CampaignSchedulerRuntime:
                 fields={"schedule_id": str(error.schedule_id), "reason": error.reason},
             )
 
+        for guild_id in await self._runtime_repository.runtime_campaign_event_guilds(
+            limit=self._routing_limit
+        ):
+            await self._consume_events(guild_id)
+
         routed = 0
         for guild_id in await self._runtime_repository.runtime_campaign_delivery_guilds(
             limit=self._routing_limit
         ):
             routed += await self._route_deliveries(guild_id)
         return routed
+
+    async def _consume_events(self, guild_id: int) -> int:
+        from did.campaigns.event_transport import consume_new_events_for_guild
+
+        return await consume_new_events_for_guild(
+            campaigns_repository=self._campaigns_repository,
+            runtime_repository=self._runtime_repository,
+            admin_factory=self._admin_factory,
+            language_profiles=self._language_profiles,
+            translation_groups=self._translation_groups,
+            checker=self._checker,
+            translation_provider=self._translation_provider,
+            lease_owner=self._lease_owner,
+            guild_id=guild_id,
+            stage04_repository=self._stage04_repository,
+        )
 
     async def _route_deliveries(self, guild_id: int) -> int:
         from did.campaigns.dispatch import route_pending_deliveries_to_jobs
