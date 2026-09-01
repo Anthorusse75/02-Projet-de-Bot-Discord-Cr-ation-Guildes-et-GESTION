@@ -374,6 +374,99 @@ async def test_campaign_crud_ownership_idempotency_and_foreign_owner_non_disclos
             assert never_existed.json()["error"]["code"] == foreign_code
 
 
+async def test_campaign_message_model_embeds_and_components_are_validated_and_round_trip() -> None:
+    """REQ-MSG-013/mission section 9: did.messaging.message_model
+    .validate_message_model is now genuinely enforced at every API entry
+    point that accepts a message_model (create/update/owned-edit) -- not
+    merely documented as such. An over-limit or structurally invalid embed/
+    button is rejected with 422 before it is ever persisted; a valid one
+    round-trips exactly, including the technical fields (embed url/color,
+    button custom_id/url) REQ-MSG-013's translation policy protects
+    elsewhere."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register("owner-a", DiscordUser(OWNER_A, "owner-a", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        async with _client(application) as client:
+            csrf = await _login(client, "owner-a")
+
+            # A LINK-style button must not carry a custom_id -- rejected
+            # before persistence, exactly the same DiscordLimits contract
+            # did.messaging.message_model.validate_message_model enforces
+            # for a real Discord edit.
+            invalid = await client.post(
+                "/api/v1/campaigns",
+                json={
+                    **CAMPAIGN_BODY,
+                    "message_model": {
+                        "content": "Hello",
+                        "embeds": [],
+                        "action_rows": [
+                            {
+                                "buttons": [
+                                    {
+                                        "label": "Visit",
+                                        "style": "LINK",
+                                        "url": "https://example.com",
+                                        "custom_id": "not-allowed-on-link",
+                                    }
+                                ]
+                            }
+                        ],
+                    },
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "invalid-message-model"},
+            )
+            assert invalid.status_code == 422
+            assert invalid.json()["error"]["code"] == "CAMPAIGN_INPUT_INVALID"
+
+            valid = await client.post(
+                "/api/v1/campaigns",
+                json={
+                    **CAMPAIGN_BODY,
+                    "message_model": {
+                        "content": "Hello",
+                        "embeds": [
+                            {
+                                "title": "Launch",
+                                "description": "Big news",
+                                "url": "https://example.com/launch",
+                                "color": 5793266,
+                                "footer_text": "Autumn sale",
+                                "author_name": "The Team",
+                                "fields": [{"name": "Starts", "value": "Today", "inline": True}],
+                            }
+                        ],
+                        "action_rows": [
+                            {
+                                "buttons": [
+                                    {
+                                        "label": "Visit",
+                                        "style": "LINK",
+                                        "url": "https://example.com",
+                                    },
+                                    {
+                                        "label": "Confirm",
+                                        "style": "PRIMARY",
+                                        "custom_id": "confirm-launch",
+                                    },
+                                ]
+                            }
+                        ],
+                    },
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "valid-message-model"},
+            )
+            assert valid.status_code == 201
+            model = valid.json()["campaign"]["message_model"]
+            assert model["embeds"][0]["title"] == "Launch"
+            assert model["embeds"][0]["url"] == "https://example.com/launch"
+            assert model["embeds"][0]["fields"][0]["name"] == "Starts"
+            assert model["action_rows"][0]["buttons"][0]["url"] == "https://example.com"
+            assert model["action_rows"][0]["buttons"][1]["custom_id"] == "confirm-launch"
+
+
 async def test_target_creation_guild_authorization_and_resource_membership() -> None:
     await _reset()
     oauth = FakeOAuthClient()

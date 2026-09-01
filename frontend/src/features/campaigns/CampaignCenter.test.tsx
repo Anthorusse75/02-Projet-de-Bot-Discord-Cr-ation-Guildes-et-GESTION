@@ -26,7 +26,7 @@ const apiRequestMock = vi.mocked(apiRequest)
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
   return {
     id: '99999999-9999-4999-8999-999999999901', owner_discord_user_id: userId, logical_campaign_key: 'k',
-    name: 'Autumn sale', source_language_code: 'en', message_model: { content: 'Hello there', embeds: [] },
+    name: 'Autumn sale', source_language_code: 'en', message_model: { content: 'Hello there', embeds: [], action_rows: [] },
     allowed_mentions_policy: {}, publication_mode: 'IMMEDIATE', attachment_policy: 'PRESERVE_EXISTING',
     lifecycle_status: 'DRAFT', version: 1, created_at: null, updated_at: null, ...overrides,
   }
@@ -139,6 +139,37 @@ describe('STAGE 09 campaign center', () => {
     const detail = screen.getByRole('heading', { name: 'Campaign detail' }).closest('section')
     if (!detail) throw new Error('detail section missing')
     expect(within(detail).getByText('Draft')).toBeVisible()
+  })
+
+  it('authors an embed and a button as part of the campaign message model (mission section 9)', async () => {
+    mounted()
+    await screen.findByRole('heading', { name: 'Message & campaign center' })
+    fireEvent.change(screen.getByLabelText('Campaign name'), { target: { value: 'Autumn sale' } })
+    fireEvent.change(screen.getByLabelText('Message content'), { target: { value: 'Hello everyone' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add embed' }))
+    fireEvent.change(screen.getByLabelText('Embed title'), { target: { value: 'Launch' } })
+    fireEvent.change(screen.getByLabelText('Embed description'), { target: { value: 'Big news' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add field' }))
+    fireEvent.change(screen.getByLabelText('Field name'), { target: { value: 'Starts' } })
+    fireEvent.change(screen.getByLabelText('Field value'), { target: { value: 'Today' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add button row' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add button' }))
+    fireEvent.change(screen.getByLabelText('Button label'), { target: { value: 'Confirm' } })
+    fireEvent.change(screen.getByLabelText('Button custom ID'), { target: { value: 'confirm-launch' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() => expect(state.campaigns).toHaveLength(1))
+    const body = state.calls.find((call) => call.path === '/api/v1/campaigns' && call.method === 'POST')?.body as { message_model: { embeds: Array<Record<string, unknown>>; action_rows: Array<{ buttons: Array<Record<string, unknown>> }> } }
+    expect(body.message_model.embeds).toHaveLength(1)
+    const embed = body.message_model.embeds[0]
+    if (!embed) throw new Error('embed missing')
+    expect(embed).toMatchObject({ title: 'Launch', description: 'Big news' })
+    expect(embed.fields).toMatchObject([{ name: 'Starts', value: 'Today' }])
+    const button = body.message_model.action_rows[0]?.buttons[0]
+    if (!button) throw new Error('button missing')
+    expect(button).toMatchObject({ label: 'Confirm', style: 'PRIMARY', custom_id: 'confirm-launch' })
   })
 
   it('adds a real channel target resolved from the destination Guild structure, runs the preview, and activates the campaign', async () => {

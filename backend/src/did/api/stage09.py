@@ -100,7 +100,7 @@ from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
 )
-from did.messaging.message_model import MessageModel, MessageModelViolation
+from did.messaging.message_model import MessageModel, MessageModelViolation, validate_message_model
 from did.permissions.capabilities import BotCapabilityChecker
 
 router = APIRouter(tags=["stage-09-campaigns"])
@@ -500,7 +500,7 @@ async def create_campaign(
     if existing is not None:
         return {"created": False, "campaign": _campaign_response(existing)}
     try:
-        MessageModel.from_dict(body.message_model)
+        validate_message_model(MessageModel.from_dict(body.message_model))
         campaign = MessageCampaign(
             id=uuid4(),
             owner_discord_user_id=session.discord_user_id,
@@ -557,7 +557,7 @@ async def update_campaign(
     await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
     if body.message_model is not None:
         try:
-            MessageModel.from_dict(body.message_model)
+            validate_message_model(MessageModel.from_dict(body.message_model))
         except (ValueError, MessageModelViolation) as exc:
             raise ApiProblem(
                 status_code=422,
@@ -1076,7 +1076,7 @@ async def edit_owned_delivery(
     del idempotency_key
     repo, admin_factory = _require_campaigns(container)
     try:
-        MessageModel.from_dict(body.message_model)
+        validate_message_model(MessageModel.from_dict(body.message_model))
     except (ValueError, MessageModelViolation) as exc:
         raise ApiProblem(
             status_code=422,

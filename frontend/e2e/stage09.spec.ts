@@ -18,7 +18,7 @@ function freshState(): Stage09State {
   return {
     campaigns: [{
       id: CAMPAIGN_ID, owner_discord_user_id: USER, logical_campaign_key: 'k', name: 'Autumn sale', source_language_code: 'en',
-      message_model: { content: 'Hello everyone', embeds: [] }, allowed_mentions_policy: {}, publication_mode: 'IMMEDIATE',
+      message_model: { content: 'Hello everyone', embeds: [], action_rows: [] }, allowed_mentions_policy: {}, publication_mode: 'IMMEDIATE',
       attachment_policy: 'PRESERVE_EXISTING', lifecycle_status: 'DRAFT', version: 1, created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z',
     }],
     targets: [],
@@ -154,6 +154,45 @@ test('@a11y full campaign lifecycle: create, target, preview, activate, deliveri
   await page.getByLabel('Localized content').fill('Grande vente d’hiver')
   await page.getByRole('button', { name: 'Approve variant' }).click()
   await expect(page.getByText('Variant approved.')).toBeVisible()
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious','critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
+test('@a11y REQ-MSG mission section 9: an embed and a button are authored and submitted with the campaign, never submitting the form early', async ({ page }) => {
+  const state = freshState()
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await expect(page.getByRole('heading', { name: 'Message & campaign center' })).toBeVisible()
+
+  await page.getByLabel('Campaign name').fill('Product launch')
+  await page.getByLabel('Message content').fill('Big announcement')
+
+  // Every "Add..." click below happens inside the create <form> -- proves
+  // none of them are wired as a default type="submit" button that would
+  // prematurely submit the campaign before authoring is finished.
+  await page.getByRole('button', { name: 'Add embed' }).click()
+  await page.getByLabel('Embed title').fill('Launch')
+  await page.getByLabel('Embed description').fill('Big news')
+  await page.getByLabel('Embed URL').fill('https://example.com/launch')
+  await page.getByRole('button', { name: 'Add field' }).click()
+  await page.getByLabel('Field name').fill('Starts')
+  await page.getByLabel('Field value').fill('Today')
+
+  await page.getByRole('button', { name: 'Add button row' }).click()
+  await page.getByRole('button', { name: 'Add button', exact: true }).click()
+  await page.getByLabel('Button label').fill('Confirm')
+  await page.getByLabel('Button custom ID').fill('confirm-launch')
+
+  await expect(page.getByRole('heading', { name: 'Campaign detail' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Create campaign' }).click()
+  await expect(page.getByRole('heading', { name: 'Campaign detail' })).toBeVisible()
+  expect(state.campaigns).toHaveLength(2)
+  const created = state.campaigns[1] as { message_model: { embeds: Array<Record<string, unknown>>; action_rows: Array<{ buttons: Array<Record<string, unknown>> }> } }
+  expect(created.message_model.embeds[0]).toMatchObject({ title: 'Launch', description: 'Big news', url: 'https://example.com/launch' })
+  expect(created.message_model.embeds[0]?.fields).toMatchObject([{ name: 'Starts', value: 'Today' }])
+  expect(created.message_model.action_rows[0]?.buttons[0]).toMatchObject({ label: 'Confirm', style: 'PRIMARY', custom_id: 'confirm-launch' })
 
   const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
   expect(results.violations.filter((item) => ['serious','critical'].includes(item.impact ?? ''))).toEqual([])

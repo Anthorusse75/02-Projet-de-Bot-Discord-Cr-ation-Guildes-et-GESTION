@@ -5,11 +5,12 @@ import { useTranslation } from 'react-i18next'
 import { ApiError, apiRequest } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useCampaignDeliveries, useCampaignTargets, useCampaigns } from '../../api/queries'
-import type { Campaign, CampaignSchedule, CampaignSimulationReport, CampaignTargetKind, CampaignVariantPreview, LogicalGroup, PublicationMode, ScheduleKind, Structure, TranslationPublicationMode, TranslationWorkspace } from '../../api/types'
+import type { Campaign, CampaignSchedule, CampaignSimulationReport, CampaignTargetKind, CampaignVariantPreview, ComponentActionRow, Embed, LogicalGroup, PublicationMode, ScheduleKind, Structure, TranslationPublicationMode, TranslationWorkspace } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import type { MessageKey } from '../../localization/catalog'
 import { attachmentPolicyKey, blockedReasonKey, campaignErrorKey, campaignStatusKey, deliveryStatusKey, publicationModeKey, targetKindKey, translationPublicationModeKey, translationStateKey, variantOutcomeKey } from '../../localization/presentation'
 import { Badge, Button, EmptyState, ErrorState, Input, Select, Skeleton, Status, Toast } from '../../shared/components/ui'
+import { MessageModelEditor } from './MessageModelEditor'
 import './campaigns.css'
 
 const publicationModes: readonly PublicationMode[] = ['IMMEDIATE', 'ONE_SHOT_DEFERRED', 'RECURRING', 'EVENT_TRIGGERED']
@@ -38,11 +39,15 @@ export function CampaignCenter() {
   const [name, setName] = useState('')
   const [sourceLanguage, setSourceLanguage] = useState('en')
   const [messageContent, setMessageContent] = useState('')
+  const [createEmbeds, setCreateEmbeds] = useState<Embed[]>([])
+  const [createActionRows, setCreateActionRows] = useState<ComponentActionRow[]>([])
   const [publicationMode, setPublicationMode] = useState<PublicationMode>('IMMEDIATE')
   const [problemKey, setProblemKey] = useState<MessageKey | null>(null)
   const [feedbackKey, setFeedbackKey] = useState<MessageKey | null>(null)
 
   const [editContent, setEditContent] = useState('')
+  const [editEmbeds, setEditEmbeds] = useState<Embed[]>([])
+  const [editActionRows, setEditActionRows] = useState<ComponentActionRow[]>([])
   const [editAllowEveryone, setEditAllowEveryone] = useState(false)
 
   const [targetKind, setTargetKind] = useState<CampaignTargetKind>('CHANNEL')
@@ -104,6 +109,8 @@ export function CampaignCenter() {
   useEffect(() => {
     if (!selected) return
     setEditContent(selected.message_model.content)
+    setEditEmbeds(selected.message_model.embeds ?? [])
+    setEditActionRows(selected.message_model.action_rows ?? [])
     setEditAllowEveryone(Boolean(selected.allowed_mentions_policy.allow_everyone))
   }, [selectedId])
 
@@ -124,10 +131,10 @@ export function CampaignCenter() {
     try {
       const response = await apiRequest<{created:boolean;campaign:Campaign}>('/api/v1/campaigns', {
         method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
-        body: { name, source_language_code: sourceLanguage, message_model: { content: messageContent, embeds: [] }, allowed_mentions_policy: {}, publication_mode: publicationMode },
+        body: { name, source_language_code: sourceLanguage, message_model: { content: messageContent, embeds: createEmbeds, action_rows: createActionRows }, allowed_mentions_policy: {}, publication_mode: publicationMode },
       })
       setFeedbackKey('campaigns.created')
-      setName(''); setMessageContent('')
+      setName(''); setMessageContent(''); setCreateEmbeds([]); setCreateActionRows([])
       await campaigns.refetch()
       selectCampaign(response.campaign.id)
     } catch (error) { setProblemKey(errorKey(error)) }
@@ -139,7 +146,7 @@ export function CampaignCenter() {
     try {
       const response = await apiRequest<Campaign>(`/api/v1/campaigns/${selected.id}`, {
         method: 'PATCH',
-        body: { expected_version: selected.version, message_model: { content: editContent, embeds: [] }, allowed_mentions_policy: { allow_everyone: editAllowEveryone } },
+        body: { expected_version: selected.version, message_model: { content: editContent, embeds: editEmbeds, action_rows: editActionRows }, allowed_mentions_policy: { allow_everyone: editAllowEveryone } },
       })
       replaceCampaign(response)
       setFeedbackKey('campaigns.detail.saved')
@@ -314,6 +321,7 @@ export function CampaignCenter() {
         <Input labelKey="campaigns.name" value={name} maxLength={200} required onChange={(event) => setName(event.target.value)} />
         <Input labelKey="campaigns.sourceLanguage" value={sourceLanguage} minLength={2} maxLength={16} required onChange={(event) => setSourceLanguage(event.target.value)} />
         <label className="field" htmlFor="campaign-create-content"><span>{t('campaigns.messageContent')}</span><textarea id="campaign-create-content" value={messageContent} maxLength={2000} required onChange={(event) => setMessageContent(event.target.value)} /></label>
+        <MessageModelEditor idPrefix="campaign-create" embeds={createEmbeds} actionRows={createActionRows} onEmbedsChange={setCreateEmbeds} onActionRowsChange={setCreateActionRows} />
         <Select labelKey="campaigns.publicationMode" value={publicationMode} onChange={(event) => setPublicationMode(event.target.value as PublicationMode)}>
           {publicationModes.map((mode) => <option key={mode} value={mode}>{t(publicationModeKey(mode))}</option>)}
         </Select>
@@ -338,6 +346,7 @@ export function CampaignCenter() {
         <div><dt>{t('campaigns.sourceLanguage')}</dt><dd>{selected.source_language_code}</dd></div>
         <div><dt>{t('campaigns.attachmentPolicy')}</dt><dd>{t(attachmentPolicyKey(selected.attachment_policy))}</dd></div></dl>
       <label className="field" htmlFor="campaign-edit-content"><span>{t('campaigns.messageContent')}</span><textarea id="campaign-edit-content" value={editContent} maxLength={2000} onChange={(event) => setEditContent(event.target.value)} /></label>
+      <MessageModelEditor idPrefix="campaign-edit" embeds={editEmbeds} actionRows={editActionRows} onEmbedsChange={setEditEmbeds} onActionRowsChange={setEditActionRows} />
       <fieldset className="field"><legend>{t('campaigns.mentions')}</legend>
         <label><input type="checkbox" checked={!editAllowEveryone} onChange={() => setEditAllowEveryone(false)} /> {t('campaigns.mentions.none')}</label>
         <label><input type="checkbox" checked={editAllowEveryone} onChange={() => setEditAllowEveryone(true)} /> {t('campaigns.mentions.everyone')}</label>
