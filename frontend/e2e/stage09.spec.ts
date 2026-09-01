@@ -4,6 +4,10 @@ import { expect, test, type Page } from '@playwright/test'
 const A = '700000000000000001'; const B = '700000000000000002'; const USER = '700000000000000003'
 const CHANNEL = '700000000000000010'
 const CAMPAIGN_ID = '99999999-9999-4999-8999-999999999901'
+const LOGICAL_GROUP_ID = '99999999-9999-4999-8999-999999999910'
+const TRANSLATION_GROUP_ID = '99999999-9999-4999-8999-999999999920'
+const LANGUAGE_FR = '99999999-9999-4999-8999-999999999930'
+const LANGUAGE_DE = '99999999-9999-4999-8999-999999999931'
 
 type Stage09State = {
   campaigns: Array<Record<string, unknown>>
@@ -37,6 +41,15 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     if (path === '/api/v1/guilds') return route.fulfill({ json: { guilds: [{ guild_id: A, name: 'Alpha', owner: true, permissions: '8', installation_status: 'ACTIVE' }, { guild_id: B, name: 'Beta', owner: true, permissions: '8', installation_status: 'ACTIVE' }] } })
     if (path.endsWith('/dashboard-capabilities')) { const guild = path.split('/')[4] ?? A; const can = { outcome: 'CAN', causes: [], remediations: [] }; const user = { 'structure.read': can, 'structure.write': can, 'plans.create': can }; return route.fulfill({ json: { guild_id: guild, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: user, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: user }, bot_operations: { CREATE_CHANNEL: { ...can, operation: 'CREATE_CHANNEL', required_permissions: [] } }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }) }
     if (path.endsWith('/structure')) { const guild = path.split('/')[4] ?? A; return route.fulfill({ json: { guild_id: guild, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [], root_channels: [{ guild_id: guild, id: CHANNEL, type: 0, name: 'general', position: 0, parent_id: null, resource_kind: 'CHANNEL', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'OBSERVED' }] } }) }
+    if (path.endsWith('/logical-groups') && method === 'GET') { const guild = path.split('/')[4] ?? A; return route.fulfill({ json: { guild_id: guild, resource_kind: 'DID_LOGICAL_RESOURCE', groups: [{ id: LOGICAL_GROUP_ID, guild_id: guild, name: 'VIP channels', slug: 'vip-channels', description: null }] } }) }
+    if (path.endsWith('/translation-workspace')) {
+      const guild = path.split('/')[4] ?? A
+      const languageEn = { id: 'lang-en', guild_id: guild, code: 'en', display_name: 'English', emoji: null, enabled: true }
+      const languageFr = { id: LANGUAGE_FR, guild_id: guild, code: 'fr', display_name: 'French', emoji: null, enabled: true }
+      const languageDe = { id: LANGUAGE_DE, guild_id: guild, code: 'de', display_name: 'German', emoji: null, enabled: true }
+      const group = { id: TRANSLATION_GROUP_ID, guild_id: guild, name: 'Announcements', root_kind: 'CHANNEL_SET', routing_mode: 'HUB_AND_SPOKE', visibility_scope_id: null, source_language_profile_id: 'lang-en', provider_binding_id: null, status: 'ACTIVE', version: 1, languages: [languageEn, languageFr, languageDe], category_variants: [], channel_groups: [], channel_variants: [], routes: [] }
+      return route.fulfill({ json: { guild_id: guild, source: 'DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE', discord_rest_calls: 0, cache_coverage: { mode: 'FULL', freshness: 'FRESH', roles_complete: true, channels_complete: true, members_complete: true, state_version: 1 }, groups: [group], providers: [], visibility_bindings: [], languages: [languageEn, languageFr, languageDe], resource_language_policies: [] } })
+    }
     if (path === '/api/v1/campaigns' && method === 'GET') return route.fulfill({ json: { campaigns: state.campaigns } })
     if (path === '/api/v1/campaigns' && method === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>
@@ -53,7 +66,12 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     if (path.endsWith('/targets') && method === 'GET') return route.fulfill({ json: { targets: state.targets } })
     if (path.endsWith('/targets') && method === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>
-      const target = { id: `target-${state.targets.length + 1}`, guild_id: body.guild_id, campaign_id: path.split('/')[4], target_kind: body.target_kind, discord_channel_id: body.discord_channel_id, translation_group_id: null, translation_publication_mode: null, selected_language_profile_ids: [], logical_group_id: null }
+      const target = {
+        id: `target-${state.targets.length + 1}`, guild_id: body.guild_id, campaign_id: path.split('/')[4], target_kind: body.target_kind,
+        discord_channel_id: body.discord_channel_id ?? null, translation_group_id: body.translation_group_id ?? null,
+        translation_publication_mode: body.translation_publication_mode ?? null, selected_language_profile_ids: body.selected_language_profile_ids ?? [],
+        logical_group_id: body.logical_group_id ?? null,
+      }
       state.targets.push(target)
       return route.fulfill({ status: 201, json: { target, bot_send_preflight_ok: true } })
     }
@@ -132,6 +150,71 @@ test('pause, resume and cancel lifecycle controls call the real endpoints and re
   await page.locator('.campaign-lifecycle').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.locator('.campaign-detail').getByText('Cancelled')).toBeVisible()
   await expect(page.locator('.campaign-lifecycle').getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled()
+})
+
+test('@a11y REQ-MSG-007: CHANNEL, LOGICAL_GROUP and every TRANSLATION_GROUP publication mode can be targeted', async ({ page }) => {
+  const state = freshState()
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.getByRole('heading', { name: 'Campaign detail' })).toBeVisible()
+  await page.getByLabel('Destination server').selectOption(A)
+
+  // Select IDs are stable and unambiguous, unlike accessible names here: a
+  // native <select> nested inside its own <label> computes its accessible
+  // name from the label text PLUS its currently selected option's text
+  // (browser behavior, not a bug in this component) -- e.g. once "Target
+  // kind" has "Logical group" selected, its own computed name becomes
+  // "Target kindLogical group", which collides with the actual "Logical
+  // group" selector's name under getByLabel's substring matching. ID-based
+  // locators sidestep this entirely.
+  const logicalGroupSelect = page.locator('[id="select-campaigns.targets.logicalGroup"]')
+  const translationGroupSelect = page.locator('[id="select-campaigns.targets.translationGroup"]')
+  const translationModeSelect = page.locator('[id="select-campaigns.targets.translationMode"]')
+
+  // --- LOGICAL_GROUP: real Stage04 logical groups, never a fake dropdown.
+  await page.getByLabel('Target kind').selectOption('LOGICAL_GROUP')
+  await expect(logicalGroupSelect.locator('option', { hasText: 'VIP channels' })).toHaveCount(1)
+  await logicalGroupSelect.selectOption(LOGICAL_GROUP_ID)
+  await page.getByRole('button', { name: 'Add target' }).click()
+  await expect(page.getByText('Target added.')).toBeVisible()
+
+  // --- TRANSLATION_GROUP, each of the 4 publication modes -- real Stage08
+  // Translation Groups and Language Profiles, never hardcoded ids.
+  await page.getByLabel('Target kind').selectOption('TRANSLATION_GROUP')
+  await expect(translationGroupSelect.locator('option', { hasText: 'Announcements' })).toHaveCount(1)
+  await translationGroupSelect.selectOption(TRANSLATION_GROUP_ID)
+
+  for (const mode of ['SOURCE_ONLY', 'EXISTING_PROVIDER', 'DID_TRANSLATED_FANOUT'] as const) {
+    // A successful add resets the target-scoping selections (same as for
+    // CHANNEL/LOGICAL_GROUP) so the form is ready for the next distinct
+    // destination -- re-select the Translation Group each time to add
+    // another target against it under a different publication mode.
+    await translationGroupSelect.selectOption(TRANSLATION_GROUP_ID)
+    await translationModeSelect.selectOption(mode)
+    await page.getByRole('button', { name: 'Add target' }).click()
+    await expect(page.getByText('Target added.')).toBeVisible()
+  }
+
+  await translationGroupSelect.selectOption(TRANSLATION_GROUP_ID)
+  await translationModeSelect.selectOption('SELECTED_LANGUAGES')
+  await expect(page.getByRole('button', { name: 'Add target' })).toBeDisabled()
+  await page.getByRole('checkbox', { name: 'French' }).check()
+  await page.getByRole('checkbox', { name: 'German' }).check()
+  await expect(page.getByRole('button', { name: 'Add target' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Add target' }).click()
+  await expect(page.getByText('Target added.')).toBeVisible()
+
+  await expect(page.locator('.campaign-targets li')).toHaveCount(5)
+  expect(state.targets.map((target) => target.target_kind)).toEqual([
+    'LOGICAL_GROUP', 'TRANSLATION_GROUP', 'TRANSLATION_GROUP', 'TRANSLATION_GROUP', 'TRANSLATION_GROUP',
+  ])
+  const selectedLanguagesTarget = state.targets[4] as Record<string, unknown>
+  expect(selectedLanguagesTarget.translation_publication_mode).toBe('SELECTED_LANGUAGES')
+  expect(selectedLanguagesTarget.selected_language_profile_ids).toEqual([LANGUAGE_FR, LANGUAGE_DE])
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
 const localeHeadings = { en: 'Message & campaign center', fr: 'Centre de messages et campagnes', de: 'Nachrichten- und Kampagnenzentrale', es: 'Centro de mensajes y campañas' }

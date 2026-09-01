@@ -5,15 +5,17 @@ import { useTranslation } from 'react-i18next'
 import { ApiError, apiRequest } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { useCampaignDeliveries, useCampaignTargets, useCampaigns } from '../../api/queries'
-import type { Campaign, CampaignSchedule, CampaignSimulationReport, CampaignVariantPreview, PublicationMode, ScheduleKind, Structure } from '../../api/types'
+import type { Campaign, CampaignSchedule, CampaignSimulationReport, CampaignTargetKind, CampaignVariantPreview, LogicalGroup, PublicationMode, ScheduleKind, Structure, TranslationPublicationMode, TranslationWorkspace } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import type { MessageKey } from '../../localization/catalog'
-import { attachmentPolicyKey, blockedReasonKey, campaignErrorKey, campaignStatusKey, deliveryStatusKey, publicationModeKey, targetKindKey, translationStateKey, variantOutcomeKey } from '../../localization/presentation'
+import { attachmentPolicyKey, blockedReasonKey, campaignErrorKey, campaignStatusKey, deliveryStatusKey, publicationModeKey, targetKindKey, translationPublicationModeKey, translationStateKey, variantOutcomeKey } from '../../localization/presentation'
 import { Badge, Button, EmptyState, ErrorState, Input, Select, Skeleton, Status, Toast } from '../../shared/components/ui'
 import './campaigns.css'
 
 const publicationModes: readonly PublicationMode[] = ['IMMEDIATE', 'ONE_SHOT_DEFERRED', 'RECURRING', 'EVENT_TRIGGERED']
 const scheduledModes: readonly PublicationMode[] = ['ONE_SHOT_DEFERRED', 'RECURRING']
+const targetKinds: readonly CampaignTargetKind[] = ['CHANNEL', 'LOGICAL_GROUP', 'TRANSLATION_GROUP']
+const translationPublicationModes: readonly TranslationPublicationMode[] = ['SOURCE_ONLY', 'EXISTING_PROVIDER', 'DID_TRANSLATED_FANOUT', 'SELECTED_LANGUAGES']
 
 function errorKey(error: unknown): MessageKey {
   if (error instanceof ApiError) {
@@ -43,21 +45,40 @@ export function CampaignCenter() {
   const [editContent, setEditContent] = useState('')
   const [editAllowEveryone, setEditAllowEveryone] = useState(false)
 
+  const [targetKind, setTargetKind] = useState<CampaignTargetKind>('CHANNEL')
   const [targetGuildId, setTargetGuildId] = useState('')
   const [targetChannelId, setTargetChannelId] = useState('')
+  const [targetLogicalGroupId, setTargetLogicalGroupId] = useState('')
+  const [targetTranslationGroupId, setTargetTranslationGroupId] = useState('')
+  const [targetTranslationMode, setTargetTranslationMode] = useState<TranslationPublicationMode>('SOURCE_ONLY')
+  const [targetSelectedLanguageIds, setTargetSelectedLanguageIds] = useState<string[]>([])
   const targets = useCampaignTargets(userId, selected?.id)
   // A target may be created for any Guild the caller is authorized in, not
-  // only the Guild currently active in the shell -- so this queries the
-  // real per-Guild channel structure for whichever destination Guild is
-  // picked in the "add target" form, never a fake/static channel list.
+  // only the Guild currently active in the shell -- so these query the
+  // real per-Guild channel/logical-group/translation-group state for
+  // whichever destination Guild is picked in the "add target" form, never a
+  // fake/static list. Each is only enabled once a destination Guild AND the
+  // matching target kind are both selected -- never fired speculatively.
   const targetStructure = useQuery({
-    enabled: Boolean(targetGuildId),
+    enabled: Boolean(targetGuildId) && targetKind === 'CHANNEL',
     queryKey: ['did', userId, targetGuildId || 'none', 'campaign-target-structure'],
     queryFn: () => apiRequest<Structure>(`/api/v1/guilds/${targetGuildId}/structure`),
   })
   const targetChannels = targetStructure.data
     ? [...targetStructure.data.root_channels, ...targetStructure.data.categories.flatMap((category) => category.channels)]
     : []
+  const targetLogicalGroups = useQuery({
+    enabled: Boolean(targetGuildId) && targetKind === 'LOGICAL_GROUP',
+    queryKey: ['did', userId, targetGuildId || 'none', 'campaign-target-logical-groups'],
+    queryFn: () => apiRequest<{ groups: LogicalGroup[] }>(`/api/v1/guilds/${targetGuildId}/logical-groups`),
+  })
+  const targetTranslationWorkspace = useQuery({
+    enabled: Boolean(targetGuildId) && targetKind === 'TRANSLATION_GROUP',
+    queryKey: ['did', userId, targetGuildId || 'none', 'campaign-target-translation-workspace'],
+    queryFn: () => apiRequest<TranslationWorkspace>(`/api/v1/guilds/${targetGuildId}/translation-workspace`),
+  })
+  const targetTranslationGroups = targetTranslationWorkspace.data?.groups ?? []
+  const targetLanguageProfiles = targetTranslationWorkspace.data?.languages ?? []
 
   const [scheduleKind, setScheduleKind] = useState<ScheduleKind>('ONE_SHOT')
   const [fireAt, setFireAt] = useState('')
@@ -84,7 +105,8 @@ export function CampaignCenter() {
   function selectCampaign(id: string) {
     setSelectedId(id); setProblemKey(null); setFeedbackKey(null)
     setSimulation(null); setScheduleResult(null); setVariantPreview(null); setVariantLanguage(''); setVariantContent('')
-    setTargetGuildId(''); setTargetChannelId('')
+    setTargetKind('CHANNEL'); setTargetGuildId(''); setTargetChannelId('')
+    setTargetLogicalGroupId(''); setTargetTranslationGroupId(''); setTargetTranslationMode('SOURCE_ONLY'); setTargetSelectedLanguageIds([])
   }
 
   function replaceCampaign(campaign: Campaign) {
@@ -119,18 +141,39 @@ export function CampaignCenter() {
     } catch (error) { setProblemKey(errorKey(error)) }
   }
 
+  function targetReady(): boolean {
+    if (!targetGuildId) return false
+    if (targetKind === 'CHANNEL') return Boolean(targetChannelId)
+    if (targetKind === 'LOGICAL_GROUP') return Boolean(targetLogicalGroupId)
+    // TRANSLATION_GROUP
+    if (!targetTranslationGroupId) return false
+    if (targetTranslationMode === 'SELECTED_LANGUAGES') return targetSelectedLanguageIds.length > 0
+    return true
+  }
+
   async function addTarget() {
-    if (!selected || !targetGuildId || !targetChannelId) return
+    if (!selected || !targetReady()) return
     setProblemKey(null)
     try {
+      const body: Record<string, unknown> = { guild_id: targetGuildId, target_kind: targetKind }
+      if (targetKind === 'CHANNEL') body.discord_channel_id = targetChannelId
+      else if (targetKind === 'LOGICAL_GROUP') body.logical_group_id = targetLogicalGroupId
+      else {
+        body.translation_group_id = targetTranslationGroupId
+        body.translation_publication_mode = targetTranslationMode
+        if (targetTranslationMode === 'SELECTED_LANGUAGES') body.selected_language_profile_ids = targetSelectedLanguageIds
+      }
       await apiRequest(`/api/v1/campaigns/${selected.id}/targets`, {
-        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
-        body: { guild_id: targetGuildId, target_kind: 'CHANNEL', discord_channel_id: targetChannelId },
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body,
       })
       setFeedbackKey('campaigns.targets.added')
-      setTargetChannelId('')
+      setTargetChannelId(''); setTargetLogicalGroupId(''); setTargetTranslationGroupId(''); setTargetSelectedLanguageIds([])
       await targets.refetch()
     } catch (error) { setProblemKey(errorKey(error)) }
+  }
+
+  function toggleSelectedLanguage(id: string) {
+    setTargetSelectedLanguageIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   }
 
   async function createSchedule() {
@@ -245,20 +288,51 @@ export function CampaignCenter() {
 
       <section className="campaign-targets">
         <h3>{t('campaigns.targets')}</h3>
-        <p className="hint">{t('campaigns.targets.deferredNote')}</p>
         {targets.isLoading ? <Skeleton /> : (targets.data?.targets.length ?? 0) === 0 ? <EmptyState messageKey="campaigns.targets.empty" /> :
-          <ul>{targets.data?.targets.map((target) => <li key={target.id}><Badge>{t(targetKindKey(target.target_kind))}</Badge> {target.guild_id} / {target.discord_channel_id ?? '—'}</li>)}</ul>}
+          <ul>{targets.data?.targets.map((target) => <li key={target.id}>
+            <Badge>{t(targetKindKey(target.target_kind))}</Badge> {target.guild_id}
+            {target.target_kind === 'CHANNEL' && ` / ${target.discord_channel_id ?? '—'}`}
+            {target.target_kind === 'LOGICAL_GROUP' && ` / ${target.logical_group_id ?? '—'}`}
+            {target.target_kind === 'TRANSLATION_GROUP' && <> / {target.translation_group_id ?? '—'} <Badge>{target.translation_publication_mode ? t(translationPublicationModeKey(target.translation_publication_mode)) : '—'}</Badge></>}
+          </li>)}</ul>}
         <div className="target-form">
-          <Select labelKey="campaigns.targets.guild" value={targetGuildId} onChange={(event) => { setTargetGuildId(event.target.value); setTargetChannelId('') }}>
+          <Select labelKey="campaigns.targets.kind" value={targetKind} onChange={(event) => { setTargetKind(event.target.value as CampaignTargetKind); setTargetChannelId(''); setTargetLogicalGroupId(''); setTargetTranslationGroupId('') }}>
+            {targetKinds.map((kind) => <option key={kind} value={kind}>{t(targetKindKey(kind))}</option>)}
+          </Select>
+          <Select labelKey="campaigns.targets.guild" value={targetGuildId} onChange={(event) => { setTargetGuildId(event.target.value); setTargetChannelId(''); setTargetLogicalGroupId(''); setTargetTranslationGroupId('') }}>
             <option value="">{t('actions.target.choose')}</option>
             {guilds.map((guild) => <option key={guild.guild_id} value={guild.guild_id}>{guild.name}</option>)}
           </Select>
-          <Select labelKey="campaigns.targets.channel" value={targetChannelId} disabled={!targetGuildId} onChange={(event) => setTargetChannelId(event.target.value)}>
+
+          {targetKind === 'CHANNEL' && <Select labelKey="campaigns.targets.channel" value={targetChannelId} disabled={!targetGuildId} onChange={(event) => setTargetChannelId(event.target.value)}>
             <option value="">{t('actions.target.choose')}</option>
             {targetChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
-          </Select>
-          <Button labelKey="campaigns.targets.add" disabled={!targetGuildId || !targetChannelId} onClick={() => void addTarget()} />
+          </Select>}
+
+          {targetKind === 'LOGICAL_GROUP' && <Select labelKey="campaigns.targets.logicalGroup" value={targetLogicalGroupId} disabled={!targetGuildId} onChange={(event) => setTargetLogicalGroupId(event.target.value)}>
+            <option value="">{t('actions.target.choose')}</option>
+            {(targetLogicalGroups.data?.groups ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+          </Select>}
+
+          {targetKind === 'TRANSLATION_GROUP' && <>
+            <Select labelKey="campaigns.targets.translationGroup" value={targetTranslationGroupId} disabled={!targetGuildId} onChange={(event) => setTargetTranslationGroupId(event.target.value)}>
+              <option value="">{t('actions.target.choose')}</option>
+              {targetTranslationGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+            </Select>
+            <Select labelKey="campaigns.targets.translationMode" value={targetTranslationMode} onChange={(event) => setTargetTranslationMode(event.target.value as TranslationPublicationMode)}>
+              {translationPublicationModes.map((mode) => <option key={mode} value={mode}>{t(translationPublicationModeKey(mode))}</option>)}
+            </Select>
+          </>}
         </div>
+        {targetKind === 'TRANSLATION_GROUP' && <p className="hint">{t('campaigns.targets.translationMode.help')}</p>}
+        {targetKind === 'TRANSLATION_GROUP' && targetTranslationMode === 'SELECTED_LANGUAGES' && <fieldset className="field">
+          <legend>{t('campaigns.targets.selectedLanguages')}</legend>
+          <p className="hint">{t('campaigns.targets.selectedLanguages.help')}</p>
+          {targetLanguageProfiles.map((language) => <label key={language.id}>
+            <input type="checkbox" checked={targetSelectedLanguageIds.includes(language.id)} onChange={() => toggleSelectedLanguage(language.id)} /> {language.display_name}
+          </label>)}
+        </fieldset>}
+        <Button labelKey="campaigns.targets.add" disabled={!targetReady()} onClick={() => void addTarget()} />
       </section>
 
       <section className="campaign-schedule">

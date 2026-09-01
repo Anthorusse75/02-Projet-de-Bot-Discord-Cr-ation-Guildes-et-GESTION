@@ -80,6 +80,12 @@ const attachmentPolicies: Record<string, MessageKey> = {
 const targetKinds: Record<string, MessageKey> = {
   CHANNEL: 'campaigns.targets.kind.channel', TRANSLATION_GROUP: 'campaigns.targets.kind.translationGroup', LOGICAL_GROUP: 'campaigns.targets.kind.logicalGroup',
 }
+const translationPublicationModes: Record<string, MessageKey> = {
+  SOURCE_ONLY: 'campaigns.targets.translationMode.sourceOnly',
+  EXISTING_PROVIDER: 'campaigns.targets.translationMode.existingProvider',
+  DID_TRANSLATED_FANOUT: 'campaigns.targets.translationMode.didTranslatedFanout',
+  SELECTED_LANGUAGES: 'campaigns.targets.translationMode.selectedLanguages',
+}
 const deliveryStatuses: Record<string, MessageKey> = {
   PENDING: 'campaigns.delivery.status.pending', CLAIMED: 'campaigns.delivery.status.claimed', SENDING: 'campaigns.delivery.status.sending',
   SENT: 'campaigns.delivery.status.sent', FAILED: 'campaigns.delivery.status.failed', UNKNOWN: 'campaigns.delivery.status.unknown',
@@ -115,6 +121,8 @@ export const campaignStatusKey = (value: string): MessageKey => campaignStatuses
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'
 export const attachmentPolicyKey = (value: string): MessageKey => attachmentPolicies[value] ?? 'common.unknown'
 export const targetKindKey = (value: string): MessageKey => targetKinds[value] ?? 'common.unknown'
+export const translationPublicationModeKey = (value: string): MessageKey =>
+  translationPublicationModes[value] ?? 'common.unknown'
 export const deliveryStatusKey = (value: string): MessageKey => deliveryStatuses[value] ?? 'common.unknown'
 export const blockedReasonKey = (value: string | null): MessageKey => (value ? blockedReasons[value] ?? 'common.unknown' : 'common.unknown')
 export const translationStateKey = (value: string): MessageKey => translationStates[value] ?? 'common.unknown'
