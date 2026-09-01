@@ -1,6 +1,6 @@
 # Handoff STAGE 09 — Message & Campaign Engine, automatisations et traduction sûre
 
-> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Cinq passes cumulées : (1) fondations WP1-WP11
+> **Statut :** `STAGE_09_IMPLEMENTATION_IN_PROGRESS`. Six passes cumulées : (1) fondations WP1-WP11
 > réelles et testées, (2) remédiation externe 17 findings (§ dédiée ci-dessous), (3) root-cause de la
 > corruption d'intégrité de traduction, fencing de bail strict, autorisation à la création pour
 > targets/trigger sources, typage traduction/variables (REQ-MSG-013/018), dépendance `MESSAGE_CONTENT`
@@ -9,27 +9,34 @@
 > de finalisation honoré, classification réelle des exceptions discord.py, autorisation à la création
 > complétée (appartenance topologique réelle), corpus de benchmark étendu de 6 à 26 classes/104 items
 > avec requalification 100% réelle, et **l'orchestration WP12 réelle** (`fan_out_occurrence`,
-> `run_scheduler_tick`, `consume_event_for_trigger`, `simulate_campaign`), (5) **cette passe** —
-> **connexion au runtime réel** (`did.runtime.py` exécute désormais le Campaign Engine dans les
-> process scheduler/worker existants — le plus gros écart resté après WP12), dispatch durable de
-> livraison via un job nommé exécuté par le vrai `DurableDiscordIOWorker`, fencing de fan-out
-> d'occurrence par heartbeat de bail, correction d'une faille critique (`event_type` jamais vérifié
-> dans `should_trigger`), élimination d'un owner non fiable côté consommation d'événement, transport
-> d'événement Stage03 réel (curseur durable sur `discord_gateway_inbox`), cibles de groupe logique
-> (REQ-MSG-002), politique de rétention (REQ-MSG-019), sécurité anti double-traduction basée sur
-> l'état réel de provider Stage08 (REQ-MSG-007), identité d'approbation de variante réelle
-> (REQ-MSG-016). Reste : API (WP14, **construction en cours**), frontend (WP15), qualification live
-> complète (WP16), taggage d'ancestry sur événement Discord réellement généré côté production
-> (REQ-MSG-030 — **blocage externe documenté**, voir § dédiée). Aucune preuve n'est fabriquée : chaque
-> affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel, sandbox Discord réel)
-> ou est explicitement marquée comme non construite.
+> `run_scheduler_tick`, `consume_event_for_trigger`, `simulate_campaign`), (5) **connexion au runtime
+> réel** (`did.runtime.py` exécute désormais le Campaign Engine dans les process scheduler/worker
+> existants), dispatch durable de livraison via un job nommé exécuté par le vrai
+> `DurableDiscordIOWorker`, fencing de fan-out d'occurrence par heartbeat de bail, correction d'une
+> faille critique (`event_type` jamais vérifié dans `should_trigger`), élimination d'un owner non
+> fiable côté consommation d'événement, transport d'événement Stage03 réel, cibles de groupe logique
+> (REQ-MSG-002), politique de rétention (REQ-MSG-019), sécurité anti double-traduction (REQ-MSG-007),
+> identité d'approbation de variante réelle (REQ-MSG-016), (6) **cette passe** — **l'API HTTP Stage09
+> complète** (WP14, `did.api.stage09` : campagnes CRUD, targets, schedule, simulation,
+> activate/pause/resume/cancel n'exécutant jamais d'appel Discord direct -- prouvé par un test
+> source/import-graph ET par une activation IMMEDIATE réelle assertée contre les lignes DB -- historique
+> de livraisons, preview/approve de variantes avec principal approbateur toujours authentifié,
+> triggers/trigger-sources), promouvant REQ-MSG-016 à `IMPLEMENTED`, et **la preuve de la chaîne
+> complète du runtime réel** (`CampaignSchedulerRuntime.tick()` réel -> `DurableDiscordIOWorker
+> .run_guild_once()` réel comme une seule chaîne continue, deux schedulers concurrents sur le même
+> schedule dû, redémarrage de process en plein milieu de la chaîne), fermant l'écart des sections
+> 22/23 de la mission. Reste : frontend (WP15, **construction en cours**), qualification live complète
+> (WP16, désormais exerçable via l'API réelle), taggage d'ancestry sur événement Discord réellement
+> généré côté production (REQ-MSG-030 — **blocage externe documenté**, voir § dédiée). Aucune preuve
+> n'est fabriquée : chaque affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel,
+> sandbox Discord réel) ou est explicitement marquée comme non construite.
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-09-01` |
 | Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` — le commit de `main` à partir duquel la branche `stage/09-campaigns` a divergé ; `main` a continué d'avancer depuis (voir `git log main` pour son HEAD courant), ce champ documente uniquement le point de divergence, pas un état encore à jour de `main` |
 | Branche | `stage/09-campaigns` |
-| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, cinquième passe intégrée, CI push+PR verte sur `bfa5706fef4742c7038d78168108cc01d5edf2f2`) |
+| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, sixième passe intégrée) |
 | Migration | `0021_stage_08 → 0028_stage_09` ; tête unique `0028_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
 | Dernière étape intégrée | `STAGE_08_MULTILINGUAL_CONTENT_AND_TRANSLATION_TOPOLOGY` (`stage-08-complete`, inchangée) |
 
@@ -303,6 +310,74 @@ plusieurs failles de fencing/sécurité découvertes en le fermant.
    `CampaignGuildAuthorizationChecker.logical_group_belongs_to_guild` + la branche manquante, avec 3
    tests dédiés (attache autorisée, groupe logique cross-Guild rejeté, id inconnu rejeté).
 
+## Sixième passe — API HTTP Stage09 complète (WP14) et preuve de la chaîne runtime complète
+
+La cinquième passe avait connecté le Campaign Engine au runtime réel, mais aucune surface HTTP
+n'existait encore pour le piloter, et aucun test n'exerçait la chaîne complète du runtime à travers
+ses vrais points d'entrée composés (chaque étage n'était prouvé qu'isolément). Cette passe ferme les
+deux.
+
+1. **API HTTP Stage09 complète (WP14)** : `did.api.stage09` — routeur mince au-dessus de la couche
+   métier `did.campaigns.*` déjà testée, suivant exactement la convention `did.api.stage08` : chaque
+   POST/PATCH mutant exige `CsrfSessionDep` + `Idempotency-Key`, chaque corps de requête est
+   `extra="forbid"` sans aucun champ d'identité owner/approbateur qu'un client pourrait fournir, et une
+   campagne/trigger étrangère ou inexistante renvoie systématiquement la même forme générique 404 via
+   deux nouveaux handlers d'exception globaux (`CampaignNotOwnedByCaller`/`ForeignOrUnknownResourceError`)
+   — jamais un split 403/404 qui divulguerait l'existence. Couvre : campagnes CRUD (création idempotente
+   avec rejeu par `Idempotency-Key`, PATCH DRAFT-only en CAS de version), targets
+   (CHANNEL/LOGICAL_GROUP/TRANSLATION_GROUP via `create_authorized_campaign_target`), schedule
+   (validation RRULE anticipée avant persistance), simulation (expose `delivery_executable` comme son
+   propre champ, jamais fondu dans `ready`), activate/pause/resume/cancel, historique de livraisons,
+   preview/approve de variantes (`approving_discord_user_id` toujours la session authentifiée —
+   `VariantApprovalInput` n'a même pas ce champ, une tentative de le fournir échoue à la validation
+   Pydantic avant que le handler ne s'exécute), triggers/trigger-sources.
+2. **Activation volontairement étroite (contrainte critique de la mission)** : l'activation ne fait que
+   transitionner l'état de cycle de vie et, pour une campagne IMMEDIATE, appeler `fan_out_occurrence`
+   (ne crée jamais que des lignes `message_deliveries`) et `route_pending_deliveries_to_jobs` (n'enfile
+   jamais que des lignes durables `discord_io_jobs`) — jamais un appel Discord direct depuis l'API.
+   Prouvé par deux moyens indépendants : `test_stage09_api_router_never_sends.py` (le texte source du
+   module ne mentionne jamais l'adaptateur d'envoi, aucune instruction d'import ne le nomme, et
+   l'importer ne le charge jamais dans `sys.modules`) et une activation IMMEDIATE réelle dans
+   `test_stage09_api_postgres.py` assertée directement contre les lignes DB (`message_occurrences`
+   FANNED_OUT, `message_deliveries` PENDING sans `discord_message_id`, `discord_io_jobs`
+   `SEND_CAMPAIGN_MESSAGE`) — jamais seulement la réponse HTTP.
+3. **REQ-MSG-016 promu à `IMPLEMENTED`** : l'exigence ne nomme aucune UI dans son texte ; l'API réelle
+   fournit désormais preview/édition/approbation avec identité toujours authentifiée, bout-en-bout.
+4. **Gaps de repository comblés en construisant l'API** : `CampaignsRepository` n'avait aucun moyen de
+   persister une transition de cycle de vie ou une édition DRAFT — `update_campaign_lifecycle_status`
+   (CAS sur `version`), `update_campaign_draft_fields` (CAS + fencé par `lifecycle_status='DRAFT'` dans
+   la clause WHERE elle-même, jamais seulement vérifié avant l'écriture), `get_campaign_by_key`
+   (rejeu idempotent), `list_deliveries_for_campaign` (lecture système admin-scoped, appartenance
+   vérifiée dans la jointure de la requête, jamais fait confiance à l'appelant) ont été ajoutés.
+   **Bug réel révélé en construisant l'endpoint d'activation** : rien dans le code ne mettait en
+   œuvre "IMMEDIATE se déclenche directement à l'activation" — seul un message de refus dans
+   `scheduling.evaluate_schedule` disait que cela devrait être le cas. Implémenté dans le endpoint
+   `activate` avec les mêmes primitives que le scheduler d'arrière-plan.
+5. **Preuve de la chaîne complète du runtime réel (sections 22/23 de la mission)** : chaque test de
+   sécurité de bail précédent (fan-out, dispatch durable, worker de livraison) ne prouvait qu'un étage
+   isolément. `test_stage09_runtime_chain_postgres.py` (nouveau, 3 tests PostgreSQL réels) prouve
+   désormais `did.campaigns.runtime.CampaignSchedulerRuntime.tick()` — le vrai point d'entrée composé,
+   pas un callback factice — suivi de `did.worker.io.DurableDiscordIOWorker.run_guild_once()` comme une
+   seule chaîne continue (schedule dû → occurrence → fan-out → livraison → job durable → worker → envoi
+   → finalisation) : (a) la séquence complète produit exactement un envoi pour une occurrence due, et un
+   second tick ne redéclenche jamais le schedule déjà consommé ; (b) deux instances
+   `CampaignSchedulerRuntime` indépendantes (simulant deux répliques de scheduler) qui tick concurremment
+   sur le même schedule dû ne produisent jamais qu'une seule occurrence/livraison/job — la composition
+   de fencing tient au niveau du vrai point d'entrée, pas seulement de la primitive `claim_due_schedules`
+   isolée ; (c) un redémarrage complet de process en plein milieu de la chaîne — l'instance qui a mis le
+   travail en file est abandonnée, une instance runtime + worker entièrement neuve (aucun état en
+   mémoire partagé) termine le travail — prouvant que la durabilité ne dépend que de la base de données,
+   jamais d'une instance de process survivante.
+6. **Scope honnêtement différé (pas des omissions dissimulées)** : `/simulate` et l'activation IMMEDIATE
+   passent `translation_provider=None` plutôt que de démarrer un vrai provider de traduction de façon
+   synchrone dans une requête HTTP (appels réseau, latence, flakiness de test) — une destination
+   nécessitant réellement une traduction sans variante approuvée rapportera
+   `MISSING_NO_PROVIDER_CONFIGURED`/un échec de rendu même si un vrai provider existe ailleurs dans le
+   système (le scheduler d'arrière-plan, lui, en câble un réel) ; seule la création de campagne dispose
+   d'un registre de rejeu idempotent complet par `Idempotency-Key` — les autres endpoints mutants exigent
+   l'en-tête sans registre de déduplication dédié (sûr au retry via les transitions CAS propres au
+   domaine, mais pas une implémentation d'idempotence complète).
+
 ## Ce qui est construit et prouvé
 
 ### WP1 — Schéma / domaine
@@ -554,25 +629,25 @@ corpus plus étroit — les deux chiffres ne sont pas directement comparables, c
 distribution de contenu différente) — attendu, sans effet sur l'exigence, que la stratégie de
 production satisfait maintenant exactement sur le corpus normatif actuel.
 
-## Suite de tests réelle (exécutée après cette cinquième passe)
+## Suite de tests réelle (exécutée après cette sixième passe)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest backend/tests/unit/` (régression complète) | **731 passed** |
-| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **207 passed** |
+| `uv run pytest backend/tests/unit/` (régression complète) | **734 passed** |
+| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **213 passed** |
 | `uv run ruff check .` (tout le dépôt) | PASS, 0 finding |
 | `uv run ruff format --check .` | PASS |
-| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 157 fichiers |
-| `uv run python scripts/check_secrets.py` | PASS, 428 fichiers vérifiés |
+| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 158 fichiers |
+| `uv run python scripts/check_secrets.py` | PASS, 432 fichiers vérifiés |
 | `uv run python scripts/validate_documentation.py` | PASS — Stages 11, Source REQ 246, Traced REQ 246, ADR expected 35 |
-| CI GitHub Actions (push + pull_request) sur `bfa5706fef4742c7038d78168108cc01d5edf2f2` | PASS, les deux déclencheurs |
+| CI GitHub Actions (push + pull_request), chaque commit de cette passe | PASS, les deux déclencheurs, à chaque commit |
 
 Le corpus de benchmark de traduction (26 classes/104 items, 1 950 appels réels, intégrité 100%,
 stratégie de production, 0 erreur) n'a pas été rejoué cette passe faute de modification du pipeline de
 traduction/masquage lui-même ; voir la quatrième passe pour le détail complet et
 `docs/90_handoffs/evidence/stage09/translation-benchmark.json` pour la preuve committée. Ces profils
 `validate_stage.py` n'ont pas été relancés dans leur intégralité (Docker/migrations/build frontend)
-durant cette cinquième passe faute de régression attendue dans leur périmètre propre ; la régression
+durant cette sixième passe faute de régression attendue dans leur périmètre propre ; la régression
 réelle du code qu'ils couvrent est prouvée par les lignes ci-dessus (pytest direct, ruff, mypy, doc
 validation, secret scan, CI réelle).
 
@@ -585,16 +660,16 @@ possédé, delete possédé, dédup même nonce, nonce différent crée un messa
 committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans
 `--include`, comme tous les autres validateurs live du dépôt. La matrice complète (Guild A/B,
 scheduler, Translation Groups, quatre langues, provider externe présent/absent) **n'a toujours pas
-été exécutée** — l'orchestration bout-en-bout (WP12) existe désormais et est prouvée sur PostgreSQL,
-mais l'exercer authentiquement bout-en-bout via la matrice complète nécessite encore l'API/frontend
-(WP14/15), qui n'existent pas.
+été exécutée** — l'orchestration bout-en-bout (WP12), le runtime réel (WP20/21) et l'API HTTP (WP14)
+existent désormais et sont prouvés sur PostgreSQL, mais l'exercer authentiquement bout-en-bout via la
+matrice complète nécessite encore le frontend (WP15), qui n'existe pas.
 
 ## Écarts connus (non dissimulés)
 
-1. **WP14 (API)** : aucun router FastAPI Stage09 n'existait avant cette passe ; construction en
-   cours (voir le champ Statut en tête de document pour l'état exact à la date indiquée).
-2. **WP15 (Frontend)** : aucune UI Stage09.
-3. **Taggage d'ancestry sur événement Discord réellement généré côté production (REQ-MSG-030) —
+1. **WP15 (Frontend)** : aucune UI Stage09 n'existait avant cette passe ; construction en cours
+   (voir le champ Statut en tête de document pour l'état exact à la date indiquée). L'API HTTP
+   complète (WP14) existe désormais (voir « Sixième passe » ci-dessus).
+2. **Taggage d'ancestry sur événement Discord réellement généré côté production (REQ-MSG-030) —
    BLOCAGE EXTERNE, PAS UN ÉCART DE CODE** : la garde anti-boucle côté consommation est désormais
    réelle et branchée sur le vrai transport Stage03 (voir « Cinquième passe » ci-dessus). Ce qui
    reste manquant est de tagger `did_campaign_ancestry` sur l'événement gateway résultant d'un envoi
@@ -612,14 +687,15 @@ mais l'exercer authentiquement bout-en-bout via la matrice complète nécessite 
    externes ordinaires continuent de fonctionner correctement et les boucles cross-owner/cross-Guild/
    auto-déclenchement restent entièrement bloquées côté consommation ; seul l'auto-déclenchement d'une
    campagne sur son propre message envoyé ne peut pas encore être tagué à la source.
-4. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (bloquée
-   par l'absence d'API/frontend pour l'exercer authentiquement via le vrai chemin produit).
-5. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
+3. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (bloquée
+   par l'absence de frontend pour l'exercer authentiquement via le vrai chemin produit -- l'API réelle,
+   elle, existe désormais).
+4. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
    fabriqué. À marquer `PENDING_HUMAN_REVIEW` si/quand une rubrique est requise — dimension séparée
    de l'intégrité technique, qui elle est mesurée machine à 100%.
-6. **REQ-MSG-007/016** : UI de sélection explicite des 4 modes de publication et de review/approbation
-   de variantes non construite (le backend/la sécurité sous-jacente sont désormais réels — voir
-   « Cinquième passe » — mais REQ-MSG-007/016 restent des exigences produit/UI, pas seulement backend).
+5. **REQ-MSG-007** : l'exigence nomme explicitement une UI de sélection explicite des 4 modes de
+   publication ("l'UI propose explicitement...") ; le backend/la sécurité sous-jacente sont réels
+   (voir « Cinquième passe ») mais la seule UI reste absente.
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
 31 IDs et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` pour la preuve fichier:ligne de
