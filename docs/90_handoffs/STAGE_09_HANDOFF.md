@@ -468,9 +468,10 @@ REQ-MSG-001..031.
    `decide_unknown_outcome_recovery`) s'est avéré être une fonction complète et testée mais **jamais
    appelée par aucun process réel** — exactement le même type d'écart que `with_campaign_ancestry`
    avant cette passe. Documenté explicitement dans les écarts connus plutôt que dissimulé ou fermé à
-   la hâte sans preuve réelle.
+   la hâte sans preuve réelle. **Fermé la passe suivante — voir item 4 de la section « Huitième
+   passe » ci-dessous.**
 
-### Huitième passe — deux bugs réels corrigés dans la production-side REQ-MSG-030, contrat MESSAGE_CONTENT rendu cohérent
+### Huitième passe — deux bugs réels corrigés dans la production-side REQ-MSG-030, contrat MESSAGE_CONTENT rendu cohérent, réconciliation câblée dans le runtime réel
 
 Un audit externe de la septième passe a trouvé deux bugs réels dans le mécanisme d'ancestry
 producing-side ci-dessus (items 4-5) — **corrections apportées, items 2 et 5 ci-dessus sont
@@ -515,6 +516,22 @@ partiellement obsolètes, voir ci-dessous** :
    (`test_trigger_creation_message_content_dependency_is_blocked`, HTTP réel, 422 + zéro ligne
    persistée + un trigger sans la dépendance passe normalement) + assertion étendue sur la réponse de
    simulation existante.
+4. **Écart de la septième passe fermé : réconciliation de livraison câblée dans le runtime réel
+   (REQ-MSG-029)** : `did.campaigns.delivery_worker.reconcile_one_stalled_delivery` était complet et
+   testé mais jamais appelé par aucun process réel (item 8 ci-dessus). Migration `0030_stage_09` ajoute
+   `app.runtime_campaign_reconciliation_guilds` (fonction SECURITY DEFINER, même schéma que
+   `runtime_campaign_delivery_guilds` de `0026_stage_09` : découvre les Guilds avec une livraison
+   `SENDING` bloquée au-delà de `STALLED_SENDING_THRESHOLD_SECONDS` ou `UNKNOWN`). Nouvelle classe
+   `did.campaigns.reconciliation_runtime.CampaignDeliveryReconciliationRuntime` (boucle bornée, même
+   convention que `CampaignSchedulerRuntime` : une tick ratée n'arrête jamais le process, la suivante
+   reprend le travail durable restant), câblée dans `did.runtime.py`'s process `worker` aux côtés du
+   `DurableDiscordIOWorker` existant (`asyncio.gather` des deux boucles sous une seule tâche de fond),
+   intervalle `discord_worker_recovery_seconds` réutilisé comme suggéré par la mission. 5 nouveaux
+   tests PostgreSQL réels (`test_stage09_reconciliation_runtime_postgres.py`) prouvent : découverte
+   (un Guild avec seulement une livraison PENDING n'est jamais découvert ; un Guild avec une livraison
+   UNKNOWN l'est), `tick()` résout réellement la livraison et le Guild sort de la découverte ensuite,
+   plusieurs Guilds réconciliés dans un seul tick, et la vraie boucle `run()` (pas seulement `tick()`)
+   s'arrête proprement sur `stop_event` après avoir réconcilié.
 
 ## Ce qui est construit et prouvé
 

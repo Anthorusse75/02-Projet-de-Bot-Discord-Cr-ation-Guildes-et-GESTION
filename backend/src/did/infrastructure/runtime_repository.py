@@ -1948,6 +1948,7 @@ class RuntimeRepository:
             "runtime_reconcile_guilds",
             "runtime_campaign_delivery_guilds",
             "runtime_campaign_event_guilds",
+            "runtime_campaign_reconciliation_guilds",
         }:
             raise ValueError("runtime routing function is not allowlisted")
         if not 1 <= limit <= 1000:
@@ -1963,6 +1964,9 @@ class RuntimeRepository:
             ),
             "runtime_campaign_event_guilds": text(
                 "SELECT guild_id FROM app.runtime_campaign_event_guilds(:limit)"
+            ),
+            "runtime_campaign_reconciliation_guilds": text(
+                "SELECT guild_id FROM app.runtime_campaign_reconciliation_guilds(:limit)"
             ),
         }
         async with tenant_transaction(self._factory, None) as session:
@@ -1999,6 +2003,19 @@ class RuntimeRepository:
         (0028_stage_09's SECURITY DEFINER function) -- the discovery half
         of the real Stage03 event transport for event-triggered campaigns."""
         return await self._runtime_guild_ids("runtime_campaign_event_guilds", limit=limit)
+
+    async def runtime_campaign_reconciliation_guilds(self, *, limit: int = 256) -> list[int]:
+        """Guilds with a ``message_deliveries`` row genuinely ready for
+        ``did.campaigns.delivery_worker.reconcile_one_stalled_delivery``: a
+        ``SENDING`` row stalled well past ``STALLED_SENDING_THRESHOLD_SECONDS``
+        (a worker crashed before it could even reach ``finalize_delivery``),
+        or an ``UNKNOWN`` row (the worker itself caught the ambiguous send
+        and already finalized -- no stall requirement, no live worker to
+        race with). A Guild drops out of this list the instant
+        reconciliation resolves its last such row -- 0030_stage_09's
+        SECURITY DEFINER function, the same discovery pattern as
+        :meth:`runtime_campaign_delivery_guilds`."""
+        return await self._runtime_guild_ids("runtime_campaign_reconciliation_guilds", limit=limit)
 
     async def claim_new_campaign_events(
         self, guild_id: int, *, limit: int = 100

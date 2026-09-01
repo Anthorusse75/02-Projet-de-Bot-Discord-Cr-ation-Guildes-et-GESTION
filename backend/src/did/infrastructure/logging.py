@@ -44,6 +44,7 @@ class EventId(StrEnum):
     STAGE08_POST_VERIFICATION_FAILED = "stage08.post_verification.failed"
     CAMPAIGN_SCHEDULE_EVALUATION_FAILED = "campaign.schedule.evaluation_failed"
     CAMPAIGN_SCHEDULER_TICK_FAILED = "campaign.scheduler.tick_failed"
+    CAMPAIGN_RECONCILIATION_TICK_FAILED = "campaign.reconciliation.tick_failed"
     #: REQ-MSG-030 fail-closed path: a MESSAGE_CREATE confirmed to be
     #: authored by DID's own bot identity could not be correlated to any
     #: SENT delivery within BOT_MESSAGE_CORRELATION_GRACE_SECONDS. The

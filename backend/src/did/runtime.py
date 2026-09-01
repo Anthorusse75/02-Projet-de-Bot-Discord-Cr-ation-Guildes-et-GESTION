@@ -19,6 +19,7 @@ from did.application.translation.lifecycle import Stage08PostVerificationMateria
 from did.bot.gateway import DiscordGatewayClient
 from did.campaigns.authorization import CampaignGuildAuthorizationChecker
 from did.campaigns.dispatch import CampaignDeliveryExecutor
+from did.campaigns.reconciliation_runtime import CampaignDeliveryReconciliationRuntime
 from did.campaigns.runtime import CampaignSchedulerRuntime
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.campaigns_repository import CampaignsRepository
@@ -168,6 +169,8 @@ async def run_process(
                     planning_repository,
                     Stage04Repository(session_factory),
                 )
+                campaigns_repository = CampaignsRepository(session_factory)
+                message_sender = DiscordPyMessageSender(rest_client)
                 worker = DurableDiscordIOWorker(
                     repository,
                     sync,
@@ -188,8 +191,8 @@ async def run_process(
                         ),
                     ),
                     campaign_delivery_executor=CampaignDeliveryExecutor(
-                        CampaignsRepository(session_factory),
-                        DiscordPyMessageSender(rest_client),
+                        campaigns_repository,
+                        message_sender,
                         worker_id=worker_id,
                     ),
                 )
@@ -211,8 +214,26 @@ async def run_process(
                     routing_batch_size=settings.discord_runtime_routing_batch_size,
                     dispatch_batch_size=settings.discord_worker_dispatch_batch_size,
                 )
+                # REQ-MSG-029: the same worker process also drains stalled/
+                # ambiguous campaign deliveries (reconcile_one_stalled_delivery
+                # was previously a complete, tested primitive nothing ever
+                # called) -- runs alongside the durable job worker loop above
+                # rather than as a separate, uncoordinated process type.
+                reconciliation_runtime = CampaignDeliveryReconciliationRuntime(
+                    campaigns_repository=campaigns_repository,
+                    runtime_repository=repository,
+                    sender=message_sender,
+                    lease_owner=worker_id,
+                    poll_interval_seconds=settings.discord_worker_recovery_seconds,
+                )
+
+                async def run_worker_and_reconciler() -> None:
+                    await asyncio.gather(
+                        runtime.run(stop_event), reconciliation_runtime.run(stop_event)
+                    )
+
                 background_task = asyncio.create_task(
-                    runtime.run(stop_event), name="discord-worker"
+                    run_worker_and_reconciler(), name="discord-worker-and-campaign-reconciler"
                 )
                 background_task.add_done_callback(lambda _: stop_event.set())
             except Exception:
