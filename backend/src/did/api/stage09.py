@@ -62,7 +62,11 @@ from did.campaigns.authorization import (
 )
 from did.campaigns.causality import ConditionEvaluationError
 from did.campaigns.context import campaign_from_row, load_fan_out_context
-from did.campaigns.dispatch import route_pending_deliveries_to_jobs
+from did.campaigns.dispatch import (
+    enqueue_delete_job,
+    enqueue_edit_job,
+    route_pending_deliveries_to_jobs,
+)
 from did.campaigns.event_transport import trigger_from_row
 from did.campaigns.message_content_policy import (
     MessageContentCapabilityBlocked,
@@ -1044,6 +1048,97 @@ async def requeue_intervention_delivery(
     )
     requeued_row = next(item for item in row if item["id"] == delivery_id)
     return {"delivery": _delivery_response(requeued_row)}
+
+
+class DeliveryEditInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message_model: dict[str, Any]
+
+
+@router.post("/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit")
+async def edit_owned_delivery(
+    campaign_id: UUID,
+    delivery_id: UUID,
+    body: DeliveryEditInput,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-MSG owned edit (mission section 7): only ever acts on a delivery
+    the caller's own campaign produced -- never a client-supplied
+    channel/message id (see
+    ``CampaignsRepository.prepare_owned_edit_for_owner``'s docstring). Only
+    a SENT delivery with a real ``discord_message_id`` is eligible. Creates
+    durable work only -- ``did.campaigns.dispatch.enqueue_edit_job`` -- the
+    real Discord edit happens exclusively in the durable worker
+    (``did.campaigns.delivery_worker.execute_owned_edit``), never from this
+    handler."""
+    del idempotency_key
+    repo, admin_factory = _require_campaigns(container)
+    try:
+        MessageModel.from_dict(body.message_model)
+    except (ValueError, MessageModelViolation) as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_DELIVERY_EDIT_INPUT_INVALID",
+            message_key="errors.campaigns.deliveryEditInputInvalid",
+        ) from exc
+    prepared = await repo.prepare_owned_edit_for_owner(
+        admin_factory,
+        session.discord_user_id,
+        campaign_id,
+        delivery_id,
+        message_model=body.message_model,
+    )
+    if prepared is None:
+        raise ApiProblem(
+            status_code=404,
+            code="CAMPAIGN_DELIVERY_NOT_EDITABLE",
+            message_key="errors.campaigns.deliveryNotEditable",
+        )
+    await enqueue_edit_job(
+        container.runtime_repository, guild_id=prepared["guild_id"], delivery_id=delivery_id
+    )
+    row = await repo.list_deliveries_for_campaign(
+        admin_factory, session.discord_user_id, campaign_id
+    )
+    edited_row = next(item for item in row if item["id"] == delivery_id)
+    return {"delivery": _delivery_response(edited_row)}
+
+
+@router.post("/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete")
+async def delete_owned_delivery(
+    campaign_id: UUID,
+    delivery_id: UUID,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-MSG owned delete (mission section 8): same ownership/ledger-only
+    sourcing as :func:`edit_owned_delivery`. The delivery's status stays
+    SENT until the durable worker
+    (``did.campaigns.delivery_worker.execute_owned_delete``) confirms the
+    real (or already-happened) Discord deletion and transitions it to
+    DELETED -- this handler creates durable work only, never calls Discord."""
+    del idempotency_key
+    repo, admin_factory = _require_campaigns(container)
+    verified = await repo.verify_owned_sent_delivery_for_owner(
+        admin_factory, session.discord_user_id, campaign_id, delivery_id
+    )
+    if verified is None:
+        raise ApiProblem(
+            status_code=404,
+            code="CAMPAIGN_DELIVERY_NOT_DELETABLE",
+            message_key="errors.campaigns.deliveryNotDeletable",
+        )
+    await enqueue_delete_job(
+        container.runtime_repository, guild_id=verified["guild_id"], delivery_id=delivery_id
+    )
+    row = await repo.list_deliveries_for_campaign(
+        admin_factory, session.discord_user_id, campaign_id
+    )
+    current_row = next(item for item in row if item["id"] == delivery_id)
+    return {"delivery": _delivery_response(current_row)}
 
 
 # ---------------------------------------------------------------------------

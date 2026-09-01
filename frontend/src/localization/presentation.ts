@@ -90,6 +90,7 @@ const deliveryStatuses: Record<string, MessageKey> = {
   PENDING: 'campaigns.delivery.status.pending', CLAIMED: 'campaigns.delivery.status.claimed', SENDING: 'campaigns.delivery.status.sending',
   SENT: 'campaigns.delivery.status.sent', FAILED: 'campaigns.delivery.status.failed', UNKNOWN: 'campaigns.delivery.status.unknown',
   INTERVENTION_REQUIRED: 'campaigns.delivery.status.interventionRequired',
+  DELETED: 'campaigns.delivery.status.deleted',
 }
 const blockedReasons: Record<string, MessageKey> = {
   GUILD_NOT_AUTHORIZED: 'campaigns.blocked.guildNotAuthorized', BOT_CANNOT_SEND: 'campaigns.blocked.botCannotSend',
@@ -123,6 +124,9 @@ const campaignErrorCodes: Record<string, MessageKey> = {
   CAMPAIGN_DELIVERY_INTERVENTION_NOT_CLAIMABLE: 'errors.campaigns.interventionNotClaimable',
   CAMPAIGN_DELIVERY_INTERVENTION_LOST_LEASE: 'errors.campaigns.interventionLostLease',
   CAMPAIGN_DELIVERY_NOT_REQUEUABLE: 'errors.campaigns.deliveryNotRequeuable',
+  CAMPAIGN_DELIVERY_EDIT_INPUT_INVALID: 'errors.campaigns.deliveryEditInputInvalid',
+  CAMPAIGN_DELIVERY_NOT_EDITABLE: 'errors.campaigns.deliveryNotEditable',
+  CAMPAIGN_DELIVERY_NOT_DELETABLE: 'errors.campaigns.deliveryNotDeletable',
 }
 export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'

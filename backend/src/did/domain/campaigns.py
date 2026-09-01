@@ -401,6 +401,10 @@ class DeliveryStatus(StrEnum):
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
     INTERVENTION_REQUIRED = "INTERVENTION_REQUIRED"
+    #: The owned-delete product flow's terminal state (REQ-MSG owned
+    #: delete/edit) -- reached only from SENT, via a real (or confirmed
+    #: already-happened) Discord deletion; never a substitute for FAILED.
+    DELETED = "DELETED"
 
 
 #: A delivery never blindly resends once it has left PENDING/CLAIMED: an
@@ -412,12 +416,13 @@ _DELIVERY_TRANSITIONS: dict[DeliveryStatus, frozenset[DeliveryStatus]] = {
     DeliveryStatus.SENDING: frozenset(
         {DeliveryStatus.SENT, DeliveryStatus.FAILED, DeliveryStatus.UNKNOWN}
     ),
-    DeliveryStatus.SENT: frozenset(),
+    DeliveryStatus.SENT: frozenset({DeliveryStatus.DELETED}),
     DeliveryStatus.FAILED: frozenset({DeliveryStatus.PENDING}),
     DeliveryStatus.UNKNOWN: frozenset(
         {DeliveryStatus.INTERVENTION_REQUIRED, DeliveryStatus.SENT, DeliveryStatus.FAILED}
     ),
     DeliveryStatus.INTERVENTION_REQUIRED: frozenset({DeliveryStatus.SENT, DeliveryStatus.FAILED}),
+    DeliveryStatus.DELETED: frozenset(),
 }
 
 

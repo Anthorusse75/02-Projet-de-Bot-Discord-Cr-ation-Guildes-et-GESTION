@@ -835,3 +835,153 @@ async def test_intervention_resolution_and_requeue_product_flow() -> None:
                     assert row["attempt_count"] == 0
             finally:
                 await engine2.dispose()
+
+
+async def test_owned_edit_and_delete_never_accept_a_client_supplied_message_id() -> None:
+    """REQ-MSG owned edit/delete (mission sections 7-8): the edit/delete
+    endpoints only ever act through the owned delivery ledger -- proves
+    this at the HTTP contract level (no request body field could ever name
+    a channel/message, extra="forbid" rejects any attempt) and at the
+    product level (ownership enforced, only a SENT delivery is eligible,
+    both endpoints only ever create durable work -- discord_io_jobs rows --
+    never a discord_message_id change from this handler alone)."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            csrf_b = await _login(client_b, "owner-b")
+            assert (
+                await client_a.post(
+                    f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf_a}
+                )
+            ).status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "owned-edit-delete-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+            target = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "owned-edit-target"},
+            )
+            assert target.status_code == 201
+            activated = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/activate",
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "owned-edit-go"},
+            )
+            assert activated.status_code == 200
+
+            engine = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine.begin() as connection:
+                    delivery_id = (
+                        await connection.execute(
+                            text("SELECT id FROM message_deliveries WHERE campaign_id=:cid"),
+                            {"cid": campaign_id},
+                        )
+                    ).scalar_one()
+                    await connection.execute(
+                        text(
+                            "UPDATE message_deliveries SET status='SENT', "
+                            "discord_message_id=987654321098765432 WHERE id=:id"
+                        ),
+                        {"id": delivery_id},
+                    )
+            finally:
+                await engine.dispose()
+
+            # The edit request body has no field a client could use to
+            # smuggle a channel/message id -- extra="forbid" rejects the
+            # attempt before the handler even runs.
+            smuggle = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit",
+                json={"message_model": {"content": "edited"}, "discord_message_id": "1"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "edit-smuggle"},
+            )
+            assert smuggle.status_code == 422
+
+            # A foreign owner can never edit or delete someone else's
+            # delivery -- identical not-found shape, never a 403.
+            foreign_edit = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit",
+                json={"message_model": {"content": "hijacked"}},
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "edit-foreign"},
+            )
+            assert foreign_edit.status_code == 404
+            foreign_delete = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete",
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "delete-foreign"},
+            )
+            assert foreign_delete.status_code == 404
+
+            edited = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit",
+                json={"message_model": {"content": "edited content"}},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "edit-real"},
+            )
+            assert edited.status_code == 200
+            assert edited.json()["delivery"]["status"] == "SENT"
+
+            deleted = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete",
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "delete-real"},
+            )
+            assert deleted.status_code == 200
+            # The router never calls Discord -- status is still SENT right
+            # after this HTTP response; only the durable worker (never
+            # exercised by this HTTP-only test) transitions it to DELETED.
+            assert deleted.json()["delivery"]["status"] == "SENT"
+
+            engine2 = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine2.begin() as connection:
+                    content = (
+                        await connection.execute(
+                            text("SELECT content_snapshot FROM message_deliveries WHERE id=:id"),
+                            {"id": delivery_id},
+                        )
+                    ).scalar_one()
+                    assert content["content"] == "edited content"
+                    job_types = (
+                        (
+                            await connection.execute(
+                                text(
+                                    "SELECT workload_type FROM discord_io_jobs "
+                                    "WHERE guild_id=:gid ORDER BY created_at"
+                                ),
+                                {"gid": GUILD_A},
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    assert "EDIT_CAMPAIGN_MESSAGE" in job_types
+                    assert "DELETE_CAMPAIGN_MESSAGE" in job_types
+            finally:
+                await engine2.dispose()

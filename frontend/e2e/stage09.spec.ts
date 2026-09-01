@@ -111,6 +111,14 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
         : item)
       return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === requeueMatch[1]) } })
     }
+    const editMatch = path.match(/\/deliveries\/([^/]+)\/edit$/)
+    if (editMatch && method === 'POST') {
+      return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === editMatch[1]) } })
+    }
+    const deleteMatch = path.match(/\/deliveries\/([^/]+)\/delete$/)
+    if (deleteMatch && method === 'POST') {
+      return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === deleteMatch[1]) } })
+    }
     return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message_key: 'errors.resource.notFound', params: {}, request_id: 'stage09-e2e' } } })
   })
 }
@@ -255,6 +263,27 @@ test('REQ-MSG-029: an intervention-required delivery is resolved as sent, a fail
   await deliveries.getByRole('button', { name: 'Requeue' }).click()
   await expect(page.getByText('Delivery requeued for a fresh attempt.')).toBeVisible()
   await expect(deliveries.getByText('Failed')).toHaveCount(0)
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
+test('REQ-MSG owned edit/delete: a sent delivery can be edited and deleted through the real product chain', async ({ page }) => {
+  const state = freshState()
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.locator('.campaign-detail')).toBeVisible()
+  const deliveries = page.locator('.campaign-deliveries')
+  await expect(deliveries.getByText('Sent', { exact: true })).toBeVisible()
+
+  await deliveries.getByRole('button', { name: 'Edit' }).click()
+  await deliveries.getByLabel('New message content').fill('Updated announcement text')
+  await deliveries.getByRole('button', { name: 'Save edit' }).click()
+  await expect(page.getByText('Edit queued for delivery.')).toBeVisible()
+
+  await deliveries.getByRole('button', { name: 'Delete' }).click()
+  await expect(page.getByText('Delete queued for delivery.')).toBeVisible()
 
   const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
   expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])

@@ -230,7 +230,8 @@ class DurableDiscordIOWorker:
             elif workload_type == "APPLY_PLAN" and self._plan_executor is not None:
                 await self._plan_executor.execute_leased(guild_id, leased, governor)
             elif (
-                workload_type == "SEND_CAMPAIGN_MESSAGE"
+                workload_type
+                in {"SEND_CAMPAIGN_MESSAGE", "EDIT_CAMPAIGN_MESSAGE", "DELETE_CAMPAIGN_MESSAGE"}
                 and self._campaign_delivery_executor is not None
             ):
                 await self._campaign_delivery_executor.execute_leased(guild_id, leased)

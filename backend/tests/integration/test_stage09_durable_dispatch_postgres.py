@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker
 
 from did.campaigns.dispatch import (
     CampaignDeliveryExecutor,
+    enqueue_delete_job,
     enqueue_delivery_job,
+    enqueue_edit_job,
     route_pending_deliveries_to_jobs,
 )
 from did.domain.campaigns import (
@@ -169,6 +171,8 @@ async def _setup_pending_delivery(
 class _FakeSender:
     call_count: int = 0
     sent_channel_ids: list[int] = field(default_factory=list)
+    edit_calls: list[tuple[int, int]] = field(default_factory=list)
+    delete_calls: list[tuple[int, int]] = field(default_factory=list)
 
     async def send(self, *, channel_id, message, allowed_mentions, nonce):  # type: ignore[no-untyped-def]
         self.call_count += 1
@@ -176,10 +180,10 @@ class _FakeSender:
         return DiscordSendOutcome(discord_message_id=555000555)
 
     async def edit(self, *, channel_id, message_id, payload):  # type: ignore[no-untyped-def]
-        raise NotImplementedError
+        self.edit_calls.append((channel_id, message_id))
 
     async def delete(self, *, channel_id, message_id):  # type: ignore[no-untyped-def]
-        raise NotImplementedError
+        self.delete_calls.append((channel_id, message_id))
 
 
 @pytest.mark.asyncio
@@ -344,3 +348,63 @@ class TestCampaignDeliveryExecutorThroughRealWorker:
         await executor.execute_leased(GUILD_A, leased)
         await executor.execute_leased(GUILD_A, leased)  # replay with the same payload
         assert sender.call_count == 1
+
+
+@pytest.mark.asyncio
+class TestOwnedEditDeleteThroughRealWorker:
+    async def test_edit_and_delete_jobs_route_through_the_real_worker(
+        self, repositories: tuple[CampaignsRepository, RuntimeRepository, async_sessionmaker[Any]]
+    ) -> None:
+        """End-to-end: EDIT_CAMPAIGN_MESSAGE/DELETE_CAMPAIGN_MESSAGE durable
+        jobs (enqueue_edit_job/enqueue_delete_job) are leased and executed
+        by the REAL DurableDiscordIOWorker.run_guild_once, routed through
+        CampaignDeliveryExecutor to did.campaigns.delivery_worker
+        .execute_owned_edit/execute_owned_delete -- the same full-chain
+        proof TestCampaignDeliveryExecutorThroughRealWorker gives SEND,
+        now for the owned edit/delete product flows."""
+        campaigns_repo, runtime_repo, factory = repositories
+        delivery = await _setup_pending_delivery(campaigns_repo)
+        async with tenant_transaction(factory, TenantContext(GUILD_A, OWNER_A)) as session:
+            await session.execute(
+                text(
+                    "UPDATE message_deliveries SET status='SENT', "
+                    "discord_message_id=444000444, "
+                    "content_snapshot=CAST(:content AS JSONB) WHERE id=:id"
+                ),
+                {
+                    "id": delivery.id,
+                    "content": '{"content": "edited via durable job", "embeds": []}',
+                },
+            )
+        await enqueue_edit_job(runtime_repo, guild_id=GUILD_A, delivery_id=delivery.id)
+
+        sender = _FakeSender()
+        executor = CampaignDeliveryExecutor(campaigns_repo, sender, worker_id="durable-worker-1")
+
+        class _NullSync:
+            async def refresh_channels(self, guild_id: int) -> dict[str, int]:
+                raise NotImplementedError
+
+            async def initial_sync(self, guild_id: int) -> dict[str, int]:
+                raise NotImplementedError
+
+        worker = DurableDiscordIOWorker(
+            runtime_repo,
+            _NullSync(),
+            worker_id="durable-worker-1",
+            campaign_delivery_executor=executor,
+        )
+        edit_progressed = await worker.run_guild_once(GUILD_A)
+        assert edit_progressed is True
+        assert sender.edit_calls == [(999, 444000444)]
+
+        status_after_edit = await campaigns_repo.get_delivery_status(GUILD_A, delivery.id)
+        assert status_after_edit == "SENT"
+
+        await enqueue_delete_job(runtime_repo, guild_id=GUILD_A, delivery_id=delivery.id)
+        delete_progressed = await worker.run_guild_once(GUILD_A)
+        assert delete_progressed is True
+        assert sender.delete_calls == [(999, 444000444)]
+
+        status_after_delete = await campaigns_repo.get_delivery_status(GUILD_A, delivery.id)
+        assert status_after_delete == "DELETED"

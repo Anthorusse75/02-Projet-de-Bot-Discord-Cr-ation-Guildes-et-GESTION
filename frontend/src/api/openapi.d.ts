@@ -91,6 +91,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Owned Delivery
+         * @description REQ-MSG owned delete (mission section 8): same ownership/ledger-only
+         *     sourcing as :func:`edit_owned_delivery`. The delivery's status stays
+         *     SENT until the durable worker
+         *     (``did.campaigns.delivery_worker.execute_owned_delete``) confirms the
+         *     real (or already-happened) Discord deletion and transitions it to
+         *     DELETED -- this handler creates durable work only, never calls Discord.
+         */
+        post: operations["delete_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit Owned Delivery
+         * @description REQ-MSG owned edit (mission section 7): only ever acts on a delivery
+         *     the caller's own campaign produced -- never a client-supplied
+         *     channel/message id (see
+         *     ``CampaignsRepository.prepare_owned_edit_for_owner``'s docstring). Only
+         *     a SENT delivery with a real ``discord_message_id`` is eligible. Creates
+         *     durable work only -- ``did.campaigns.dispatch.enqueue_edit_job`` -- the
+         *     real Discord edit happens exclusively in the durable worker
+         *     (``did.campaigns.delivery_worker.execute_owned_edit``), never from this
+         *     handler.
+         */
+        post: operations["edit_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve": {
         parameters: {
             query?: never;
@@ -1925,6 +1978,13 @@ export interface components {
             /** Plan Hash */
             plan_hash: string;
         };
+        /** DeliveryEditInput */
+        DeliveryEditInput: {
+            /** Message Model */
+            message_model: {
+                [key: string]: unknown;
+            };
+        };
         /** DesiredNodeInput */
         DesiredNodeInput: {
             /** Discord Id */
@@ -2965,6 +3025,82 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__delete_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__edit_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryEditInput"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

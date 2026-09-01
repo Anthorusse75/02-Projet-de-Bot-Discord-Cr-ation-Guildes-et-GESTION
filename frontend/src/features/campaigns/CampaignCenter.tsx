@@ -98,6 +98,8 @@ export function CampaignCenter() {
 
   const [resolvingDeliveryId, setResolvingDeliveryId] = useState<string | null>(null)
   const [resolveMessageId, setResolveMessageId] = useState('')
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null)
+  const [deliveryEditContent, setDeliveryEditContent] = useState('')
 
   useEffect(() => {
     if (!selected) return
@@ -262,6 +264,32 @@ export function CampaignCenter() {
         method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
       })
       setFeedbackKey('campaigns.deliveries.requeued')
+      await deliveries.refetch()
+    } catch (error) { setProblemKey(errorKey(error)) }
+  }
+
+  async function editDelivery(deliveryId: string) {
+    if (!selected) return
+    setProblemKey(null)
+    try {
+      await apiRequest(`/api/v1/campaigns/${selected.id}/deliveries/${deliveryId}/edit`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { message_model: { content: deliveryEditContent, embeds: [] } },
+      })
+      setFeedbackKey('campaigns.deliveries.edited')
+      setEditingDeliveryId(null); setDeliveryEditContent('')
+      await deliveries.refetch()
+    } catch (error) { setProblemKey(errorKey(error)) }
+  }
+
+  async function deleteDelivery(deliveryId: string) {
+    if (!selected) return
+    setProblemKey(null)
+    try {
+      await apiRequest(`/api/v1/campaigns/${selected.id}/deliveries/${deliveryId}/delete`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+      })
+      setFeedbackKey('campaigns.deliveries.deleted')
       await deliveries.refetch()
     } catch (error) { setProblemKey(errorKey(error)) }
   }
@@ -433,6 +461,15 @@ export function CampaignCenter() {
                   <Button labelKey="common.cancel" onClick={() => setResolvingDeliveryId(null)} />
                 </div>}
                 {delivery.status === 'FAILED' && <Button labelKey="campaigns.deliveries.requeue" onClick={() => void requeueDelivery(delivery.id)} />}
+                {delivery.status === 'SENT' && editingDeliveryId !== delivery.id && <>
+                  <Button labelKey="campaigns.deliveries.edit" onClick={() => { setEditingDeliveryId(delivery.id); setDeliveryEditContent('') }} />
+                  <Button labelKey="campaigns.deliveries.delete" onClick={() => void deleteDelivery(delivery.id)} />
+                </>}
+                {delivery.status === 'SENT' && editingDeliveryId === delivery.id && <div className="intervention-form">
+                  <label className="field" htmlFor={`delivery-edit-${delivery.id}`}><span>{t('campaigns.deliveries.editContent')}</span><textarea id={`delivery-edit-${delivery.id}`} value={deliveryEditContent} maxLength={2000} onChange={(event) => setDeliveryEditContent(event.target.value)} /></label>
+                  <Button labelKey="campaigns.deliveries.saveEdit" variant="primary" disabled={!deliveryEditContent} onClick={() => void editDelivery(delivery.id)} />
+                  <Button labelKey="common.cancel" onClick={() => setEditingDeliveryId(null)} />
+                </div>}
               </td>
             </tr>)}</tbody></table>}
       </section>

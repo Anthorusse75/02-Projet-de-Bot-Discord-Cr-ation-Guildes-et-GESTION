@@ -1182,6 +1182,148 @@ class CampaignsRepository:
             )
         return dict(row) if row is not None else None
 
+    async def prepare_owned_edit_for_owner(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        delivery_id: UUID,
+        *,
+        message_model: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """REQ-MSG owned edit (mission section 7): ownership verified by the
+        same cross-Guild admin-factory join as the intervention/requeue
+        methods -- there is no code path here that could act on a message
+        id/channel a client supplied directly, only a SENT delivery's own
+        already-durable ``discord_channel_id``/``discord_message_id`` (read
+        back by the durable worker, never accepted as API input; see
+        :meth:`get_sent_delivery_for_edit`). Only a SENT delivery with a
+        real ``discord_message_id`` is eligible. ``content_snapshot`` is
+        durably updated to the new content in the SAME statement that
+        verifies eligibility, so a replay of the resulting durable job
+        always re-applies whatever is currently in ``content_snapshot``
+        (idempotent by construction, matching the mission's "replay
+        idempotent" requirement). The mention policy is deliberately NEVER
+        changed by an edit -- ``allowed_mentions_snapshot`` is left
+        untouched, so AllowedMentions stays exactly the value the
+        capability-gated compiler produced at send time, never re-derived
+        from arbitrary new client input outside that one authorized call
+        site. Returns ``None`` if the delivery does not exist, does not
+        belong to this owner/campaign, or is not currently an eligible
+        SENT delivery."""
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE message_deliveries AS d SET "
+                            "content_snapshot=CAST(:content AS JSONB), updated_at=now() "
+                            "FROM message_campaigns AS c "
+                            "WHERE d.campaign_id=c.id AND d.id=:delivery_id "
+                            "AND d.campaign_id=:campaign_id "
+                            "AND c.owner_discord_user_id=:owner AND d.status='SENT' "
+                            "AND d.discord_message_id IS NOT NULL "
+                            "RETURNING d.id, d.guild_id"
+                        ),
+                        {
+                            "delivery_id": delivery_id,
+                            "campaign_id": campaign_id,
+                            "owner": owner_discord_user_id,
+                            "content": _to_json(message_model),
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def verify_owned_sent_delivery_for_owner(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        delivery_id: UUID,
+    ) -> dict[str, Any] | None:
+        """Read-only ownership+eligibility check shared by the owned-delete
+        product flow (mission section 8) before a durable job is enqueued --
+        returns ``guild_id`` (the only field the caller needs to enqueue a
+        Guild-scoped job) or ``None`` if the delivery does not exist, does
+        not belong to this owner/campaign, or is not currently an eligible
+        SENT delivery."""
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT d.guild_id FROM message_deliveries AS d "
+                            "JOIN message_campaigns AS c ON c.id = d.campaign_id "
+                            "WHERE d.id=:delivery_id AND d.campaign_id=:campaign_id "
+                            "AND c.owner_discord_user_id=:owner AND d.status='SENT' "
+                            "AND d.discord_message_id IS NOT NULL"
+                        ),
+                        {
+                            "delivery_id": delivery_id,
+                            "campaign_id": campaign_id,
+                            "owner": owner_discord_user_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def get_sent_delivery_for_edit(
+        self, guild_id: int, delivery_id: UUID
+    ) -> dict[str, Any] | None:
+        """Durable-worker-side read for the owned edit/delete executors
+        (``did.campaigns.delivery_worker.execute_owned_edit``/
+        ``execute_owned_delete``): the ONLY source of truth for which
+        channel/message to act on -- the durable job's own payload carries
+        nothing but ``delivery_id``, deliberately, so there is no path by
+        which a stale or tampered job payload could name a different
+        channel/message than what this delivery's own ledger row currently
+        says. Returns ``None`` for a delivery that is no longer SENT (e.g.
+        raced against a delete, or a job replay after the delete already
+        completed) -- the caller treats that as a safe no-op, never a
+        failure."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id, guild_id, discord_channel_id, discord_message_id, "
+                            "content_snapshot, allowed_mentions_snapshot FROM message_deliveries "
+                            "WHERE id=:id AND guild_id=:guild_id AND status='SENT' "
+                            "AND discord_message_id IS NOT NULL"
+                        ),
+                        {"id": delivery_id, "guild_id": guild_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def mark_delivery_deleted(self, delivery_id: UUID, guild_id: int) -> bool:
+        """``SENT -> DELETED`` -- called only after
+        :class:`~did.domain.message_sending.DiscordMessageSender`.delete has
+        already succeeded (which is itself idempotent for an
+        already-deleted message, see
+        ``DiscordPyMessageSender.delete``'s docstring), so this is always a
+        safe, harmless no-op on replay (the WHERE clause simply stops
+        matching once the row is already DELETED)."""
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_deliveries SET status='DELETED', updated_at=now() "
+                    "WHERE id=:id AND guild_id=:guild_id AND status='SENT'"
+                ),
+                {"id": delivery_id, "guild_id": guild_id},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
     async def claim_stalled_sending_for_reconciliation(
         self,
         guild_id: int,

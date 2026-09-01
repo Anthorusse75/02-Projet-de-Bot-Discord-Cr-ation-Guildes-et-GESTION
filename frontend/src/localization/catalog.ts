@@ -417,6 +417,12 @@ export const en = {
   'campaigns.deliveries.requeue': 'Requeue',
   'campaigns.deliveries.resolved': 'Delivery resolved.',
   'campaigns.deliveries.requeued': 'Delivery requeued for a fresh attempt.',
+  'campaigns.deliveries.edit': 'Edit',
+  'campaigns.deliveries.delete': 'Delete',
+  'campaigns.deliveries.editContent': 'New message content',
+  'campaigns.deliveries.saveEdit': 'Save edit',
+  'campaigns.deliveries.edited': 'Edit queued for delivery.',
+  'campaigns.deliveries.deleted': 'Delete queued for delivery.',
   'campaigns.delivery.status.pending': 'Pending',
   'campaigns.delivery.status.claimed': 'Claimed',
   'campaigns.delivery.status.sending': 'Sending',
@@ -424,6 +430,7 @@ export const en = {
   'campaigns.delivery.status.failed': 'Failed',
   'campaigns.delivery.status.unknown': 'Unknown',
   'campaigns.delivery.status.interventionRequired': 'Needs intervention',
+  'campaigns.delivery.status.deleted': 'Deleted',
   'campaigns.blocked.guildNotAuthorized': 'The server is not authorized for this campaign.',
   'campaigns.blocked.botCannotSend': 'The bot cannot send in this channel.',
   'campaigns.blocked.translationGroupNotFound': 'The translation group was not found.',
@@ -464,6 +471,9 @@ export const en = {
   'errors.campaigns.interventionNotClaimable': 'This delivery is no longer awaiting a decision.',
   'errors.campaigns.interventionLostLease': 'This resolution could not be completed. Reload and try again.',
   'errors.campaigns.deliveryNotRequeuable': 'Only a failed delivery can be requeued.',
+  'errors.campaigns.deliveryEditInputInvalid': 'The submitted message content is invalid.',
+  'errors.campaigns.deliveryNotEditable': 'This delivery cannot currently be edited.',
+  'errors.campaigns.deliveryNotDeletable': 'This delivery cannot currently be deleted.',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -655,9 +665,13 @@ export const fr = translated({
   'campaigns.deliveries.messageId': 'ID du message Discord', 'campaigns.deliveries.resolveSent': 'Confirmer l’envoi',
   'campaigns.deliveries.resolveFailed': 'Marquer en échec', 'campaigns.deliveries.requeue': 'Remettre en file',
   'campaigns.deliveries.resolved': 'Livraison résolue.', 'campaigns.deliveries.requeued': 'Livraison remise en file pour un nouvel essai.',
+  'campaigns.deliveries.edit': 'Modifier', 'campaigns.deliveries.delete': 'Supprimer',
+  'campaigns.deliveries.editContent': 'Nouveau contenu du message', 'campaigns.deliveries.saveEdit': 'Enregistrer la modification',
+  'campaigns.deliveries.edited': 'Modification mise en file pour la livraison.',
+  'campaigns.deliveries.deleted': 'Suppression mise en file pour la livraison.',
   'campaigns.delivery.status.pending': 'En attente', 'campaigns.delivery.status.claimed': 'Réservée', 'campaigns.delivery.status.sending': 'Envoi en cours',
   'campaigns.delivery.status.sent': 'Envoyée', 'campaigns.delivery.status.failed': 'Échouée', 'campaigns.delivery.status.unknown': 'Inconnue',
-  'campaigns.delivery.status.interventionRequired': 'Intervention requise',
+  'campaigns.delivery.status.interventionRequired': 'Intervention requise', 'campaigns.delivery.status.deleted': 'Supprimée',
   'campaigns.blocked.guildNotAuthorized': 'Le serveur n’est pas autorisé pour cette campagne.', 'campaigns.blocked.botCannotSend': 'Le bot ne peut pas envoyer dans ce salon.',
   'campaigns.blocked.translationGroupNotFound': 'Le groupe de traduction est introuvable.', 'campaigns.blocked.noMatchingLanguageVariants': 'Aucune variante linguistique correspondante n’existe.',
   'campaigns.blocked.logicalGroupNotFound': 'Le groupe logique est introuvable.', 'campaigns.blocked.logicalGroupEmpty': 'Le groupe logique ne contient actuellement aucun salon exploitable.',
@@ -684,6 +698,9 @@ export const fr = translated({
   'errors.campaigns.interventionNotClaimable': 'Cette livraison n’attend plus de décision.',
   'errors.campaigns.interventionLostLease': 'Cette résolution n’a pas pu être effectuée. Rechargez et réessayez.',
   'errors.campaigns.deliveryNotRequeuable': 'Seule une livraison en échec peut être remise en file d’attente.',
+  'errors.campaigns.deliveryEditInputInvalid': 'Le contenu de message envoyé est invalide.',
+  'errors.campaigns.deliveryNotEditable': 'Cette livraison ne peut pas être modifiée actuellement.',
+  'errors.campaigns.deliveryNotDeletable': 'Cette livraison ne peut pas être supprimée actuellement.',
 })
 
 export const de = translated({
@@ -869,9 +886,13 @@ export const de = translated({
   'campaigns.deliveries.messageId': 'Discord-Nachrichten-ID', 'campaigns.deliveries.resolveSent': 'Versand bestätigen',
   'campaigns.deliveries.resolveFailed': 'Als fehlgeschlagen markieren', 'campaigns.deliveries.requeue': 'Erneut einreihen',
   'campaigns.deliveries.resolved': 'Zustellung gelöst.', 'campaigns.deliveries.requeued': 'Zustellung für einen neuen Versuch erneut eingereiht.',
+  'campaigns.deliveries.edit': 'Bearbeiten', 'campaigns.deliveries.delete': 'Löschen',
+  'campaigns.deliveries.editContent': 'Neuer Nachrichteninhalt', 'campaigns.deliveries.saveEdit': 'Änderung speichern',
+  'campaigns.deliveries.edited': 'Bearbeitung für die Zustellung eingereiht.',
+  'campaigns.deliveries.deleted': 'Löschung für die Zustellung eingereiht.',
   'campaigns.delivery.status.pending': 'Ausstehend', 'campaigns.delivery.status.claimed': 'Reserviert', 'campaigns.delivery.status.sending': 'Wird gesendet',
   'campaigns.delivery.status.sent': 'Gesendet', 'campaigns.delivery.status.failed': 'Fehlgeschlagen', 'campaigns.delivery.status.unknown': 'Unbekannt',
-  'campaigns.delivery.status.interventionRequired': 'Eingreifen erforderlich',
+  'campaigns.delivery.status.interventionRequired': 'Eingreifen erforderlich', 'campaigns.delivery.status.deleted': 'Gelöscht',
   'campaigns.blocked.guildNotAuthorized': 'Der Server ist für diese Kampagne nicht autorisiert.', 'campaigns.blocked.botCannotSend': 'Der Bot kann in diesem Kanal nicht senden.',
   'campaigns.blocked.translationGroupNotFound': 'Die Übersetzungsgruppe wurde nicht gefunden.', 'campaigns.blocked.noMatchingLanguageVariants': 'Es existiert keine passende Sprachvariante.',
   'campaigns.blocked.logicalGroupNotFound': 'Die logische Gruppe wurde nicht gefunden.', 'campaigns.blocked.logicalGroupEmpty': 'Die logische Gruppe enthält derzeit keinen nutzbaren Kanal.',
@@ -898,6 +919,9 @@ export const de = translated({
   'errors.campaigns.interventionNotClaimable': 'Für diese Zustellung steht keine Entscheidung mehr aus.',
   'errors.campaigns.interventionLostLease': 'Diese Lösung konnte nicht abgeschlossen werden. Laden Sie neu und versuchen Sie es erneut.',
   'errors.campaigns.deliveryNotRequeuable': 'Nur eine fehlgeschlagene Zustellung kann erneut eingereiht werden.',
+  'errors.campaigns.deliveryEditInputInvalid': 'Der gesendete Nachrichteninhalt ist ungültig.',
+  'errors.campaigns.deliveryNotEditable': 'Diese Zustellung kann derzeit nicht bearbeitet werden.',
+  'errors.campaigns.deliveryNotDeletable': 'Diese Zustellung kann derzeit nicht gelöscht werden.',
 })
 
 export const es = translated({
@@ -1083,9 +1107,13 @@ export const es = translated({
   'campaigns.deliveries.messageId': 'ID del mensaje de Discord', 'campaigns.deliveries.resolveSent': 'Confirmar envío',
   'campaigns.deliveries.resolveFailed': 'Marcar como fallida', 'campaigns.deliveries.requeue': 'Reencolar',
   'campaigns.deliveries.resolved': 'Entrega resuelta.', 'campaigns.deliveries.requeued': 'Entrega reencolada para un nuevo intento.',
+  'campaigns.deliveries.edit': 'Editar', 'campaigns.deliveries.delete': 'Eliminar',
+  'campaigns.deliveries.editContent': 'Nuevo contenido del mensaje', 'campaigns.deliveries.saveEdit': 'Guardar edición',
+  'campaigns.deliveries.edited': 'Edición encolada para la entrega.',
+  'campaigns.deliveries.deleted': 'Eliminación encolada para la entrega.',
   'campaigns.delivery.status.pending': 'Pendiente', 'campaigns.delivery.status.claimed': 'Reservada', 'campaigns.delivery.status.sending': 'Enviando',
   'campaigns.delivery.status.sent': 'Enviada', 'campaigns.delivery.status.failed': 'Fallida', 'campaigns.delivery.status.unknown': 'Desconocida',
-  'campaigns.delivery.status.interventionRequired': 'Requiere intervención',
+  'campaigns.delivery.status.interventionRequired': 'Requiere intervención', 'campaigns.delivery.status.deleted': 'Eliminada',
   'campaigns.blocked.guildNotAuthorized': 'El servidor no está autorizado para esta campaña.', 'campaigns.blocked.botCannotSend': 'El bot no puede enviar mensajes en este canal.',
   'campaigns.blocked.translationGroupNotFound': 'No se encontró el grupo de traducción.', 'campaigns.blocked.noMatchingLanguageVariants': 'No existe ninguna variante de idioma coincidente.',
   'campaigns.blocked.logicalGroupNotFound': 'No se encontró el grupo lógico.', 'campaigns.blocked.logicalGroupEmpty': 'El grupo lógico actualmente no tiene ningún canal utilizable.',
@@ -1112,6 +1140,9 @@ export const es = translated({
   'errors.campaigns.interventionNotClaimable': 'Esta entrega ya no está pendiente de decisión.',
   'errors.campaigns.interventionLostLease': 'No se pudo completar esta resolución. Recarga e inténtalo de nuevo.',
   'errors.campaigns.deliveryNotRequeuable': 'Solo una entrega fallida puede volver a encolarse.',
+  'errors.campaigns.deliveryEditInputInvalid': 'El contenido de mensaje enviado no es válido.',
+  'errors.campaigns.deliveryNotEditable': 'Esta entrega no se puede editar actualmente.',
+  'errors.campaigns.deliveryNotDeletable': 'Esta entrega no se puede eliminar actualmente.',
 })
 
 export const bootstrapPacks = { en, fr, de, es } satisfies Record<BootstrapLocaleCode, MessagePack>

@@ -25,17 +25,25 @@ from did.campaigns.delivery_reconciliation import (
     decide_unknown_outcome_recovery,
     generate_delivery_nonce,
 )
-from did.domain.campaigns import DeliveryStatus
+from did.domain.campaigns import AttachmentPolicy, DeliveryStatus
 from did.domain.discord_runtime import WorkloadJob, WorkloadPriority
 from did.domain.message_sending import DiscordMessageSender, DiscordSendError
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.messaging.allowed_mentions import CompiledAllowedMentions
+from did.messaging.edit_payload import EditPayload
 from did.messaging.message_model import MessageModel
 from did.worker.io.governor import DiscordWorkloadGovernor
 
 #: The single workload_type every campaign delivery is submitted to the
 #: shared governor under -- see the module docstring.
 SEND_CAMPAIGN_MESSAGE_WORKLOAD_TYPE = "SEND_CAMPAIGN_MESSAGE"
+#: REQ-MSG owned edit/delete (mission sections 7-8) -- durable job types for
+#: the owned message product flows, routed through the same
+#: CampaignDeliveryExecutor/DurableDiscordIOWorker path as
+#: SEND_CAMPAIGN_MESSAGE_WORKLOAD_TYPE, never a client-facing direct
+#: Discord call.
+EDIT_CAMPAIGN_MESSAGE_WORKLOAD_TYPE = "EDIT_CAMPAIGN_MESSAGE"
+DELETE_CAMPAIGN_MESSAGE_WORKLOAD_TYPE = "DELETE_CAMPAIGN_MESSAGE"
 
 #: How long a SENDING delivery may go unfinalized before it is considered
 #: abandoned by its original worker and eligible for reconciliation --
@@ -403,3 +411,62 @@ def submit_delivery_to_governor(
         )
 
     return governor.submit(job, _operation)
+
+
+async def execute_owned_edit(
+    *,
+    repository: CampaignsRepository,
+    sender: DiscordMessageSender,
+    guild_id: int,
+    delivery_id: UUID,
+) -> None:
+    """REQ-MSG owned edit (mission section 7), durable-worker side. The
+    job's payload carries only ``delivery_id`` -- every fact this needs
+    (``discord_channel_id``/``discord_message_id``/``content_snapshot``/
+    ``allowed_mentions_snapshot``) is read back from the delivery's own
+    durable ledger row via :meth:`CampaignsRepository.get_sent_delivery_for_edit`,
+    never trusted from the job payload or any client input. A delivery that
+    is no longer SENT (e.g. raced against an owned delete, or this is a
+    replay after a prior successful edit) is silently skipped -- not a
+    failure, simply nothing left to edit. The attachment policy is always
+    PRESERVE_EXISTING: the owned-edit product flow does not support
+    replacing attachments this pass (a distinct, larger feature -- binary
+    upload durability -- deliberately out of scope, documented rather than
+    half-built)."""
+    row = await repository.get_sent_delivery_for_edit(guild_id, delivery_id)
+    if row is None:
+        return
+    message = MessageModel.from_dict(row["content_snapshot"] or {})
+    mentions = _compiled_mentions_from_snapshot(row.get("allowed_mentions_snapshot") or {})
+    payload = EditPayload(
+        message_model=message,
+        allowed_mentions=mentions,
+        attachment_policy=AttachmentPolicy.PRESERVE_EXISTING,
+    )
+    await sender.edit(
+        channel_id=row["discord_channel_id"], message_id=row["discord_message_id"], payload=payload
+    )
+
+
+async def execute_owned_delete(
+    *,
+    repository: CampaignsRepository,
+    sender: DiscordMessageSender,
+    guild_id: int,
+    delivery_id: UUID,
+) -> None:
+    """REQ-MSG owned delete (mission section 8), durable-worker side. Same
+    ledger-only sourcing as :func:`execute_owned_edit` -- ``delivery_id`` is
+    the job payload's only field, ``discord_channel_id``/
+    ``discord_message_id`` always come from the delivery's own current row.
+    Idempotent end to end: an already-deleted message
+    (``DiscordPyMessageSender.delete``'s own 404 tolerance) and a delivery
+    that has already transitioned to DELETED (a job replay, or a race
+    against another delete attempt) are both a diagnosable terminal
+    success, never an infinite failure loop -- exactly the mission's
+    explicit requirement."""
+    row = await repository.get_sent_delivery_for_edit(guild_id, delivery_id)
+    if row is None:
+        return
+    await sender.delete(channel_id=row["discord_channel_id"], message_id=row["discord_message_id"])
+    await repository.mark_delivery_deleted(delivery_id, guild_id)

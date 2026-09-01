@@ -172,7 +172,11 @@ class DiscordPyMessageSender:
 
     async def edit(self, *, channel_id: int, message_id: int, payload: EditPayload) -> None:
         channel = await self._get_channel(channel_id)
-        message = await channel.fetch_message(message_id)
+        try:
+            message = await channel.fetch_message(message_id)
+        except discord.HTTPException as exc:
+            _raise_as_definitive_failure_if_known(exc)
+            raise  # pragma: no cover -- _raise_as_definitive_failure_if_known always raises
         kwargs = payload.to_discord_kwargs()
         allowed_mentions_payload = kwargs.pop("allowed_mentions")
         assert isinstance(allowed_mentions_payload, dict)
@@ -190,9 +194,32 @@ class DiscordPyMessageSender:
                 discord.File(io.BytesIO(a.content), filename=a.filename, description=a.description)
                 for a in new_attachments
             ]
-        await message.edit(**edit_kwargs)
+        try:
+            await message.edit(**edit_kwargs)
+        except discord.HTTPException as exc:
+            _raise_as_definitive_failure_if_known(exc)
+            raise  # pragma: no cover -- _raise_as_definitive_failure_if_known always raises
 
     async def delete(self, *, channel_id: int, message_id: int) -> None:
+        """Idempotent (REQ-MSG owned delete): a message already gone --
+        ``fetch_message`` 404, or deleted in a genuine race between the
+        fetch and the delete call -- is a diagnosable terminal success,
+        never a failure or an infinite retry loop. Every other 4xx (e.g.
+        403) is still a definitive failure via
+        ``_raise_as_definitive_failure_if_known``; 429/5xx stay ambiguous
+        and propagate unwrapped, same classification as :meth:`send`."""
         channel = await self._get_channel(channel_id)
-        message = await channel.fetch_message(message_id)
-        await message.delete()
+        try:
+            message = await channel.fetch_message(message_id)
+        except discord.NotFound:
+            return
+        except discord.HTTPException as exc:
+            _raise_as_definitive_failure_if_known(exc)
+            raise  # pragma: no cover -- _raise_as_definitive_failure_if_known always raises
+        try:
+            await message.delete()
+        except discord.NotFound:
+            return
+        except discord.HTTPException as exc:
+            _raise_as_definitive_failure_if_known(exc)
+            raise  # pragma: no cover -- _raise_as_definitive_failure_if_known always raises

@@ -384,6 +384,21 @@
         "title": "ConfirmationCommand",
         "type": "object"
       },
+      "DeliveryEditInput": {
+        "additionalProperties": false,
+        "properties": {
+          "message_model": {
+            "additionalProperties": true,
+            "title": "Message Model",
+            "type": "object"
+          }
+        },
+        "required": [
+          "message_model"
+        ],
+        "title": "DeliveryEditInput",
+        "type": "object"
+      },
       "DesiredNodeInput": {
         "additionalProperties": false,
         "properties": {
@@ -3031,6 +3046,150 @@
           }
         },
         "summary": "List Deliveries",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete": {
+      "post": {
+        "description": "REQ-MSG owned delete (mission section 8): same ownership/ledger-only\nsourcing as :func:`edit_owned_delivery`. The delivery's status stays\nSENT until the durable worker\n(``did.campaigns.delivery_worker.execute_owned_delete``) confirms the\nreal (or already-happened) Discord deletion and transitions it to\nDELETED -- this handler creates durable work only, never calls Discord.",
+        "operationId": "delete_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Owned Delivery Api V1 Campaigns  Campaign Id  Deliveries  Delivery Id  Delete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Owned Delivery",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit": {
+      "post": {
+        "description": "REQ-MSG owned edit (mission section 7): only ever acts on a delivery\nthe caller's own campaign produced -- never a client-supplied\nchannel/message id (see\n``CampaignsRepository.prepare_owned_edit_for_owner``'s docstring). Only\na SENT delivery with a real ``discord_message_id`` is eligible. Creates\ndurable work only -- ``did.campaigns.dispatch.enqueue_edit_job`` -- the\nreal Discord edit happens exclusively in the durable worker\n(``did.campaigns.delivery_worker.execute_owned_edit``), never from this\nhandler.",
+        "operationId": "edit_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__edit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryEditInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Edit Owned Delivery Api V1 Campaigns  Campaign Id  Deliveries  Delivery Id  Edit Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Owned Delivery",
         "tags": [
           "stage-09-campaigns"
         ]
