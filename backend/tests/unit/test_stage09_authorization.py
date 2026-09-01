@@ -43,6 +43,8 @@ CHANNEL_IN_B = 556
 CATEGORY_IN_A = 655
 TRANSLATION_GROUP_IN_A = uuid4()
 TRANSLATION_GROUP_IN_B = uuid4()
+LOGICAL_GROUP_IN_A = uuid4()
+LOGICAL_GROUP_IN_B = uuid4()
 
 
 class _FakeChecker:
@@ -60,15 +62,18 @@ class _FakeChecker:
         channels_by_guild: dict[int, dict[int, ChannelType]] | None = None,
         sendable_channels: set[int] | None = None,
         translation_groups_by_guild: dict[int, set[UUID]] | None = None,
+        logical_groups_by_guild: dict[int, set[UUID]] | None = None,
     ) -> None:
         self.authorized_guilds = authorized_guilds
         self.channels_by_guild = channels_by_guild or {}
         self.sendable_channels = sendable_channels
         self.translation_groups_by_guild = translation_groups_by_guild or {}
+        self.logical_groups_by_guild = logical_groups_by_guild or {}
         self.guild_checks: list[tuple[int, int]] = []
         self.channel_membership_checks: list[tuple[int, int]] = []
         self.bot_can_send_checks: list[tuple[int, int]] = []
         self.translation_group_checks: list[tuple[int, UUID]] = []
+        self.logical_group_checks: list[tuple[int, UUID]] = []
 
     async def is_guild_authorized(self, *, guild_id: int, owner_discord_user_id: int) -> bool:
         self.guild_checks.append((guild_id, owner_discord_user_id))
@@ -93,6 +98,12 @@ class _FakeChecker:
         self.translation_group_checks.append((guild_id, translation_group_id))
         return translation_group_id in self.translation_groups_by_guild.get(guild_id, set())
 
+    async def logical_group_belongs_to_guild(
+        self, *, guild_id: int, logical_group_id: UUID
+    ) -> bool:
+        self.logical_group_checks.append((guild_id, logical_group_id))
+        return logical_group_id in self.logical_groups_by_guild.get(guild_id, set())
+
 
 def _default_checker(**overrides: object) -> _FakeChecker:
     fields: dict[str, object] = dict(
@@ -107,6 +118,10 @@ def _default_checker(**overrides: object) -> _FakeChecker:
         translation_groups_by_guild={
             GUILD_A: {TRANSLATION_GROUP_IN_A},
             GUILD_B: {TRANSLATION_GROUP_IN_B},
+        },
+        logical_groups_by_guild={
+            GUILD_A: {LOGICAL_GROUP_IN_A},
+            GUILD_B: {LOGICAL_GROUP_IN_B},
         },
     )
     fields.update(overrides)
@@ -168,6 +183,18 @@ def _group_target(**overrides: object) -> CampaignTarget:
     return CampaignTarget(**fields)  # type: ignore[arg-type]
 
 
+def _logical_group_target(**overrides: object) -> CampaignTarget:
+    fields: dict[str, object] = dict(
+        id=uuid4(),
+        guild_id=GUILD_A,
+        campaign_id=uuid4(),
+        target_kind=TargetKind.LOGICAL_GROUP,
+        logical_group_id=LOGICAL_GROUP_IN_A,
+    )
+    fields.update(overrides)
+    return CampaignTarget(**fields)  # type: ignore[arg-type]
+
+
 class TestCreateAuthorizedCampaignTarget:
     async def test_authorized_owner_can_attach_a_channel_target_to_their_own_campaign(
         self,
@@ -178,7 +205,7 @@ class TestCreateAuthorizedCampaignTarget:
         target = _channel_target(campaign_id=campaign_id)
 
         result = await create_authorized_campaign_target(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             target=target,
@@ -199,7 +226,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(GuildNotAuthorizedForCampaign):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -220,7 +247,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(CampaignNotOwnedByCaller):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -237,7 +264,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(CampaignNotOwnedByCaller):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -258,7 +285,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -273,7 +300,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -294,7 +321,7 @@ class TestCreateAuthorizedCampaignTarget:
         target = _channel_target(campaign_id=campaign_id)
 
         result = await create_authorized_campaign_target(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             target=target,
@@ -309,7 +336,7 @@ class TestCreateAuthorizedCampaignTarget:
         target = _group_target(campaign_id=campaign_id)
 
         result = await create_authorized_campaign_target(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             target=target,
@@ -328,7 +355,7 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -343,7 +370,57 @@ class TestCreateAuthorizedCampaignTarget:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_campaign_target(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
+                checker=checker,  # type: ignore[arg-type]
+                owner_discord_user_id=OWNER_A,
+                target=target,
+            )
+        assert repo.created_targets == []
+
+    async def test_authorized_owner_can_attach_a_logical_group_target_to_their_own_campaign(
+        self,
+    ) -> None:
+        campaign_id = uuid4()
+        repo = _FakeRepository(owned_campaigns={(OWNER_A, campaign_id): {"id": campaign_id}})
+        checker = _default_checker()
+        target = _logical_group_target(campaign_id=campaign_id)
+
+        result = await create_authorized_campaign_target(
+            repository=repo,  # type: ignore[arg-type]
+            checker=checker,  # type: ignore[arg-type]
+            owner_discord_user_id=OWNER_A,
+            target=target,
+        )
+        assert result.target is target
+        assert repo.created_targets == [target]
+        assert checker.logical_group_checks == [(GUILD_A, LOGICAL_GROUP_IN_A)]
+
+    async def test_guild_a_authorized_but_logical_group_belongs_to_guild_b_is_rejected(
+        self,
+    ) -> None:
+        campaign_id = uuid4()
+        repo = _FakeRepository(owned_campaigns={(OWNER_A, campaign_id): {"id": campaign_id}})
+        checker = _default_checker()
+        target = _logical_group_target(campaign_id=campaign_id, logical_group_id=LOGICAL_GROUP_IN_B)
+
+        with pytest.raises(ForeignOrUnknownResourceError):
+            await create_authorized_campaign_target(
+                repository=repo,  # type: ignore[arg-type]
+                checker=checker,  # type: ignore[arg-type]
+                owner_discord_user_id=OWNER_A,
+                target=target,
+            )
+        assert repo.created_targets == []
+
+    async def test_foreign_or_nonexistent_logical_group_is_rejected(self) -> None:
+        campaign_id = uuid4()
+        repo = _FakeRepository(owned_campaigns={(OWNER_A, campaign_id): {"id": campaign_id}})
+        checker = _default_checker()
+        target = _logical_group_target(campaign_id=campaign_id, logical_group_id=uuid4())
+
+        with pytest.raises(ForeignOrUnknownResourceError):
+            await create_authorized_campaign_target(
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 target=target,
@@ -366,7 +443,7 @@ class TestCreateAuthorizedTriggerSource:
         )
 
         result = await create_authorized_trigger_source(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             trigger_id=trigger_id,
@@ -388,7 +465,7 @@ class TestCreateAuthorizedTriggerSource:
         )
 
         await create_authorized_trigger_source(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             trigger_id=trigger_id,
@@ -409,7 +486,7 @@ class TestCreateAuthorizedTriggerSource:
         )
 
         await create_authorized_trigger_source(
-            repository=repo,
+            repository=repo,  # type: ignore[arg-type]
             checker=checker,  # type: ignore[arg-type]
             owner_discord_user_id=OWNER_A,
             trigger_id=trigger_id,
@@ -433,7 +510,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(CampaignNotOwnedByCaller):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -461,7 +538,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(GuildNotAuthorizedForCampaign):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -489,7 +566,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(CampaignNotOwnedByCaller):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -511,7 +588,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -535,7 +612,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(ForeignOrUnknownResourceError):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -563,7 +640,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(WrongResourceTypeError):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,
@@ -585,7 +662,7 @@ class TestCreateAuthorizedTriggerSource:
 
         with pytest.raises(WrongResourceTypeError):
             await create_authorized_trigger_source(
-                repository=repo,
+                repository=repo,  # type: ignore[arg-type]
                 checker=checker,  # type: ignore[arg-type]
                 owner_discord_user_id=OWNER_A,
                 trigger_id=trigger_id,

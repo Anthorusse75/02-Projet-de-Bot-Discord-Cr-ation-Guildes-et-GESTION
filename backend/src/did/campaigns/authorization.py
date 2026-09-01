@@ -229,6 +229,17 @@ class CampaignGuildAuthorizationChecker(TargetAuthorizationChecker):
             return False
         return True
 
+    async def logical_group_belongs_to_guild(
+        self, *, guild_id: int, logical_group_id: UUID
+    ) -> bool:
+        """REQ-MSG-002: proves a caller-supplied ``logical_group_id``
+        actually belongs to ``guild_id`` through Stage04's own
+        ``logical_groups`` table -- never inferred from the caller-supplied
+        pair alone, the same structural-identity bar every other target
+        kind already meets."""
+        groups = await self.read_models.list_logical_groups(guild_id)
+        return any(UUID(str(row["id"])) == logical_group_id for row in groups)
+
 
 async def create_authorized_campaign_target(
     *,
@@ -270,6 +281,12 @@ async def create_authorized_campaign_target(
         bot_send_preflight_ok = await checker.bot_can_send(
             guild_id=target.guild_id, discord_channel_id=target.discord_channel_id
         )
+    elif target.target_kind is TargetKind.LOGICAL_GROUP:
+        assert target.logical_group_id is not None
+        if not await checker.logical_group_belongs_to_guild(
+            guild_id=target.guild_id, logical_group_id=target.logical_group_id
+        ):
+            raise ForeignOrUnknownResourceError(target.guild_id, target.logical_group_id)
     else:
         assert target.translation_group_id is not None
         if not await checker.translation_group_belongs_to_guild(
