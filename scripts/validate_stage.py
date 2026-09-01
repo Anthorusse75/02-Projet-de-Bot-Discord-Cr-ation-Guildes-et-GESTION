@@ -809,6 +809,31 @@ def stage_09(
 ) -> tuple[Step, ...]:
     uv = executable("uv")
     npm = executable("npm")
+    if profile == "load":
+        # Mirrors CI's stage-09-load job exactly (.github/workflows/ci.yml)
+        # -- a deterministic, in-memory fairness/load suite selected by
+        # marker, needing no database. Previously rejected outright ("The
+        # load profile is defined only for STAGE 03 and STAGE 05"), forcing
+        # anyone validating locally to hand-run CI's command instead of the
+        # validator genuinely exercising the same profile CI does.
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step(
+                "STAGE 09 deterministic campaign fairness/load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/load",
+                    "-k",
+                    "stage09",
+                    "-m",
+                    "load",
+                    "-q",
+                    f"--junitxml={relative_path(evidence_directory / 'stage09-load.xml')}",
+                ),
+            ),
+        )
     if profile == "e2e":
         return (
             Step("frontend lock install", (npm, "ci"), 600, ROOT / "frontend"),
@@ -833,7 +858,18 @@ def stage_09(
                     "--out",
                     relative_path(evidence_directory / "translation-benchmark.json"),
                 ),
-                600,
+                # The real benchmark makes ~1,950 sequential, network-bound
+                # googletrans calls (4 strategies x 12 language pairs x 26
+                # content classes x ~4.4 calls/item average) at roughly
+                # 1.3-1.6s each -- genuinely ~45-50 minutes end to end, not a
+                # step the previous 600s (10 minute) timeout could ever let
+                # finish normally. Previously this always fired the wrapper's
+                # own [TIMEOUT] before the underlying script exited, even
+                # though the script itself always completed successfully and
+                # wrote a correct evidence file -- an orchestration bug, not
+                # evidence of a real failure. 5400s (90 minutes) leaves
+                # comfortable headroom above the observed real duration.
+                5400,
             ),
         )
     if profile == "failure-injection":
@@ -1233,8 +1269,8 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    if arguments.profile == "load" and stage not in {"03", "05"}:
-        print("The load profile is defined only for STAGE 03 and STAGE 05")
+    if arguments.profile == "load" and stage not in {"03", "05", "09"}:
+        print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
         return 2
     if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
         print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
