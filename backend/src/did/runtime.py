@@ -43,6 +43,7 @@ from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepo
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
+    TranslationProviderBindingRepository,
 )
 from did.oauth.discord import HttpDiscordMemberClient
 from did.oauth.stores import (
@@ -293,6 +294,7 @@ async def run_process(
                     translation_provider=GoogletransCampaignTranslationProvider(),
                     lease_owner=f"campaign-scheduler-{uuid4().hex}",
                     stage04_repository=Stage04Repository(session_factory),
+                    provider_bindings=TranslationProviderBindingRepository(session_factory),
                     poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
                 )
                 runners.append(campaign_scheduler.run(stop_event))

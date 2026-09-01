@@ -20,6 +20,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from did.campaigns.logical_groups import LogicalGroupExpansion
+from did.campaigns.translation_group_safety import evaluate_translation_group_safety
 from did.domain.campaigns import CampaignTarget, TargetKind, TranslationPublicationMode
 
 
@@ -47,6 +48,14 @@ class BlockReason(StrEnum):
     #: no member channels right now) -- distinct from "not found" so a
     #: caller can tell "misconfigured target" from "empty group right now".
     LOGICAL_GROUP_EMPTY = "LOGICAL_GROUP_EMPTY"
+    #: REQ-MSG-007/013: DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES would post
+    #: destination-language messages while an external translation provider
+    #: is bound to this Translation Group and might still be active -- DID
+    #: cannot verify without modifying that provider whether it would
+    #: re-translate DID's own posts, so fan-out is blocked rather than
+    #: risking a double-translation loop. See
+    #: did.campaigns.translation_group_safety.
+    PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED = "PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +78,12 @@ class TranslationGroupTopologySnapshot:
     source_channel_id: int
     #: (language_profile_id, discord_channel_id) for every non-source variant.
     variants: tuple[tuple[UUID, int], ...]
+    #: REQ-MSG-007/013: the REAL current
+    #: translation_provider_bindings.status for this group's
+    #: provider_binding_id, or None when no provider is bound at all --
+    #: see did.campaigns.translation_group_safety for how this gates
+    #: DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES.
+    provider_binding_status: str | None = None
 
 
 async def resolve_channel_target(
@@ -165,6 +180,24 @@ async def resolve_translation_group_target(
     )
     if mode in source_only_modes:
         return [await _resolve_channel(topology.source_channel_id, None)]
+
+    # REQ-MSG-007/013: DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES post
+    # destination-language messages themselves -- re-checked here, at
+    # execution time, exactly like Guild authorization/bot-can-send, never
+    # trusted as a standing decision from target-creation time (a provider
+    # binding can change after a target is created).
+    safety = evaluate_translation_group_safety(
+        publication_mode=mode, provider_binding_status=topology.provider_binding_status
+    )
+    if not safety.is_safe:
+        return [
+            ResolvedDestination(
+                guild_id=target.guild_id,
+                discord_channel_id=topology.source_channel_id,
+                language_profile_id=None,
+                blocked_reason=BlockReason.PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED,
+            )
+        ]
 
     if mode is TranslationPublicationMode.DID_TRANSLATED_FANOUT:
         destinations = [await _resolve_channel(topology.source_channel_id, None)]

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from did.campaigns.logical_groups import LogicalGroupExpansion, expand_logical_group
 from did.campaigns.rendering import TranslateMaskedText
 from did.campaigns.target_resolution import TranslationGroupTopologySnapshot
+from did.campaigns.translation_group_safety import load_provider_binding_status
 from did.domain.campaigns import (
     AttachmentPolicy,
     CampaignTarget,
@@ -45,6 +46,7 @@ from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     Stage08NotFound,
     TranslationGroupRepository,
+    TranslationProviderBindingRepository,
 )
 from did.messaging.allowed_mentions import (
     AllowedMentionsCompiler,
@@ -176,6 +178,7 @@ async def load_translation_group_topology(
     *,
     guild_id: int,
     translation_group_id: UUID,
+    provider_bindings: TranslationProviderBindingRepository | None = None,
 ) -> TranslationGroupTopologySnapshot | None:
     """Resolves REAL Stage 08 topology for one Translation Group.
 
@@ -223,8 +226,19 @@ async def load_translation_group_topology(
         if str(variant["language_profile_id"]) != str(source_language_profile_id)
         and str(variant.get("state", "ACTIVE")) == "ACTIVE"
     )
+    provider_binding_status = (
+        await load_provider_binding_status(
+            provider_bindings,
+            guild_id=guild_id,
+            provider_binding_id=group.get("provider_binding_id"),
+        )
+        if provider_bindings is not None
+        else None
+    )
     return TranslationGroupTopologySnapshot(
-        source_channel_id=int(source_variant["discord_channel_id"]), variants=non_source
+        source_channel_id=int(source_variant["discord_channel_id"]),
+        variants=non_source,
+        provider_binding_status=provider_binding_status,
     )
 
 
@@ -258,6 +272,7 @@ async def load_fan_out_context(
     campaign: MessageCampaign,
     translation_provider: CampaignTranslationProvider | None,
     stage04_repository: Stage04Repository | None = None,
+    provider_bindings: TranslationProviderBindingRepository | None = None,
 ) -> FanOutContext:
     """Assemble a complete :class:`FanOutContext` for ``campaign`` from
     durable storage. ``translation_provider=None`` yields a context that can
@@ -286,6 +301,7 @@ async def load_fan_out_context(
                 translation_groups,
                 guild_id=target.guild_id,
                 translation_group_id=target.translation_group_id,
+                provider_bindings=provider_bindings,
             )
         elif (
             target.target_kind is TargetKind.LOGICAL_GROUP

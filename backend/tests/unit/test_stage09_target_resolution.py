@@ -211,6 +211,59 @@ class TestTranslationGroupResolution:
         assert len(resolved) == 1
         assert resolved[0].blocked_reason is BlockReason.GUILD_NOT_AUTHORIZED
 
+    @pytest.mark.asyncio
+    async def test_did_translated_fanout_blocked_when_an_active_provider_is_bound(self) -> None:
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=100,
+            variants=((uuid4(), 200),),
+            provider_binding_status="READY",
+        )
+        target = _group_target(
+            translation_publication_mode=TranslationPublicationMode.DID_TRANSLATED_FANOUT
+        )
+        resolved = await resolve_target(
+            target, owner_discord_user_id=1, authorization=_FakeAuthorization(), topology=topology
+        )
+        assert len(resolved) == 1
+        assert (
+            resolved[0].blocked_reason is BlockReason.PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED
+        )
+
+    @pytest.mark.asyncio
+    async def test_did_translated_fanout_allowed_when_bound_provider_is_disabled(self) -> None:
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=100,
+            variants=((uuid4(), 200),),
+            provider_binding_status="DISABLED",
+        )
+        target = _group_target(
+            translation_publication_mode=TranslationPublicationMode.DID_TRANSLATED_FANOUT
+        )
+        resolved = await resolve_target(
+            target, owner_discord_user_id=1, authorization=_FakeAuthorization(), topology=topology
+        )
+        assert len(resolved) == 2
+        assert all(dest.is_ready for dest in resolved)
+
+    @pytest.mark.asyncio
+    async def test_existing_provider_mode_unaffected_by_a_bound_active_provider(self) -> None:
+        """EXISTING_PROVIDER's whole point is delegating to that exact bound
+        provider -- its presence and READY status must never block this
+        mode, only DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES."""
+        topology = TranslationGroupTopologySnapshot(
+            source_channel_id=100,
+            variants=((uuid4(), 200),),
+            provider_binding_status="READY",
+        )
+        target = _group_target(
+            translation_publication_mode=TranslationPublicationMode.EXISTING_PROVIDER
+        )
+        resolved = await resolve_target(
+            target, owner_discord_user_id=1, authorization=_FakeAuthorization(), topology=topology
+        )
+        assert len(resolved) == 1
+        assert resolved[0].is_ready
+
 
 def _logical_group_target(**overrides: object) -> CampaignTarget:
     fields: dict[str, object] = dict(

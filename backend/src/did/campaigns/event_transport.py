@@ -38,6 +38,7 @@ from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
+    TranslationProviderBindingRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ async def consume_new_events_for_guild(
     guild_id: int,
     batch_limit: int = 100,
     stage04_repository: Stage04Repository | None = None,
+    provider_bindings: TranslationProviderBindingRepository | None = None,
 ) -> int:
     """One durable-transport pass for ``guild_id``: read every new
     ``discord_gateway_inbox`` row since the cursor, evaluate it against
@@ -175,6 +177,7 @@ async def consume_new_events_for_guild(
                 campaign=campaign,
                 translation_provider=translation_provider,
                 stage04_repository=stage04_repository,
+                provider_bindings=provider_bindings,
             )
             try:
                 await fan_out_occurrence(

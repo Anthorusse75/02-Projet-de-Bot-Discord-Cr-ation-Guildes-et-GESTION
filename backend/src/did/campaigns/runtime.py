@@ -38,6 +38,7 @@ from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
+    TranslationProviderBindingRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class CampaignSchedulerRuntime:
         translation_provider: CampaignTranslationProvider | None,
         lease_owner: str,
         stage04_repository: Stage04Repository | None = None,
+        provider_bindings: TranslationProviderBindingRepository | None = None,
         poll_interval_seconds: float = 5.0,
         schedule_limit: int = 20,
         routing_limit: int = 200,
@@ -68,6 +70,7 @@ class CampaignSchedulerRuntime:
         self._language_profiles = language_profiles
         self._translation_groups = translation_groups
         self._stage04_repository = stage04_repository
+        self._provider_bindings = provider_bindings
         self._checker = checker
         self._translation_provider = translation_provider
         self._lease_owner = lease_owner
@@ -97,6 +100,7 @@ class CampaignSchedulerRuntime:
             campaign=campaign,
             translation_provider=self._translation_provider,
             stage04_repository=self._stage04_repository,
+            provider_bindings=self._provider_bindings,
         )
         return await fan_out_occurrence(
             repository=self._campaigns_repository,
@@ -168,6 +172,7 @@ class CampaignSchedulerRuntime:
             lease_owner=self._lease_owner,
             guild_id=guild_id,
             stage04_repository=self._stage04_repository,
+            provider_bindings=self._provider_bindings,
         )
 
     async def _route_deliveries(self, guild_id: int) -> int:
