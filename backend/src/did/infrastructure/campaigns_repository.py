@@ -101,12 +101,154 @@ class CampaignsRepository:
             )
         return dict(row) if row is not None else None
 
+    async def get_campaign_by_key(
+        self, owner_discord_user_id: int, logical_campaign_key: str
+    ) -> dict[str, Any] | None:
+        """Owner-scoped lookup by the caller's own natural idempotency key
+        (``UNIQUE(owner_discord_user_id, logical_campaign_key)``) -- lets a
+        create-campaign API call detect a retried request and replay the
+        existing campaign instead of erroring on the unique constraint."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            row = (
+                (
+                    await session.execute(
+                        text("SELECT * FROM message_campaigns WHERE logical_campaign_key=:key"),
+                        {"key": logical_campaign_key},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
     async def list_campaigns(self, owner_discord_user_id: int) -> list[dict[str, Any]]:
         async with tenant_transaction(
             self._factory, UserContext(user_id=owner_discord_user_id)
         ) as session:
             rows = (
                 (await session.execute(text("SELECT * FROM message_campaigns ORDER BY created_at")))
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def update_campaign_draft_fields(
+        self,
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        expected_version: int,
+        *,
+        name: str | None = None,
+        message_model: dict[str, object] | None = None,
+        allowed_mentions_policy: dict[str, object] | None = None,
+        attachment_policy: str | None = None,
+    ) -> bool:
+        """Owner-scoped, optimistic-concurrency (CAS on ``version``) partial
+        update of a campaign's authoring fields -- fenced by
+        ``lifecycle_status='DRAFT'`` in the WHERE clause itself, never
+        merely checked beforehand by the caller: a campaign that left DRAFT
+        between the caller's read and this write can never be silently
+        edited. Returns False (safe no-op the caller must treat as a
+        conflict) when the campaign does not exist for this owner, is not
+        currently DRAFT, or ``expected_version`` is stale."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_campaigns SET "
+                    "name=COALESCE(:name, name), "
+                    "message_model=COALESCE(CAST(:model AS JSONB), message_model), "
+                    "allowed_mentions_policy=COALESCE(CAST(:mentions AS JSONB), "
+                    "allowed_mentions_policy), "
+                    "attachment_policy=COALESCE(:attachments, attachment_policy), "
+                    "version=version+1, updated_at=now() "
+                    "WHERE id=:id AND lifecycle_status='DRAFT' AND version=:expected_version"
+                ),
+                {
+                    "id": campaign_id,
+                    "name": name,
+                    "model": _to_json(message_model) if message_model is not None else None,
+                    "mentions": (
+                        _to_json(allowed_mentions_policy)
+                        if allowed_mentions_policy is not None
+                        else None
+                    ),
+                    "attachments": attachment_policy,
+                    "expected_version": expected_version,
+                },
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
+    async def update_campaign_lifecycle_status(
+        self,
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        expected_version: int,
+        *,
+        new_status: str,
+    ) -> bool:
+        """Owner-scoped, optimistic-concurrency (CAS on ``version``)
+        persistence of a lifecycle transition. The transition's legality
+        itself is the domain layer's job (``MessageCampaign.transition_to``,
+        called by the caller BEFORE this method) -- this method only proves
+        the row is still at the version the caller last observed, so a
+        concurrent transition (another request, a background worker) can
+        never be silently clobbered. Returns False (safe no-op, the caller
+        must treat it as a conflict) when the campaign does not exist for
+        this owner or ``expected_version`` is stale."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_campaigns SET lifecycle_status=:status, "
+                    "version=version+1, updated_at=now() "
+                    "WHERE id=:id AND version=:expected_version"
+                ),
+                {"id": campaign_id, "status": new_status, "expected_version": expected_version},
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
+    async def list_deliveries_for_campaign(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """System/runtime-only read, mirroring
+        :meth:`list_targets_for_campaign`'s identical rationale: a
+        campaign's deliveries span every Guild it targets, so there is no
+        single ``TenantContext`` that can see all of them under ordinary
+        RLS. Runs on the admin (RLS-bypassing) session factory, with
+        ownership verified in the query itself (the join to
+        ``message_campaigns``) rather than trusted from the caller -- used
+        only to serve the owner's own delivery-history API request, never
+        by the runtime itself."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("delivery listing limit must be between 1 and 1000")
+        async with admin_factory() as session, session.begin():
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT d.* FROM message_deliveries d "
+                            "JOIN message_campaigns c ON c.id = d.campaign_id "
+                            "WHERE d.campaign_id = :campaign_id "
+                            "AND c.owner_discord_user_id = :owner "
+                            "ORDER BY d.created_at DESC LIMIT :limit"
+                        ),
+                        {
+                            "campaign_id": campaign_id,
+                            "owner": owner_discord_user_id,
+                            "limit": limit,
+                        },
+                    )
+                )
                 .mappings()
                 .all()
             )

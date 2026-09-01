@@ -1,0 +1,593 @@
+"""PostgreSQL + real FastAPI app integration tests for the Stage 09
+campaign API router (``did.api.stage09``).
+
+Exercises the router through the exact same real stack
+``backend/tests/integration/test_stage02_api.py`` uses for auth (a real
+``create_app()`` under ``httpx.ASGITransport``, a fake Discord OAuth/member
+client, a real Redis session store) combined with the real
+``CampaignsRepository``/``AuthorizationService``/``Stage04Repository`` this
+router actually depends on -- so every authorization/ownership/resource-
+membership check below is the REAL check, not a stand-in fake.
+
+Covers:
+* Campaign create/list/get is owner-scoped; PATCH only while DRAFT.
+* A foreign owner's GET/PATCH/target-create/activate on someone else's
+  campaign_id returns the identical generic not-found shape -- never a 403
+  that would disclose the campaign's existence.
+* A target on a Guild the caller is not authorized for is rejected (403)
+  before persistence; a target naming a channel that does not belong to the
+  declared guild_id is rejected (404-shaped) before persistence.
+* Activation of an IMMEDIATE campaign creates real durable work --
+  ``message_occurrences``/``message_deliveries``/``discord_io_jobs`` rows,
+  asserted directly against the database -- and the router module never
+  references the Discord-sending adapter (see the dedicated unit test
+  ``test_stage09_api_router_never_sends.py`` for the import-graph proof).
+* Variant approval always records the AUTHENTICATED caller as
+  ``approved_by_discord_user_id``; a request body that tries to smuggle a
+  different one is rejected outright (``extra="forbid"``), never silently
+  ignored-but-accepted.
+* The ``Idempotency-Key`` header is required on a mutating POST.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
+from sqlalchemy import text
+
+from did.api.main import create_app
+from did.infrastructure.database import create_database_engine
+from did.oauth.models import DiscordGuild, DiscordUser, OAuthTokenSet
+from did.settings import AppEnvironment, Settings
+
+pytestmark = [pytest.mark.integration, pytest.mark.api, pytest.mark.security]
+
+ADMIN_URL = os.environ.get(
+    "DID_DATABASE_ADMIN_URL",
+    "postgresql+asyncpg://did_admin:local_admin_password@localhost:55432/did_test",
+)
+
+GUILD_A = 990100001111
+GUILD_FOREIGN = 990100002222
+OWNER_A = 990100011111
+OWNER_B = 990100012222
+CHANNEL_A = 990100021111
+CHANNEL_UNKNOWN = 990100099999
+BOT_ID = 990100031111
+
+CLEANUP_STATEMENTS = (
+    "DELETE FROM discord_io_jobs WHERE guild_id = :ga",
+    "DELETE FROM message_deliveries WHERE guild_id = :ga",
+    "DELETE FROM message_campaign_targets WHERE guild_id = :ga",
+    "DELETE FROM message_campaign_schedules WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM message_occurrences WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM message_approved_variants WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM message_campaigns WHERE owner_discord_user_id IN (:oa,:ob)",
+    "DELETE FROM discord_member_authorization_cache WHERE guild_id = :ga",
+    "DELETE FROM discord_channels_cache WHERE guild_id = :ga",
+    "DELETE FROM discord_roles_cache WHERE guild_id = :ga",
+    "DELETE FROM discord_cache_coverage WHERE guild_id = :ga",
+    "DELETE FROM guild_role_bindings WHERE guild_id IN (:ga,:gf)",
+    "DELETE FROM guild_user_access WHERE guild_id IN (:ga,:gf)",
+    "DELETE FROM guild_installations WHERE guild_id IN (:ga,:gf)",
+    "DELETE FROM discord_oauth_grants WHERE discord_user_id IN (:oa,:ob)",
+    "DELETE FROM users WHERE discord_user_id IN (:oa,:ob)",
+)
+CLEANUP_PARAMS = {"ga": GUILD_A, "gf": GUILD_FOREIGN, "oa": OWNER_A, "ob": OWNER_B}
+
+
+async def _reset() -> None:
+    engine = create_database_engine(ADMIN_URL, pool_size=1)
+    try:
+        async with engine.begin() as connection:
+            for statement in CLEANUP_STATEMENTS:
+                await connection.execute(text(statement), CLEANUP_PARAMS)
+    finally:
+        await engine.dispose()
+
+
+async def _seed_stage04_snapshot_for_guild_a() -> None:
+    """Seeds a REAL Stage04 read-model snapshot for GUILD_A: a bot identity,
+    one text channel (``CHANNEL_A``), and an ``@everyone`` role granting
+    VIEW_CHANNEL (1024) + SEND_MESSAGES (2048) so the router's real
+    ``CampaignGuildAuthorizationChecker.bot_can_send`` (backed by the real
+    ``did.permissions.PermissionEvaluator``, not a fake) genuinely resolves
+    to True for CHANNEL_A -- exactly what a target/activation test needs to
+    prove real destinations are actually reachable, not merely mocked as
+    such."""
+    engine = create_database_engine(ADMIN_URL, pool_size=1)
+    now = datetime.now(UTC)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE guild_installations SET bot_user_id=:bot WHERE guild_id=:guild"),
+                {"bot": BOT_ID, "guild": GUILD_A},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discord_roles_cache "
+                    "(guild_id,role_id,name,position,permissions_bits,managed,color,hoist,"
+                    "mentionable,raw_json,last_gateway_seen_at) VALUES "
+                    "(:guild,:everyone,'@everyone',0,3072,false,0,false,false,'{}',:now)"
+                ),
+                {"guild": GUILD_A, "everyone": GUILD_A, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discord_channels_cache "
+                    "(guild_id,channel_id,type,name,parent_id,position,nsfw,last_full_payload,"
+                    "observability_state,freshness_state,last_full_observed_at,"
+                    "last_gateway_seen_at) VALUES "
+                    "(:guild,:channel,0,'general',NULL,0,false,'{}','VISIBLE','FRESH',:now,:now)"
+                ),
+                {"guild": GUILD_A, "channel": CHANNEL_A, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discord_cache_coverage "
+                    "(guild_id,coverage_mode,freshness_state,known_channels,visible_channels,"
+                    "known_roles,last_gateway_event_at,gateway_continuity) VALUES "
+                    "(:guild,'FULL','FRESH',1,1,1,:now,'CONNECTED')"
+                ),
+                {"guild": GUILD_A, "now": now},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discord_member_authorization_cache "
+                    "(guild_id,discord_user_id,role_ids,source,validity,observed_at) VALUES "
+                    "(:guild,:bot,:roles,'TARGETED_REST','FRESH',:now)"
+                ),
+                {"guild": GUILD_A, "bot": BOT_ID, "roles": [], "now": now},
+            )
+    finally:
+        await engine.dispose()
+
+
+class FakeOAuthClient:
+    """Multi-user fake: each ``code`` maps to its own Discord identity and
+    guild list, so two independently-logged-in owners (this router's
+    ownership tests need at least two) never share state."""
+
+    def __init__(self) -> None:
+        self._users: dict[str, DiscordUser] = {}
+        self._guilds: dict[str, tuple[DiscordGuild, ...]] = {}
+
+    def register(self, code: str, user: DiscordUser, guilds: tuple[DiscordGuild, ...]) -> None:
+        self._users[code] = user
+        self._guilds[code] = guilds
+
+    def authorization_url(self, *, state: str) -> str:
+        return f"https://discord.com/oauth2/authorize?state={state}"
+
+    async def exchange_code(self, code: str) -> OAuthTokenSet:
+        assert code in self._users
+        return OAuthTokenSet(
+            access_token=f"access-{code}",
+            refresh_token=f"refresh-{code}",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            scopes=frozenset({"identify", "guilds"}),
+        )
+
+    async def refresh(self, refresh_token: str) -> OAuthTokenSet:  # pragma: no cover
+        raise AssertionError(f"refresh should not be needed in this test: {refresh_token}")
+
+    async def revoke(self, token: str) -> None:  # pragma: no cover
+        del token
+
+    async def current_user(self, access_token: str) -> DiscordUser:
+        code = access_token.removeprefix("access-")
+        return self._users[code]
+
+    async def current_user_guilds(self, access_token: str) -> tuple[DiscordGuild, ...]:
+        code = access_token.removeprefix("access-")
+        return self._guilds[code]
+
+
+class FakeMemberClient:
+    async def get_member_roles(self, guild_id: int, user_id: int) -> tuple[int, ...]:
+        del guild_id, user_id
+        return ()
+
+
+def stage09_settings() -> Settings:
+    return Settings(
+        _env_file=None,
+        app_env=AppEnvironment.TEST,
+        database_url=SecretStr(
+            os.environ.get(
+                "DID_DATABASE_URL",
+                "postgresql+asyncpg://did_app:local_app_password@localhost:55432/did_test",
+            )
+        ),
+        database_admin_url=SecretStr(ADMIN_URL),
+        redis_url=SecretStr(os.environ.get("DID_REDIS_URL", "redis://localhost:56379/0")),
+        discord_client_id="123",
+        discord_client_secret=SecretStr("test-only-client-value"),
+        discord_oauth_redirect_uri="http://test/auth/discord/callback",
+        session_secret=SecretStr("stage09-test-session-secret-material"),
+        oauth_token_encryption_key=SecretStr("a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s"),
+        oauth_state_ttl_seconds=60,
+        guild_discovery_ttl_seconds=60,
+    )
+
+
+def _app(oauth: FakeOAuthClient):
+    return create_app(
+        stage09_settings(),
+        oauth_client=oauth,  # type: ignore[arg-type]
+        member_client=FakeMemberClient(),  # type: ignore[arg-type]
+    )
+
+
+async def _login(client: AsyncClient, code: str) -> str:
+    start = await client.get("/auth/discord/login")
+    assert start.status_code == 302
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    callback = await client.get("/auth/discord/callback", params={"code": code, "state": state})
+    assert callback.status_code == 303
+    me = await client.get("/api/v1/me")
+    assert me.status_code == 200
+    return str(me.json()["csrf_token"])
+
+
+def _client(app) -> AsyncClient:
+    return AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+        follow_redirects=False,
+    )
+
+
+CAMPAIGN_BODY = {
+    "name": "Launch Announcement",
+    "source_language_code": "en",
+    "message_model": {"content": "Hello world!"},
+    "allowed_mentions_policy": {},
+    "publication_mode": "IMMEDIATE",
+}
+
+
+async def test_campaign_crud_ownership_idempotency_and_foreign_owner_non_disclosure() -> None:
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register("owner-a", DiscordUser(OWNER_A, "owner-a", None, None), ())
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            csrf_b = await _login(client_b, "owner-b")
+
+            # Missing Idempotency-Key -> 422, matching the existing
+            # header-required convention (did.api.stage06).
+            missing_key = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a},
+            )
+            assert missing_key.status_code == 422
+
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "launch-2026-01"},
+            )
+            assert created.status_code == 201
+            body = created.json()
+            assert body["created"] is True
+            campaign = body["campaign"]
+            assert campaign["owner_discord_user_id"] == str(OWNER_A)
+            assert campaign["lifecycle_status"] == "DRAFT"
+            campaign_id = campaign["id"]
+
+            # A client-supplied owner id anywhere in the body would be
+            # rejected by extra="forbid" before this point even if sent --
+            # confirm the input model has no such field to smuggle one into.
+            smuggle_owner = await client_a.post(
+                "/api/v1/campaigns",
+                json={**CAMPAIGN_BODY, "owner_discord_user_id": str(OWNER_B)},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "launch-owner-smuggle"},
+            )
+            assert smuggle_owner.status_code == 422
+
+            # Idempotent replay: the same Idempotency-Key returns the SAME
+            # campaign rather than a duplicate or a conflict.
+            replayed = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "launch-2026-01"},
+            )
+            assert replayed.status_code == 201
+            assert replayed.json()["created"] is False
+            assert replayed.json()["campaign"]["id"] == campaign_id
+
+            listed = await client_a.get("/api/v1/campaigns")
+            assert listed.status_code == 200
+            assert {item["id"] for item in listed.json()["campaigns"]} == {campaign_id}
+
+            fetched = await client_a.get(f"/api/v1/campaigns/{campaign_id}")
+            assert fetched.status_code == 200
+            assert fetched.json()["id"] == campaign_id
+
+            patched = await client_a.patch(
+                f"/api/v1/campaigns/{campaign_id}",
+                json={"expected_version": 1, "name": "Launch Announcement (v2)"},
+                headers={"X-CSRF-Token": csrf_a},
+            )
+            assert patched.status_code == 200
+            assert patched.json()["name"] == "Launch Announcement (v2)"
+            assert patched.json()["version"] == 2
+
+            # Stale expected_version -> conflict, never a silent overwrite.
+            stale_patch = await client_a.patch(
+                f"/api/v1/campaigns/{campaign_id}",
+                json={"expected_version": 1, "name": "Should not apply"},
+                headers={"X-CSRF-Token": csrf_a},
+            )
+            assert stale_patch.status_code == 409
+
+            # --- Foreign owner: every one of these must be the SAME
+            # generic not-found shape, never a 403 that discloses the
+            # campaign's existence to OWNER_B.
+            foreign_get = await client_b.get(f"/api/v1/campaigns/{campaign_id}")
+            assert foreign_get.status_code == 404
+            foreign_code = foreign_get.json()["error"]["code"]
+
+            foreign_patch = await client_b.patch(
+                f"/api/v1/campaigns/{campaign_id}",
+                json={"expected_version": 2, "name": "Hijacked"},
+                headers={"X-CSRF-Token": csrf_b},
+            )
+            assert foreign_patch.status_code == 404
+            assert foreign_patch.json()["error"]["code"] == foreign_code
+
+            foreign_target = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "foreign-target"},
+            )
+            assert foreign_target.status_code == 404
+            assert foreign_target.json()["error"]["code"] == foreign_code
+
+            foreign_activate = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/activate",
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "foreign-activate"},
+            )
+            assert foreign_activate.status_code == 404
+            assert foreign_activate.json()["error"]["code"] == foreign_code
+
+            # A totally nonexistent campaign_id gets the IDENTICAL shape --
+            # a caller can never distinguish "not yours" from "never
+            # existed".
+            never_existed = await client_b.get(f"/api/v1/campaigns/{uuid4()}")
+            assert never_existed.status_code == 404
+            assert never_existed.json()["error"]["code"] == foreign_code
+
+
+async def test_target_creation_guild_authorization_and_resource_membership() -> None:
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client:
+            csrf = await _login(client, "owner-a")
+            bootstrapped = await client.post(
+                f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf}
+            )
+            assert bootstrapped.status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "target-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            # GUILD_FOREIGN was never bootstrapped/authorized for OWNER_A --
+            # rejected before any target row is persisted.
+            not_authorized = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_FOREIGN),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "target-guild-not-authorized"},
+            )
+            assert not_authorized.status_code == 403
+
+            # CHANNEL_UNKNOWN was never seeded as belonging to GUILD_A's
+            # real Stage04 snapshot -- rejected before any target row is
+            # persisted, even though the caller IS authorized for GUILD_A
+            # itself.
+            unknown_channel = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_UNKNOWN),
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "target-unknown-channel"},
+            )
+            assert unknown_channel.status_code == 404
+
+            valid_target = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "target-valid"},
+            )
+            assert valid_target.status_code == 201
+            assert valid_target.json()["target"]["discord_channel_id"] == str(CHANNEL_A)
+            assert valid_target.json()["bot_send_preflight_ok"] is True
+
+            listed = await client.get(f"/api/v1/campaigns/{campaign_id}/targets")
+            assert listed.status_code == 200
+            assert len(listed.json()["targets"]) == 1
+
+            # Neither rejected attempt above ever persisted a row.
+            assert unknown_channel.status_code == 404
+            assert len(listed.json()["targets"]) == 1
+
+
+async def test_activation_creates_durable_work_never_sends_and_variant_identity() -> None:
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client:
+            csrf = await _login(client, "owner-a")
+            assert (
+                await client.post(
+                    f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf}
+                )
+            ).status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "activation-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            target = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "activation-target"},
+            )
+            assert target.status_code == 201
+
+            simulated = await client.post(f"/api/v1/campaigns/{campaign_id}/simulate")
+            assert simulated.status_code == 200
+            assert simulated.json()["estimated_delivery_count"] == 1
+
+            activated = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/activate",
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "activation-go"},
+            )
+            assert activated.status_code == 200
+            payload = activated.json()
+            assert payload["campaign"]["lifecycle_status"] == "ACTIVE_RUNNING"
+            assert payload["durable_work"]["occurrence_created"] is True
+            assert payload["durable_work"]["deliveries_created"] == 1
+            assert payload["durable_work"]["deliveries_routed"] == 1
+            assert payload["durable_work"]["is_fully_healthy"] is True
+
+            # Assert on the ACTUAL database state -- not just the response.
+            engine = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine.begin() as connection:
+                    occurrence_count = (
+                        await connection.execute(
+                            text(
+                                "SELECT count(*) FROM message_occurrences "
+                                "WHERE campaign_id=:cid AND status IN ('FANNED_OUT','COMPLETED')"
+                            ),
+                            {"cid": campaign_id},
+                        )
+                    ).scalar_one()
+                    assert occurrence_count == 1
+                    delivery_row = (
+                        (
+                            await connection.execute(
+                                text(
+                                    "SELECT status, discord_message_id FROM message_deliveries "
+                                    "WHERE campaign_id=:cid"
+                                ),
+                                {"cid": campaign_id},
+                            )
+                        )
+                        .mappings()
+                        .one()
+                    )
+                    assert delivery_row["status"] == "PENDING"
+                    # Never actually sent -- no discord_message_id yet, and
+                    # never will be from this HTTP request: only the
+                    # separate durable worker process ever calls Discord.
+                    assert delivery_row["discord_message_id"] is None
+                    job_count = (
+                        await connection.execute(
+                            text(
+                                "SELECT count(*) FROM discord_io_jobs "
+                                "WHERE guild_id=:gid AND workload_type='SEND_CAMPAIGN_MESSAGE'"
+                            ),
+                            {"gid": GUILD_A},
+                        )
+                    ).scalar_one()
+                    assert job_count == 1
+            finally:
+                await engine.dispose()
+
+            # --- Variant approval identity (REQ-MSG-016 gap closed): the
+            # approving principal is ALWAYS the authenticated caller.
+            smuggled = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/variants/fr/approve",
+                json={
+                    "localized_message_model": {"content": "Bonjour le monde !"},
+                    "approving_discord_user_id": str(OWNER_B),
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "variant-smuggle"},
+            )
+            assert smuggled.status_code == 422
+
+            approved = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/variants/fr/approve",
+                json={"localized_message_model": {"content": "Bonjour le monde !"}},
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "variant-approve"},
+            )
+            assert approved.status_code == 201
+            assert approved.json()["approved_by_discord_user_id"] == str(OWNER_A)
+
+            preview = await client.get(f"/api/v1/campaigns/{campaign_id}/variants/fr")
+            assert preview.status_code == 200
+            assert preview.json()["outcome"] == "REUSABLE"
+            assert preview.json()["approved_variant"]["approved_by_discord_user_id"] == str(OWNER_A)
