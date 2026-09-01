@@ -47,6 +47,7 @@ from did.domain.campaigns import TargetKind as DomainTargetKind
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import create_database_engine
 from did.infrastructure.runtime_repository import RuntimeRepository
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.infrastructure.stage08_repository import (
     LanguageProfileRepository,
     TranslationGroupRepository,
@@ -67,6 +68,8 @@ GUILD_B = 880002102
 GUILD_C = 880002103
 OWNER_A = 880002111
 BOT_USER_ID = 880002199
+THIRD_PARTY_BOT_USER_ID = 880002198
+HUMAN_USER_ID = 880002197
 CHANNEL_A = 880002121
 CHANNEL_B = 880002122
 CHANNEL_C = 880002123
@@ -88,14 +91,26 @@ CLEANUP_PARAMS = {"guilds": list(ALL_GUILDS), "oa": OWNER_A}
 
 
 async def _insert_installation(connection: AsyncConnection, guild_id: int) -> None:
+    # bot_user_id is set to BOT_USER_ID so did.infrastructure.stage04_repository
+    # .Stage04Repository.bot_identity resolves the same durable identity
+    # _insert_bot_message_event's "author_discord_user_id" uses -- exactly
+    # what did.campaigns.event_transport._is_own_did_bot_message_create
+    # requires to ever enter the correlation-wait path (REQ-MSG-030
+    # own-bot-vs-third-party-bot fix).
     await connection.execute(
         text(
             "INSERT INTO guild_installations "
-            "(guild_id,name,owner_id,installation_status) "
-            "VALUES (:guild_id,:name,:owner_id,'ACTIVE') "
-            "ON CONFLICT (guild_id) DO UPDATE SET name=EXCLUDED.name"
+            "(guild_id,name,owner_id,installation_status,bot_user_id) "
+            "VALUES (:guild_id,:name,:owner_id,'ACTIVE',:bot_user_id) "
+            "ON CONFLICT (guild_id) DO UPDATE SET "
+            "name=EXCLUDED.name, bot_user_id=EXCLUDED.bot_user_id"
         ),
-        {"guild_id": guild_id, "name": f"Ancestry test {guild_id}", "owner_id": OWNER_A},
+        {
+            "guild_id": guild_id,
+            "name": f"Ancestry test {guild_id}",
+            "owner_id": OWNER_A,
+            "bot_user_id": BOT_USER_ID,
+        },
     )
 
 
@@ -116,13 +131,14 @@ async def _insert_bot_message_event(
     channel_id: int,
     message_id: int,
     author_is_bot: bool = True,
+    author_discord_user_id: int = BOT_USER_ID,
     received_at: datetime | None = None,
 ) -> UUID:
     event_id = uuid4()
     payload = {
         "message_id": message_id,
         "channel_id": channel_id,
-        "author_discord_user_id": BOT_USER_ID,
+        "author_discord_user_id": author_discord_user_id,
         "author_is_bot": author_is_bot,
     }
     await connection.execute(
@@ -202,6 +218,7 @@ def _kwargs(
         checker=_FakeChecker(),
         translation_provider=None,
         lease_owner="ancestry-test",
+        stage04_repository=Stage04Repository(admin_factory),
         guild_id=guild_id,
         now=now,
     )
@@ -349,12 +366,24 @@ async def _occurrence_count(admin_factory: async_sessionmaker[Any], *, campaign_
         return int(result.scalar_one())
 
 
-async def _insert_event(*, guild_id: int, channel_id: int, message_id: int) -> None:
+async def _insert_event(
+    *,
+    guild_id: int,
+    channel_id: int,
+    message_id: int,
+    author_is_bot: bool = True,
+    author_discord_user_id: int = BOT_USER_ID,
+) -> None:
     admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
     try:
         async with admin_engine.begin() as connection:
             await _insert_bot_message_event(
-                connection, guild_id=guild_id, channel_id=channel_id, message_id=message_id
+                connection,
+                guild_id=guild_id,
+                channel_id=channel_id,
+                message_id=message_id,
+                author_is_bot=author_is_bot,
+                author_discord_user_id=author_discord_user_id,
             )
     finally:
         await admin_engine.dispose()
@@ -560,6 +589,84 @@ class TestCrossGuildABCACycleBlocked:
 
 
 @pytest.mark.asyncio
+class TestOwnBotVsThirdPartyBotIdentity:
+    """REQ-MSG-030 fix: only a MESSAGE_CREATE confirmed to be DID's own
+    bound bot identity (did.infrastructure.stage04_repository
+    .Stage04Repository.bot_identity, never a hardcoded snowflake) may ever
+    enter the correlation-wait path. A third-party bot's own messages, or a
+    human's, are DID's concern in the ordinary trigger sense only -- never
+    searched against the delivery ledger, never made to stall the cursor."""
+
+    async def test_third_party_bot_message_is_never_deferred_or_searched(
+        self,
+        ancestry_context: tuple[CampaignsRepository, RuntimeRepository, async_sessionmaker[Any]],
+    ) -> None:
+        campaigns_repo, runtime_repo, admin_factory = ancestry_context
+        campaign_a = await _make_campaign(campaigns_repo, name="A")
+        await _make_trigger(campaigns_repo, campaign_id=campaign_a.id, source_guild_id=GUILD_A)
+        # Freshly received (well inside the grace window) -- if this were
+        # ever mistaken for DID's own bot, it would defer instead of firing
+        # in this same pass.
+        await _insert_event(
+            guild_id=GUILD_A,
+            channel_id=CHANNEL_A,
+            message_id=950001,
+            author_is_bot=True,
+            author_discord_user_id=THIRD_PARTY_BOT_USER_ID,
+        )
+        fired = await consume_new_events_for_guild(
+            **_kwargs(campaigns_repo, runtime_repo, admin_factory, guild_id=GUILD_A)
+        )
+        assert fired == 1
+        # The cursor progressed in this same pass -- no correlation wait.
+        assert GUILD_A not in await runtime_repo.runtime_campaign_event_guilds()
+
+    async def test_human_message_is_evaluated_normally_without_correlation_wait(
+        self,
+        ancestry_context: tuple[CampaignsRepository, RuntimeRepository, async_sessionmaker[Any]],
+    ) -> None:
+        campaigns_repo, runtime_repo, admin_factory = ancestry_context
+        campaign_a = await _make_campaign(campaigns_repo, name="A")
+        await _make_trigger(campaigns_repo, campaign_id=campaign_a.id, source_guild_id=GUILD_A)
+        await _insert_event(
+            guild_id=GUILD_A,
+            channel_id=CHANNEL_A,
+            message_id=950002,
+            author_is_bot=False,
+            author_discord_user_id=HUMAN_USER_ID,
+        )
+        fired = await consume_new_events_for_guild(
+            **_kwargs(campaigns_repo, runtime_repo, admin_factory, guild_id=GUILD_A)
+        )
+        assert fired == 1
+        assert GUILD_A not in await runtime_repo.runtime_campaign_event_guilds()
+
+    async def test_own_did_bot_message_enters_the_correlation_wait_path(
+        self,
+        ancestry_context: tuple[CampaignsRepository, RuntimeRepository, async_sessionmaker[Any]],
+    ) -> None:
+        """Contrast case: the exact same shape of event, but genuinely
+        DID's own bot identity, DOES defer while unresolved -- proving the
+        distinction is real, not that nothing ever waits."""
+        campaigns_repo, runtime_repo, admin_factory = ancestry_context
+        campaign_a = await _make_campaign(campaigns_repo, name="A")
+        await _make_trigger(campaigns_repo, campaign_id=campaign_a.id, source_guild_id=GUILD_A)
+        await _insert_event(
+            guild_id=GUILD_A,
+            channel_id=CHANNEL_A,
+            message_id=950003,
+            author_is_bot=True,
+            author_discord_user_id=BOT_USER_ID,
+        )
+        fired = await consume_new_events_for_guild(
+            **_kwargs(campaigns_repo, runtime_repo, admin_factory, guild_id=GUILD_A)
+        )
+        assert fired == 0
+        # Still waiting -- the cursor has NOT progressed.
+        assert GUILD_A in await runtime_repo.runtime_campaign_event_guilds()
+
+
+@pytest.mark.asyncio
 class TestGatewayFinalizeRaceOrdering:
     async def test_finalize_before_gateway_resolves_in_the_same_pass(
         self,
@@ -673,16 +780,17 @@ class TestGatewayFinalizeRaceOrdering:
 
 @pytest.mark.asyncio
 class TestUnresolvableBotMessageAgesOut:
-    async def test_a_bot_message_never_sent_through_the_ledger_eventually_advances_unattributed(
+    async def test_a_bot_message_never_sent_through_the_ledger_eventually_skips_fail_closed(
         self,
         ancestry_context: tuple[CampaignsRepository, RuntimeRepository, async_sessionmaker[Any]],
     ) -> None:
-        """A bot-authored MESSAGE_CREATE that will NEVER correlate to any
-        Stage09 delivery (sent through some other feature entirely) must
-        not stall this Guild's event processing forever -- it is a
-        diagnosable, bounded recovery: once the event is older than
-        BOT_MESSAGE_CORRELATION_GRACE_SECONDS, the cursor advances past it
-        as an ordinary, unattributed event rather than waiting forever."""
+        """A MESSAGE_CREATE confirmed to be DID's own bot identity, but
+        which will NEVER correlate to any Stage09 delivery (sent through
+        some other feature entirely), must not stall this Guild's event
+        processing forever -- but it also must NEVER be evaluated against
+        any trigger once it ages out: silently treating it as an "ordinary"
+        event would reopen exactly the self/cross-campaign loop the
+        ancestor-loop guard exists to prevent. Fail-closed, not fail-open."""
         campaigns_repo, runtime_repo, admin_factory = ancestry_context
         campaign_a = await _make_campaign(campaigns_repo, name="A")
         await _make_trigger(campaigns_repo, campaign_id=campaign_a.id, source_guild_id=GUILD_A)
@@ -703,14 +811,14 @@ class TestUnresolvableBotMessageAgesOut:
         finally:
             await admin_engine.dispose()
 
-        # A's own trigger fires on this unattributed event (no ancestry
-        # blocks it -- it was never actually caused by campaign A at all,
-        # as far as this transport can durably tell).
+        # A's own trigger never fires on this uncorrelated event -- it is
+        # skipped, not treated as an ordinary unattributed event.
         fired = await consume_new_events_for_guild(
             **_kwargs(campaigns_repo, runtime_repo, admin_factory, guild_id=GUILD_A)
         )
-        assert fired == 1
-        # The cursor advanced -- it is not stuck on this event forever.
+        assert fired == 0
+        assert await _occurrence_count(admin_factory, campaign_id=campaign_a.id) == 0
+        # The cursor still advanced -- it is not stuck on this event forever.
         assert GUILD_A not in await runtime_repo.runtime_campaign_event_guilds()
 
     async def test_a_recent_unresolved_bot_message_is_not_aged_out_prematurely(

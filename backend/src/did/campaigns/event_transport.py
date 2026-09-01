@@ -56,13 +56,22 @@ persisted (``finalize_delivery`` setting ``discord_message_id``).
   already exactly the durable, restart-safe primitives this requires -- a
   process restart between either ordering simply resumes from the last
   successfully advanced cursor position, same as any other event type.
-* No silent, indefinite stall: if a bot-authored message was never actually
-  sent through the Stage09 delivery ledger at all (some other bot feature,
-  or a future edit path outside this ledger), it will never correlate.
+* No silent, indefinite stall, and no silent fail-open either: if a message
+  confirmed to be DID's own bot identity was never actually sent through the
+  Stage09 delivery ledger at all (some other bot feature, or a future edit
+  path outside this ledger), it will never correlate.
   ``BOT_MESSAGE_CORRELATION_GRACE_SECONDS`` bounds how long the cursor will
-  wait on any single such event before giving up and advancing past it as
-  an ordinary, unattributed event (no special ancestry) -- a diagnosable,
-  bounded recovery rather than a queue that can never make progress again.
+  wait on any single such event before giving up -- the cursor still
+  advances (the Guild's event processing is never stalled forever), but the
+  event is deliberately never handed to trigger evaluation at all (see
+  ``EventId.CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED``): treating an
+  unresolved DID-bot message as an "ordinary" event would reopen exactly
+  the self/cross-campaign loop the ancestor-loop guard exists to prevent.
+  This wait/fail-closed path only ever applies to DID's own confirmed bot
+  identity (resolved via
+  ``did.infrastructure.stage04_repository.Stage04Repository.bot_identity``,
+  never a hardcoded snowflake) -- a third-party bot's or a human's
+  MESSAGE_CREATE is never delayed and always evaluated normally.
 """
 
 from __future__ import annotations
@@ -166,9 +175,28 @@ def trigger_from_row(row: dict[str, Any]) -> CampaignTrigger:
     )
 
 
-def _is_bot_authored_message_create(envelope: EventEnvelope) -> bool:
-    return envelope.event_type == "MESSAGE_CREATE" and bool(
-        envelope.payload.get("author_is_bot", False)
+def _is_own_did_bot_message_create(envelope: EventEnvelope, *, our_bot_user_id: int | None) -> bool:
+    """True only for a MESSAGE_CREATE genuinely authored by DID's OWN bound
+    bot identity -- never merely "some bot" (a third-party bot's own
+    messages are not DID's concern at all and must never enter the
+    correlation-wait path below, which exists specifically to avoid a false
+    negative on DID's own re-entrant sends) and never a hardcoded snowflake
+    (``our_bot_user_id`` is the durable per-Guild identity
+    ``did.infrastructure.stage04_repository.Stage04Repository.bot_identity``
+    resolves, bound once from the real Gateway READY dispatch -- see the
+    module docstring). ``our_bot_user_id is None`` (identity not yet known,
+    or no ``stage04_repository`` supplied at all) deliberately resolves to
+    False: without positive confirmation this message is DID's own, it must
+    never be treated as a possible DID send either."""
+    if envelope.event_type != "MESSAGE_CREATE" or our_bot_user_id is None:
+        return False
+    if not envelope.payload.get("author_is_bot", False):
+        return False
+    author_id = envelope.payload.get("author_discord_user_id")
+    return (
+        isinstance(author_id, int)
+        and not isinstance(author_id, bool)
+        and (author_id == our_bot_user_id)
     )
 
 
@@ -240,12 +268,19 @@ async def consume_new_events_for_guild(
     that replay safe, never this cursor. Returns the number of triggers
     that actually fired this pass.
 
-    An unresolved bot-authored MESSAGE_CREATE younger than
-    ``BOT_MESSAGE_CORRELATION_GRACE_SECONDS`` stops this pass from
-    advancing the cursor past it (see the module docstring's "REQ-MSG-030
-    producing side" section) -- everything strictly before it in
-    ``(received_at, event_id)`` order is still evaluated and the cursor
-    still advances up to (not including) that event.
+    An unresolved MESSAGE_CREATE confirmed to be authored by DID's OWN bot
+    identity, younger than ``BOT_MESSAGE_CORRELATION_GRACE_SECONDS``, stops
+    this pass from advancing the cursor past it (see the module docstring's
+    "REQ-MSG-030 producing side" section) -- everything strictly before it
+    in ``(received_at, event_id)`` order is still evaluated and the cursor
+    still advances up to (not including) that event. A THIRD-PARTY bot's or
+    a human's MESSAGE_CREATE is never subject to this wait at all -- only
+    DID's own confirmed identity ever enters the correlation path. If it
+    still cannot be correlated once the grace period elapses, it is
+    deliberately never evaluated against any trigger (fail-closed -- see
+    ``EventId.CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED``): silently
+    treating it as an "ordinary" event at that point would reopen exactly
+    the self/cross-campaign loop the ancestor-loop guard exists to prevent.
 
     ``message_content_available`` is always False here regardless of
     whether the (structural-only) MESSAGE_CREATE dispatch is currently
@@ -258,12 +293,15 @@ async def consume_new_events_for_guild(
     if not rows:
         return 0
     reference_now = now or datetime.now(UTC)
+    our_bot_user_id: int | None = None
+    if stage04_repository is not None:
+        our_bot_user_id, _installation_status = await stage04_repository.bot_identity(guild_id)
 
     fired_count = 0
     last_processed_row: dict[str, Any] | None = None
     for row in rows:
         envelope = envelope_from_gateway_inbox_row(row)
-        if _is_bot_authored_message_create(envelope):
+        if _is_own_did_bot_message_create(envelope, our_bot_user_id=our_bot_user_id):
             resolved = await _correlate_bot_message(
                 campaigns_repository, admin_factory, envelope, guild_id=guild_id
             )
@@ -276,10 +314,22 @@ async def consume_new_events_for_guild(
                     # cursor past this event yet -- stop this pass here,
                     # the next tick re-attempts correlation.
                     break
-                # Aged out: never correlated to a Stage09 delivery at all
-                # (or the correlating delivery will never finalize) --
-                # proceed as an ordinary, unattributed event rather than
-                # stalling this Guild's event processing forever.
+                # Fail-closed: never correlated to a Stage09 delivery
+                # within the grace window (or never will). The cursor
+                # still advances past it -- this Guild's event processing
+                # must not stall forever over one anomalous event -- but
+                # it is never handed to any trigger. A future
+                # reconciliation/repair pass may investigate; nothing here
+                # exposes message content, ids, or PII beyond the guild_id
+                # already durably known.
+                emit_event(
+                    logger,
+                    logging.WARNING,
+                    EventId.CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED,
+                    fields={"guild_id": str(guild_id)},
+                )
+                last_processed_row = row
+                continue
         discord_resource_id = extract_discord_resource_id(envelope.event_type, envelope.payload)
         candidate_rows = await campaigns_repository.list_candidate_triggers_for_event(
             admin_factory, guild_id=guild_id, event_type=envelope.event_type
