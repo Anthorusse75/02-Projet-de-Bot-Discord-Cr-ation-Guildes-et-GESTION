@@ -1325,6 +1325,31 @@ class CampaignsRepository:
             )
         return dict(row) if row is not None else None
 
+    async def list_triggers_for_campaign(
+        self, owner_discord_user_id: int, campaign_id: UUID
+    ) -> list[dict[str, Any]]:
+        """RLS-scoped by owner, same never-discloses-cross-owner posture as
+        :meth:`get_trigger`. Used by the simulation endpoint to surface
+        every MESSAGE_CONTENT-dependent trigger's blocking state (REQ-MSG-020/
+        REQ-MSG-022) without exposing triggers belonging to another owner."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_campaign_triggers "
+                            "WHERE campaign_id=:campaign_id ORDER BY id"
+                        ),
+                        {"campaign_id": campaign_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
     async def create_trigger_source(self, binding: TriggerSourceBinding) -> None:
         async with tenant_transaction(self._factory, TenantContext(binding.guild_id)) as session:
             await session.execute(

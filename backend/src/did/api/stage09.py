@@ -63,6 +63,12 @@ from did.campaigns.authorization import (
 from did.campaigns.causality import ConditionEvaluationError
 from did.campaigns.context import campaign_from_row, load_fan_out_context
 from did.campaigns.dispatch import route_pending_deliveries_to_jobs
+from did.campaigns.event_transport import trigger_from_row
+from did.campaigns.message_content_policy import (
+    MessageContentCapabilityBlocked,
+    PermanentlyUnavailableMessageContentChecker,
+    validate_message_content_capability,
+)
 from did.campaigns.scheduling import ScheduleEvaluationError, evaluate_recurring
 from did.campaigns.simulation import CampaignSimulationReport, simulate_campaign
 from did.domain.campaigns import (
@@ -433,6 +439,14 @@ def _simulation_response(report: CampaignSimulationReport) -> dict[str, Any]:
         "blocked_destinations": report.blocked_destinations,
         "estimated_delivery_count": report.estimated_delivery_count,
         "blockers": report.blockers,
+        "message_content_warnings": [
+            {
+                "trigger_id": warning.trigger_id,
+                "available": warning.available,
+                "is_blocking": warning.is_blocking,
+            }
+            for warning in report.message_content_warnings
+        ],
     }
 
 
@@ -712,6 +726,8 @@ async def simulate(
     )
     approved_raw = await repo.list_approved_variants(session.discord_user_id, campaign_id)
     approved = {code: _approved_variant_from_row(row) for code, row in approved_raw.items()}
+    trigger_rows = await repo.list_triggers_for_campaign(session.discord_user_id, campaign_id)
+    triggers = [trigger_from_row(row) for row in trigger_rows]
     report = await simulate_campaign(
         campaign=campaign,
         targets=context.targets,
@@ -724,6 +740,14 @@ async def simulate(
         # this flag stays truthfully in sync with that, never claims a
         # provider is available when none was passed above.
         translation_provider_available=False,
+        triggers=triggers,
+        # REQ-MSG-020/022, Option B: MESSAGE_CONTENT is unavailable for
+        # every Guild right now (see PermanentlyUnavailableMessageContent
+        # Checker's docstring) -- guild_id is never consulted by this
+        # checker, so a single placeholder value correctly represents every
+        # destination's answer without iterating them.
+        message_content_checker=PermanentlyUnavailableMessageContentChecker(),
+        message_content_guild_id=0,
         logical_group_expansion_by_target=context.logical_group_expansion_by_target,
     )
     return _simulation_response(report)
@@ -1008,6 +1032,22 @@ async def create_trigger(
             status_code=422,
             code="CAMPAIGN_TRIGGER_INPUT_INVALID",
             message_key="errors.campaigns.triggerInputInvalid",
+        ) from exc
+    try:
+        # REQ-MSG-020, Option B (see did.campaigns.message_content_policy's
+        # module docstring): a trigger may still declare
+        # requires_message_content=True (an honest statement of intent for
+        # a future capability), but Stage09 has no content-capture
+        # capability at all right now, so creation is always blocked --
+        # guild_id=0 is never consulted by this checker, see its docstring.
+        await validate_message_content_capability(
+            trigger, guild_id=0, checker=PermanentlyUnavailableMessageContentChecker()
+        )
+    except MessageContentCapabilityBlocked as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE",
+            message_key="errors.campaigns.triggerMessageContentUnavailable",
         ) from exc
     try:
         await repo.create_trigger(trigger)

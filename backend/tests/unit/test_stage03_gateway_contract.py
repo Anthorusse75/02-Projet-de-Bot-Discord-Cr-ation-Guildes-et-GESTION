@@ -43,10 +43,13 @@ def test_minimal_intents_do_not_enable_privileged_or_message_content() -> None:
 
 
 class TestCampaignMessageIntentContract:
-    """REQ-MSG-030: ADR-008 gates the genuinely PRIVILEGED MESSAGE_CONTENT
-    intent, not the non-privileged GUILD_MESSAGES one -- these prove the
-    exact intent contract did.settings.config.Settings/did.runtime.py wire
-    for the campaign-message-ancestry producing side."""
+    """REQ-MSG-030: proves the non-privileged GUILD_MESSAGES intent contract
+    did.settings.config.Settings/did.runtime.py wire for the
+    campaign-message-ancestry producing side. The genuinely PRIVILEGED
+    MESSAGE_CONTENT intent is never requested at all -- there is no
+    parameter on minimal_gateway_intents that could turn it on (Option B,
+    see did.campaigns.message_content_policy's module docstring), proven
+    below by the absence of any such parameter/intent ever being True."""
 
     def test_default_behavior_never_requests_guild_messages_or_message_content(self) -> None:
         intents = minimal_gateway_intents()
@@ -58,30 +61,11 @@ class TestCampaignMessageIntentContract:
         assert intents.guild_messages is True
         assert intents.message_content is False
 
-    def test_message_content_stays_disabled_by_default_even_with_guild_messages_on(self) -> None:
-        intents = minimal_gateway_intents(
-            enable_campaign_message_events=True, enable_message_content=False
-        )
-        assert intents.guild_messages is True
-        assert intents.message_content is False
+    def test_no_message_content_parameter_exists(self) -> None:
+        import inspect
 
-    def test_message_content_is_ignored_without_the_non_privileged_base_capability(self) -> None:
-        # Defense in depth (Settings enforces the same dependency at
-        # configuration time): requesting the privileged intent alone,
-        # without campaign_message_events also being a deliberate choice,
-        # never actually turns it on.
-        intents = minimal_gateway_intents(
-            enable_campaign_message_events=False, enable_message_content=True
-        )
-        assert intents.guild_messages is False
-        assert intents.message_content is False
-
-    def test_message_content_can_be_enabled_together_with_its_base_capability(self) -> None:
-        intents = minimal_gateway_intents(
-            enable_campaign_message_events=True, enable_message_content=True
-        )
-        assert intents.guild_messages is True
-        assert intents.message_content is True
+        parameters = inspect.signature(minimal_gateway_intents).parameters
+        assert "enable_message_content" not in parameters
 
     def test_member_intent_remains_independently_controlled(self) -> None:
         intents = minimal_gateway_intents(

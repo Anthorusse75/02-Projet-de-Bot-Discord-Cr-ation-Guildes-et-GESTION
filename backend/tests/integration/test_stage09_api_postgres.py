@@ -459,6 +459,71 @@ async def test_target_creation_guild_authorization_and_resource_membership() -> 
             assert len(listed.json()["targets"]) == 1
 
 
+async def test_trigger_creation_message_content_dependency_is_blocked() -> None:
+    """REQ-MSG-020, Option B (did.campaigns.message_content_policy's module
+    docstring): Stage09 has no content-capture capability at all right now,
+    so declaring requires_message_content=True is always rejected before
+    the trigger is ever persisted -- never silently accepted, never left as
+    a half-working configuration."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register("owner-a", DiscordUser(OWNER_A, "owner-a", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        async with _client(application) as client:
+            csrf = await _login(client, "owner-a")
+            created = await client.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "trigger-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            blocked = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/triggers",
+                json={
+                    "event_type": "MEMBER_JOIN",
+                    "condition_ast": {"op": "ALWAYS"},
+                    "requires_message_content": True,
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "trigger-blocked"},
+            )
+            assert blocked.status_code == 422
+            assert blocked.json()["error"]["code"] == "CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE"
+
+            engine = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine.begin() as connection:
+                    trigger_count = (
+                        await connection.execute(
+                            text(
+                                "SELECT count(*) FROM message_campaign_triggers "
+                                "WHERE campaign_id=:cid"
+                            ),
+                            {"cid": campaign_id},
+                        )
+                    ).scalar_one()
+                    assert trigger_count == 0
+            finally:
+                await engine.dispose()
+
+            # A trigger that does NOT declare the dependency is unaffected --
+            # proves the block is specific to requires_message_content, not
+            # a general trigger-creation regression.
+            allowed = await client.post(
+                f"/api/v1/campaigns/{campaign_id}/triggers",
+                json={
+                    "event_type": "MEMBER_JOIN",
+                    "condition_ast": {"op": "ALWAYS"},
+                    "requires_message_content": False,
+                },
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "trigger-allowed"},
+            )
+            assert allowed.status_code == 201
+            assert allowed.json()["requires_message_content"] is False
+
+
 async def test_activation_creates_durable_work_never_sends_and_variant_identity() -> None:
     await _reset()
     oauth = FakeOAuthClient()
@@ -509,6 +574,10 @@ async def test_activation_creates_durable_work_never_sends_and_variant_identity(
             simulated = await client.post(f"/api/v1/campaigns/{campaign_id}/simulate")
             assert simulated.status_code == 200
             assert simulated.json()["estimated_delivery_count"] == 1
+            # No trigger declares requires_message_content -- nothing to
+            # warn about (see test_trigger_creation_message_content_
+            # dependency_is_blocked for the case where one is attempted).
+            assert simulated.json()["message_content_warnings"] == []
 
             activated = await client.post(
                 f"/api/v1/campaigns/{campaign_id}/activate",

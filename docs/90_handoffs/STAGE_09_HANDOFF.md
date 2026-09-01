@@ -470,6 +470,52 @@ REQ-MSG-001..031.
    avant cette passe. Documenté explicitement dans les écarts connus plutôt que dissimulé ou fermé à
    la hâte sans preuve réelle.
 
+### Huitième passe — deux bugs réels corrigés dans la production-side REQ-MSG-030, contrat MESSAGE_CONTENT rendu cohérent
+
+Un audit externe de la septième passe a trouvé deux bugs réels dans le mécanisme d'ancestry
+producing-side ci-dessus (items 4-5) — **corrections apportées, items 2 et 5 ci-dessus sont
+partiellement obsolètes, voir ci-dessous** :
+
+1. **`_is_bot_authored_message_create` traitait N'IMPORTE QUEL bot comme candidat à la corrélation**,
+   pas seulement le bot DID lui-même. Un `MESSAGE_CREATE` d'un bot tiers pouvait donc entrer dans le
+   chemin d'attente de corrélation et retarder l'avancement du curseur d'une Guild sans raison.
+   Corrigé : `_is_own_did_bot_message_create(envelope, *, our_bot_user_id)` exige que
+   `author_discord_user_id` corresponde exactement à l'identité durable et faisant autorité du bot
+   pour cette Guild, lue via `did.infrastructure.stage04_repository.Stage04Repository.bot_identity()`
+   (jamais un snowflake codé en dur) une fois par appel de `consume_new_events_for_guild`. Un bot
+   tiers ou un message humain n'entre plus jamais dans le chemin d'attente.
+2. **Item 5 ci-dessus décrit un comportement fail-OPEN maintenant corrigé** : à l'expiration du délai
+   de grâce (`BOT_MESSAGE_CORRELATION_GRACE_SECONDS`), un message du bot DID confirmé mais jamais
+   corrélé n'est **plus jamais traité comme un événement ordinaire** — cela aurait pu rouvrir
+   exactement la boucle self/cross-campaign que la garde anti-boucle ancêtre existe pour empêcher.
+   Il est maintenant explicitement ignoré (le curseur avance quand même, pour que la Guild ne bloque
+   jamais indéfiniment) via un nouveau diagnostic assaini (aucun id/contenu de message, seulement
+   `guild_id`) : `EventId.CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED`. 3 nouveaux tests PostgreSQL
+   (`TestOwnBotVsThirdPartyBotIdentity`) prouvent : bot tiers jamais différé/curseur avance
+   normalement, message humain jamais différé, bot DID propre entre bien dans le chemin d'attente ;
+   le test d'expiration existant est renommé/réécrit pour affirmer `fired == 0` et zéro occurrence
+   créée (au lieu de l'ancienne assertion fail-open `fired == 1`).
+3. **Contrat MESSAGE_CONTENT rendu cohérent (REQ-MSG-020, décision Option B)** : item 2 ci-dessus
+   décrit `discord_campaign_message_content_enabled`, qui **n'existe plus** — c'était une capacité
+   incohérente à moitié construite (activer le réglage aurait demandé le privilège Discord
+   MESSAGE_CONTENT réel en Developer Portal, pour un bénéfice fonctionnel nul, puisqu'aucun chemin de
+   code du Campaign Engine n'extrait jamais `content`/`embeds`/`attachments`, quel que soit l'intent
+   actif). Décision explicite et définitive (pas provisoire) : **Stage09 ne supporte pas
+   l'évaluation de trigger dépendante du contenu brut**. Le réglage est supprimé (`Settings`,
+   `minimal_gateway_intents`, `DiscordGatewayClient`, `did.runtime.py`) ;
+   `CampaignTrigger.requires_message_content` reste une dépendance déclarée honnête, maintenant
+   réellement câblée aux deux moments prévus par REQ-MSG-020 mais jamais branchés jusqu'ici :
+   `did.api.stage09.create_trigger` appelle `validate_message_content_capability` et rejette (422
+   `CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE`) toute tentative avant persistance ;
+   `did.api.stage09.simulate` appelle `simulate_message_content_dependency` pour chaque trigger de la
+   campagne et expose `message_content_warnings` dans la réponse. Nouvelle classe concrète
+   `PermanentlyUnavailableMessageContentChecker` (toujours indisponible, `guild_id` accepté par le
+   Protocol mais jamais consulté — conçu pour qu'une future passe Option A n'ait qu'à fournir une
+   nouvelle implémentation). Preuve : nouveau test d'intégration API réel
+   (`test_trigger_creation_message_content_dependency_is_blocked`, HTTP réel, 422 + zéro ligne
+   persistée + un trigger sans la dépendance passe normalement) + assertion étendue sur la réponse de
+   simulation existante.
+
 ## Ce qui est construit et prouvé
 
 ### WP1 — Schéma / domaine

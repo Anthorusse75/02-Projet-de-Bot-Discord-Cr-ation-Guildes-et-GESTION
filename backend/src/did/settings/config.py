@@ -101,14 +101,16 @@ class Settings(BaseSettings):
     #: attachments/components from a message payload regardless, only
     #: structural identity (message_id/channel_id/author). Off by default,
     #: same "explicit opt-in" posture as discord_member_events_enabled.
+    #:
+    #: There is deliberately no "enable MESSAGE_CONTENT" counterpart setting
+    #: (Option B, see did.campaigns.message_content_policy's module
+    #: docstring): the privileged intent is never requested by this engine
+    #: at all, because no code path anywhere in the Campaign Engine ever
+    #: extracts content/embeds/attachments regardless of which intents are
+    #: active -- a setting that requested it would ask an operator to clear
+    #: Discord's privileged-intent verification for a real capability grant
+    #: this engine could never actually exercise.
     discord_campaign_message_events_enabled: bool = False
-    #: The genuinely PRIVILEGED intent (affects Discord Developer Portal
-    #: verification). Only meaningful, and only ever actually requested,
-    #: together with discord_campaign_message_events_enabled -- see
-    #: validate_backends below. Gates REQ-MSG-020 triggers that themselves
-    #: declare requires_message_content=True; REQ-MSG-030's own ancestry
-    #: proof never needs this to be True.
-    discord_campaign_message_content_enabled: bool = False
     discord_global_concurrency: int = Field(default=4, ge=1, le=32)
     discord_per_guild_concurrency: int = Field(default=1, ge=1, le=8)
     discord_workload_queue_limit: int = Field(default=1000, ge=10, le=100000)
@@ -136,17 +138,6 @@ class Settings(BaseSettings):
             raise ValueError("database_admin_url must use postgresql+asyncpg")
         if not redis_url.startswith(("redis://", "rediss://")):
             raise ValueError("redis_url must use redis:// or rediss://")
-        if (
-            self.discord_campaign_message_content_enabled
-            and not self.discord_campaign_message_events_enabled
-        ):
-            # ADR-008: never request a privileged intent before the
-            # documented (non-privileged) feature it depends on is itself
-            # already deliberately enabled.
-            raise ValueError(
-                "discord_campaign_message_content_enabled requires "
-                "discord_campaign_message_events_enabled"
-            )
         if self.app_env is AppEnvironment.PRODUCTION:
             local_markers = ("localhost", "local_app_password", "local_admin_password")
             configured = (database_url, admin_url, redis_url)
