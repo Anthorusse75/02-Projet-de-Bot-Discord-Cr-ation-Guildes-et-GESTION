@@ -808,6 +808,17 @@ def stage_09(
     profile: str = "default",
 ) -> tuple[Step, ...]:
     uv = executable("uv")
+    npm = executable("npm")
+    if profile == "e2e":
+        return (
+            Step("frontend lock install", (npm, "ci"), 600, ROOT / "frontend"),
+            Step(
+                "STAGE 09 Playwright campaign center and accessibility",
+                (npm, "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+            ),
+        )
     if profile == "translation-benchmark":
         return (
             Step(
@@ -826,15 +837,20 @@ def stage_09(
             ),
         )
     if profile == "failure-injection":
-        # The Stage09 Postgres integration suites already carry the
-        # concurrency/lease-fencing/DST-restart/crash-recovery
-        # failure-injection tests (pytest.mark.failure_injection on both
-        # modules) -- there is no separate finer-grained suite to run here,
-        # unlike Stage05's dedicated failure-injection harness. Documented
-        # honestly rather than fabricating a distinct profile. A fresh CI
-        # database has no schema at all until migrated -- this profile is a
-        # standalone step list (unlike the default profile, which reuses
-        # stage_01's baseline), so it must run its own migration first.
+        # Every Stage09 Postgres integration suite that carries a real
+        # concurrency/lease-fencing/DST-restart/crash-recovery scenario is
+        # marked pytest.mark.failure_injection -- selected here by marker
+        # rather than an enumerated file list so a newly added
+        # failure-injection suite (e.g. test_stage09_runtime_chain_postgres
+        # .py's full-runtime-chain crash/restart/race tests) is picked up
+        # automatically instead of silently skipped until this list is
+        # remembered to be updated by hand. There is no separate
+        # finer-grained harness here, unlike Stage05's dedicated
+        # failure-injection suite -- documented honestly rather than
+        # fabricating a distinct profile. A fresh CI database has no schema
+        # at all until migrated -- this profile is a standalone step list
+        # (unlike the default profile, which reuses stage_01's baseline),
+        # so it must run its own migration first.
         return (
             Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
             Step(
@@ -848,8 +864,11 @@ def stage_09(
                     uv,
                     "run",
                     "pytest",
-                    "backend/tests/integration/test_stage09_campaigns_postgres.py",
-                    "backend/tests/integration/test_stage09_delivery_worker_postgres.py",
+                    "backend/tests/integration",
+                    "-m",
+                    "failure_injection",
+                    "-k",
+                    "stage09",
                     "-q",
                     "--junitxml="
                     + relative_path(evidence_directory / "stage09-failure-injection.xml"),
@@ -1220,8 +1239,8 @@ def main() -> int:
     if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
         print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
         return 2
-    if arguments.profile == "e2e" and stage not in {"07", "08"}:
-        print("The e2e profile is defined only for STAGE 07 and STAGE 08")
+    if arguments.profile == "e2e" and stage not in {"07", "08", "09"}:
+        print("The e2e profile is defined only for STAGE 07, STAGE 08 and STAGE 09")
         return 2
     if arguments.profile == "translation-benchmark" and stage != "09":
         print("The translation-benchmark profile is defined only for STAGE 09")

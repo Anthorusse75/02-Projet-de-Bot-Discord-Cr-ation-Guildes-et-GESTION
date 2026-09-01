@@ -36,3 +36,22 @@ export type TranslationProviderBinding = { id: string; provider_type: string; st
 export type VisibilityBinding = { id: string; visibility_scope_id: string; language_profile_id: string; discord_role_id: DiscordSnowflake; state: string; discord_cache?: DiscordRoleCacheFact }
 export type ResourceLanguagePolicy = { id: string; resource_type: 'CATEGORY'|'CHANNEL'; discord_resource_id: DiscordSnowflake; explicit_language_profile_id: string | null; inherit_language: boolean; visibility_policy: 'OPEN_ALL'|'LANGUAGE_FILTERED'|'SCOPE_AND_LANGUAGE'|'CUSTOM'; visibility_scope_id: string | null }
 export type TranslationWorkspace = { guild_id: DiscordSnowflake; source: 'DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE'; discord_rest_calls: 0; cache_coverage: { mode: string; freshness: string; roles_complete: boolean; channels_complete: boolean; members_complete: boolean; state_version: number }; groups: TranslationGroup[]; providers: TranslationProviderBinding[]; visibility_bindings: VisibilityBinding[]; languages: LanguageProfile[]; resource_language_policies: ResourceLanguagePolicy[] }
+
+// STAGE 09 -- Message & Campaign Engine (see did.api.stage09 for the authoritative response shapes).
+export type CampaignLifecycleStatus = 'DRAFT'|'SCHEDULED_ARMED'|'ACTIVE_RUNNING'|'PAUSED'|'CANCELLED'|'COMPLETED'|'FAILED_INTERVENTION'
+export type PublicationMode = 'IMMEDIATE'|'ONE_SHOT_DEFERRED'|'RECURRING'|'EVENT_TRIGGERED'
+export type CampaignAttachmentPolicy = 'PRESERVE_EXISTING'|'REPLACE_ALL'|'REMOVE_ALL'
+export type CampaignTargetKind = 'CHANNEL'|'TRANSLATION_GROUP'|'LOGICAL_GROUP'
+export type ScheduleKind = 'IMMEDIATE'|'ONE_SHOT'|'RECURRING'
+export type DeliveryStatus = 'PENDING'|'CLAIMED'|'SENDING'|'SENT'|'FAILED'|'UNKNOWN'|'INTERVENTION_REQUIRED'
+export type VariantOutcome = 'REUSABLE'|'STALE'|'MISSING'
+export type MessageModel = { content: string; embeds: unknown[] }
+export type AllowedMentionsPolicy = { allow_everyone?: boolean; allowed_user_ids?: string[]; allowed_role_ids?: string[]; replied_user?: boolean }
+export type Campaign = { id: string; owner_discord_user_id: DiscordSnowflake; logical_campaign_key: string; name: string; source_language_code: string; message_model: MessageModel; allowed_mentions_policy: AllowedMentionsPolicy; publication_mode: PublicationMode; attachment_policy: CampaignAttachmentPolicy; lifecycle_status: CampaignLifecycleStatus; version: number; created_at: string | null; updated_at: string | null }
+export type CampaignTarget = { id: string; guild_id: DiscordSnowflake; campaign_id: string; target_kind: CampaignTargetKind; discord_channel_id: DiscordSnowflake | null; translation_group_id: string | null; translation_publication_mode: string | null; selected_language_profile_ids: string[]; logical_group_id: string | null }
+export type CampaignSchedule = { id: string; campaign_id: string; schedule_kind: ScheduleKind; fire_at: string | null; rrule: string | null; timezone: string | null; starts_at: string | null; misfire_policy: string; dst_nonexistent_policy: string; dst_ambiguous_policy: string; catch_up_bound: number; next_fire_at: string | null; version: number }
+export type CampaignDelivery = { id: string; guild_id: DiscordSnowflake; campaign_id: string; occurrence_id: string; target_id: string; language_profile_id: string | null; delivery_key: string; discord_channel_id: DiscordSnowflake; status: DeliveryStatus; discord_message_id: string | null; attempt_count: number; last_error: string | null; created_at: string | null; updated_at: string | null }
+export type CampaignSimulationDestination = { guild_id: DiscordSnowflake; discord_channel_id: DiscordSnowflake; language_profile_id: string | null; ready: boolean; blocked_reason: string | null; translation_state: string; delivery_executable: boolean }
+export type CampaignSimulationReport = { destinations: CampaignSimulationDestination[]; total_destinations: number; ready_destinations: number; blocked_destinations: number; estimated_delivery_count: number; blockers: string[] }
+export type ApprovedVariant = { id: string; campaign_id: string; target_language_code: string; source_fingerprint: string; localized_message_model: MessageModel; approved_by_discord_user_id: DiscordSnowflake; approved_at: string | null }
+export type CampaignVariantPreview = { campaign_id: string; target_language_code: string; outcome: VariantOutcome; current_source_fingerprint: string; approved_variant: ApprovedVariant | null }

@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TranslationWorkspace } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TranslationWorkspace } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -43,6 +43,18 @@ export const dashboardCapabilitiesOptions = (u: DiscordSnowflake, g: DiscordSnow
 export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => useQuery(dashboardCapabilitiesOptions(u, g, resourceId))
 export const useGuildDashboardCapabilities = (u: DiscordSnowflake, guildIds: readonly DiscordSnowflake[]) => useQueries({
   queries: guildIds.map((guildId) => dashboardCapabilitiesOptions(u, guildId)),
+})
+// STAGE 09 -- campaigns are owned by the caller (not Guild-scoped in the
+// URL: a single campaign can target many Guilds), so unlike tenantQuery
+// above these keys carry no Guild id at all.
+export const useCampaigns = (u: DiscordSnowflake) => useQuery({ queryKey: queryKeys.campaigns(u), queryFn: () => apiRequest<{campaigns:Campaign[]}>('/api/v1/campaigns') })
+export const useCampaignTargets = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'targets'),
+  queryFn: () => apiRequest<{targets:CampaignTarget[]}>(`/api/v1/campaigns/${campaignId}/targets`),
+})
+export const useCampaignDeliveries = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'deliveries'),
+  queryFn: () => apiRequest<{deliveries:CampaignDelivery[]}>(`/api/v1/campaigns/${campaignId}/deliveries`),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({
