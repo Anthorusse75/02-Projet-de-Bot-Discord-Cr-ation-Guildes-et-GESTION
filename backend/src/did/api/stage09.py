@@ -34,7 +34,7 @@ regression test proving it.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Header, status
@@ -934,6 +934,116 @@ async def list_deliveries(
         admin_factory, session.discord_user_id, campaign_id
     )
     return {"deliveries": [_delivery_response(row) for row in rows]}
+
+
+class InterventionResolutionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    resolution: Literal["SENT", "FAILED"]
+    #: Required only for SENT -- the owner's own report of the message they
+    #: observed in their Guild after manually checking, never invented or
+    #: looked up by this endpoint. Rejected (extra="forbid" has no effect
+    #: on validating its presence, so this is checked explicitly below) for
+    #: FAILED, where no message exists to report.
+    discord_message_id: str | None = None
+
+
+@router.post("/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve")
+async def resolve_intervention(
+    campaign_id: UUID,
+    delivery_id: UUID,
+    body: InterventionResolutionInput,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-MSG-029 product surface: never a universal "Retry" button -- an
+    INTERVENTION_REQUIRED delivery only ever resolves to the caller's own
+    attested true outcome (they manually checked their Guild). This
+    endpoint never calls Discord and never resends anything; it only
+    records a human judgment call. A delivery confirmed FAILED here can
+    then be requeued through :func:`requeue_intervention_delivery` for a
+    genuinely fresh, unambiguous send attempt."""
+    del idempotency_key
+    repo, admin_factory = _require_campaigns(container)
+    if body.resolution == "SENT" and body.discord_message_id is None:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_INTERVENTION_MESSAGE_ID_REQUIRED",
+            message_key="errors.campaigns.interventionMessageIdRequired",
+        )
+    if body.resolution == "FAILED" and body.discord_message_id is not None:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_INTERVENTION_MESSAGE_ID_NOT_ALLOWED",
+            message_key="errors.campaigns.interventionMessageIdNotAllowed",
+        )
+    message_id = (
+        parse_snowflake(body.discord_message_id) if body.discord_message_id is not None else None
+    )
+    now = datetime.now(UTC)
+    claimed = await repo.claim_intervention_delivery_for_owner(
+        admin_factory,
+        session.discord_user_id,
+        campaign_id,
+        delivery_id,
+        lease_owner=f"api-{session.discord_user_id}",
+        now=now,
+    )
+    if claimed is None:
+        raise ApiProblem(
+            status_code=404,
+            code="CAMPAIGN_DELIVERY_INTERVENTION_NOT_CLAIMABLE",
+            message_key="errors.campaigns.interventionNotClaimable",
+        )
+    resolved = await repo.resolve_intervention_delivery(
+        claimed["id"],
+        claimed["guild_id"],
+        claimed["lease_token"],
+        status=body.resolution,
+        discord_message_id=message_id,
+    )
+    if not resolved:
+        raise ApiProblem(
+            status_code=409,
+            code="CAMPAIGN_DELIVERY_INTERVENTION_LOST_LEASE",
+            message_key="errors.campaigns.interventionLostLease",
+        )
+    row = await repo.list_deliveries_for_campaign(
+        admin_factory, session.discord_user_id, campaign_id
+    )
+    resolved_row = next(item for item in row if item["id"] == delivery_id)
+    return {"delivery": _delivery_response(resolved_row)}
+
+
+@router.post("/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue")
+async def requeue_intervention_delivery(
+    campaign_id: UUID,
+    delivery_id: UUID,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Only valid for a FAILED delivery (confirmed nothing was ever sent --
+    see :func:`resolve_intervention` and REQ-MSG-029) -- creates durable
+    work only (the delivery becomes PENDING again with a fresh nonce; the
+    existing durable dispatch/worker discovers and sends it through the
+    ordinary path). Never calls Discord directly from this handler."""
+    del idempotency_key
+    repo, admin_factory = _require_campaigns(container)
+    requeued = await repo.requeue_failed_delivery_for_owner(
+        admin_factory, session.discord_user_id, campaign_id, delivery_id
+    )
+    if requeued is None:
+        raise ApiProblem(
+            status_code=404,
+            code="CAMPAIGN_DELIVERY_NOT_REQUEUABLE",
+            message_key="errors.campaigns.deliveryNotRequeuable",
+        )
+    row = await repo.list_deliveries_for_campaign(
+        admin_factory, session.discord_user_id, campaign_id
+    )
+    requeued_row = next(item for item in row if item["id"] == delivery_id)
+    return {"delivery": _delivery_response(requeued_row)}
 
 
 # ---------------------------------------------------------------------------

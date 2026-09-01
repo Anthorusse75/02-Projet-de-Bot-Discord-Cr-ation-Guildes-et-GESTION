@@ -96,6 +96,7 @@ const blockedReasons: Record<string, MessageKey> = {
   TRANSLATION_GROUP_NOT_FOUND: 'campaigns.blocked.translationGroupNotFound', NO_MATCHING_LANGUAGE_VARIANTS: 'campaigns.blocked.noMatchingLanguageVariants',
   LOGICAL_GROUP_NOT_FOUND: 'campaigns.blocked.logicalGroupNotFound', LOGICAL_GROUP_EMPTY: 'campaigns.blocked.logicalGroupEmpty',
   PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED: 'campaigns.blocked.providerSafetyManualConfigurationRequired',
+  TRANSLATION_PROVIDER_UNAVAILABLE: 'campaigns.blocked.translationProviderUnavailable',
 }
 const translationStates: Record<string, MessageKey> = {
   SOURCE: 'campaigns.translationState.source', REUSABLE_APPROVED: 'campaigns.translationState.reusableApproved',
@@ -116,6 +117,12 @@ const campaignErrorCodes: Record<string, MessageKey> = {
   CAMPAIGN_ACTIVATION_CONFLICT: 'errors.campaigns.activationConflict', CAMPAIGN_VARIANT_INPUT_INVALID: 'errors.campaigns.variantInputInvalid',
   CAMPAIGN_RESOURCE_NOT_FOUND: 'errors.campaigns.notFound', CAMPAIGN_GUILD_NOT_AUTHORIZED: 'errors.campaigns.guildNotAuthorized',
   CAMPAIGN_RESOURCE_TYPE_MISMATCH: 'errors.campaigns.resourceTypeMismatch',
+  CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE: 'errors.campaigns.triggerMessageContentUnavailable',
+  CAMPAIGN_INTERVENTION_MESSAGE_ID_REQUIRED: 'errors.campaigns.interventionMessageIdRequired',
+  CAMPAIGN_INTERVENTION_MESSAGE_ID_NOT_ALLOWED: 'errors.campaigns.interventionMessageIdNotAllowed',
+  CAMPAIGN_DELIVERY_INTERVENTION_NOT_CLAIMABLE: 'errors.campaigns.interventionNotClaimable',
+  CAMPAIGN_DELIVERY_INTERVENTION_LOST_LEASE: 'errors.campaigns.interventionLostLease',
+  CAMPAIGN_DELIVERY_NOT_REQUEUABLE: 'errors.campaigns.deliveryNotRequeuable',
 }
 export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'

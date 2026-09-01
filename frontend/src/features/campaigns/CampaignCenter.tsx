@@ -96,6 +96,9 @@ export function CampaignCenter() {
   const [variantPreview, setVariantPreview] = useState<CampaignVariantPreview | null>(null)
   const [variantContent, setVariantContent] = useState('')
 
+  const [resolvingDeliveryId, setResolvingDeliveryId] = useState<string | null>(null)
+  const [resolveMessageId, setResolveMessageId] = useState('')
+
   useEffect(() => {
     if (!selected) return
     setEditContent(selected.message_model.content)
@@ -236,6 +239,33 @@ export function CampaignCenter() {
     } catch (error) { setProblemKey(errorKey(error)) }
   }
 
+  async function resolveIntervention(deliveryId: string, resolution: 'SENT' | 'FAILED') {
+    if (!selected) return
+    setProblemKey(null)
+    try {
+      const body: Record<string, unknown> = { resolution }
+      if (resolution === 'SENT') body.discord_message_id = resolveMessageId
+      await apiRequest(`/api/v1/campaigns/${selected.id}/deliveries/${deliveryId}/intervention/resolve`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body,
+      })
+      setFeedbackKey('campaigns.deliveries.resolved')
+      setResolvingDeliveryId(null); setResolveMessageId('')
+      await deliveries.refetch()
+    } catch (error) { setProblemKey(errorKey(error)) }
+  }
+
+  async function requeueDelivery(deliveryId: string) {
+    if (!selected) return
+    setProblemKey(null)
+    try {
+      await apiRequest(`/api/v1/campaigns/${selected.id}/deliveries/${deliveryId}/requeue`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+      })
+      setFeedbackKey('campaigns.deliveries.requeued')
+      await deliveries.refetch()
+    } catch (error) { setProblemKey(errorKey(error)) }
+  }
+
   if (campaigns.isLoading) return <Skeleton />
   if (campaigns.isError) return <ErrorState retry={() => void campaigns.refetch()} />
   const list = campaigns.data?.campaigns ?? []
@@ -366,7 +396,10 @@ export function CampaignCenter() {
             <span>{t(translationStateKey(destination.translation_state))}</span>
             {destination.blocked_reason && <span>{t(blockedReasonKey(destination.blocked_reason))}</span>}
           </li>)}</ul>
-          {simulation.blockers.length > 0 && <div><h4>{t('campaigns.simulate.blockers')}</h4><ul>{simulation.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul></div>}
+          {Object.keys(simulation.blockers).length > 0 && <div><h4>{t('campaigns.simulate.blockers')}</h4><ul>{Object.entries(simulation.blockers).map(([reason, count]) => <li key={reason}>{t(blockedReasonKey(reason))} ({count})</li>)}</ul></div>}
+          {simulation.message_content_warnings.length > 0 && <div><h4>{t('campaigns.simulate.messageContentWarnings')}</h4><ul>{simulation.message_content_warnings.map((warning) => <li key={warning.trigger_id}>
+            <Badge tone={warning.is_blocking ? 'danger' : 'ok'}>{t(warning.is_blocking ? 'campaigns.simulate.messageContentBlocked' : 'campaigns.simulate.messageContentAvailable')}</Badge>
+          </li>)}</ul></div>}
         </div> : <p>{t('campaigns.simulate.empty')}</p>}
       </section>
 
@@ -383,13 +416,24 @@ export function CampaignCenter() {
       <section className="campaign-deliveries">
         <h3>{t('campaigns.deliveries')}</h3>
         {deliveries.isLoading ? <Skeleton /> : (deliveries.data?.deliveries.length ?? 0) === 0 ? <EmptyState messageKey="campaigns.deliveries.empty" /> :
-          <table><thead><tr><th>{t('campaigns.deliveries.channel')}</th><th>{t('campaigns.deliveries.status')}</th><th>{t('campaigns.deliveries.attempts')}</th><th>{t('campaigns.deliveries.error')}</th><th>{t('campaigns.deliveries.updated')}</th></tr></thead>
+          <table><thead><tr><th>{t('campaigns.deliveries.channel')}</th><th>{t('campaigns.deliveries.status')}</th><th>{t('campaigns.deliveries.attempts')}</th><th>{t('campaigns.deliveries.error')}</th><th>{t('campaigns.deliveries.updated')}</th><th>{t('campaigns.deliveries.actions')}</th></tr></thead>
             <tbody>{deliveries.data?.deliveries.map((delivery) => <tr key={delivery.id}>
               <td>{delivery.discord_channel_id}</td>
               <td><Badge tone={delivery.status === 'SENT' ? 'ok' : delivery.status === 'FAILED' || delivery.status === 'INTERVENTION_REQUIRED' ? 'danger' : 'neutral'}>{t(deliveryStatusKey(delivery.status))}</Badge></td>
               <td>{delivery.attempt_count}</td>
               <td>{delivery.last_error ?? '—'}</td>
               <td>{delivery.updated_at ?? '—'}</td>
+              <td>
+                {delivery.status === 'INTERVENTION_REQUIRED' && resolvingDeliveryId !== delivery.id &&
+                  <Button labelKey="campaigns.deliveries.intervene" onClick={() => { setResolvingDeliveryId(delivery.id); setResolveMessageId('') }} />}
+                {delivery.status === 'INTERVENTION_REQUIRED' && resolvingDeliveryId === delivery.id && <div className="intervention-form">
+                  <Input labelKey="campaigns.deliveries.messageId" value={resolveMessageId} onChange={(event) => setResolveMessageId(event.target.value)} />
+                  <Button labelKey="campaigns.deliveries.resolveSent" variant="primary" disabled={!resolveMessageId} onClick={() => void resolveIntervention(delivery.id, 'SENT')} />
+                  <Button labelKey="campaigns.deliveries.resolveFailed" onClick={() => void resolveIntervention(delivery.id, 'FAILED')} />
+                  <Button labelKey="common.cancel" onClick={() => setResolvingDeliveryId(null)} />
+                </div>}
+                {delivery.status === 'FAILED' && <Button labelKey="campaigns.deliveries.requeue" onClick={() => void requeueDelivery(delivery.id)} />}
+              </td>
             </tr>)}</tbody></table>}
       </section>
 

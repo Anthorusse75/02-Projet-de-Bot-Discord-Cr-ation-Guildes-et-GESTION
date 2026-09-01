@@ -81,7 +81,7 @@ function installApiRequestMock() {
     if (path.endsWith('/simulate') && method === 'POST') {
       return {
         destinations: [{ guild_id: guildId, discord_channel_id: channelId, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }],
-        total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: [],
+        total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [],
       }
     }
     const lifecycleMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/(activate|pause|resume|cancel)$/)

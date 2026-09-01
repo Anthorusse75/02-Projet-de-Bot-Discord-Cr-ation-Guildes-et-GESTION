@@ -79,7 +79,7 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
       const body = route.request().postDataJSON() as Record<string, unknown>
       return route.fulfill({ status: 201, json: { id: 'schedule-1', campaign_id: path.split('/')[4], schedule_kind: body.schedule_kind, fire_at: body.fire_at ?? null, rrule: body.rrule ?? null, timezone: body.timezone ?? null, starts_at: body.starts_at ?? null, misfire_policy: 'SKIP_MISSED', dst_nonexistent_policy: 'SHIFT_FORWARD', dst_ambiguous_policy: 'EARLIEST', catch_up_bound: 1, next_fire_at: '2026-09-05T12:00:00Z', version: 1 } })
     }
-    if (path.endsWith('/simulate') && method === 'POST') return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: [] } })
+    if (path.endsWith('/simulate') && method === 'POST') return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [] } })
     const lifecycleMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/(activate|pause|resume|cancel)$/)
     if (lifecycleMatch && method === 'POST') {
       const [, id, action] = lifecycleMatch
@@ -94,6 +94,22 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     if (path.includes('/variants/') && path.endsWith('/approve') && method === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>
       return route.fulfill({ status: 201, json: { id: 'variant-1', campaign_id: path.split('/')[4], target_language_code: 'fr', source_fingerprint: 'fp', localized_message_model: body.localized_message_model, approved_by_discord_user_id: USER, approved_at: '2026-08-31T00:00:00Z' } })
+    }
+    const resolveMatch = path.match(/\/deliveries\/([^/]+)\/intervention\/resolve$/)
+    if (resolveMatch && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const nextStatus = body.resolution === 'SENT' ? 'SENT' : 'FAILED'
+      state.deliveries = state.deliveries.map((item) => item.id === resolveMatch[1]
+        ? { ...item, status: nextStatus, discord_message_id: body.discord_message_id ?? null, last_error: nextStatus === 'FAILED' ? 'confirmed not sent' : null }
+        : item)
+      return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === resolveMatch[1]) } })
+    }
+    const requeueMatch = path.match(/\/deliveries\/([^/]+)\/requeue$/)
+    if (requeueMatch && method === 'POST') {
+      state.deliveries = state.deliveries.map((item) => item.id === requeueMatch[1]
+        ? { ...item, status: 'PENDING', discord_message_id: null, last_error: null }
+        : item)
+      return route.fulfill({ json: { delivery: state.deliveries.find((item) => item.id === requeueMatch[1]) } })
     }
     return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message_key: 'errors.resource.notFound', params: {}, request_id: 'stage09-e2e' } } })
   })
@@ -217,9 +233,40 @@ test('@a11y REQ-MSG-007: CHANNEL, LOGICAL_GROUP and every TRANSLATION_GROUP publ
   expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
+test('REQ-MSG-029: an intervention-required delivery is resolved as sent, a failed one is requeued', async ({ page }) => {
+  const state = freshState()
+  state.deliveries.push(
+    { id: 'delivery-2', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-2', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-2', discord_channel_id: CHANNEL, status: 'INTERVENTION_REQUIRED', discord_message_id: null, attempt_count: 4, last_error: 'ambiguous send outcome', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
+    { id: 'delivery-3', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-3', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-3', discord_channel_id: CHANNEL, status: 'FAILED', discord_message_id: null, attempt_count: 1, last_error: 'discord rejected the request', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
+  )
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.locator('.campaign-detail')).toBeVisible()
+  const deliveries = page.locator('.campaign-deliveries')
+  await expect(deliveries.getByText('Needs intervention')).toBeVisible()
+
+  await deliveries.getByRole('button', { name: 'Resolve' }).click()
+  await deliveries.getByLabel('Discord message ID').fill('123456789012345678')
+  await deliveries.getByRole('button', { name: 'Confirm sent' }).click()
+  await expect(page.getByText('Delivery resolved.')).toBeVisible()
+  await expect(deliveries.getByText('Needs intervention')).toHaveCount(0)
+
+  await deliveries.getByRole('button', { name: 'Requeue' }).click()
+  await expect(page.getByText('Delivery requeued for a fresh attempt.')).toBeVisible()
+  await expect(deliveries.getByText('Failed')).toHaveCount(0)
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 const localeHeadings = { en: 'Message & campaign center', fr: 'Centre de messages et campagnes', de: 'Nachrichten- und Kampagnenzentrale', es: 'Centro de mensajes y campañas' }
 for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized STAGE 09 surface has no raw enums or keys (${locale})`, async ({ page }) => {
   const state = freshState(); state.campaigns[0].lifecycle_status = 'PAUSED'
+  state.deliveries.push(
+    { id: 'delivery-2', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-2', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-2', discord_channel_id: CHANNEL, status: 'INTERVENTION_REQUIRED', discord_message_id: null, attempt_count: 4, last_error: 'ambiguous send outcome', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
+    { id: 'delivery-3', guild_id: A, campaign_id: CAMPAIGN_ID, occurrence_id: 'occurrence-3', target_id: 'target-1', language_profile_id: null, delivery_key: 'dk-3', discord_channel_id: CHANNEL, status: 'FAILED', discord_message_id: null, attempt_count: 1, last_error: 'discord rejected the request', created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z' },
+  )
   await mockStage09(page, locale, state)
   await page.goto(`/guild/${A}/campaigns`)
   await expect(page.locator('html')).toHaveAttribute('lang', locale)
@@ -227,6 +274,7 @@ for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized 
   await page.getByRole('button', { name: /Autumn sale/ }).click()
   await expect(page.locator('.campaign-detail')).toBeVisible()
   await expect(page.getByText('PAUSED', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('INTERVENTION_REQUIRED', { exact: true })).toHaveCount(0)
   await expect(page.getByText(/^campaigns\./)).toHaveCount(0)
   await expect(page.getByText(/^errors\.campaigns\./)).toHaveCount(0)
 })

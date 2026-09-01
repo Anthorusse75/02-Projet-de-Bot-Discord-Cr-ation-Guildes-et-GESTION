@@ -660,3 +660,178 @@ async def test_activation_creates_durable_work_never_sends_and_variant_identity(
             assert preview.status_code == 200
             assert preview.json()["outcome"] == "REUSABLE"
             assert preview.json()["approved_variant"]["approved_by_discord_user_id"] == str(OWNER_A)
+
+
+async def test_intervention_resolution_and_requeue_product_flow() -> None:
+    """REQ-MSG-029 product surface: never a universal Retry button -- an
+    INTERVENTION_REQUIRED delivery only resolves to the owner's own
+    attested outcome (SENT with a real discord_message_id, or FAILED), and
+    only a confirmed-FAILED delivery can be requeued for a fresh send.
+    Neither endpoint ever calls Discord (see did.api.stage09's own
+    never-sends regression test for the router-wide proof); this test
+    proves the HTTP-level ownership/state-machine contract specifically."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            csrf_b = await _login(client_b, "owner-b")
+            assert (
+                await client_a.post(
+                    f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf_a}
+                )
+            ).status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "intervention-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+            target = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/targets",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "target_kind": "CHANNEL",
+                    "discord_channel_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "intervention-target"},
+            )
+            assert target.status_code == 201
+            activated = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/activate",
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "intervention-go"},
+            )
+            assert activated.status_code == 200
+
+            engine = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine.begin() as connection:
+                    delivery_id = (
+                        await connection.execute(
+                            text("SELECT id FROM message_deliveries WHERE campaign_id=:cid"),
+                            {"cid": campaign_id},
+                        )
+                    ).scalar_one()
+                    await connection.execute(
+                        text(
+                            "UPDATE message_deliveries SET status='INTERVENTION_REQUIRED', "
+                            "discord_nonce='intervention-test-nonce' WHERE id=:id"
+                        ),
+                        {"id": delivery_id},
+                    )
+            finally:
+                await engine.dispose()
+
+            # --- Validation: SENT requires a message id, FAILED forbids one.
+            sent_missing_id = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve",
+                json={"resolution": "SENT"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "resolve-missing-id"},
+            )
+            assert sent_missing_id.status_code == 422
+
+            failed_with_id = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve",
+                json={"resolution": "FAILED", "discord_message_id": str(CHANNEL_A)},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "resolve-extra-id"},
+            )
+            assert failed_with_id.status_code == 422
+
+            # --- A foreign owner can never resolve someone else's
+            # intervention -- identical not-found shape, never a 403.
+            foreign_resolve = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve",
+                json={"resolution": "FAILED"},
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "resolve-foreign"},
+            )
+            assert foreign_resolve.status_code == 404
+
+            # --- Real resolution: the owner attests the message was sent,
+            # supplying the discord_message_id they observed themselves.
+            resolved = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve",
+                json={"resolution": "SENT", "discord_message_id": "123456789012345678"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "resolve-sent"},
+            )
+            assert resolved.status_code == 200
+            assert resolved.json()["delivery"]["status"] == "SENT"
+            assert resolved.json()["delivery"]["discord_message_id"] == "123456789012345678"
+
+            # --- Already resolved -- no longer claimable, never a duplicate
+            # resolution or a silent no-op success.
+            replay = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve",
+                json={"resolution": "FAILED"},
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "resolve-replay"},
+            )
+            assert replay.status_code == 404
+
+            # --- A SENT delivery is never requeuable (only FAILED is).
+            requeue_sent = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue",
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "requeue-sent"},
+            )
+            assert requeue_sent.status_code == 404
+
+            # --- Separate delivery, resolved FAILED, is genuinely requeuable.
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE message_deliveries SET status='FAILED', last_error='boom' "
+                        "WHERE id=:id"
+                    ),
+                    {"id": delivery_id},
+                )
+            failed_requeue_foreign = await client_b.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue",
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "requeue-foreign"},
+            )
+            assert failed_requeue_foreign.status_code == 404
+
+            requeued = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue",
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "requeue-real"},
+            )
+            assert requeued.status_code == 200
+            assert requeued.json()["delivery"]["status"] == "PENDING"
+            assert requeued.json()["delivery"]["discord_message_id"] is None
+
+            engine2 = create_database_engine(ADMIN_URL, pool_size=1)
+            try:
+                async with engine2.begin() as connection:
+                    row = (
+                        (
+                            await connection.execute(
+                                text(
+                                    "SELECT discord_nonce, attempt_count FROM message_deliveries "
+                                    "WHERE id=:id"
+                                ),
+                                {"id": delivery_id},
+                            )
+                        )
+                        .mappings()
+                        .one()
+                    )
+                    assert row["discord_nonce"] != "intervention-test-nonce"
+                    assert row["attempt_count"] == 0
+            finally:
+                await engine2.dispose()

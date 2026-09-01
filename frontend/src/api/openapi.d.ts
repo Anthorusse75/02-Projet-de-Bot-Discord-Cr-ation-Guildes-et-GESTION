@@ -91,6 +91,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Intervention
+         * @description REQ-MSG-029 product surface: never a universal "Retry" button -- an
+         *     INTERVENTION_REQUIRED delivery only ever resolves to the caller's own
+         *     attested true outcome (they manually checked their Guild). This
+         *     endpoint never calls Discord and never resends anything; it only
+         *     records a human judgment call. A delivery confirmed FAILED here can
+         *     then be requeued through :func:`requeue_intervention_delivery` for a
+         *     genuinely fresh, unambiguous send attempt.
+         */
+        post: operations["resolve_intervention_api_v1_campaigns__campaign_id__deliveries__delivery_id__intervention_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requeue Intervention Delivery
+         * @description Only valid for a FAILED delivery (confirmed nothing was ever sent --
+         *     see :func:`resolve_intervention` and REQ-MSG-029) -- creates durable
+         *     work only (the delivery becomes PENDING again with a fresh nonce; the
+         *     existing durable dispatch/worker discovers and sends it through the
+         *     ordinary path). Never calls Discord directly from this handler.
+         */
+        post: operations["requeue_intervention_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__requeue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/campaigns/{campaign_id}/pause": {
         parameters: {
             query?: never;
@@ -1953,6 +2003,16 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** InterventionResolutionInput */
+        InterventionResolutionInput: {
+            /** Discord Message Id */
+            discord_message_id?: string | null;
+            /**
+             * Resolution
+             * @enum {string}
+             */
+            resolution: "SENT" | "FAILED";
+        };
         /** LanguageCreateInput */
         LanguageCreateInput: {
             /** Code */
@@ -2901,6 +2961,82 @@ export interface operations {
             header?: never;
             path: {
                 campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_intervention_api_v1_campaigns__campaign_id__deliveries__delivery_id__intervention_resolve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterventionResolutionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requeue_intervention_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__requeue_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
             };
             cookie?: never;
         };

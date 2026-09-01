@@ -30,6 +30,7 @@ from sqlalchemy import CursorResult, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.campaigns.causality import validate_condition_ast
+from did.campaigns.delivery_reconciliation import generate_delivery_nonce
 from did.domain.campaigns import (
     ApprovedVariant,
     CampaignSchedule,
@@ -1025,6 +1026,161 @@ class CampaignsRepository:
                 },
             )
         return cast(CursorResult[Any], result).rowcount == 1
+
+    async def claim_intervention_delivery_for_owner(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        delivery_id: UUID,
+        *,
+        lease_owner: str,
+        now: datetime,
+        lease_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """REQ-MSG-029 product surface (WP20 mission section 6): atomically
+        claims exactly one ``INTERVENTION_REQUIRED`` delivery for a
+        human-driven resolution -- ownership verified by the join to
+        ``message_campaigns`` in the SAME statement, never trusted from the
+        caller, spanning every Guild the campaign targets since a campaign
+        has no single Guild-scoped RLS context of its own (same rationale as
+        :meth:`list_deliveries_for_campaign`). Returns ``None`` if the
+        delivery does not exist, does not belong to this owner, is not
+        currently ``INTERVENTION_REQUIRED``, or is already leased by a
+        concurrent resolution attempt -- the caller maps every one of these
+        to the identical generic not-found/conflict shape, never disclosing
+        which."""
+        token = uuid4()
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH candidate AS ("
+                            "SELECT d.id FROM message_deliveries d "
+                            "JOIN message_campaigns c ON c.id = d.campaign_id "
+                            "WHERE d.id=:delivery_id AND d.campaign_id=:campaign_id "
+                            "AND c.owner_discord_user_id=:owner "
+                            "AND d.status='INTERVENTION_REQUIRED' "
+                            "AND (d.leased_until IS NULL "
+                            "OR d.leased_until < CAST(:now AS timestamptz)) "
+                            "FOR UPDATE OF d SKIP LOCKED) "
+                            "UPDATE message_deliveries AS d SET "
+                            "lease_owner=:lease_owner, lease_token=:token, "
+                            "leased_until=CAST(:now AS timestamptz) "
+                            "+ (:lease_seconds * interval '1 second'), "
+                            "updated_at=now() "
+                            "FROM candidate WHERE d.id=candidate.id "
+                            "RETURNING d.id, d.guild_id, d.lease_token"
+                        ),
+                        {
+                            "delivery_id": delivery_id,
+                            "campaign_id": campaign_id,
+                            "owner": owner_discord_user_id,
+                            "now": now,
+                            "lease_owner": lease_owner,
+                            "token": token,
+                            "lease_seconds": lease_seconds,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def resolve_intervention_delivery(
+        self,
+        delivery_id: UUID,
+        guild_id: int,
+        lease_token: UUID,
+        *,
+        status: str,
+        discord_message_id: int | None = None,
+        last_error: str | None = None,
+    ) -> bool:
+        """Resolves an ``INTERVENTION_REQUIRED`` delivery to the caller's
+        attested true outcome -- ``status`` must be ``'SENT'`` (with a
+        caller-supplied ``discord_message_id``, the owner's own report of
+        what they observed in their Guild -- never invented, never fetched
+        from Discord by this method) or ``'FAILED'``. Fenced by
+        ``lease_token``, matching :meth:`claim_intervention_delivery_for_owner`.
+        This method never calls Discord and never sends anything -- it only
+        records a human judgment call already made outside this system, per
+        the mission's "backend decides safety, never a universal Retry
+        button" constraint: there is no code path here that resends."""
+        if status not in ("SENT", "FAILED"):
+            raise ValueError("intervention resolution status must be SENT or FAILED")
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            result = await session.execute(
+                text(
+                    "UPDATE message_deliveries SET status=:status, "
+                    "discord_message_id=COALESCE(:message_id, discord_message_id), "
+                    "last_error=:last_error, "
+                    "lease_owner=NULL, lease_token=NULL, leased_until=NULL, updated_at=now() "
+                    "WHERE id=:id AND guild_id=:guild_id "
+                    "AND status='INTERVENTION_REQUIRED' AND lease_token=:token"
+                ),
+                {
+                    "id": delivery_id,
+                    "guild_id": guild_id,
+                    "token": lease_token,
+                    "status": status,
+                    "message_id": discord_message_id,
+                    "last_error": last_error,
+                },
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
+    async def requeue_failed_delivery_for_owner(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        owner_discord_user_id: int,
+        campaign_id: UUID,
+        delivery_id: UUID,
+    ) -> dict[str, Any] | None:
+        """``FAILED -> PENDING`` with a fresh nonce -- safe because ``FAILED``
+        (unlike ``UNKNOWN``/``INTERVENTION_REQUIRED``) means nothing was
+        ever sent, confirmed either by the original send attempt itself
+        failing cleanly or by a human's own
+        :meth:`resolve_intervention_delivery` FAILED attestation; there is
+        no ambiguity left to protect against, so reusing the old nonce is
+        unnecessary caution rather than a requirement. Creates durable work
+        only -- the existing durable dispatch/worker discovers and sends the
+        now-PENDING row through the ordinary path; this method never calls
+        Discord itself. ``attempt_count`` resets to 0 -- a fresh cycle earns
+        its own full budget of ambiguous-retry tolerance
+        (``MAX_UNKNOWN_RETRY_ATTEMPTS``), not the prior cycle's leftover
+        count. Ownership verified by the same cross-Guild admin-factory join
+        as :meth:`claim_intervention_delivery_for_owner`. Returns ``None``
+        if the delivery does not exist, does not belong to this owner, or is
+        not currently ``FAILED``."""
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE message_deliveries AS d SET "
+                            "status='PENDING', discord_nonce=:nonce, discord_message_id=NULL, "
+                            "last_error=NULL, attempt_count=0, updated_at=now() "
+                            "FROM message_campaigns AS c "
+                            "WHERE d.campaign_id=c.id AND d.id=:delivery_id "
+                            "AND d.campaign_id=:campaign_id "
+                            "AND c.owner_discord_user_id=:owner AND d.status='FAILED' "
+                            "RETURNING d.id, d.guild_id"
+                        ),
+                        {
+                            "delivery_id": delivery_id,
+                            "campaign_id": campaign_id,
+                            "owner": owner_discord_user_id,
+                            "nonce": generate_delivery_nonce(),
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
 
     async def claim_stalled_sending_for_reconciliation(
         self,

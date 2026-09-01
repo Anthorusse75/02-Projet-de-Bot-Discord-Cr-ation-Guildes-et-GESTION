@@ -618,6 +618,35 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "InterventionResolutionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Message Id"
+          },
+          "resolution": {
+            "enum": [
+              "SENT",
+              "FAILED"
+            ],
+            "title": "Resolution",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resolution"
+        ],
+        "title": "InterventionResolutionInput",
+        "type": "object"
+      },
       "LanguageCreateInput": {
         "additionalProperties": false,
         "properties": {
@@ -3002,6 +3031,150 @@
           }
         },
         "summary": "List Deliveries",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve": {
+      "post": {
+        "description": "REQ-MSG-029 product surface: never a universal \"Retry\" button -- an\nINTERVENTION_REQUIRED delivery only ever resolves to the caller's own\nattested true outcome (they manually checked their Guild). This\nendpoint never calls Discord and never resends anything; it only\nrecords a human judgment call. A delivery confirmed FAILED here can\nthen be requeued through :func:`requeue_intervention_delivery` for a\ngenuinely fresh, unambiguous send attempt.",
+        "operationId": "resolve_intervention_api_v1_campaigns__campaign_id__deliveries__delivery_id__intervention_resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterventionResolutionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Intervention Api V1 Campaigns  Campaign Id  Deliveries  Delivery Id  Intervention Resolve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Intervention",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue": {
+      "post": {
+        "description": "Only valid for a FAILED delivery (confirmed nothing was ever sent --\nsee :func:`resolve_intervention` and REQ-MSG-029) -- creates durable\nwork only (the delivery becomes PENDING again with a fresh nonce; the\nexisting durable dispatch/worker discovers and sends it through the\nordinary path). Never calls Discord directly from this handler.",
+        "operationId": "requeue_intervention_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__requeue_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Requeue Intervention Delivery Api V1 Campaigns  Campaign Id  Deliveries  Delivery Id  Requeue Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Requeue Intervention Delivery",
         "tags": [
           "stage-09-campaigns"
         ]
