@@ -28,6 +28,37 @@ def test_invalid_backend_schemes_fail_fast() -> None:
         Settings(_env_file=None, database_url=SecretStr("sqlite:///local.db"))
 
 
+class TestCampaignMessageIntentSettings:
+    """REQ-MSG-030: ADR-008 forbids requesting the privileged
+    MESSAGE_CONTENT intent before the (non-privileged) documented feature
+    it serves is itself a deliberate choice -- proven at the Settings
+    layer, not just the Gateway client function (see
+    test_stage03_gateway_contract.py::TestCampaignMessageIntentContract for
+    the client-level proof)."""
+
+    def test_both_disabled_by_default(self) -> None:
+        settings = Settings(_env_file=None)
+        assert settings.discord_campaign_message_events_enabled is False
+        assert settings.discord_campaign_message_content_enabled is False
+
+    def test_guild_messages_alone_is_a_valid_configuration(self) -> None:
+        settings = Settings(_env_file=None, discord_campaign_message_events_enabled=True)
+        assert settings.discord_campaign_message_events_enabled is True
+        assert settings.discord_campaign_message_content_enabled is False
+
+    def test_both_enabled_together_is_valid(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            discord_campaign_message_events_enabled=True,
+            discord_campaign_message_content_enabled=True,
+        )
+        assert settings.discord_campaign_message_content_enabled is True
+
+    def test_message_content_without_its_base_capability_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="discord_campaign_message_events_enabled"):
+            Settings(_env_file=None, discord_campaign_message_content_enabled=True)
+
+
 def test_stage02_secret_names_are_loaded_without_exposing_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

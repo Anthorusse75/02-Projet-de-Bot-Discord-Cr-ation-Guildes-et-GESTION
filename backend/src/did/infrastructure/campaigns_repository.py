@@ -497,9 +497,10 @@ class CampaignsRepository:
                     "INSERT INTO message_occurrences "
                     "(id, owner_discord_user_id, campaign_id, occurrence_key, "
                     "occurrence_source, scheduled_for, source_event_id, "
-                    "source_correlation_id, status) "
+                    "source_correlation_id, source_causation_depth, source_ancestry, status) "
                     "VALUES (:id, :owner, :campaign_id, :key, :source, :scheduled_for, "
-                    ":event_id, :correlation_id, :status) "
+                    ":event_id, :correlation_id, :causation_depth, CAST(:ancestry AS JSONB), "
+                    ":status) "
                     "ON CONFLICT (campaign_id, occurrence_key) DO NOTHING"
                 ),
                 {
@@ -511,6 +512,8 @@ class CampaignsRepository:
                     "scheduled_for": occurrence.scheduled_for,
                     "event_id": occurrence.source_event_id,
                     "correlation_id": occurrence.source_correlation_id,
+                    "causation_depth": occurrence.source_causation_depth,
+                    "ancestry": _to_json(sorted(occurrence.source_ancestry)),
                     "status": occurrence.status.value,
                 },
             )
@@ -831,6 +834,52 @@ class CampaignsRepository:
                 {"guild_id": guild_id, "id": delivery_id},
             )
         return str(status) if status is not None else None
+
+    async def find_delivery_by_discord_message(
+        self,
+        admin_factory: async_sessionmaker[Any],
+        *,
+        guild_id: int,
+        discord_channel_id: int,
+        discord_message_id: int,
+    ) -> dict[str, Any] | None:
+        """REQ-MSG-030 producing side: resolves a Gateway-captured
+        MESSAGE_CREATE back to the exact SENT delivery (and its
+        occurrence's durable causal metadata -- ``source_causation_depth``/
+        ``source_ancestry``/``source_correlation_id``/``source_event_id``)
+        that produced it, if any. System/runtime-only cross-authority read
+        -- a delivery is Guild-scoped and its occurrence is owner-scoped, so
+        no single ``TenantContext`` can see both at once under ordinary
+        RLS; runs on the admin (RLS-bypassing) factory like
+        :meth:`list_targets_for_campaign`. Only ever matches a delivery
+        already finalized ``SENT`` with this EXACT (guild, channel, message)
+        triple -- never inferred, never a caller-supplied guess."""
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT d.id AS delivery_id, d.campaign_id, d.occurrence_id, "
+                            "o.source_causation_depth, o.source_ancestry, "
+                            "o.source_correlation_id, o.source_event_id "
+                            "FROM message_deliveries d "
+                            "JOIN message_occurrences o ON o.id = d.occurrence_id "
+                            "WHERE d.guild_id = :guild_id "
+                            "AND d.discord_channel_id = :channel_id "
+                            "AND d.discord_message_id = :message_id "
+                            "AND d.status = 'SENT'"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "channel_id": discord_channel_id,
+                            "message_id": discord_message_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
 
     async def purge_terminal_deliveries(
         self, guild_id: int, *, cutoff: datetime, limit: int = 1000

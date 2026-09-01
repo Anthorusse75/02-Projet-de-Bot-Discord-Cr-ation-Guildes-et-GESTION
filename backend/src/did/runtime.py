@@ -101,6 +101,8 @@ async def run_process(
             gateway_client = DiscordGatewayClient(
                 repository,
                 enable_member_events=settings.discord_member_events_enabled,
+                enable_campaign_message_events=settings.discord_campaign_message_events_enabled,
+                enable_message_content=settings.discord_campaign_message_content_enabled,
             )
             background_task = asyncio.create_task(
                 gateway_client.start(settings.discord_bot_token.get_secret_value()),

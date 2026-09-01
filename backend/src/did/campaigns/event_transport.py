@@ -4,27 +4,80 @@ cursor, migration ``0028_stage_09``) and feeds each one to
 ``did.campaigns.event_consumer.consume_event_for_trigger``, then fans out
 whatever fires.
 
-Covers every event_type Stage03's own gateway client actually captures
-under its minimal-intents architecture (ADR-008): structural dispatches --
-``GUILD_*``/``CHANNEL_*``/``THREAD_*``/``GUILD_ROLE_*``/``GUILD_MEMBER_*``.
-``MESSAGE_CREATE`` and any other message-content-bearing dispatch are
-outside Stage03's own capture surface entirely (no message intent is ever
-requested) -- an event-triggered campaign depending on message content
-stays governed by the existing REQ-MSG-020 capability/blocker machinery
-(``did.campaigns.message_content_policy``), which this module does not and
-cannot change; there is simply no durable event for it to consume yet.
+Covers every event_type Stage03's own gateway client can capture under its
+configurable-intents architecture (ADR-008): structural dispatches --
+``GUILD_*``/``CHANNEL_*``/``THREAD_*``/``GUILD_ROLE_*``/``GUILD_MEMBER_*`` --
+plus, when ``Settings.discord_campaign_message_events_enabled`` is on (the
+non-privileged ``GUILD_MESSAGES`` intent -- ADR-008 gates the genuinely
+privileged ``MESSAGE_CONTENT`` intent, not this one), ``MESSAGE_CREATE``.
+An event-triggered campaign whose *condition* depends on actual message
+content still stays governed by the existing REQ-MSG-020 capability/blocker
+machinery (``did.campaigns.message_content_policy``) -- this module never
+extracts content/embeds/attachments from a message payload regardless of
+which intents are active.
+
+REQ-MSG-030 producing side -- durable correlation, no lucky ordering
+=====================================================================
+
+``did.campaigns.causality.should_trigger`` already refuses to fire when its
+own campaign_id is present in an event's ``did_campaign_ancestry`` payload
+(the consuming-side guard). The producing side is: when the bot's own
+resulting Discord message re-enters ingestion as a ``MESSAGE_CREATE``, the
+derived event evaluated against triggers here must carry the ancestry/
+causation metadata of whatever occurrence actually sent it -- durably
+recorded on ``message_occurrences.source_ancestry``/
+``source_causation_depth`` at occurrence-creation time (migration
+``0029_stage_09``), since the causing event's own payload is typically long
+gone by the time the Gateway echo arrives.
+
+A bot-authored ``MESSAGE_CREATE`` is correlated to the exact
+``message_deliveries`` row that sent it by
+``CampaignsRepository.find_delivery_by_discord_message`` (exact
+guild_id/discord_channel_id/discord_message_id match, ``status='SENT'``
+only). The real race this must survive without assuming an ordering: the
+Gateway dispatch can arrive before OR after the HTTP send response has been
+persisted (``finalize_delivery`` setting ``discord_message_id``).
+
+* Finalize-before-Gateway (the common case): the delivery row already
+  exists with this exact message id when the event is consumed --
+  correlation succeeds immediately, the derived event is built with the
+  occurrence's real ancestry/causation, evaluated against triggers, and the
+  cursor advances past it in the same tick as any other event.
+* Gateway-before-finalize (the race): no matching delivery exists *yet*.
+  Rather than guessing, the per-Guild event cursor simply does not advance
+  past this specific event -- every event in this batch is processed in
+  strict ``(received_at, event_id)`` order already, so refusing to advance
+  past an unresolved bot-authored ``MESSAGE_CREATE`` means the next tick
+  (a few seconds later, per the scheduler's own poll interval -- far longer
+  than a typical Discord HTTP round trip) simply re-reads and re-attempts
+  it, by which point the finalize almost always has landed. This needs no
+  new durable state at all: ``discord_gateway_inbox``'s own
+  ``received_at`` and the existing ``message_campaign_event_cursor`` are
+  already exactly the durable, restart-safe primitives this requires -- a
+  process restart between either ordering simply resumes from the last
+  successfully advanced cursor position, same as any other event type.
+* No silent, indefinite stall: if a bot-authored message was never actually
+  sent through the Stage09 delivery ledger at all (some other bot feature,
+  or a future edit path outside this ledger), it will never correlate.
+  ``BOT_MESSAGE_CORRELATION_GRACE_SECONDS`` bounds how long the cursor will
+  wait on any single such event before giving up and advancing past it as
+  an ordinary, unattributed event (no special ancestry) -- a diagnosable,
+  bounded recovery rather than a queue that can never make progress again.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.campaigns.activation import fan_out_occurrence
+from did.campaigns.causality import ANCESTRY_PAYLOAD_KEY
 from did.campaigns.context import load_campaign, load_fan_out_context
 from did.campaigns.event_consumer import consume_event_for_trigger
 from did.campaigns.target_resolution import TargetAuthorizationChecker
@@ -42,6 +95,12 @@ from did.infrastructure.stage08_repository import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: How long the per-Guild event cursor will wait on an unresolved
+#: bot-authored MESSAGE_CREATE before giving up correlation and advancing
+#: past it as an ordinary, unattributed event. See the module docstring's
+#: "REQ-MSG-030 producing side" section.
+BOT_MESSAGE_CORRELATION_GRACE_SECONDS = 120
 
 #: Which normalized-payload key names the single resource a given
 #: structural event_type concerns, so should_trigger's CHANNEL/CATEGORY
@@ -107,6 +166,54 @@ def trigger_from_row(row: dict[str, Any]) -> CampaignTrigger:
     )
 
 
+def _is_bot_authored_message_create(envelope: EventEnvelope) -> bool:
+    return envelope.event_type == "MESSAGE_CREATE" and bool(
+        envelope.payload.get("author_is_bot", False)
+    )
+
+
+async def _correlate_bot_message(
+    campaigns_repository: CampaignsRepository,
+    admin_factory: async_sessionmaker[Any],
+    envelope: EventEnvelope,
+    *,
+    guild_id: int,
+) -> EventEnvelope | None:
+    """Attempts to resolve a bot-authored MESSAGE_CREATE against the exact
+    SENT delivery that produced it. Returns an enriched envelope (real
+    ancestry/causation/origin) when resolved, or ``None`` when no matching
+    delivery exists *yet* -- the caller decides, based on the event's own
+    age, whether that means "keep waiting" or "give up and treat as
+    ordinary" (see the module docstring)."""
+    channel_id = envelope.payload.get("channel_id")
+    message_id = envelope.payload.get("message_id")
+    if not isinstance(channel_id, int) or not isinstance(message_id, int):
+        return None
+    match = await campaigns_repository.find_delivery_by_discord_message(
+        admin_factory,
+        guild_id=guild_id,
+        discord_channel_id=channel_id,
+        discord_message_id=message_id,
+    )
+    if match is None:
+        return None
+    ancestry = sorted(str(item) for item in (match.get("source_ancestry") or ()))
+    source_correlation_id = match.get("source_correlation_id")
+    source_event_id = match.get("source_event_id")
+    return dataclasses.replace(
+        envelope,
+        origin=EventOrigin.DID_CAMPAIGN,
+        correlation_id=(
+            UUID(str(source_correlation_id))
+            if source_correlation_id is not None
+            else match["occurrence_id"]
+        ),
+        causation_id=(UUID(str(source_event_id)) if source_event_id is not None else None),
+        causation_depth=int(match["source_causation_depth"]) + 1,
+        payload={**envelope.payload, ANCESTRY_PAYLOAD_KEY: ancestry},
+    )
+
+
 async def consume_new_events_for_guild(
     *,
     campaigns_repository: CampaignsRepository,
@@ -121,6 +228,7 @@ async def consume_new_events_for_guild(
     batch_limit: int = 100,
     stage04_repository: Stage04Repository | None = None,
     provider_bindings: TranslationProviderBindingRepository | None = None,
+    now: datetime | None = None,
 ) -> int:
     """One durable-transport pass for ``guild_id``: read every new
     ``discord_gateway_inbox`` row since the cursor, evaluate it against
@@ -132,20 +240,46 @@ async def consume_new_events_for_guild(
     that replay safe, never this cursor. Returns the number of triggers
     that actually fired this pass.
 
-    MESSAGE_CONTENT is never available through this transport (Stage03's
-    gateway client requests no message intent at all) -- a bound trigger
-    declaring ``requires_message_content=True`` therefore always evaluates
-    with ``message_content_available=False`` here, correctly failing closed
-    via ``did.campaigns.causality.should_trigger`` rather than silently
-    treating absent content as a non-match.
+    An unresolved bot-authored MESSAGE_CREATE younger than
+    ``BOT_MESSAGE_CORRELATION_GRACE_SECONDS`` stops this pass from
+    advancing the cursor past it (see the module docstring's "REQ-MSG-030
+    producing side" section) -- everything strictly before it in
+    ``(received_at, event_id)`` order is still evaluated and the cursor
+    still advances up to (not including) that event.
+
+    ``message_content_available`` is always False here regardless of
+    whether the (structural-only) MESSAGE_CREATE dispatch is currently
+    enabled -- this transport never captures message content at all, so a
+    bound trigger declaring ``requires_message_content=True`` always
+    correctly fails closed via ``did.campaigns.causality.should_trigger``
+    rather than silently treating absent content as a non-match.
     """
     rows = await runtime_repository.claim_new_campaign_events(guild_id, limit=batch_limit)
     if not rows:
         return 0
+    reference_now = now or datetime.now(UTC)
 
     fired_count = 0
+    last_processed_row: dict[str, Any] | None = None
     for row in rows:
         envelope = envelope_from_gateway_inbox_row(row)
+        if _is_bot_authored_message_create(envelope):
+            resolved = await _correlate_bot_message(
+                campaigns_repository, admin_factory, envelope, guild_id=guild_id
+            )
+            if resolved is not None:
+                envelope = resolved
+            else:
+                age = reference_now - envelope.received_at
+                if age < timedelta(seconds=BOT_MESSAGE_CORRELATION_GRACE_SECONDS):
+                    # Gateway-before-finalize race: do not advance the
+                    # cursor past this event yet -- stop this pass here,
+                    # the next tick re-attempts correlation.
+                    break
+                # Aged out: never correlated to a Stage09 delivery at all
+                # (or the correlating delivery will never finalize) --
+                # proceed as an ordinary, unattributed event rather than
+                # stalling this Guild's event processing forever.
         discord_resource_id = extract_discord_resource_id(envelope.event_type, envelope.payload)
         candidate_rows = await campaigns_repository.list_candidate_triggers_for_event(
             admin_factory, guild_id=guild_id, event_type=envelope.event_type
@@ -202,11 +336,13 @@ async def consume_new_events_for_guild(
                     EventId.CAMPAIGN_SCHEDULER_TICK_FAILED,
                     fields={"trigger_id": str(trigger.id), "error": str(exc)},
                 )
+        last_processed_row = row
 
-    last_row = rows[-1]
+    if last_processed_row is None:
+        return fired_count
     await runtime_repository.advance_campaign_event_cursor(
         guild_id,
-        last_event_id=UUID(str(last_row["event_id"])),
-        last_event_received_at=last_row["received_at"],
+        last_event_id=UUID(str(last_processed_row["event_id"])),
+        last_event_received_at=last_processed_row["received_at"],
     )
     return fired_count

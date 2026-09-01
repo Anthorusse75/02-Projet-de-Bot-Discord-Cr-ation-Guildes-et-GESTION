@@ -788,6 +788,10 @@ async def activate_campaign(
             occurrence_key=f"immediate:{campaign_id}",
             occurrence_source=OccurrenceSource.SCHEDULE,
             scheduled_for=datetime.now(UTC),
+            # REQ-MSG-030: an IMMEDIATE activation is its own causal root,
+            # exactly like a SCHEDULE-fired occurrence.
+            source_causation_depth=0,
+            source_ancestry=frozenset({str(campaign_id)}),
         )
         try:
             # fan_out_occurrence ONLY ever creates message_deliveries rows

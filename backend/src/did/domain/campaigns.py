@@ -357,6 +357,27 @@ class MessageOccurrence:
     scheduled_for: datetime | None = None
     source_event_id: UUID | None = None
     source_correlation_id: UUID | None = None
+    #: REQ-MSG-030 producing side: the causation_depth of the event that
+    #: caused this occurrence (0 for a SCHEDULE-sourced occurrence, which is
+    #: its own causal root; the causing event's own causation_depth for an
+    #: EVENT-sourced one). When this occurrence's own fan-out later sends a
+    #: Discord message that re-enters ingestion, the resulting event's
+    #: causation_depth must be this value + 1 -- durably carried here so
+    #: that increment is still correct however long after fan-out the
+    #: re-entrant Gateway event actually arrives.
+    source_causation_depth: int = 0
+    #: REQ-MSG-030 producing side: the full set of campaign ids that
+    #: causally contributed to this occurrence -- always includes this
+    #: occurrence's own campaign_id, plus (for an EVENT-sourced occurrence)
+    #: every campaign already present in the causing event's own ancestry.
+    #: This is the exact set that must be attached to any Discord message
+    #: this occurrence's fan-out sends, so a later self/cross-campaign loop
+    #: through that message is detected by
+    #: did.campaigns.causality.should_trigger exactly as it would be for
+    #: any other event -- never computed from scratch after the fact, since
+    #: the causing event's own payload will typically no longer be
+    #: available by then.
+    source_ancestry: frozenset[str] = frozenset()
     status: OccurrenceStatus = OccurrenceStatus.PENDING_FANOUT
 
     def __post_init__(self) -> None:
@@ -366,6 +387,8 @@ class MessageOccurrence:
             raise ValueError("occurrence_key must not be blank")
         if self.occurrence_source is OccurrenceSource.SCHEDULE and self.scheduled_for is None:
             raise ValueError("SCHEDULE occurrences require scheduled_for")
+        if self.source_causation_depth < 0:
+            raise ValueError("source_causation_depth must not be negative")
         if self.occurrence_source is OccurrenceSource.EVENT and self.source_event_id is None:
             raise ValueError("EVENT occurrences require source_event_id")
 

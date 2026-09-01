@@ -127,6 +127,10 @@ async def run_scheduler_tick(
                     occurrence_key=due.occurrence_key,
                     occurrence_source=OccurrenceSource.SCHEDULE,
                     scheduled_for=due.scheduled_for_utc,
+                    # REQ-MSG-030: a schedule fire is its own causal root --
+                    # depth 0, ancestry is exactly this one campaign.
+                    source_causation_depth=0,
+                    source_ancestry=frozenset({str(schedule.campaign_id)}),
                 )
                 outcome = await fan_out_for_occurrence(schedule, occurrence)
                 fan_out_outcomes.append(outcome)

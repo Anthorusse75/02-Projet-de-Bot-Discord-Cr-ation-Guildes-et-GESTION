@@ -13,10 +13,29 @@ from did.domain.discord_runtime import GatewayContinuity, MemberDataCapability
 from did.infrastructure.runtime_repository import RuntimeRepository
 
 
-def minimal_gateway_intents(*, enable_member_events: bool = False) -> discord.Intents:
+def minimal_gateway_intents(
+    *,
+    enable_member_events: bool = False,
+    enable_campaign_message_events: bool = False,
+    enable_message_content: bool = False,
+) -> discord.Intents:
+    """ADR-008 ("never request a privileged intent before a documented
+    feature needs it") governs the PRIVILEGED ``message_content`` intent
+    specifically -- it does not forbid the non-privileged ``guild_messages``
+    intent for a documented feature (REQ-MSG-030's campaign-message-ancestry
+    producing side: detecting the bot's own MESSAGE_CREATE re-entering
+    ingestion). ``enable_message_content`` is therefore only ever actually
+    honored together with ``enable_campaign_message_events`` -- requesting
+    the privileged intent without the base capability already being a
+    deliberate choice would be exactly the ADR-008 violation this guards
+    against; ``did.settings.config.Settings`` enforces the same dependency
+    at configuration time, this is defense in depth for any direct caller.
+    """
     intents = discord.Intents.none()
     intents.guilds = True
     intents.members = enable_member_events
+    intents.guild_messages = enable_campaign_message_events
+    intents.message_content = enable_message_content and enable_campaign_message_events
     return intents
 
 
@@ -36,9 +55,15 @@ class DiscordGatewayClient(discord.Client):
         repository: RuntimeRepository,
         *,
         enable_member_events: bool = False,
+        enable_campaign_message_events: bool = False,
+        enable_message_content: bool = False,
     ) -> None:
         super().__init__(
-            intents=minimal_gateway_intents(enable_member_events=enable_member_events),
+            intents=minimal_gateway_intents(
+                enable_member_events=enable_member_events,
+                enable_campaign_message_events=enable_campaign_message_events,
+                enable_message_content=enable_message_content,
+            ),
             member_cache_flags=discord.MemberCacheFlags.none(),
             max_messages=None,
         )

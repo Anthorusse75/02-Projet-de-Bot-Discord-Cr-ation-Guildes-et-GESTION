@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from did.campaigns.causality import TriggerEvaluationContext, should_trigger
+from did.campaigns.causality import TriggerEvaluationContext, read_campaign_ancestry, should_trigger
 from did.domain.campaigns import (
     CampaignTrigger,
     OccurrenceSource,
@@ -134,6 +134,15 @@ async def consume_event_for_trigger(
         occurrence_source=OccurrenceSource.EVENT,
         source_event_id=event.event_id,
         source_correlation_id=event.correlation_id,
+        # REQ-MSG-030: this occurrence inherits the depth of the event that
+        # caused it (should_trigger already bounded that against
+        # trigger.max_causation_depth above); its own ancestry is whatever
+        # already causally led to that event, plus this campaign itself --
+        # durably carried so a later Discord message this occurrence's
+        # fan-out sends can be correctly attributed however long afterward
+        # it re-enters ingestion.
+        source_causation_depth=event.causation_depth,
+        source_ancestry=read_campaign_ancestry(event.payload) | {str(trigger.campaign_id)},
     )
 
     consumed_now = await repository.record_trigger_consumption(
