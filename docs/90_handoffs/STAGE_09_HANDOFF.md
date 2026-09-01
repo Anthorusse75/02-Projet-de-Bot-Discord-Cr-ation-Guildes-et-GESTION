@@ -16,28 +16,33 @@
 > faille critique (`event_type` jamais vérifié dans `should_trigger`), élimination d'un owner non
 > fiable côté consommation d'événement, transport d'événement Stage03 réel, cibles de groupe logique
 > (REQ-MSG-002), politique de rétention (REQ-MSG-019), sécurité anti double-traduction (REQ-MSG-007),
-> identité d'approbation de variante réelle (REQ-MSG-016), (6) **cette passe** — **l'API HTTP Stage09
-> complète** (WP14, `did.api.stage09` : campagnes CRUD, targets, schedule, simulation,
-> activate/pause/resume/cancel n'exécutant jamais d'appel Discord direct -- prouvé par un test
-> source/import-graph ET par une activation IMMEDIATE réelle assertée contre les lignes DB -- historique
-> de livraisons, preview/approve de variantes avec principal approbateur toujours authentifié,
-> triggers/trigger-sources), promouvant REQ-MSG-016 à `IMPLEMENTED`, et **la preuve de la chaîne
-> complète du runtime réel** (`CampaignSchedulerRuntime.tick()` réel -> `DurableDiscordIOWorker
-> .run_guild_once()` réel comme une seule chaîne continue, deux schedulers concurrents sur le même
-> schedule dû, redémarrage de process en plein milieu de la chaîne), fermant l'écart des sections
-> 22/23 de la mission. Reste : frontend (WP15, **construction en cours**), qualification live complète
-> (WP16, désormais exerçable via l'API réelle), taggage d'ancestry sur événement Discord réellement
-> généré côté production (REQ-MSG-030 — **blocage externe documenté**, voir § dédiée). Aucune preuve
-> n'est fabriquée : chaque affirmation ci-dessous renvoie à un test réel (PostgreSQL réel, réseau réel,
-> sandbox Discord réel) ou est explicitement marquée comme non construite.
+> identité d'approbation de variante réelle (REQ-MSG-016), (6) l'API HTTP Stage09 complète (WP14),
+> preuve de la chaîne complète du runtime réel, (7) **cette passe (clôture)** — **REQ-MSG-030
+> requalifié et complété** : la revendication précédente d'un blocage externe MESSAGE_CONTENT était
+> une erreur d'analyse du contrat Gateway Discord (GUILD_MESSAGES, non privilégié, reçoit
+> MESSAGE_CREATE/UPDATE/DELETE ; MESSAGE_CONTENT, seul privilégié, peuple content/embeds/attachments —
+> ADR-008 ne gate que ce dernier) et est **retirée** ; côté production de l'ancestry construit
+> (`message_occurrences.source_causation_depth`/`source_ancestry`, migration `0029_stage_09`,
+> corrélation durable `did.campaigns.event_transport` d'un `MESSAGE_CREATE` du bot à sa livraison SENT,
+> survivant les deux ordres de course Gateway/finalize). **REQ-MSG-007 complété côté frontend**
+> (`CampaignCenter.tsx` expose le sélecteur `target_kind` et les 4 modes de publication Translation
+> Group explicitement). **Résultat : 31/31 REQ-MSG-001..031 `IMPLEMENTED`, 0 `PARTIALLY_IMPLEMENTED`,
+> 0 `NOT_STARTED`.** Reste honnêtement absent : les surfaces d'authoring Stage09 restantes en UI/API
+> (embeds/composants complets, variables typées, glossaire, trigger d'événement, rétention,
+> retry/intervention, édition/suppression possédée), le câblage runtime de la réconciliation de
+> livraison déjà testée (`reconcile_one_stalled_delivery` existe mais n'est appelée par aucun
+> process — découvert et documenté honnêtement pendant cette passe, non fermé), et la matrice de
+> qualification live complète (WP16). Aucune preuve n'est fabriquée : chaque affirmation ci-dessous
+> renvoie à un test réel (PostgreSQL réel, réseau réel, sandbox Discord réel) ou est explicitement
+> marquée comme non construite.
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-09-01` |
 | Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` — le commit de `main` à partir duquel la branche `stage/09-campaigns` a divergé ; `main` a continué d'avancer depuis (voir `git log main` pour son HEAD courant), ce champ documente uniquement le point de divergence, pas un état encore à jour de `main` |
 | Branche | `stage/09-campaigns` |
-| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, sixième passe intégrée) |
-| Migration | `0021_stage_08 → 0028_stage_09` ; tête unique `0028_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
+| Statut | `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (Draft PR #9 ouverte, septième passe intégrée, matrice REQ-MSG 31/31 fermée) |
+| Migration | `0021_stage_08 → 0029_stage_09` ; tête unique `0029_stage_09` ; rehearsal up/down/up validé sur PostgreSQL réel à chaque étape |
 | Dernière étape intégrée | `STAGE_08_MULTILINGUAL_CONTENT_AND_TRANSLATION_TOPOLOGY` (`stage-08-complete`, inchangée) |
 
 ## Passe de remédiation externe (17 findings, intégrée)
@@ -378,6 +383,93 @@ deux.
    l'en-tête sans registre de déduplication dédié (sûr au retry via les transitions CAS propres au
    domaine, mais pas une implémentation d'idempotence complète).
 
+## Septième passe (clôture) — REQ-MSG-030 requalifié et complété, REQ-MSG-007 fermé côté frontend
+
+Mission de clôture explicite requalifiant la revendication de blocage externe de la sixième passe
+pour REQ-MSG-030, et fermant les deux dernières lignes `PARTIALLY_IMPLEMENTED` de la matrice
+REQ-MSG-001..031.
+
+1. **Requalification REQ-MSG-030 (CRITIQUE — auto-critique honnête)** : la sixième passe affirmait
+   que le taggage d'ancestry côté production était bloqué par ADR-008 exigeant l'intent privilégié
+   `MESSAGE_CONTENT`. C'était **une erreur d'analyse** du contrat Gateway réel de Discord : l'intent
+   `GUILD_MESSAGES` (non privilégié) suffit à recevoir les dispatches `MESSAGE_CREATE`/`MESSAGE_UPDATE`/
+   `MESSAGE_DELETE` ; `MESSAGE_CONTENT` (le seul réellement privilégié) ne fait que peupler les champs
+   `content`/`embeds`/`attachments` de ces mêmes dispatches. ADR-008 (« ne jamais demander un intent
+   privilégié avant qu'une fonctionnalité documentée en dépende ») ne gate donc que `MESSAGE_CONTENT`,
+   jamais `GUILD_MESSAGES`. Cette revendication erronée est retirée de la documentation ; le blocage
+   n'a jamais été réel.
+2. **Contrat d'intents ajouté** : `Settings.discord_campaign_message_events_enabled` (bool, `False`
+   par défaut — active `GUILD_MESSAGES`) et `discord_campaign_message_content_enabled` (bool, `False`
+   par défaut — active le privilégié `MESSAGE_CONTENT`, **rejeté à la configuration** si le premier
+   n'est pas également actif, `model_validator` dédié). `did.bot.gateway.client
+   .minimal_gateway_intents()` accepte les deux nouveaux paramètres, câblés depuis `did.runtime.py`
+   jusqu'à la construction de `DiscordGatewayClient`. 11 tests unitaires (`test_stage03_gateway_contract
+   .py::TestCampaignMessageIntentContract`) + 4 (`test_settings.py
+   ::TestCampaignMessageIntentSettings`) prouvent : comportement par défaut minimal explicite,
+   `GUILD_MESSAGES` activable indépendamment, `MESSAGE_CONTENT` reste désactivé par défaut même avec
+   `GUILD_MESSAGES` actif, l'intent membre reste contrôlé indépendamment.
+3. **Capture structurelle seule, jamais le contenu** : `did.application.discord_runtime.gateway
+   .SUPPORTED_DISPATCHES` gagne `MESSAGE_CREATE`/`MESSAGE_UPDATE`/`MESSAGE_DELETE`, normalisés par
+   `_normalized_payload` en identité structurelle SEULE (`message_id`/`channel_id`/
+   `author_discord_user_id`/`author_is_bot`) — `content`/`embeds`/`attachments`/`components` ne sont
+   **jamais** extraits, y compris si le payload brut les contient (ex. le message est celui du bot
+   lui-même, dont Discord inclut le contenu même sans `MESSAGE_CONTENT`). 4 tests dédiés
+   (`TestMessageDispatchNormalization`) le prouvent explicitement, y compris un payload adverse
+   contenant délibérément `content`/`embeds`/`attachments`/`components` pour vérifier qu'ils ne
+   survivent jamais à la normalisation.
+4. **Côté production de l'ancestry (le cœur de la fermeture)** : `did.domain.campaigns
+   .MessageOccurrence` gagne `source_causation_depth: int = 0` et `source_ancestry: frozenset[str] =
+   frozenset()`, persistés par migration `0029_stage_09` (colonnes `message_occurrences
+   .source_causation_depth`/`source_ancestry` JSONB). Peuplés à la création de l'occurrence aux 3
+   points d'entrée réels : `scheduler_loop.py` (SCHEDULE — son propre racine causale, profondeur 0,
+   ancestry = `{son propre campaign_id}`), `event_consumer.py` (EVENT — hérite `event.causation_depth`
+   et l'union de l'ancestry de l'événement causant avec son propre `campaign_id`, réutilisant
+   `did.campaigns.causality.read_campaign_ancestry`, JAMAIS appelé auparavant en dehors de sa propre
+   définition), `did.api.stage09.activate_campaign` (IMMEDIATE — même traitement que SCHEDULE).
+   `CampaignsRepository.find_delivery_by_discord_message` (nouvelle lecture cross-authority admin
+   factory) résout un `(guild_id, discord_channel_id, discord_message_id)` exact vers la livraison
+   SENT et l'occurrence causale qui l'a produite. `did.campaigns.event_transport
+   .consume_new_events_for_guild` corrèle chaque `MESSAGE_CREATE` auto-généré à cette résolution et
+   construit l'événement dérivé avec `origin=DID_CAMPAIGN`, `payload[did_campaign_ancestry]` =
+   l'ancestry réelle de l'occurrence, `causation_depth` = profondeur de l'occurrence + 1,
+   `correlation_id`/`causation_id` hérités — AVANT toute évaluation de trigger, réutilisant
+   entièrement le chemin de décision existant (`should_trigger`) sans dupliquer sa logique.
+5. **Course Gateway/finalize gérée sans supposer d'ordre** : si la livraison est déjà `SENT` au moment
+   où le `MESSAGE_CREATE` est consommé (ordre normal), la corrélation réussit immédiatement et le
+   curseur avance dans le même tick. Si le `MESSAGE_CREATE` arrive avant que `finalize_delivery` n'ait
+   persisté `discord_message_id` (la course), le curseur par Guild existant **n'avance simplement pas
+   au-delà de cet événement** jusqu'à résolution — aucune nouvelle table durable, aucun état en
+   mémoire : les timestamps déjà persistés de `discord_gateway_inbox` et le curseur
+   `message_campaign_event_cursor` existant suffisent. Borné par `BOT_MESSAGE_CORRELATION_GRACE_SECONDS`
+   (120s) : un message du bot qui ne se corrèlera jamais (envoyé par une autre fonctionnalité, par
+   exemple) finit par être traité comme un événement ordinaire non attribué plutôt que de bloquer
+   indéfiniment le traitement des événements de cette Guild.
+6. **7 tests d'intégration PostgreSQL réels** (`test_stage09_ancestry_postgres.py`) prouvent chaque
+   scénario nommé par la mission : auto-boucle directe bloquée (campagne A ne se re-déclenche jamais
+   sur son propre message), A→B se déclenche mais B→A est bloqué (avec `source_causation_depth`/
+   `source_ancestry`/`source_correlation_id`/`source_event_id` explicitement asserés à chaque saut),
+   cycle cross-Guild A→B→C→A à travers 3 Guilds réelles bloqué au dernier saut, les deux ordres de
+   course (finalize-avant-Gateway résout dans le même pass ; Gateway-avant-finalize diffère jusqu'à
+   résolution, y compris une instance `RuntimeRepository` **fraîchement construite** au milieu de la
+   course pour prouver qu'aucun état en mémoire n'est requis — simulant un redémarrage de process), et
+   les deux cas d'expiration (un message non corrélable finit par avancer non attribué ; un message
+   récent n'est pas expiré prématurément).
+7. **REQ-MSG-007 fermé côté frontend** : `frontend/src/features/campaigns/CampaignCenter.tsx`
+   remplace la note « pas encore disponible » par le sélecteur `target_kind` réel
+   (CHANNEL/LOGICAL_GROUP/TRANSLATION_GROUP) et, pour TRANSLATION_GROUP, le sélecteur de mode de
+   publication explicite (les 4 modes) plus, pour `SELECTED_LANGUAGES`, une sélection réelle de
+   profils de langue Stage08 (case à cocher par langue) — aucun mode déduit, aucune liste codée en
+   dur ; chaque requête (`/logical-groups`, `/translation-workspace`) n'est activée qu'une fois
+   Guild + type de cible choisis. Nouveau test `@a11y` dans `frontend/e2e/stage09.spec.ts` exerçant
+   les 4 modes de bout en bout à travers la vraie UI, avec scan axe.
+8. **Écart honnêtement découvert et documenté, non fermé cette passe** : en auditant la réconciliation
+   de livraison pour REQ-MSG-030/section 8 de la mission, `did.campaigns.delivery_worker
+   .reconcile_one_stalled_delivery` (récupération sûre `SENDING`/`UNKNOWN` via
+   `decide_unknown_outcome_recovery`) s'est avéré être une fonction complète et testée mais **jamais
+   appelée par aucun process réel** — exactement le même type d'écart que `with_campaign_ancestry`
+   avant cette passe. Documenté explicitement dans les écarts connus plutôt que dissimulé ou fermé à
+   la hâte sans preuve réelle.
+
 ## Ce qui est construit et prouvé
 
 ### WP1 — Schéma / domaine
@@ -629,27 +721,30 @@ corpus plus étroit — les deux chiffres ne sont pas directement comparables, c
 distribution de contenu différente) — attendu, sans effet sur l'exigence, que la stratégie de
 production satisfait maintenant exactement sur le corpus normatif actuel.
 
-## Suite de tests réelle (exécutée après cette sixième passe)
+## Suite de tests réelle (exécutée après cette septième passe)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest backend/tests/unit/` (régression complète) | **734 passed** |
-| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **213 passed** |
+| `uv run pytest backend/tests/unit/` (régression complète) | **748 passed** |
+| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **220 passed** |
+| `npm run test` (frontend, vitest) | **35 passed** |
+| `npx playwright test` (frontend, incl. axe) | **47 passed** |
 | `uv run ruff check .` (tout le dépôt) | PASS, 0 finding |
 | `uv run ruff format --check .` | PASS |
-| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 158 fichiers |
-| `uv run python scripts/check_secrets.py` | PASS, 432 fichiers vérifiés |
+| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 157 fichiers |
+| `uv run python scripts/check_secrets.py` | PASS, 438 fichiers vérifiés |
 | `uv run python scripts/validate_documentation.py` | PASS — Stages 11, Source REQ 246, Traced REQ 246, ADR expected 35 |
-| CI GitHub Actions (push + pull_request), chaque commit de cette passe | PASS, les deux déclencheurs, à chaque commit |
+| `npm run openapi:check` | PASS — aucun changement de forme API cette passe |
+| Migration `0029_stage_09` | upgrade/downgrade/re-upgrade rehearsal réel, tête unique confirmée |
 
 Le corpus de benchmark de traduction (26 classes/104 items, 1 950 appels réels, intégrité 100%,
 stratégie de production, 0 erreur) n'a pas été rejoué cette passe faute de modification du pipeline de
 traduction/masquage lui-même ; voir la quatrième passe pour le détail complet et
 `docs/90_handoffs/evidence/stage09/translation-benchmark.json` pour la preuve committée. Ces profils
 `validate_stage.py` n'ont pas été relancés dans leur intégralité (Docker/migrations/build frontend)
-durant cette sixième passe faute de régression attendue dans leur périmètre propre ; la régression
+durant cette septième passe faute de régression attendue dans leur périmètre propre ; la régression
 réelle du code qu'ils couvrent est prouvée par les lignes ci-dessus (pytest direct, ruff, mypy, doc
-validation, secret scan, CI réelle).
+validation, secret scan).
 
 ## Qualification live Discord réelle
 
@@ -659,44 +754,42 @@ secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat allowed_ment
 possédé, delete possédé, dédup même nonce, nonce différent crée un message distinct) — preuve
 committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans
 `--include`, comme tous les autres validateurs live du dépôt. La matrice complète (Guild A/B,
-scheduler, Translation Groups, quatre langues, provider externe présent/absent) **n'a toujours pas
-été exécutée** — l'orchestration bout-en-bout (WP12), le runtime réel (WP20/21) et l'API HTTP (WP14)
-existent désormais et sont prouvés sur PostgreSQL, mais l'exercer authentiquement bout-en-bout via la
-matrice complète nécessite encore le frontend (WP15), qui n'existe pas.
+scheduler, Translation Groups, quatre langues, provider externe présent/absent, ancestry
+cross-campagne) **n'a toujours pas été exécutée cette passe** — l'orchestration bout-en-bout (WP12),
+le runtime réel (WP20/21), l'API HTTP (WP14) et le frontend (WP15) existent désormais tous, ce qui
+n'était pas le cas aux passes précédentes, mais construire/exécuter la matrice complète à travers le
+vrai chemin produit reste un travail distinct non entrepris cette passe.
 
 ## Écarts connus (non dissimulés)
 
-1. **WP15 (Frontend)** : aucune UI Stage09 n'existait avant cette passe ; construction en cours
-   (voir le champ Statut en tête de document pour l'état exact à la date indiquée). L'API HTTP
-   complète (WP14) existe désormais (voir « Sixième passe » ci-dessus).
-2. **Taggage d'ancestry sur événement Discord réellement généré côté production (REQ-MSG-030) —
-   BLOCAGE EXTERNE, PAS UN ÉCART DE CODE** : la garde anti-boucle côté consommation est désormais
-   réelle et branchée sur le vrai transport Stage03 (voir « Cinquième passe » ci-dessus). Ce qui
-   reste manquant est de tagger `did_campaign_ancestry` sur l'événement gateway résultant d'un envoi
-   de campagne réel lorsqu'il ré-entre l'ingestion Stage03 — cela requiert que Stage03 capte
-   effectivement cet événement, ce qui requiert un dispatch Gateway porteur de contenu de message
-   (`MESSAGE_CREATE` au minimum). `did.bot.gateway.client.minimal_gateway_intents()` ne demande
-   délibérément jamais aucun intent de message, conformément à `ADR-008` (« Intents minimaux » : ne
-   jamais demander un intent privilégié avant d'avoir une fonctionnalité documentée qui en dépend) —
-   `discord_gateway_inbox`/`SUPPORTED_DISPATCHES` ne peuvent donc structurellement pas contenir
-   `MESSAGE_CREATE` aujourd'hui. Fermer cet écart exige une décision produit/architecture délibérée de
-   demander l'intent privilégié `MESSAGE_CONTENT` (avec ses propres conséquences d'approbation/
-   vérification sur le Discord Developer Portal) spécifiquement pour cette fonctionnalité — exactement
-   le type de décision qu'`ADR-008` réserve à une fonctionnalité documentée, pas quelque chose qu'une
-   session de code peut ou doit contourner silencieusement. En attendant cette décision, les événements
-   externes ordinaires continuent de fonctionner correctement et les boucles cross-owner/cross-Guild/
-   auto-déclenchement restent entièrement bloquées côté consommation ; seul l'auto-déclenchement d'une
-   campagne sur son propre message envoyé ne peut pas encore être tagué à la source.
-3. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (bloquée
-   par l'absence de frontend pour l'exercer authentiquement via le vrai chemin produit -- l'API réelle,
-   elle, existe désormais).
-4. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
+1. **REQ-MSG-030 requalifié -- l'ancienne revendication de blocage externe était fausse** : voir
+   « Septième passe » ci-dessus pour le détail complet. La distinction GUILD_MESSAGES (non privilégié)
+   / MESSAGE_CONTENT (privilégié) dans le contrat Gateway de Discord n'avait pas été correctement
+   analysée dans la sixième passe ; ADR-008 ne bloquait jamais la capture structurelle de
+   MESSAGE_CREATE. Cet écart est fermé, pas simplement requalifié en non-bloqué : le côté production
+   de l'ancestry est construit, testé (7 tests PostgreSQL réels) et documenté ci-dessus.
+2. **Surfaces d'authoring Stage09 restantes en UI/API** : éditeur d'embeds/composants complet (seul le
+   contenu plain-text est édité aujourd'hui), variables typées en UI dédiée, glossaire en UI dédiée
+   (backend/API complets, aucune UI d'authoring construite), éditeur de trigger d'événement/source
+   binding en UI, politique de rétention configurable en UI/API (reste un paramètre système), retry
+   sûr/intervention en UI (voir écart suivant), édition/suppression possédée en UI/API (contrat
+   « effectivement une fois » non construit). Aucun de ces éléments n'était nommé comme un REQ-MSG
+   `PARTIALLY_IMPLEMENTED` restant -- ce sont des surfaces produit demandées par la mission de clôture
+   au-delà de la matrice REQ-MSG elle-même, honnêtement non entreprises cette passe faute de temps.
+3. **Réconciliation de livraison non câblée dans le runtime réel** : découvert en auditant REQ-MSG-030/
+   la section retry-sûr de la mission -- `did.campaigns.delivery_worker
+   .reconcile_one_stalled_delivery` (récupération sûre `SENDING` bloquée/`UNKNOWN` via
+   `decide_unknown_outcome_recovery`, respectant strictement la fenêtre `enforce_nonce` documentée et
+   le plafond de tentatives) est une fonction complète et testée mais **aucun process réel ne
+   l'appelle** -- exactement le même type d'écart que `with_campaign_ancestry` avant cette passe.
+   Documenté honnêtement plutôt que fermé sans preuve réelle ou dissimulé.
+4. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (l'API et
+   le frontend réels existent désormais tous les deux, ce qui débloque la construire, mais elle n'a
+   pas été construite/exécutée cette passe).
+5. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
    fabriqué. À marquer `PENDING_HUMAN_REVIEW` si/quand une rubrique est requise — dimension séparée
    de l'intégrité technique, qui elle est mesurée machine à 100%.
-5. **REQ-MSG-007** : l'exigence nomme explicitement une UI de sélection explicite des 4 modes de
-   publication ("l'UI propose explicitement...") ; le backend/la sécurité sous-jacente sont réels
-   (voir « Cinquième passe ») mais la seule UI reste absente.
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
-31 IDs et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` pour la preuve fichier:ligne de
-chacun.
+31 IDs (désormais 31/31 `IMPLEMENTED`) et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`
+pour la preuve fichier:ligne de chacun.
