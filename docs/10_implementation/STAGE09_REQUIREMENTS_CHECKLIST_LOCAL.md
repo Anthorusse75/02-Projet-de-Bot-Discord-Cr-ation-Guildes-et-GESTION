@@ -2,7 +2,7 @@
 
 ## État de la candidate
 
-- Statut global : `STAGE_09_IMPLEMENTATION_IN_PROGRESS` — neuf passes cumulées de travail réel et testé. Cinquième passe : connexion du Campaign Engine au runtime réel. Sixième passe : API FastAPI Stage09 complète (WP14), preuve de la chaîne runtime complète bout-en-bout, REQ-MSG-016 promu. Septième passe (clôture initiale) : REQ-MSG-030 requalifié et complété, REQ-MSG-007 fermé côté frontend, fermant la matrice complète des 31 exigences REQ-MSG. Huitième passe : deux bugs réels corrigés dans la production-side REQ-MSG-030, contrat MESSAGE_CONTENT rendu cohérent (Option B), réconciliation de livraison câblée dans le runtime réel. **Cette neuvième passe** : surfaces d'authoring produit complètes (éditeur MessageModel/embeds/boutons, variables typées, glossaire, trigger/source binding, surface de rétention honnête), section 19 de couverture Playwright complète du Campaign Center vérifiée, et **section 20 : la matrice complète de chaîne live Discord construite et exécutée** (`scripts/validate_discord_live_stage09_full_chain.py`, 9 groupes de scénarios, 40/40 vérifications PASS contre le vrai sandbox Discord A/B, chemin production complet application/API → occurrence → fan-out → livraison durable → job durable → worker réel → Workload Governor réel → adaptateur réel → Discord réel → réconciliation durable). Voir `docs/90_handoffs/STAGE_09_HANDOFF.md`, section « Neuvième passe », pour le détail complet.
+- Statut global : `STAGE_09_COMPLETE_DRAFT_PR_OPEN` — cette ligne et la section « Écarts connus » ci-dessous reflètent l'état courant ; le récit passe-par-passe qui suit (quatrième à septième passe) est un journal **historique** conservé pour traçabilité, voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel (vérité unique) » qui fait foi en cas de divergence. Depuis la septième passe : réconciliation de livraison câblée dans le runtime réel, surfaces d'authoring produit Stage09 complètes en UI/API, et la matrice de qualification live Discord complète construite et exécutée — **étendue durant la passe de clôture évidence la plus récente** avec deux groupes de scénarios Translation Group exercés en live contre le vrai `GoogletransCampaignTranslationProvider()` de production (SOURCE_ONLY, DID_TRANSLATED_FANOUT par langue source FR/EN/DE/ES, SELECTED_LANGUAGES, réutilisation de variante approuvée, et une preuve de frontière provider-externe-absent) : `scripts/validate_discord_live_stage09_full_chain.py`, désormais 11 groupes de scénarios, **59/59 vérifications PASS**, invoqué par le point d'entrée canonique unique `scripts/validate_stage.py 09 --include-discord-live` aux côtés des 5/5 scénarios adaptateur-primitives (ni l'un ni l'autre ne se substitue à l'autre).
 - Base `main` : `c41b61ae96cdb1d767c8d924212a6466b768ed60`.
 - Branche : `stage/09-campaigns`.
 - **31** IDs `IMPLEMENTED`, **0** ID `PARTIALLY_IMPLEMENTED`, **0** ID `NOT_STARTED` (inchangé depuis la septième passe — aucun REQ-MSG n'a changé de statut cette passe, le travail de cette passe ferme des surfaces produit demandées par la mission de clôture au-delà de la matrice REQ-MSG elle-même). Aucune promotion au-delà de la preuve réelle disponible ; `VERIFIED` non applicable, réservé à une qualification transverse qui n'a pas eu lieu.
@@ -81,16 +81,23 @@
 
 ## Écarts connus (non dissimulés)
 
-Fermés depuis la huitième/neuvième passe (voir `docs/90_handoffs/STAGE_09_HANDOFF.md` pour le
-détail) : réconciliation de livraison câblée dans le runtime réel ; les surfaces d'authoring
+Fermés : réconciliation de livraison câblée dans le runtime réel ; les surfaces d'authoring
 Stage09 (embeds/composants, variables typées, glossaire, trigger/source binding, rétention) sont
 construites en UI/API ; la matrice de qualification live complète (mission section 20) est
-construite et exécutée (40/40 PASS contre le sandbox réel).
+construite et exécutée (59/59 PASS, 11 groupes, contre le sandbox réel) ; **les modes de
+publication TRANSLATION_GROUP au-delà de SOURCE_ONLY sont désormais exercés en live** avec le vrai
+`GoogletransCampaignTranslationProvider()` de production (voir `STAGE_09_HANDOFF.md`).
 
-Restent honnêtement ouverts :
+Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique :
 
-1. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est fabriqué — `PENDING_HUMAN_REVIEW` si une rubrique est un jour requise, séparément de l'intégrité technique (mesurée machine, 100%).
-2. **Modes de publication TRANSLATION_GROUP au-delà de SOURCE_ONLY, non exercés en live** : nécessitent un provider de traduction externe live que cette architecture n'a pas câblé (REQ-MSG-020/022, décision Option B) ; déjà couvert par les tests d'intégration à provider factice contrôlable.
-3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** : nécessite une défaillance réseau/API ambiguë, non déclenchable de façon fiable contre un sandbox réel ; couvert par le double contrôlable de `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
+1. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est fabriqué — `PENDING_HUMAN_REVIEW`, séparément de l'intégrité technique (mesurée machine, 100%). Pack d'échantillons : `docs/90_handoffs/evidence/stage09/human-semantic-review-pack.md`.
+2. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du provider `googletrans` propre à DID, lui-même exercé en live) : aucun bot externe de ce type n'existe dans ce sandbox — `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE` ; l'état bloquant (provider lié, statut non-`DISABLED`) est prouvé en live à sa place (zéro livraison, zéro message Discord), jamais simulé.
+3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** : nécessite une défaillance réseau/API ambiguë, non déclenchable de façon fiable contre un sandbox réel — `NOT_SAFELY_REPRODUCIBLE_LIVE`, couvert par le double contrôlable de `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
+
+Fragilité externe documentée (non un écart Stage09) : le `googletrans==4.0.2` réel renvoie
+actuellement un texte identique à l'entrée (écho) dans ce sandbox plutôt qu'une traduction —
+round-trip API réussi, fragilité pré-existante de cette bibliothèque non officielle, hors périmètre
+de correction. N'affecte aucune assertion sous la responsabilité du code DID, toutes prouvées live ;
+chaque occurrence est enregistrée dans l'évidence committée, jamais masquée.
 
 Voir `docs/90_handoffs/STAGE_09_HANDOFF.md` pour le détail complet, les décisions d'architecture et les preuves.

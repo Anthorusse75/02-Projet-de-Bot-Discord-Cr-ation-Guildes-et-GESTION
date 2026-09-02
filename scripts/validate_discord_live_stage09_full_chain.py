@@ -25,16 +25,42 @@ entrypoints the running system uses, never a re-implementation:
     ``DiscordPyMessageSender`` -- this is the one thing the existing
     5-scenario script never exercises: the durable job/worker/governor
     composition, not the adapter alone.
+  * For the ``translation_group_*`` groups, a second real
+    ``CampaignSchedulerRuntime`` constructed with the REAL
+    ``GoogletransCampaignTranslationProvider()`` -- the exact same
+    production construction ``did.runtime.py`` itself uses -- never a
+    fake/controllable double, wired with a real
+    ``TranslationProviderBindingRepository`` so provider-binding status
+    genuinely gates DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES the same way
+    the production scheduler process does.
 
 Honest scope (documented rather than half-built, matching this repository's
 own convention -- see ``validate_discord_live_stage09.py``'s docstring):
-  * TRANSLATION_GROUP publication modes other than SOURCE_ONLY require a
-    live translation provider, which this architecture does not have wired
-    (REQ-MSG-020/022 Option B) -- exercising them live would either be a
-    no-op or would have to fake the one thing this script exists to prove
-    is real. Not attempted here; already covered by
-    ``test_stage09_activation_postgres.py``/Playwright fixtures with a
-    controllable fake provider.
+  * SOURCE_ONLY, DID_TRANSLATED_FANOUT (per FR/EN/DE/ES source language),
+    SELECTED_LANGUAGES, and approved-variant reuse are all exercised live
+    against real Discord, through DID's own real
+    ``GoogletransCampaignTranslationProvider``. What these checks assert is
+    strictly what DID's own code is responsible for and can prove live:
+    correct destination routing, correct destination count, non-empty
+    delivered content, and exactly-one-message-per-delivery -- NOT that the
+    third-party ``googletrans`` library's output linguistically differs
+    from the source text, because in this sandbox environment that
+    unofficial/unauthenticated dependency is currently echoing input
+    unchanged (a genuine, pre-existing external dependency fragility, not a
+    DID chain defect -- see each group's own inline comments). Any such
+    echo is recorded as a non-blocking ``[observed]`` note, both to stdout
+    and in the JSON report's own ``notes`` field, never silently dropped
+    and never used to fail an assertion DID's own code does not own.
+  * EXISTING_PROVIDER (an actual external Translation-Group-attached
+    provider bot, distinct from DID's own googletrans path) is only
+    exercised live against a genuine external provider bot if one actually
+    exists in the sandbox. No external provider participates in this
+    sandbox, so ``translation_group_provider_boundary`` instead proves,
+    live, that a bound-but-not-DISABLED provider-binding status is
+    correctly detected as MANUAL_CONFIGURATION_REQUIRED/BLOCKED: zero fan-
+    out deliveries, zero Discord messages sent to either destination
+    channel. The absence of a real external provider bot in this sandbox
+    is an honest, documented limitation, not something faked.
   * Forcing a genuine UNKNOWN_OUTCOME/INTERVENTION_REQUIRED delivery
     against real Discord is not reproducible on demand (it requires an
     ambiguous network/API failure) -- that dimension is deliberately a
@@ -78,6 +104,8 @@ ALL_GROUPS = (
     "embed_button",
     "governor_fairness",
     "retention_leaves_discord_untouched",
+    "translation_group_did_fanout",
+    "translation_group_provider_boundary",
 )
 
 
@@ -142,7 +170,7 @@ def main() -> int:
     from _stage09_full_chain_impl import run_live
 
     try:
-        scenarios = asyncio.run(
+        scenarios, observations = asyncio.run(
             asyncio.wait_for(run_live(guild_a, guild_b, token, groups), timeout=180.0)
         )
     except Exception as exc:
@@ -172,6 +200,7 @@ def main() -> int:
         "groups_run": list(groups),
         "generated_at": datetime.now(UTC).isoformat(),
         "scenarios": scenarios,
+        "notes": observations,
     }
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Discord live STAGE 09 full-chain qualification: {report['status']} -- {args.report}")

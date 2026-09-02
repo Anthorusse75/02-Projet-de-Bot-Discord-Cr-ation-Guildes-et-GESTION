@@ -976,6 +976,34 @@ def stage_09(
     if include_discord_live:
         live_arguments.append("--include")
     base_steps.append(Step("Discord live STAGE 09 campaign primitives", tuple(live_arguments), 600))
+    # The 5-scenario primitives script above proves only the
+    # DiscordPyMessageSender adapter in isolation -- it is never a
+    # substitute for this full-chain qualification, and this is never a
+    # substitute for it: application/API -> occurrence -> fan-out ->
+    # durable delivery -> durable discord_io_job -> a real
+    # DurableDiscordIOWorker -> a real DiscordWorkloadGovernor -> the real
+    # adapter -> Discord -> durable result/reconciliation, plus the real
+    # DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES live translation path. Both
+    # steps are required to pass for --include-discord-live to succeed --
+    # a BLOCKED/FAIL result from either one fails this whole stage (see
+    # main()'s own "if result.status != PASS: break" loop below).
+    full_chain_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage09_full_chain.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage09-full-chain.json"),
+    ]
+    if include_discord_live:
+        full_chain_arguments.append("--include")
+    base_steps.append(
+        Step(
+            "Discord live STAGE 09 full product-chain matrix",
+            tuple(full_chain_arguments),
+            900,
+        )
+    )
     return tuple(base_steps)
 
 
