@@ -460,6 +460,52 @@ class TestBoundedIntegrityRetryOnPlaceholderMutation:
             )
 
 
+class TestUrlBoundarySpacingDoesNotTriggerAnArtificialRetry:
+    """STAGE09 -- URL PLACEHOLDER SENTENCE-BOUNDARY INTEGRITY REMEDIATION,
+    "Retry behavior" requirement: after the deterministic boundary-spacing
+    repair (``did.messaging.protector.restore_source_proven_url_boundary_
+    spacing``), the real-observed defective shape -- a URL placeholder's
+    trailing "." losing its following whitespace, e.g.
+    ``"...DIDPHxxxx. See also..."`` translated back as
+    ``"...DIDPHxxxx.Voir aussi..."`` -- must succeed on the FIRST provider
+    response. This proves the fix operates inside ``validate_and_restore``
+    itself, not merely as a second-chance recovery that happens to be
+    consumed by the pre-existing bounded integrity retry
+    (``TestBoundedIntegrityRetryOnPlaceholderMutation`` above, a
+    completely different failure mode: a placeholder mutated into another
+    placeholder-shaped token, not a lost separator)."""
+
+    UNIT = TranslationUnit(
+        FieldPath(TranslatableFieldKind.CONTENT),
+        "Full details at "
+        "https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule. "
+        "See also.",
+    )
+
+    async def test_the_real_observed_defect_shape_succeeds_without_any_retry(self) -> None:
+        calls = 0
+
+        async def _translate(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            # Exact real MkEWBc-observed defect: the placeholder itself is
+            # preserved byte-for-byte; only the whitespace between its
+            # trailing "." and the next word is dropped.
+            return re.sub(r"(DIDPH\d{4}Q[0-9A-F]{8}ZH)\. ", r"\1.", masked_text, count=1)
+
+        result = await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_translate,
+        )
+        assert calls == 1  # no integrity retry needed -- repaired on the first attempt
+        assert result == self.UNIT.text
+
+
 class TestRenderMessageModel:
     async def test_only_translatable_fields_are_rendered_technical_fields_untouched(self) -> None:
         model = MessageModel(

@@ -93,6 +93,80 @@ def protect(
     return ProtectionResult(masked_text="".join(parts), fingerprints=tuple(fingerprints))
 
 
+def restore_source_proven_url_boundary_spacing(
+    translated_text: str, protection: ProtectionResult
+) -> str:
+    """After a URL placeholder, restore a single whitespace character
+    between a trailing ``.`` and the immediately following text -- but
+    ONLY when DID's own ORIGINAL masked text (``protection.masked_text``,
+    the exact text a translation round trip for this ``protection`` was
+    given) already proves that ``<placeholder>. `` boundary existed in the
+    source, and the translated text lost it (yielding
+    ``<placeholder>.<word>`` instead).
+
+    Empirically observed real-network defect (Stage09 canonical benchmark,
+    SHA ``1d71164f5ab24f1585048b3fcc226461d5b2ce1d``, 12/12 ``url_adversarial``
+    production failures, all 12 directed language pairs): the Google
+    Translate Web RPC can lose the whitespace immediately after a URL
+    placeholder followed by a sentence-final period, without touching the
+    placeholder token or the URL it stands for -- e.g. source
+    ``"...DIDPHxxxx. See also..."`` comes back
+    ``"...DIDPHxxxx.Voir aussi..."`` (the translator correctly translated
+    "See also" -> "Voir aussi" and correctly preserved the URL placeholder
+    byte-for-byte; it merely dropped the separating space). Restoring the
+    URL into that shape then makes the URL's own last character lexically
+    absorb the next target-language word into what looks like one URL
+    token -- ``validate_reparsed_structure`` correctly (and must continue
+    to) reject that as a hallucinated/mutated URL. This function repairs
+    the lost separator BEFORE restoration, so the URL that ultimately gets
+    reparsed is byte-for-byte the original one.
+
+    This is deliberately NOT a general "fix broken punctuation" heuristic.
+    It acts only where DID's OWN source masked text is the proof a
+    boundary existed at that EXACT placeholder position -- never inferred
+    from target-language casing, a capital letter, or "looks like a new
+    sentence". A URL such as ``https://example.com/file.Voir`` is
+    syntactically legitimate on its own and must never be rewritten absent
+    this source evidence. Scope is deliberately narrow to exactly what the
+    real evidence proves: only a literal ``"."`` immediately followed by
+    whitespace in the SOURCE masked text (not ``!``/``?``, not other
+    punctuation -- widening to those would need the same kind of real
+    empirical proof this fix itself was built from, not speculative
+    convenience); only :class:`~did.messaging.parser.ProtectedKind.URL`
+    placeholders (not mentions/timestamps/other kinds); never spacing
+    *before* a placeholder; never any other translation typography.
+
+    Must run strictly AFTER exact placeholder-multiset validation (this
+    function assumes every placeholder it processes appears exactly once
+    in ``translated_text`` -- a caller that has not already rejected
+    missing/duplicated/unknown placeholders gets no protection from this
+    function, which cannot itself rescue those cases) and strictly BEFORE
+    placeholder restoration -- it only ever touches the separator
+    immediately after a still-opaque placeholder token, never the
+    placeholder itself or the restored URL value.
+    """
+    result = translated_text
+    for fingerprint in protection.fingerprints:
+        if fingerprint.kind is not ProtectedKind.URL:
+            continue
+        source_index = protection.masked_text.find(fingerprint.placeholder)
+        if source_index == -1:
+            continue  # defensive -- protect() always emits it; never crash on this
+        after_source = protection.masked_text[source_index + len(fingerprint.placeholder) :]
+        if len(after_source) < 2 or after_source[0] != "." or not after_source[1].isspace():
+            continue  # source does not prove this exact boundary existed
+
+        translated_index = result.find(fingerprint.placeholder)
+        if translated_index == -1:
+            continue  # missing -- multiset validation already handles this case
+        boundary = translated_index + len(fingerprint.placeholder)
+        after_translated = result[boundary:]
+        if len(after_translated) < 2 or after_translated[0] != "." or after_translated[1].isspace():
+            continue  # already has whitespace, no period, or nothing follows -- leave untouched
+        result = result[: boundary + 1] + " " + result[boundary + 1 :]
+    return result
+
+
 def validate_and_restore(
     translated_text: str,
     protection: ProtectionResult,
@@ -139,7 +213,13 @@ def validate_and_restore(
     if duplicated:
         raise IntegrityViolation(f"translation duplicated protected placeholder(s): {duplicated}")
 
-    restored = translated_text
+    # Every expected placeholder is now proven present exactly once -- only
+    # now is it safe to apply source-proven URL-boundary-spacing repair
+    # (see that function's own docstring for why this ordering matters and
+    # why it can never rescue a missing/duplicated/unknown placeholder).
+    normalized = restore_source_proven_url_boundary_spacing(translated_text, protection)
+
+    restored = normalized
     for placeholder, fingerprint in expected.items():
         restored = restored.replace(placeholder, fingerprint.restore_value)
     return restored

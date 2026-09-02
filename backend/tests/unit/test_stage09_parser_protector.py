@@ -17,7 +17,10 @@ from hypothesis import strategies as st
 from did.messaging.parser import ProtectedKind, ProtectedNode, TextNode, parse, render
 from did.messaging.protector import (
     IntegrityViolation,
+    PlaceholderFingerprint,
+    ProtectionResult,
     protect,
+    restore_source_proven_url_boundary_spacing,
     validate_and_restore,
     validate_full_pipeline,
     validate_reparsed_structure,
@@ -519,3 +522,241 @@ class TestUrlTrailingPunctuationTrimAdversarialRobustness:
         protection = protect(nodes)
         restored = validate_full_pipeline(nodes, protection.masked_text, protection)
         assert restored == content
+
+
+def _url_protection(masked_text: str, placeholder: str, restore_value: str) -> ProtectionResult:
+    """Hand-built single-URL-fingerprint ProtectionResult for precise
+    control over exactly what the SOURCE masked text proves at the
+    boundary immediately after the placeholder -- used where constructing
+    an equivalent real ``parse()``/``protect()`` input would be indirect
+    (e.g. proving "no source evidence" requires a source shape the real
+    URL regex would not itself naturally produce)."""
+    fingerprint = PlaceholderFingerprint(
+        placeholder=placeholder,
+        kind=ProtectedKind.URL,
+        order_index=0,
+        value_sha256="0" * 64,
+        restore_value=restore_value,
+    )
+    return ProtectionResult(masked_text=masked_text, fingerprints=(fingerprint,))
+
+
+_ADVERSARIAL_URL_ONE = (
+    "https://example.com/events/2026-season-three?ref=discord&utm=campaign#schedule"
+)
+_ADVERSARIAL_URL_TWO = "https://example.com/archive/2025"
+_ADVERSARIAL_CONTENT = (
+    "Full details, including the updated schedule, are available at "
+    f"{_ADVERSARIAL_URL_ONE}. See also (the archived version): {_ADVERSARIAL_URL_TWO}."
+)
+
+
+class TestUrlBoundarySpacingSourceProvenRepair:
+    """STAGE09 -- URL PLACEHOLDER SENTENCE-BOUNDARY INTEGRITY REMEDIATION.
+
+    Real canonical benchmark (SHA ``1d71164f5ab24f1585048b3fcc226461d5b2ce1d``):
+    FULL_MASKED_MESSAGE 300/312 (0.9615...), 12/12 production failures ==
+    class ``url_adversarial``, all 12 directed language pairs, every
+    failure persisting through the second bounded integrity attempt.
+    Forensic one-call reproduction (real MkEWBc EN->FR): the URL
+    placeholder and the URL it stands for were preserved byte-for-byte --
+    the defect is that the translator dropped the whitespace between the
+    placeholder's trailing "." and the next target-language word (e.g.
+    "DIDPHxxxx. See also" -> "DIDPHxxxx.Voir aussi"), which then makes the
+    restored URL lexically absorb "Voir" once the placeholder is replaced
+    -- correctly rejected by ``validate_reparsed_structure`` as
+    protected-looking content not present in the source. This is NOT a
+    dropped/invented placeholder, NOT a URL parser defect, and NOT a URL
+    mutation by the provider -- see ``restore_source_proven_url_boundary_
+    spacing``'s own docstring in ``did.messaging.protector`` for the full
+    root-cause writeup and the exact, narrow scope of the fix.
+    """
+
+    def test_real_regression_the_exact_adversarial_corpus_url_end_to_end(self) -> None:
+        """The mission's own forensic reproduction, end to end, through the
+        real parse/protect/validate_full_pipeline pipeline, using the
+        EXACT adversarial URL/content from
+        backend/tests/fixtures/translation_corpus/stage09_corpus.json's
+        ``url_adversarial`` class."""
+        nodes = parse(_ADVERSARIAL_CONTENT)
+        protection = protect(nodes)
+        assert len(protection.fingerprints) == 2
+        ph_one, ph_two = (fp.placeholder for fp in protection.fingerprints)
+        assert protection.fingerprints[0].restore_value == _ADVERSARIAL_URL_ONE
+        assert protection.fingerprints[1].restore_value == _ADVERSARIAL_URL_TWO
+
+        # Exact real MkEWBc-observed shape: the whitespace after the FIRST
+        # placeholder's "." is lost; everything else (including the second
+        # placeholder, itself at the very end with no following word) is
+        # translated/preserved normally.
+        translated = (
+            "Tous les détails, y compris le calendrier mis à jour, sont "
+            f"disponibles sur {ph_one}.Voir aussi (la version archivée) : {ph_two}."
+        )
+        restored = validate_full_pipeline(nodes, translated, protection)
+        assert restored == (
+            "Tous les détails, y compris le calendrier mis à jour, sont "
+            f"disponibles sur {_ADVERSARIAL_URL_ONE}. Voir aussi (la version archivée) : "
+            f"{_ADVERSARIAL_URL_TWO}."
+        )
+
+    def test_without_the_fix_the_defect_would_fail_reparsed_structure(self) -> None:
+        """Isolates the exact mechanism: restoring the glued translation
+        WITHOUT the boundary-spacing repair produces a reparsed URL that
+        genuinely differs from the original (the next word absorbed into
+        it) -- proves the repair is fixing a real, reproducible failure,
+        not a hypothetical one."""
+        nodes = parse(_ADVERSARIAL_CONTENT)
+        protection = protect(nodes)
+        ph_one = protection.fingerprints[0].placeholder
+        glued = f"See {ph_one}.Voir aussi"
+        naive_restore = glued
+        for fp in protection.fingerprints:
+            naive_restore = naive_restore.replace(fp.placeholder, fp.restore_value)
+        with pytest.raises(IntegrityViolation, match="not present"):
+            validate_reparsed_structure(nodes, naive_restore)
+
+    def test_no_repair_when_translation_already_has_correct_spacing(self) -> None:
+        """No unnecessary modification: if the provider already returns
+        the correctly-spaced boundary, the text must come back byte-
+        identical -- never a needless rewrite."""
+        protection = _url_protection(
+            masked_text="Visit DIDPH0000QAAAAAAAAZH. See also that",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="https://example.com/x",
+        )
+        translated = "Visitez DIDPH0000QAAAAAAAAZH. Voir aussi cela"
+        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_source_evidence_mandatory_never_invents_whitespace_absent_from_source(self) -> None:
+        """If the SOURCE masked text never proved a "<placeholder>. "
+        boundary existed (here: the placeholder's "." is immediately
+        followed by a non-whitespace character in the source itself,
+        because a closing parenthesis -- excluded from the URL character
+        class -- ended the URL match right there), the function must
+        never invent a repair, no matter what the translated text looks
+        like."""
+        protection = _url_protection(
+            masked_text="See DIDPH0000QAAAAAAAAZH.)Next",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="https://example.com/x",
+        )
+        translated = "Voir DIDPH0000QAAAAAAAAZH.)Suite"
+        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_url_only_scope_never_touches_ordinary_text_punctuation(self) -> None:
+        """The mechanism must never rewrite punctuation spacing anywhere
+        else in the text -- only immediately after a URL-kind placeholder
+        that itself has source-proven evidence."""
+        protection = _url_protection(
+            masked_text="Visit DIDPH0000QAAAAAAAAZH. See also",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="https://example.com/x",
+        )
+        translated = "Note.Sans espace ici, puis DIDPH0000QAAAAAAAAZH.Voir aussi"
+        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        assert repaired == "Note.Sans espace ici, puis DIDPH0000QAAAAAAAAZH. Voir aussi"
+
+    def test_non_url_placeholder_kind_is_never_touched(self) -> None:
+        """Scope is URL-kind only -- a mention/timestamp/other protected
+        kind glued to a following word by the same defect must NOT be
+        "repaired" by this mechanism (out of the empirically-proven
+        scope; a different content class showed 0 production failures in
+        the real benchmark, so there is no evidence this defect even
+        applies there)."""
+        fingerprint = PlaceholderFingerprint(
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            kind=ProtectedKind.USER_MENTION,
+            order_index=0,
+            value_sha256="0" * 64,
+            restore_value="<@123456789012345678>",
+        )
+        protection = ProtectionResult(
+            masked_text="Ping DIDPH0000QAAAAAAAAZH. See also", fingerprints=(fingerprint,)
+        )
+        translated = "Ping DIDPH0000QAAAAAAAAZH.Voir aussi"
+        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_genuine_hallucinated_url_from_ordinary_text_still_rejected(self) -> None:
+        """A translator inventing a brand-new URL out of ordinary prose
+        (unrelated to any placeholder) must still fail closed -- the
+        boundary repair only ever touches the separator immediately after
+        an already-issued, already-verified placeholder token; it cannot
+        rescue or interact with content it never processed."""
+        content = "Please read the announcement carefully."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints == ()
+        hallucinated = "Veuillez lire https://evil.example/ attentivement."
+        with pytest.raises(IntegrityViolation, match="not present"):
+            validate_full_pipeline(nodes, hallucinated, protection)
+
+    def test_genuine_url_mutation_unrelated_to_the_source_proven_boundary_still_rejected(
+        self,
+    ) -> None:
+        """A URL that genuinely differs from the source for any reason
+        OTHER than the exact source-proven lost boundary whitespace must
+        remain fail closed -- the repair never touches the restored URL
+        value itself, only the separator immediately after the still-
+        opaque placeholder, so a provider that mutates the URL's own
+        path/query cannot be rescued by it."""
+        content = "Visit https://example.com/x. See also that."
+        nodes = parse(content)
+        protection = protect(nodes)
+        placeholder = protection.fingerprints[0].placeholder
+        mutated = f"Visitez https://example.com/y. Voir aussi cela {placeholder}"
+        with pytest.raises(IntegrityViolation):
+            validate_full_pipeline(nodes, mutated, protection)
+
+    def test_placeholder_integrity_violations_are_never_masked_by_boundary_repair(self) -> None:
+        """Missing/unknown/duplicated placeholders must still fail BEFORE
+        boundary normalization can run at all -- proves the wiring order
+        in ``validate_and_restore`` (multiset checks first, repair only
+        after) rather than merely the isolated helper's own behavior."""
+        content = "Visit https://example.com/x. See also that."
+        nodes = parse(content)
+        protection = protect(nodes)
+        placeholder = protection.fingerprints[0].placeholder
+
+        # Missing entirely.
+        with pytest.raises(IntegrityViolation, match="dropped"):
+            validate_and_restore("No link here at all.", protection)
+
+        # Duplicated.
+        with pytest.raises(IntegrityViolation, match="duplicated"):
+            validate_and_restore(f"{placeholder} and again {placeholder}.", protection)
+
+        # Unknown/invented token of the same shape.
+        with pytest.raises(IntegrityViolation, match="invented"):
+            validate_and_restore(f"{placeholder} and DIDPH9999QFFFFFFFFZH.", protection)
+
+    def test_two_urls_only_the_source_proven_boundary_is_repaired(self) -> None:
+        """The exact corpus shape: two URLs, only the first has a
+        following word in the source (the second is message-final) -- the
+        repair must apply only to the first."""
+        nodes = parse(_ADVERSARIAL_CONTENT)
+        protection = protect(nodes)
+        ph_one, ph_two = (fp.placeholder for fp in protection.fingerprints)
+        translated = f"See {ph_one}.Then {ph_two}."
+        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        assert repaired == f"See {ph_one}. Then {ph_two}."
+
+    def test_retry_behavior_the_repaired_shape_succeeds_on_the_first_attempt(self) -> None:
+        """After the deterministic repair, the exact real-observed
+        defective shape must validate successfully on a single
+        ``validate_full_pipeline`` call -- no integrity retry is needed
+        for this failure class any more (bounded-integrity-retry
+        behavior itself, tested in ``test_stage09_rendering.py``, is
+        unrelated to this repair and remains unchanged)."""
+        nodes = parse(_ADVERSARIAL_CONTENT)
+        protection = protect(nodes)
+        ph_one, ph_two = (fp.placeholder for fp in protection.fingerprints)
+        translated = f"See {ph_one}.Then also {ph_two}."
+        # A single call, no retry loop involved at all -- if this raises,
+        # the fix does not work; there is no second attempt to fall back on.
+        restored = validate_full_pipeline(nodes, translated, protection)
+        assert _ADVERSARIAL_URL_ONE in restored
+        assert _ADVERSARIAL_URL_TWO in restored

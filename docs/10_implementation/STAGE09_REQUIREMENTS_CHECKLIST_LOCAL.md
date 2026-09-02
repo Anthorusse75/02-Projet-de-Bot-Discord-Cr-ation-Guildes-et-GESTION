@@ -111,24 +111,45 @@ reflète. Corrigé par un mécanisme d'observation `contextvars`-based au niveau
 (`count_transport_attempts()`, notifié immédiatement avant chaque vrai `await client.post(...)`,
 jamais sur un fast-fail de circuit breaker) ; le champ JSON reste nommé pareil mais désigne désormais
 honnêtement le nombre exact de vraies tentatives HTTP RPC, prouvé par 10 nouveaux tests déterministes
-pilotant le vrai adaptateur contre `httpx.MockTransport`** — voir `STAGE_09_HANDOFF.md` § « État
-actuel » (Root cause 5 et Root cause 6) pour le détail complet de chaque remédiation.
+pilotant le vrai adaptateur contre `httpx.MockTransport`** ; **le vrai benchmark canonique du product
+owner contre ce code (SHA `1d71164f5ab24f1585048b3fcc226461d5b2ce1d`, 2285 vraies tentatives HTTP) a
+rapporté `FAIL` -- 12/12 échecs de production isolés à la classe `url_adversarial`, sur les 12 paires
+de langues dirigées, chaque échec persistant après la seconde tentative d'intégrité. Reproduction
+forensique réelle (un seul appel EN→FR) : le placeholder d'URL et l'URL elle-même sont préservés
+byte pour byte -- Google supprime seulement l'espace entre le "." final de phrase qui suit
+immédiatement le placeholder et le mot cible suivant, ce qui fait que l'URL restaurée absorbe
+lexicalement ce mot -- `validate_reparsed_structure()` rejette alors correctement ce token comme non
+présent dans la source. Ce n'est ni un placeholder inventé/perdu, ni un défaut du parseur d'URL, ni
+une mutation d'URL par Google. **Corrigé** : `did.messaging.protector.restore_source_proven_url_
+boundary_spacing()`, une normalisation pure intégrée après la validation exacte du multi-ensemble de
+placeholders mais avant la restauration, restaurant UN espace uniquement quand le
+`ProtectionResult.masked_text` source prouve déjà que cette frontière existait avant traduction --
+jamais inféré depuis la langue cible ou la seule syntaxe d'URL. Scope strictement limité à "." + espace
+sur les placeholders `ProtectedKind.URL` uniquement ; le regex d'URL, `validate_reparsed_structure()`
+et le reste du fail-closed restent inchangés. 13 nouveaux tests déterministes
+(`test_stage09_parser_protector.py`) et 1 nouveau test (`test_stage09_rendering.py`, prouve l'absence
+de reprise d'intégrité artificielle) le prouvent** — voir `STAGE_09_HANDOFF.md` § « État actuel »
+(Root cause 5, Root cause 6, Root cause 7) pour le détail complet de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
 1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
-2. **Confirmation du benchmark canonique avec retry contre le nouveau transport RPC depuis un réseau
-   fonctionnel, avec un comptage désormais exact au niveau transport** (clause mise à jour cette
-   passe) : **(a) CONFIRMÉE** -- le product owner a exécuté
+2. **Confirmation de la qualification ciblée `url_adversarial` PUIS du benchmark canonique contre le
+   code corrigé, depuis un réseau fonctionnel** (clause mise à jour cette passe) : **(a) CONFIRMÉE** --
+   le product owner a exécuté
    `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py
    -m translation_network` depuis le Zenbook contre le SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`
-   → `5 passed in 6.16s`, confirmant empiriquement le contrat de wire corrigé. **(b) reste à
-   exécuter**, ce sandbox de développement restant sans accès réseau fonctionnel :
+   → `5 passed in 6.16s`, confirmant empiriquement le contrat de wire corrigé. **(b) nouvelle cette
+   passe, reste à exécuter** :
+   `DID_ALLOW_NETWORK=1 uv run pytest
+   backend/tests/network/test_stage09_translation_network_url_adversarial.py
+   -m translation_network -v -s` -- 12 mesures réelles ciblées sur la classe `url_adversarial`
+   uniquement, via le vrai `_run_one_production()` de production ; doit passer 12/12 avant (c).
+   **(c) seulement si (b) passe** :
    `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
-   (doit rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`) -- désormais avec
-   un comptage `provider_invocations` exact au niveau des vraies tentatives HTTP, pas seulement des
-   appels au port haut niveau.
+   (doit désormais rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY` -- le run
+   précédent a rapporté `FAIL`, voir ci-dessus).
 3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
 4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
