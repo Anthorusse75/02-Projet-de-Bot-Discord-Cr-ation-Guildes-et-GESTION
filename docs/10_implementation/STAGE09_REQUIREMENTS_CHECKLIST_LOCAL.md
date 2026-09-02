@@ -95,8 +95,14 @@ spécifiquement indisponible (HTTP 429, prouvé sur deux machines du réseau du 
 qu'une sonde du RPC Google Translate Web (`batchexecute`, id `MkEWBc`) a réussi (HTTP 200, vraie
 traduction) depuis la même machine -- la production a donc basculé vers un nouvel adaptateur,
 `GoogleTranslateRpcCampaignTranslationProvider` (`did.translation.google_translate_rpc_adapter`),
-avec le même contrat fail-closed, 38 nouveaux tests déterministes** — voir `STAGE_09_HANDOFF.md`
-§ « État actuel » pour le détail complet de chaque remédiation.
+avec le même contrat fail-closed** ; **un audit externe a ensuite trouvé que le contrat de
+requête/réponse RPC réellement codé pour cet adaptateur était inventé (paramètres de requête
+fabriqués, forme de réponse devinée) plutôt qu'empiriquement prouvé -- seuls l'endpoint et le RPC id
+l'étaient. Corrigé : requête et parsing de réponse désormais alignés exactement sur le contrat réel
+prouvé par la sonde du product owner (mêmes paramètres, même enveloppe `f.req`, même en-tête
+`Referer`, même forme de réponse), et la fixture de test déterministe reflète désormais la forme
+réellement capturée plutôt qu'une forme inventée pour correspondre au parseur** — voir
+`STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5) pour le détail complet de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
@@ -110,9 +116,10 @@ techniquement :
    fonctionnel, donc ni le smoke complet ni le benchmark contre ce nouveau transport n'ont pu y être
    exécutés. Commandes exactes à exécuter par le product owner, dans l'ordre :
    (a) `uv run pytest backend/tests/network/test_stage09_translation_network.py -m translation_network`
-   (doit passer 5/5 contre `GoogleTranslateRpcCampaignTranslationProvider`) ; (b) seulement si (a)
-   passe, `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` (doit
-   rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`).
+   (doit passer 5/5 contre `GoogleTranslateRpcCampaignTranslationProvider`, désormais avec le contrat
+   de wire corrigé -- c'est la première vérification empirique de ce contrat corrigé) ; (b) seulement
+   si (a) passe, `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
+   (doit rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`).
 3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
 4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :

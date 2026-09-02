@@ -2,7 +2,8 @@
 ("batchexecute") CampaignTranslationProvider adapter -- the current
 production translation transport for Stage09 (see
 did.translation.google_translate_rpc_adapter's own module docstring for the
-full transport-switch rationale).
+full transport-switch rationale, including the "Wire contract correction"
+note this file's fixtures are aligned to).
 
 No real network call is ever made here: httpx.MockTransport stands in for
 the real Google endpoint, giving full control over both the HTTP-level
@@ -10,12 +11,21 @@ behavior (status codes, timeouts, transport errors) and the exact response
 body shape, so every fail-closed path -- malformed response, missing RPC
 block, empty translation, non-2xx status, timeout -- is exercised
 deterministically. This proves the MECHANICS of the adapter (parsing,
-retry, circuit breaker, client lifecycle, fail-closed behavior); it does
-NOT and cannot prove that Google's real batchexecute endpoint actually
-returns exactly the response shape assumed here -- that is what the product
+retry, circuit breaker, client lifecycle, fail-closed behavior).
+
+Critically, the canonical response fixture below (`_build_inner` /
+`_build_response_body`) is built to the STRUCTURAL SHAPE the product owner's
+own real, same-machine HTTP-200 probe proved -- translation content at
+``inner[1][0][0]`` ("translation_data"), translated parts at
+``translation_data[5]``, a spacing flag at ``translation_data[3]``, detected
+source at ``inner[2]`` -- not a shape invented to match whatever the parser
+happened to assume. An earlier revision of both this adapter and this test
+file used a shape that only matched the parser's own assumptions, which is
+circular evidence and was flagged by external audit; it has been replaced
+here. These tests still do not and cannot prove Google's real endpoint
+returns exactly this shape on every call -- that is what the product
 owner's real-network smoke test is for (see
-backend/tests/network/test_stage09_translation_network.py and the module
-docstring's own note on this).
+backend/tests/network/test_stage09_translation_network.py).
 """
 
 from __future__ import annotations
@@ -37,7 +47,10 @@ from did.messaging.protector import IntegrityViolation
 from did.messaging.translation_policy import FieldPath, TranslatableFieldKind, TranslationUnit
 from did.translation.circuit_breaker import CircuitBreaker
 from did.translation.google_translate_rpc_adapter import (
+    _DEFAULT_USER_AGENT,
+    _REFERER,
     GoogleTranslateRpcCampaignTranslationProvider,
+    _default_client_factory,
     build_form_data,
     extract_detected_source_language,
     extract_translated_text,
@@ -56,19 +69,50 @@ async def _no_sleep(_seconds: float) -> None:
     return None
 
 
-def _build_response_body(
-    translated_parts: list[str], *, detected_source: str | None = "en", rpc_id: str = "MkEWBc"
-) -> str:
-    """Builds a batchexecute response body matching exactly the shape
-    did.translation.google_translate_rpc_adapter's parsing functions
-    assume -- see that module's own docstrings for the shape contract this
-    mirrors."""
-    sentence_groups = [[[part]] for part in translated_parts]
-    inner: list[object] = [sentence_groups, detected_source]
+def _build_inner(
+    translated_parts: list[str] | None,
+    *,
+    use_spacing: bool = True,
+    detected_source: str | None = "en",
+) -> list[object]:
+    """The canonical CAPTURED-shape inner payload: ``inner[1][0][0]`` is the
+    ``translation_data`` list (index 3 the spacing flag, index 5 the
+    translated parts), ``inner[2]`` the optional detected source language.
+    ``inner[0]`` is left ``None`` -- unused/unmodeled here, exactly as in
+    the real captured response, where its content is never consumed by this
+    adapter."""
+    parts: list[object] = [] if translated_parts is None else [[part] for part in translated_parts]
+    translation_data: list[object] = [None, None, None, use_spacing, None, parts]
+    segment_entry = [translation_data]
+    level1 = [segment_entry]
+    inner: list[object] = [None, level1]
+    if detected_source is not None:
+        inner.append(detected_source)
+    return inner
+
+
+def _wrap_inner(inner: object, *, rpc_id: str = "MkEWBc") -> str:
+    """Wraps an arbitrary (possibly deliberately malformed) inner payload
+    object into a full batchexecute response body -- the XSSI-prefixed,
+    ``wrb.fr``-entry-carrying outer envelope, unaffected by the wire
+    contract correction (only the inner payload's own shape changed)."""
     inner_json = json.dumps(inner)
     entry = ["wrb.fr", rpc_id, inner_json, None, None, None, "generic"]
     chunk_line = json.dumps([entry])
     return f")]}}'\n\n{chunk_line}\n"
+
+
+def _build_response_body(
+    translated_parts: list[str] | None,
+    *,
+    use_spacing: bool = True,
+    detected_source: str | None = "en",
+    rpc_id: str = "MkEWBc",
+) -> str:
+    """Builds a full batchexecute response body in the canonical captured
+    shape -- see ``_build_inner``."""
+    inner = _build_inner(translated_parts, use_spacing=use_spacing, detected_source=detected_source)
+    return _wrap_inner(inner, rpc_id=rpc_id)
 
 
 class _TrackedClient(httpx.AsyncClient):
@@ -77,7 +121,9 @@ class _TrackedClient(httpx.AsyncClient):
     client cleanup/lifecycle) without needing a hand-rolled fake."""
 
     def __init__(self, transport: httpx.MockTransport) -> None:
-        super().__init__(transport=transport)
+        super().__init__(
+            transport=transport, headers={"User-Agent": _DEFAULT_USER_AGENT, "Referer": _REFERER}
+        )
         self.closed = False
 
     async def aclose(self) -> None:
@@ -86,19 +132,37 @@ class _TrackedClient(httpx.AsyncClient):
 
 
 class TestBuildFormData:
-    def test_form_data_double_encodes_the_rpc_arguments(self) -> None:
-        data = build_form_data("Hello", "en", "fr")
+    """Item D: the request contract is asserted exactly, never normalized
+    away -- the product owner's own proven envelope has RPC arguments
+    shaped ``[[TEXT, SOURCE, TARGET, True], [None]]``, not the bare
+    ``[TEXT, SOURCE, TARGET, True]`` an earlier revision sent."""
+
+    def test_f_req_decodes_to_exactly_the_proven_envelope(self) -> None:
+        data = build_form_data("Hello world", "en", "fr")
         envelope = json.loads(data["f.req"])
+        assert len(envelope) == 1
+        assert len(envelope[0]) == 1
         rpc_call = envelope[0][0]
         assert rpc_call[0] == "MkEWBc"
+        assert rpc_call[2] is None
+        assert rpc_call[3] == "generic"
         rpc_args = json.loads(rpc_call[1])
-        assert rpc_args == ["Hello", "en", "fr", True]
+        assert rpc_args == [["Hello world", "en", "fr", True], [None]]
 
     def test_unicode_text_survives_the_encoding_round_trip(self) -> None:
         data = build_form_data("Café ünïcödé 日本語", "en", "fr")
         envelope = json.loads(data["f.req"])
         rpc_args = json.loads(envelope[0][0][1])
-        assert rpc_args[0] == "Café ünïcödé 日本語"
+        assert rpc_args[0][0] == "Café ünïcödé 日本語"
+
+    def test_f_req_is_compact_and_preserves_non_ascii_bytes(self) -> None:
+        data = build_form_data("Café", "en", "fr")
+        # compact separators (",", ":") -- no incidental whitespace
+        assert " " not in data["f.req"]
+        # ensure_ascii=False -- the literal accented character survives,
+        # not a \uXXXX escape
+        assert "Café" in data["f.req"]
+        assert "\\u00e9" not in data["f.req"]
 
 
 class TestParseBatchexecuteResponsePipeline:
@@ -108,10 +172,26 @@ class TestParseBatchexecuteResponsePipeline:
         assert result.translated_text == "Bonjour le monde"
         assert result.detected_source_language == "en"
 
-    def test_multi_sentence_translation_is_concatenated_in_order(self) -> None:
-        body = _build_response_body(["First. ", "Second."])
+    def test_multiple_parts_with_spacing_true_are_joined_with_a_space(self) -> None:
+        body = _build_response_body(["First", "Second"], use_spacing=True)
         result = parse_batchexecute_response(body)
-        assert result.translated_text == "First. Second."
+        assert result.translated_text == "First Second"
+
+    def test_multiple_parts_with_spacing_false_are_concatenated_directly(self) -> None:
+        body = _build_response_body(["First", "Second"], use_spacing=False)
+        result = parse_batchexecute_response(body)
+        assert result.translated_text == "FirstSecond"
+
+    def test_detected_source_present(self) -> None:
+        body = _build_response_body(["Bonjour"], detected_source="en")
+        result = parse_batchexecute_response(body)
+        assert result.detected_source_language == "en"
+
+    def test_detected_source_absent_returns_none_not_an_error(self) -> None:
+        body = _build_response_body(["Bonjour"], detected_source=None)
+        result = parse_batchexecute_response(body)
+        assert result.translated_text == "Bonjour"
+        assert result.detected_source_language is None
 
     @pytest.mark.parametrize(
         ("text", "lang"),
@@ -159,38 +239,72 @@ class TestParseBatchexecuteResponsePipeline:
         with pytest.raises(TranslationProviderError, match="not valid JSON"):
             parse_batchexecute_response(body)
 
-    def test_null_sentence_groups_fails_closed(self) -> None:
-        inner_json = json.dumps([None, "en"])
-        entry = ["wrb.fr", "MkEWBc", inner_json, None, None, None, "generic"]
-        body = f")]}}'\n\n{json.dumps([entry])}\n"
-        with pytest.raises(TranslationProviderError, match="no translated sentence parts present"):
+    def test_malformed_top_level_translation_result_fails_closed(self) -> None:
+        """``inner[1]`` (a.k.a. "[1]") must be a non-empty list."""
+        inner = [None, "not-a-list", "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match=r"translation result \(index 1\)"):
             parse_batchexecute_response(body)
 
-    def test_inner_payload_missing_index_zero_entirely_fails_closed(self) -> None:
-        inner_json = json.dumps([])  # empty list: inner[0] itself raises IndexError
-        entry = ["wrb.fr", "MkEWBc", inner_json, None, None, None, "generic"]
-        body = f")]}}'\n\n{json.dumps([entry])}\n"
-        with pytest.raises(TranslationProviderError, match="missing translated-sentence groups"):
+    def test_missing_top_level_translation_result_fails_closed(self) -> None:
+        inner: list[object] = [None]  # inner[1] itself raises IndexError
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match="missing top-level translation result"):
             parse_batchexecute_response(body)
 
-    def test_empty_sentence_group_list_fails_closed(self) -> None:
-        inner_json = json.dumps([[], "en"])
-        entry = ["wrb.fr", "MkEWBc", inner_json, None, None, None, "generic"]
-        body = f")]}}'\n\n{json.dumps([entry])}\n"
-        with pytest.raises(TranslationProviderError, match="no translated sentence parts"):
+    def test_malformed_segment_entry_fails_closed(self) -> None:
+        """``inner[1][0]`` (a.k.a. "[1][0]") must be a non-empty list."""
+        inner = [None, ["not-a-list-segment"], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match=r"segment entry \(\[1\]\[0\]\)"):
             parse_batchexecute_response(body)
 
-    def test_unexpected_structure_in_sentence_group_fails_closed(self) -> None:
-        inner_json = json.dumps([["not-a-nested-list"], "en"])
-        entry = ["wrb.fr", "MkEWBc", inner_json, None, None, None, "generic"]
-        body = f")]}}'\n\n{json.dumps([entry])}\n"
-        with pytest.raises(TranslationProviderError, match="malformed translated-sentence group"):
+    def test_malformed_translation_data_fails_closed(self) -> None:
+        """``inner[1][0][0]`` (a.k.a. "[1][0][0]") must be a list."""
+        inner = [None, [["not-a-list-translation-data"]], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(
+            TranslationProviderError, match=r"translation data \(\[1\]\[0\]\[0\]\) is not a list"
+        ):
+            parse_batchexecute_response(body)
+
+    def test_missing_spacing_flag_index_fails_closed(self) -> None:
+        translation_data: list[object] = [None, None, None]  # length 3: no index 3
+        inner = [None, [[translation_data]], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match="missing the spacing flag"):
+            parse_batchexecute_response(body)
+
+    def test_missing_translated_parts_index_fails_closed(self) -> None:
+        translation_data: list[object] = [None, None, None, True]  # length 4: no index 5
+        inner = [None, [[translation_data]], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match="missing translated parts"):
+            parse_batchexecute_response(body)
+
+    def test_empty_parts_list_fails_closed(self) -> None:
+        body = _build_response_body(None)  # translation_data[5] == []
+        with pytest.raises(TranslationProviderError, match="no translated parts present"):
+            parse_batchexecute_response(body)
+
+    def test_invalid_part_structure_fails_closed(self) -> None:
+        translation_data: list[object] = [None, None, None, True, None, ["not-a-list-part"]]
+        inner = [None, [[translation_data]], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match="malformed translated part"):
+            parse_batchexecute_response(body)
+
+    def test_part_with_none_text_fails_closed(self) -> None:
+        translation_data: list[object] = [None, None, None, True, None, [[None]]]
+        inner = [None, [[translation_data]], "en"]
+        body = _wrap_inner(inner)
+        with pytest.raises(TranslationProviderError, match="malformed translated part"):
             parse_batchexecute_response(body)
 
     def test_non_string_translated_part_fails_closed(self) -> None:
-        inner_json = json.dumps([[[[12345]]], "en"])
-        entry = ["wrb.fr", "MkEWBc", inner_json, None, None, None, "generic"]
-        body = f")]}}'\n\n{json.dumps([entry])}\n"
+        translation_data: list[object] = [None, None, None, True, None, [[12345]]]
+        inner = [None, [[translation_data]], "en"]
+        body = _wrap_inner(inner)
         with pytest.raises(TranslationProviderError, match="is not text"):
             parse_batchexecute_response(body)
 
@@ -203,12 +317,6 @@ class TestParseBatchexecuteResponsePipeline:
         body = _build_response_body(["   "])
         with pytest.raises(TranslationProviderError, match="translated text is empty"):
             parse_batchexecute_response(body)
-
-    def test_missing_detected_language_returns_none_not_an_error(self) -> None:
-        body = _build_response_body(["Bonjour"], detected_source=None)
-        result = parse_batchexecute_response(body)
-        assert result.translated_text == "Bonjour"
-        assert result.detected_source_language is None
 
 
 class TestIndividualPipelineFunctions:
@@ -231,15 +339,86 @@ class TestIndividualPipelineFunctions:
         body = _build_response_body(["Bonjour"], detected_source="en")
         entry = find_rpc_entry(body)
         inner = parse_inner_payload(entry)
-        assert inner[1] == "en"
+        assert inner[2] == "en"
 
     def test_extract_translated_text_from_a_pre_parsed_inner_payload(self) -> None:
-        inner = [[[["Bonjour"]]], "en"]
+        inner = _build_inner(["Bonjour"], detected_source=None)
         assert extract_translated_text(inner) == "Bonjour"
 
     def test_extract_detected_source_language_from_a_pre_parsed_inner_payload(self) -> None:
-        inner = [[[["Bonjour"]]], "en"]
+        inner = _build_inner(["Bonjour"], detected_source="en")
         assert extract_detected_source_language(inner) == "en"
+
+
+class TestExactRequestContract:
+    """Item D: assert the request the adapter actually sends decodes to
+    exactly the product owner's own proven contract -- endpoint, RPC id,
+    query parameters, ``f.req`` envelope shape, and ``Referer`` header. No
+    test here normalizes away a mismatch."""
+
+    async def test_actual_http_request_carries_exactly_the_proven_query_parameters(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, text=_build_response_body(["Bonjour"]))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: _TrackedClient(httpx.MockTransport(handler)), sleep=_no_sleep
+        )
+        await provider.translate("Hello", source_language="en", target_language="fr")
+        assert len(captured) == 1
+        params = captured[0].url.params
+        assert params["rpcids"] == "MkEWBc"
+        assert params["bl"] == "boq_translate-webserver_20201207.13_p0"
+        assert params["soc-app"] == "1"
+        assert params["soc-platform"] == "1"
+        assert params["soc-device"] == "1"
+        assert params["rt"] == "c"
+        # Deliberately absent: an earlier revision invented these without
+        # empirical proof they were required or even accepted.
+        assert "source-path" not in params
+        assert "f.sid" not in params
+        assert "hl" not in params
+        assert "_reqid" not in params
+
+    async def test_actual_http_request_carries_the_proven_f_req_envelope(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, text=_build_response_body(["Bonjour"]))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: _TrackedClient(httpx.MockTransport(handler)), sleep=_no_sleep
+        )
+        await provider.translate("Hello world", source_language="en", target_language="fr")
+        sent = httpx.QueryParams(captured[0].content.decode())
+        envelope = json.loads(sent["f.req"])
+        rpc_call = envelope[0][0]
+        assert rpc_call[0] == "MkEWBc"
+        rpc_args = json.loads(rpc_call[1])
+        assert rpc_args == [["Hello world", "en", "fr", True], [None]]
+
+    def test_default_client_factory_sets_the_proven_referer_header(self) -> None:
+        client = _default_client_factory()
+        try:
+            assert client.headers["referer"] == "https://translate.google.com/"
+        finally:
+            asyncio.run(client.aclose())
+
+    async def test_actual_http_request_carries_the_proven_referer_header(self) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, text=_build_response_body(["Bonjour"]))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: _TrackedClient(httpx.MockTransport(handler)), sleep=_no_sleep
+        )
+        await provider.translate("Hello", source_language="en", target_language="fr")
+        assert captured[0].headers["referer"] == "https://translate.google.com/"
 
 
 class TestGoogleTranslateRpcCampaignTranslationProviderHttp:
@@ -421,7 +600,7 @@ class TestPlaceholderMutationEndToEndThroughTheRealAdapter:
         def handler(request: httpx.Request) -> httpx.Response:
             sent = json.loads(httpx.QueryParams(request.content.decode()).get("f.req") or "{}")
             rpc_args = json.loads(sent[0][0][1])
-            corrupted = self._corrupt_placeholder_in_text(rpc_args[0])
+            corrupted = self._corrupt_placeholder_in_text(rpc_args[0][0])
             return httpx.Response(200, text=_build_response_body([corrupted]))
 
         provider = GoogleTranslateRpcCampaignTranslationProvider(
@@ -453,7 +632,7 @@ class TestPlaceholderMutationEndToEndThroughTheRealAdapter:
             call_count += 1
             sent = json.loads(httpx.QueryParams(request.content.decode()).get("f.req") or "{}")
             rpc_args = json.loads(sent[0][0][1])
-            text = rpc_args[0]
+            text = rpc_args[0][0]
             if call_count == 1:
                 text = self._corrupt_placeholder_in_text(text)
             return httpx.Response(200, text=_build_response_body([text]))

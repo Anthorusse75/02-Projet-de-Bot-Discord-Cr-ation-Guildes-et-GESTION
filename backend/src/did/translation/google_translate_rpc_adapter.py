@@ -36,13 +36,31 @@ translated text, unexpected structure at any step -- fails closed with
 no untranslated-input fallback, no empty-string fallback, and no silent
 provider switch: a provider failure here must never become an untranslated
 delivery, exactly as required everywhere else in Stage09.
+
+**Wire contract correction (post-merge external audit)**: the first revision
+of this module invented its own request query-parameter set
+(``source-path``, ``f.sid``, a fabricated ``bl`` version, ``hl``,
+``_reqid``) and its own guess at the response shape (translated-sentence
+groups directly at ``inner[0]``, detected language at ``inner[1]``).
+Neither of those was ever actually verified against the real endpoint --
+only the endpoint and RPC id were. An external audit caught this: the
+product owner's own working implementation, and a one-call probe from the
+SAME machine that gets HTTP 429 through ``googletrans``'s
+``/translate_a/single``, use a different, narrower, and *empirically proven*
+request contract (fixed ``bl=boq_translate-webserver_20201207.13_p0``, no
+``source-path``/``f.sid``/``hl``/``_reqid``, an ``f.req`` envelope whose RPC
+argument array has a second element ``[None]``, and a ``Referer`` header) and
+a different response shape (translation content at ``parsed[1][0][0]``,
+translated parts at ``translation_data[5]``, a spacing flag at
+``translation_data[3]``, detected source at ``parsed[2]``) -- returning a
+real, verified HTTP 200 translation. This module is now aligned to that
+exact proven contract; the invented variant above is not retained anywhere.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -72,37 +90,50 @@ _DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
+#: The Referer the real translate.google.com frontend sends for this RPC --
+#: part of the product owner's own proven, same-machine HTTP-200 request
+#: contract (see module docstring's "Wire contract correction" note).
+_REFERER = "https://translate.google.com/"
+
 
 def _build_query_params() -> dict[str, str]:
-    """Query parameters for the batchexecute POST. Best-effort, matching the
-    parameters the real translate.google.com frontend sends for this RPC --
-    unlike Google's authenticated services, this specific anonymous
-    translate call has not been observed to require a `SAPISID`-hash-style
-    signed token, but the exact accepted parameter set is itself part of
-    what the product owner's real-network smoke test (see module docstring)
-    is what actually confirms, not something verifiable from this sandbox."""
+    """Query parameters for the batchexecute POST -- exactly the parameter
+    set from the product owner's own proven, same-machine probe (HTTP 200,
+    a genuine translation, from the exact network/IP that gets HTTP 429
+    through ``googletrans``'s ``/translate_a/single``). Deliberately does
+    NOT include ``source-path``, ``f.sid``, ``hl``, or ``_reqid`` -- an
+    earlier revision of this module invented those without ever having
+    empirical proof any of them were required or even accepted; see the
+    module docstring's "Wire contract correction" note. The static
+    ``bl=boq_translate-webserver_20201207.13_p0`` value is likewise the
+    exact one from that proven probe, not a value guessed/derived here."""
     return {
         "rpcids": RPC_ID,
-        "source-path": "/",
-        "f.sid": "-0",
-        "bl": "boq_translate-webserver_20250101.00_p0",
-        "hl": "en",
+        "bl": "boq_translate-webserver_20201207.13_p0",
         "soc-app": "1",
         "soc-platform": "1",
         "soc-device": "1",
-        "_reqid": str(int(time.time() * 1000) % 100000),
         "rt": "c",
     }
 
 
 def build_form_data(text: str, source_language: str, target_language: str) -> dict[str, str]:
-    """The batchexecute ``f.req`` form field: a JSON-encoded envelope whose
-    third element is itself a JSON-encoded STRING carrying the actual RPC
-    arguments (batchexecute's own double-encoding convention) -- isolated
-    here as its own pure, independently testable function."""
-    rpc_args = json.dumps([text, source_language, target_language, True])
+    """The batchexecute ``f.req`` form field -- exactly the double-encoded
+    envelope shape from the product owner's own proven, same-machine probe
+    (see module docstring). The RPC argument array's second element,
+    ``[None]``, is part of that proven shape and is preserved verbatim even
+    though its purpose is not independently understood from this sandbox --
+    this is not a place to "simplify" away something empirically observed
+    to work. ``ensure_ascii=False`` and compact ``(",", ":")`` separators
+    match the proven contract's own JSON encoding exactly."""
+    rpc_args = json.dumps(
+        [[text, source_language, target_language, True], [None]],
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     envelope = [[[RPC_ID, rpc_args, None, "generic"]]]
-    return {"f.req": json.dumps(envelope)}
+    request = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False)
+    return {"f.req": request}
 
 
 def _strip_xssi_prefix(raw_text: str) -> str:
@@ -176,46 +207,95 @@ def parse_inner_payload(entry: list[Any]) -> Any:
         ) from exc
 
 
-def extract_translated_text(inner: Any) -> str:
-    """Reconstructs the translated text from the inner payload's assumed
-    shape: a list of per-sentence result groups at index 0, each group's
-    first candidate's first element being that sentence's translated text.
-    Concatenated in order to rebuild the full translated string. Fails
-    closed (never returns an empty or partial-looking string silently) on
-    any structural surprise or on a translated result that is empty."""
+def _extract_translation_data(inner: Any) -> list[Any]:
+    """Locates the proven real response's actual translation payload at
+    ``inner[1][0][0]``: ``inner[1]`` is the top-level translation-result
+    list, ``[0]`` its (single, Stage09 never batches multiple segments into
+    one RPC call) segment entry, and that entry's own ``[0]`` is the
+    ``translation_data`` list carrying both the translated parts (index 5)
+    and the inter-part spacing flag (index 3). Fails closed with a specific
+    message at each positional/type boundary -- never a bare index into an
+    unvalidated value, since Python strings are themselves subscriptable
+    and would otherwise let a malformed string-shaped value silently
+    "succeed" instead of failing closed."""
     try:
-        sentence_groups = inner[0]
+        level1 = inner[1]
     except (TypeError, IndexError, KeyError) as exc:
         raise TranslationProviderError(
-            "malformed batchexecute response: missing translated-sentence groups"
+            "malformed batchexecute response: missing top-level translation result (index 1)"
         ) from exc
-    if not isinstance(sentence_groups, list) or not sentence_groups:
+    if not isinstance(level1, list) or not level1:
         raise TranslationProviderError(
-            "malformed batchexecute response: no translated sentence parts present"
+            "malformed batchexecute response: translation result (index 1) is not a non-empty list"
         )
-    parts: list[str] = []
-    for group in sentence_groups:
-        # Deliberately type-checked at every level, not just index-accessed:
-        # Python strings are themselves subscriptable ("abc"[0] == "a"), so
-        # a bare `group[0][0]` would silently "succeed" on a malformed
-        # string-shaped group instead of failing closed as required.
-        if not isinstance(group, list) or not group:
+    segment_entry = level1[0]
+    if not isinstance(segment_entry, list) or not segment_entry:
+        raise TranslationProviderError(
+            "malformed batchexecute response: translation segment entry ([1][0]) "
+            "is not a non-empty list"
+        )
+    translation_data = segment_entry[0]
+    if not isinstance(translation_data, list):
+        raise TranslationProviderError(
+            "malformed batchexecute response: translation data ([1][0][0]) is not a list"
+        )
+    return translation_data
+
+
+def extract_translated_text(inner: Any) -> str:
+    """Reconstructs the translated text from the proven real response
+    shape: ``translation_data[5]`` is the list of translated parts (each a
+    ``[text, ...]``-shaped list), and ``translation_data[3]`` is a spacing
+    flag -- truthy means parts are joined with a single space, falsy means
+    they are concatenated directly. Fails closed (never returns an empty or
+    partial-looking string silently, and never silently drops a malformed
+    part) on any structural surprise or on a translated result that is
+    empty. Deliberately stricter here than the reference implementation
+    this was aligned to, which silently filters out malformed parts instead
+    of failing -- Stage09's own fail-closed requirement takes precedence:
+    a malformed part is treated as a malformed response, not as a part to
+    skip."""
+    translation_data = _extract_translation_data(inner)
+    # Checked in index order (3 before 5) so both boundaries are reachable:
+    # any translation_data long enough to have index 5 necessarily already
+    # has index 3, so checking 5 first would make a "missing index 3"
+    # failure unreachable in practice.
+    try:
+        spacing_flag = translation_data[3]
+    except IndexError as exc:
+        raise TranslationProviderError(
+            "malformed batchexecute response: translation data is missing "
+            "the spacing flag (index 3)"
+        ) from exc
+    use_spacing = bool(spacing_flag)
+    try:
+        parts = translation_data[5]
+    except IndexError as exc:
+        raise TranslationProviderError(
+            "malformed batchexecute response: translation data is missing "
+            "translated parts (index 5)"
+        ) from exc
+    if not isinstance(parts, list) or not parts:
+        raise TranslationProviderError(
+            "malformed batchexecute response: no translated parts present (index 5)"
+        )
+
+    translated_parts: list[str] = []
+    for part in parts:
+        if not isinstance(part, list) or not part or part[0] is None:
             raise TranslationProviderError(
-                "malformed batchexecute response: malformed translated-sentence group"
+                "malformed batchexecute response: malformed translated part"
             )
-        candidate = group[0]
-        if not isinstance(candidate, list) or not candidate:
+        candidate = part[0]
+        if not isinstance(candidate, str):
             raise TranslationProviderError(
-                "malformed batchexecute response: malformed translated-sentence group"
+                "malformed batchexecute response: translated part is not text"
             )
-        part = candidate[0]
-        if not isinstance(part, str):
-            raise TranslationProviderError(
-                "malformed batchexecute response: translated-sentence part is not text"
-            )
-        parts.append(part)
-    translated = "".join(parts)
-    if not translated.strip():
+        translated_parts.append(candidate)
+
+    separator = " " if use_spacing else ""
+    translated = separator.join(translated_parts).strip()
+    if not translated:
         raise TranslationProviderError("malformed batchexecute response: translated text is empty")
     return translated
 
@@ -224,9 +304,12 @@ def extract_detected_source_language(inner: Any) -> str | None:
     """Best-effort only -- unlike the translated text itself, a missing or
     unexpected detected-source-language is not a failure (the caller
     already knows and passed the source language explicitly); this returns
-    ``None`` rather than raising when it cannot be found."""
+    ``None`` rather than raising when it cannot be found. Located at
+    ``inner[2]`` in the proven real response shape (not ``inner[1]``, which
+    is the translation-result payload itself, see
+    :func:`_extract_translation_data`)."""
     try:
-        detected = inner[1]
+        detected = inner[2]
     except (TypeError, IndexError, KeyError):
         return None
     if isinstance(detected, str) and detected:
@@ -261,8 +344,14 @@ def _default_client_factory() -> httpx.AsyncClient:
     because ``googletrans`` (kept for historical/comparative reasons, see
     ``googletrans_adapter.py``) transitively pulls in ``httpx[http2]``. If
     ``googletrans`` is ever removed entirely, this adapter's own dependency
-    footprint must not have silently relied on that transitive package."""
-    return httpx.AsyncClient(headers={"User-Agent": _DEFAULT_USER_AGENT})
+    footprint must not have silently relied on that transitive package. The
+    ``Referer`` header is part of the product owner's own proven request
+    contract (see module docstring); the ``User-Agent`` value itself is a
+    plausible desktop browser string, not independently byte-for-byte
+    verified from that probe -- the empirically load-bearing pieces of the
+    request are the endpoint, RPC id, query parameters, ``f.req`` envelope
+    shape, and ``Referer``, all matched exactly."""
+    return httpx.AsyncClient(headers={"User-Agent": _DEFAULT_USER_AGENT, "Referer": _REFERER})
 
 
 class GoogleTranslateRpcCampaignTranslationProvider:
