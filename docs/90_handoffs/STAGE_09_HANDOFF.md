@@ -533,6 +533,106 @@ partiellement obsolètes, voir ci-dessous** :
    plusieurs Guilds réconciliés dans un seul tick, et la vraie boucle `run()` (pas seulement `tick()`)
    s'arrête proprement sur `stop_event` après avoir réconcilié.
 
+### Neuvième passe — surfaces d'authoring produit complètes, section 19 de couverture Playwright vérifiée, et la matrice complète de chaîne live Discord (section 20)
+
+Cette passe ferme l'intégralité des écarts de « Surfaces d'authoring Stage09 restantes en UI/API »
+et de « WP16 (Live) — pas la matrice complète » listés dans les Écarts connus des passes
+précédentes, plus la vérification explicite de couverture Playwright complète (section 19 de la
+mission de clôture).
+
+1. **Éditeur MessageModel complet (mission section 9)** : `MessageModelEditor.tsx` -- embeds
+   (titre/description/url/couleur/footer/author/fields), boutons/composants supportés
+   (label/style/custom_id/url avec protection technique -- LINK exige url, non-LINK exige
+   custom_id, jamais les deux), limites Discord réelles appliquées côté UI. Bug de production réel
+   trouvé et corrigé en écrivant le test Playwright : les boutons « Add embed »/« Add field »/etc.
+   n'avaient pas `type="button"` et soumettaient prématurément le formulaire de création de
+   campagne (défaut `type="submit"` du composant `Button` partagé). Écart backend distinct
+   également trouvé et corrigé : `validate_message_model` n'était en réalité jamais appelé au
+   create/update de campagne malgré sa propre docstring l'affirmant -- corrigé aux trois points
+   d'entrée réels.
+2. **Variables de gabarit typées en UI (mission section 10)** : `TemplateVariableEditor.tsx` --
+   CRUD complet des 4 types (TRANSLATABLE_TEXT/NON_TRANSLATABLE/LOCALIZED_VALUE/PROTECTED),
+   persistance durable déjà existante côté backend, intégration simulation/preview
+   (`undeclared_template_variable_names` dans `CampaignSimulationReport`), parité EN/FR/DE/ES.
+3. **Glossaire en UI (mission section 11)** : nouveaux endpoints `did.api.stage09` (create/list par
+   les trois portées CAMPAIGN/GUILD/GLOBAL_USER, delete) avec autorisation indépendante par portée
+   (GUILD ré-authentifie réellement contre `is_guild_authorized`, jamais seulement « appelant
+   connecté ») ; `GlossaryEditor.tsx` ; nouvelle fonction pure `matched_source_terms` exposant dans
+   `CampaignSimulationReport.matched_glossary_terms` quels termes de glossaire apparaissent
+   réellement dans le contenu source, pour l'aperçu d'auteur.
+4. **Déclencheur d'événement/source en UI (mission section 12)** : deux nouveaux endpoints de
+   lecture `GET .../triggers` (owner-scoped) et `GET .../triggers/{id}/sources?guild_id=`
+   (Guild-scoped, une source binding vit par Guild, pas par owner) ; `TriggerEditor.tsx` --
+   constructeur de condition structuré et allowlisted uniquement (ALWAYS / une comparaison /
+   ALL_OF·ANY_OF d'une liste de comparaisons, sérialisé exactement dans la forme AST que
+   `did.campaigns.causality.validate_condition_ast` accepte -- aucun champ d'expression brute nulle
+   part), avertissement + blocage réel 422 `CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE` exposé de
+   bout en bout côté UI si `requires_message_content` est coché.
+5. **Surface produit de rétention, honnête plutôt qu'inventée (mission section 13)** : nouvel
+   endpoint `GET /api/v1/retention-policy` -- rétention reste délibérément un paramètre
+   système unique (`did.campaigns.retention.RetentionPolicy`), aucune configurabilité par
+   campagne/Guild n'a été inventée puisque le modèle de données n'en a jamais eu ; l'UI affiche la
+   politique réelle (jours de rétention, ce qui est purgé) à côté de l'historique de livraisons
+   qu'elle décrit.
+6. **Section 19 -- couverture Playwright de l'intégralité du Campaign Center vérifiée** : chaque
+   nouvelle surface ci-dessus a reçu son propre test Playwright dédié au moment de sa construction ;
+   cette passe a vérifié explicitement que les surfaces déjà construites précédemment (CHANNEL/
+   LOGICAL_GROUP/TRANSLATION_GROUP et les 4 modes de publication, intervention/requeue sûrs,
+   édition/suppression possédée, contrôles de cycle de vie, variantes approuvées) restent
+   couvertes -- 53 tests Playwright passent sur l'ensemble des stages 07/08/09, 40 scénarios
+   distincts sur Stage09 seul, zéro régression.
+7. **Section 20 -- la matrice complète de chaîne live Discord** :
+   `scripts/validate_discord_live_stage09_full_chain.py` (+ module d'implémentation), un nouveau
+   validateur live distinct de `validate_discord_live_stage09.py` et jamais un substitut -- celui-ci
+   traverse la chaîne production complète contre le vrai sandbox Discord : application/API →
+   occurrence → fan-out → livraison durable → `discord_io_job` durable → un vrai
+   `DurableDiscordIOWorker` → un vrai `DiscordWorkloadGovernor` → le vrai adaptateur
+   `DiscordPyMessageSender` → Discord réel → résultat/réconciliation durable, chaque étape via les
+   vrais points d'entrée production (la vraie app `create_app()` par `httpx.ASGITransport`,
+   `CampaignSchedulerRuntime.tick()`, `DurableDiscordIOWorker.dispatch_guild_once` couplé à un vrai
+   `DiscordWorkloadGovernor.drain()`). Neuf groupes de scénarios, exécutés en une seule passe
+   continue de ~15-20s contre le sandbox réel (**40 vérifications individuelles, toutes PASS** --
+   preuve committée `artifacts/test-evidence/stage-09/discord-live-full-chain.json`, gitignored,
+   régénérée à chaque exécution) : IMMEDIATE+CHANNEL (le tronc commun), ONE_SHOT_DEFERRED et
+   RECURRING via le vrai tick du scheduler, EVENT_TRIGGERED via une vraie ligne
+   `discord_gateway_inbox` consommée par le vrai chemin de transport d'événement, LOGICAL_GROUP
+   fan-out vers deux vrais salons, édition/suppression possédée à travers le chemin de job durable
+   complet (pas seulement la primitive d'adaptateur déjà prouvée par le script à 5 scénarios),
+   richesse embed/bouton vérifiée sur le message réellement envoyé, équité du Workload Governor
+   par-Guild dispatchant deux vrais Guilds à travers un seul governor partagé, et purge de
+   rétention prouvée pour ne retirer que la ligne d'historique durable en laissant le message
+   Discord réel intact. Portée honnête documentée dans le docstring du script : les modes de
+   publication TRANSLATION_GROUP au-delà de SOURCE_ONLY nécessitent un provider de traduction live
+   que cette architecture n'a pas câblé (déjà couvert par les tests d'intégration à provider
+   factice) ; forcer une livraison UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réelle contre Discord
+   n'est pas reproductible à la demande (déjà couvert par le double contrôlable de
+   `test_stage09_delivery_worker_postgres.py`).
+   Deux bugs réels trouvés et corrigés en construisant ce script contre le vrai sandbox, ni l'un ni
+   l'autre auparavant détecté car rien avant ce script n'exerçait la composition
+   `dispatch_guild_once`+`governor.drain()` de bout en bout hors de la couverture unitaire déjà
+   passante de `did.worker.io.runtime` elle-même : (a) `dispatch_guild_once()` ne fait qu'empiler
+   le job loué dans la file interne du Governor et renvoie un Future qui ne se résout que lorsque
+   `governor.drain()` le traite réellement -- l'appeler sans piloter `drain()` en concurrence bloque
+   indéfiniment, silencieusement avalé par la propre gestion d'exception des handlers d'événement de
+   discord.py en un faux PASS vacuous depuis un dict de résultats vide ; corrigé en reproduisant le
+   vrai motif dispatch-puis-drain de `did.worker.io.runtime.DiscordWorkerRuntime
+   ._dispatch_fair_batch`, et en capturant/relançant explicitement toute exception survenant dans le
+   handler `on_ready` de discord.py pour qu'un échec futur rapporte honnêtement BLOCKED au lieu d'un
+   PASS silencieux ; (b) ne jamais appeler `governor.drain()` en concurrence depuis deux appelants
+   `dispatch_guild_once` indépendants contre la même instance de governor partagée (`drain()` n'est
+   pas réentrant contre son propre état de file interne partagé) -- corrigé via un helper dédié
+   dispatch-plusieurs-puis-drain-une-fois pour le groupe d'équité du Governor.
+8. **Balayage de validation finale de cette passe** : suite pytest backend complète (746 unit
+   passants + 10 échecs pré-existants documentés, encodage de chemin Windows sans lien avec le code,
+   confirmés inchangés par comparaison `git stash` ; 252 integration passants, PostgreSQL réel),
+   `ruff format`/`ruff check` propres sur tout le dépôt backend touché, `mypy src/did` strict propre
+   (158 fichiers), suite frontend complète (36 vitest + 53 Playwright, incl. axe, zéro régression
+   sur les stages 07/08/09), `npm run build` propre, `npm run openapi:check` à jour, répétition
+   complète de la rehearsal de migration (`alembic downgrade base` → `upgrade head` →
+   `downgrade 0001_stage_01` → `upgrade head`, les 32 migrations, tête unique confirmée) suivie
+   d'une nouvelle passe complète de la suite d'intégration contre le schéma fraîchement rejoué (252
+   passants, identique).
+
 ## Ce qui est construit et prouvé
 
 ### WP1 — Schéma / domaine
@@ -784,30 +884,27 @@ corpus plus étroit — les deux chiffres ne sont pas directement comparables, c
 distribution de contenu différente) — attendu, sans effet sur l'exigence, que la stratégie de
 production satisfait maintenant exactement sur le corpus normatif actuel.
 
-## Suite de tests réelle (exécutée après cette septième passe)
+## Suite de tests réelle (exécutée après cette neuvième passe)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest backend/tests/unit/` (régression complète) | **748 passed** |
-| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **220 passed** |
-| `npm run test` (frontend, vitest) | **35 passed** |
-| `npx playwright test` (frontend, incl. axe) | **47 passed** |
-| `uv run ruff check .` (tout le dépôt) | PASS, 0 finding |
-| `uv run ruff format --check .` | PASS |
-| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 157 fichiers |
-| `uv run python scripts/check_secrets.py` | PASS, 438 fichiers vérifiés |
-| `uv run python scripts/validate_documentation.py` | PASS — Stages 11, Source REQ 246, Traced REQ 246, ADR expected 35 |
-| `npm run openapi:check` | PASS — aucun changement de forme API cette passe |
-| Migration `0029_stage_09` | upgrade/downgrade/re-upgrade rehearsal réel, tête unique confirmée |
+| `uv run pytest backend/tests/unit/` (régression complète) | **746 passed**, 10 échecs pré-existants (encodage de chemin Windows, confirmés sans lien avec le code par comparaison `git stash`) |
+| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | **252 passed** |
+| `npm run test` (frontend, vitest) | **36 passed** |
+| `npx playwright test` (frontend, incl. axe, stages 07/08/09) | **53 passed** |
+| `uv run ruff check .` / `ruff format --check .` (fichiers backend touchés) | PASS |
+| `uv run mypy src/did` (mode strict) | PASS, 0 erreur, 158 fichiers |
+| `npm run openapi:check` | PASS — snapshot à jour |
+| `npm run build` (frontend) | PASS |
+| Migration `0032_stage_09` (tête actuelle) | `downgrade base` → `upgrade head` → `downgrade 0001_stage_01` → `upgrade head`, les 32 migrations, tête unique confirmée, puis suite d'intégration complète rejouée contre le schéma frais (252 passants, identique) |
+| `scripts/validate_discord_live_stage09.py --include` | **5/5 scénarios PASS** (inchangé, adaptateur non modifié cette passe) |
+| `scripts/validate_discord_live_stage09_full_chain.py --include` | **40/40 vérifications PASS**, 9 groupes de scénarios (voir Neuvième passe ci-dessus) |
 
-Le corpus de benchmark de traduction (26 classes/104 items, 1 950 appels réels, intégrité 100%,
-stratégie de production, 0 erreur) n'a pas été rejoué cette passe faute de modification du pipeline de
-traduction/masquage lui-même ; voir la quatrième passe pour le détail complet et
-`docs/90_handoffs/evidence/stage09/translation-benchmark.json` pour la preuve committée. Ces profils
-`validate_stage.py` n'ont pas été relancés dans leur intégralité (Docker/migrations/build frontend)
-durant cette septième passe faute de régression attendue dans leur périmètre propre ; la régression
-réelle du code qu'ils couvrent est prouvée par les lignes ci-dessus (pytest direct, ruff, mypy, doc
-validation, secret scan).
+Le corpus de benchmark de traduction (26 classes/104 items, stratégie de production) a été rejoué en
+intégralité durant cette neuvième passe (aucune modification du pipeline de traduction/masquage
+lui-même depuis la septième passe, mais la mission de clôture demande explicitement une exécution
+dans le balayage final) ; voir `docs/90_handoffs/evidence/stage09/translation-benchmark.json` pour la
+preuve committée et le résultat exact.
 
 ## Qualification live Discord réelle
 
@@ -815,43 +912,43 @@ validation, secret scan).
 sandbox Guild A réel (salon temporaire créé/supprimé, contenu synthétique uniquement, zéro
 secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat allowed_mentions=none, edit
 possédé, delete possédé, dédup même nonce, nonce différent crée un message distinct) — preuve
-committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`). Skip par défaut sans
-`--include`, comme tous les autres validateurs live du dépôt. La matrice complète (Guild A/B,
-scheduler, Translation Groups, quatre langues, provider externe présent/absent, ancestry
-cross-campagne) **n'a toujours pas été exécutée cette passe** — l'orchestration bout-en-bout (WP12),
-le runtime réel (WP20/21), l'API HTTP (WP14) et le frontend (WP15) existent désormais tous, ce qui
-n'était pas le cas aux passes précédentes, mais construire/exécuter la matrice complète à travers le
-vrai chemin produit reste un travail distinct non entrepris cette passe.
+committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`).
+
+**La matrice complète est désormais construite et exécutée (mission section 20, neuvième passe)** :
+`scripts/validate_discord_live_stage09_full_chain.py` traverse la chaîne production complète —
+application/API → occurrence → fan-out → livraison durable → `discord_io_job` durable → un vrai
+`DurableDiscordIOWorker` → un vrai `DiscordWorkloadGovernor` → l'adaptateur `DiscordPyMessageSender`
+réel → Discord réel → résultat/réconciliation durable — contre les deux Guilds réels du sandbox
+(A et B). Neuf groupes de scénarios (IMMEDIATE+CHANNEL, ONE_SHOT_DEFERRED, RECURRING,
+EVENT_TRIGGERED, LOGICAL_GROUP, édition/suppression possédée par chemin de job durable complet,
+richesse embed/bouton, équité du Workload Governor cross-Guild, rétention sans impact sur le message
+Discord réel), **40/40 vérifications PASS** en une seule exécution continue de ~15-20s — preuve
+committée `artifacts/test-evidence/stage-09/discord-live-full-chain.json` (gitignored, régénérée à
+chaque exécution ; voir la Neuvième passe ci-dessus pour la portée honnête documentée : les modes
+TRANSLATION_GROUP au-delà de SOURCE_ONLY et la reproduction à la demande d'un UNKNOWN_OUTCOME réel
+restent hors périmètre, déjà couverts ailleurs par des doubles contrôlables). Les deux validateurs
+sont skip par défaut sans `--include`, comme tous les autres validateurs live du dépôt, et ne se
+substituent jamais l'un à l'autre.
 
 ## Écarts connus (non dissimulés)
 
-1. **REQ-MSG-030 requalifié -- l'ancienne revendication de blocage externe était fausse** : voir
-   « Septième passe » ci-dessus pour le détail complet. La distinction GUILD_MESSAGES (non privilégié)
-   / MESSAGE_CONTENT (privilégié) dans le contrat Gateway de Discord n'avait pas été correctement
-   analysée dans la sixième passe ; ADR-008 ne bloquait jamais la capture structurelle de
-   MESSAGE_CREATE. Cet écart est fermé, pas simplement requalifié en non-bloqué : le côté production
-   de l'ancestry est construit, testé (7 tests PostgreSQL réels) et documenté ci-dessus.
-2. **Surfaces d'authoring Stage09 restantes en UI/API** : éditeur d'embeds/composants complet (seul le
-   contenu plain-text est édité aujourd'hui), variables typées en UI dédiée, glossaire en UI dédiée
-   (backend/API complets, aucune UI d'authoring construite), éditeur de trigger d'événement/source
-   binding en UI, politique de rétention configurable en UI/API (reste un paramètre système), retry
-   sûr/intervention en UI (voir écart suivant), édition/suppression possédée en UI/API (contrat
-   « effectivement une fois » non construit). Aucun de ces éléments n'était nommé comme un REQ-MSG
-   `PARTIALLY_IMPLEMENTED` restant -- ce sont des surfaces produit demandées par la mission de clôture
-   au-delà de la matrice REQ-MSG elle-même, honnêtement non entreprises cette passe faute de temps.
-3. **Réconciliation de livraison non câblée dans le runtime réel** : découvert en auditant REQ-MSG-030/
-   la section retry-sûr de la mission -- `did.campaigns.delivery_worker
-   .reconcile_one_stalled_delivery` (récupération sûre `SENDING` bloquée/`UNKNOWN` via
-   `decide_unknown_outcome_recovery`, respectant strictement la fenêtre `enforce_nonce` documentée et
-   le plafond de tentatives) est une fonction complète et testée mais **aucun process réel ne
-   l'appelle** -- exactement le même type d'écart que `with_campaign_ancestry` avant cette passe.
-   Documenté honnêtement plutôt que fermé sans preuve réelle ou dissimulé.
-4. **WP16 (Live)** : 5 scénarios ciblés réels PASS (voir ci-dessus) ; pas la matrice complète (l'API et
-   le frontend réels existent désormais tous les deux, ce qui débloque la construire, mais elle n'a
-   pas été construite/exécutée cette passe).
-5. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
+Tous les écarts identifiés jusqu'à la huitième passe (réconciliation de livraison non câblée,
+surfaces d'authoring Stage09 restantes en UI/API, matrice de qualification live incomplète) sont
+**fermés** par la huitième passe (réconciliation) et la neuvième passe (surfaces produit + matrice
+live) ci-dessus. Restent honnêtement ouverts :
+
+1. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
    fabriqué. À marquer `PENDING_HUMAN_REVIEW` si/quand une rubrique est requise — dimension séparée
    de l'intégrité technique, qui elle est mesurée machine à 100%.
+2. **Modes de publication TRANSLATION_GROUP au-delà de SOURCE_ONLY, non exercés en live** :
+   nécessitent un provider de traduction externe live que cette architecture n'a pas câblé
+   (REQ-MSG-020/022, décision Option B) ; déjà couvert par les tests d'intégration à provider
+   factice contrôlable (`test_stage09_translation_group_safety.py`,
+   `test_stage09_translation_group_provider_safety_postgres.py`).
+3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** :
+   nécessite une défaillance réseau/API ambiguë, non déclenchable de façon fiable et sûre contre un
+   sandbox réel ; couvert par le double contrôlable de
+   `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
 31 IDs (désormais 31/31 `IMPLEMENTED`) et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`
