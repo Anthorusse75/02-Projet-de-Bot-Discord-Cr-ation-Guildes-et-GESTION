@@ -40,17 +40,28 @@ own convention -- see ``validate_discord_live_stage09.py``'s docstring):
     SELECTED_LANGUAGES, and approved-variant reuse are all exercised live
     against real Discord, through DID's own real
     ``GoogletransCampaignTranslationProvider``. What these checks assert is
-    strictly what DID's own code is responsible for and can prove live:
-    correct destination routing, correct destination count, non-empty
-    delivered content, and exactly-one-message-per-delivery -- NOT that the
-    third-party ``googletrans`` library's output linguistically differs
-    from the source text, because in this sandbox environment that
-    unofficial/unauthenticated dependency is currently echoing input
-    unchanged (a genuine, pre-existing external dependency fragility, not a
-    DID chain defect -- see each group's own inline comments). Any such
-    echo is recorded as a non-blocking ``[observed]`` note, both to stdout
-    and in the JSON report's own ``notes`` field, never silently dropped
-    and never used to fail an assertion DID's own code does not own.
+    both what DID's own code is responsible for (correct destination
+    routing, correct destination count, non-empty delivered content,
+    exactly-one-message-per-delivery) AND that a genuine translation
+    actually occurred: the content used is deliberately linguistic prose
+    (never a proper noun/acronym/technical-only string), so a translated
+    destination coming back byte-identical to the untranslated source is
+    treated as a real failure, not logged and excused. A previous version of
+    this script only logged that identity as a non-blocking ``[observed]``
+    note -- a real test-severity defect an external audit found: it masked
+    the fact that ``GoogletransCampaignTranslationProvider`` was silently
+    accepting a transport failure (googletrans's own ``DUMMY_DATA`` echo
+    fallback, triggered by its unsafe ``raise_exception=False`` default) as
+    a successful translation. Both issues are fixed now: the adapter itself
+    fails closed on a transport failure (``_production_translator`` in
+    ``did.translation.googletrans_adapter``), and this script's assertions
+    no longer excuse an echo that does slip through. When the real
+    googletrans endpoint is genuinely unavailable (proven in this sandbox --
+    HTTP 429/403 from Google's own endpoints), these translation-dependent
+    checks now correctly FAIL rather than reporting a false PASS; any
+    resulting content-identity rejection is still recorded in the JSON
+    report's own ``notes`` field alongside the group's own ``[FAIL]`` log
+    line, never silently dropped.
   * EXISTING_PROVIDER (an actual external Translation-Group-attached
     provider bot, distinct from DID's own googletrans path) is only
     exercised live against a genuine external provider bot if one actually

@@ -1,7 +1,7 @@
 {
   "status": "PASS",
   "scope": "targeted (send/edit/delete/nonce primitives only, not the full acceptance matrix)",
-  "generated_at": "2026-09-02T10:34:12.505723+00:00",
+  "generated_at": "2026-09-02T12:02:57.868992+00:00",
   "scenarios": {
     "immediate_send_allowed_mentions_none": true,
     "owned_edit_applies_new_content": true,

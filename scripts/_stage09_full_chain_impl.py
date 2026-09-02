@@ -1102,11 +1102,16 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
     guild = ctx.guild_a
     profile_ids = await _setup_language_profiles(ctx, guild)
     codes = ("en", "fr", "de", "es")
+    # Deliberately linguistic prose, natively phrased per source language --
+    # not proper nouns/acronyms/technical-only strings -- so that a
+    # translated destination coming back identical to this source text is
+    # objectively not an acceptable outcome (mission: "the actual
+    # destination message must demonstrate that real translation occurred").
     contents = {
-        "en": "Full chain translation source EN (synthetic, live qualification).",
-        "fr": "Source de traduction FR de la chaine complete (synthetique, qualification live).",
-        "de": "Quelle der vollstaendigen Kette DE (synthetisch, Live-Qualifizierung).",
-        "es": "Fuente de traduccion de la cadena completa ES (sintetico, calificacion en vivo).",
+        "en": "The winter update brings many new challenges for everyone to enjoy.",
+        "fr": "La mise a jour d'hiver apporte de nombreux nouveaux defis pour tout le monde.",
+        "de": "Das Winterupdate bringt viele neue Herausforderungen, die jeder genieszen kann.",
+        "es": "La actualizacion de invierno trae muchos desafios nuevos para que todos disfruten.",
     }
 
     # --- SOURCE_ONLY: DID never publishes a DID-translated destination in
@@ -1176,20 +1181,25 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
             content_ok = fetched.content == contents[source_code]
         results[f"translation_group.{source_code}_source_content_matches"] = content_ok
 
-        # Verifies exactly what DID's own code is responsible for: each
-        # translated destination resolves to the correct, distinct target
-        # language and receives real, non-empty rendered content through
-        # the durable delivery/adapter chain (did.campaigns.rendering
-        # .render_message_model never silently falls back to untranslated
-        # source text on its own -- an IntegrityViolation/provider error
-        # propagates instead, which content_present catches indirectly via
-        # the delivery/count checks above never having reached SENT).
-        # Whether the wired live googletrans dependency's OUTPUT actually
-        # differs linguistically from the source text is a THIRD-PARTY
-        # translation-quality concern outside DID's own code -- observed
-        # and reported honestly below, never silently hidden, but not a
-        # gate on this chain-correctness proof (that dimension is the
-        # separate translation benchmark's job, already run this pass).
+        # Verifies both what DID's own code is responsible for (correct,
+        # distinct destination routing and real non-empty rendered content
+        # -- did.campaigns.rendering.render_message_model never silently
+        # falls back to untranslated source text on its own; an
+        # IntegrityViolation/provider error propagates instead, which these
+        # checks catch indirectly via the delivery/count checks above never
+        # having reached SENT) AND that a real translation genuinely
+        # occurred: `contents[source_code]` is deliberately linguistic prose
+        # (not a proper noun/acronym/technical-only string), so a
+        # translated destination coming back byte-identical to the
+        # untranslated source is treated as a real failure here, not merely
+        # logged -- the googletrans-adapter-level fix
+        # (`GoogletransCampaignTranslationProvider`'s `raise_exception=True`
+        # fail-closed contract) means a genuine provider/transport failure
+        # now raises and prevents the delivery from ever reaching SENT in
+        # the first place, so reaching this comparison at all means the
+        # provider really did respond successfully -- at which point an
+        # unchanged destination for this kind of prose is a genuine
+        # translation-quality regression, not an acceptable echo.
         translated = [delivery for delivery in sent if delivery["language_profile_id"] is not None]
         routing_ok = len(translated) == 3
         seen_dest_codes: set[str] = set()
@@ -1212,14 +1222,15 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
             if not fetched.content:
                 routing_ok = False
             elif fetched.content == contents[source_code]:
-                # Not a DID chain defect -- see the block comment above.
+                routing_ok = False
                 note = (
-                    f"live googletrans did not change {source_code}->{dest_code} content "
-                    "(unofficial/unauthenticated provider currently echoing input)"
+                    f"REJECTED: {source_code}->{dest_code} destination content is "
+                    "byte-identical to the deliberately linguistic source prose -- a "
+                    "real translation did not occur for this delivery"
                 )
                 ctx.observations.append(note)
-                print(f"  [observed] {note}.", flush=True)
-        results[f"translation_group.{source_code}_source_translated_destinations_delivered"] = (
+                print(f"  [FAIL] {note}.", flush=True)
+        results[f"translation_group.{source_code}_source_translated_destinations_genuine"] = (
             routing_ok
         )
 
@@ -1271,7 +1282,11 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
         profile_ids=profile_ids,
         variant_codes=("fr", "de"),
     )
-    variant_source_content = "Full chain approved-variant reuse EN (synthetic, live qualification)."
+    # Deliberately linguistic prose, same rationale as `contents` above --
+    # DE has no approved variant and must be genuinely live-translated, so a
+    # byte-identical DE destination is a real failure, not an echo excused
+    # as translation-quality noise.
+    variant_source_content = "We have rebalanced several older items that had fallen out of use."
     approved_content = "Approved French content -- must never be retranslated live."
     created = await ctx.client_http.post(
         "/api/v1/campaigns",
@@ -1347,23 +1362,28 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
         fr_ok = fetched.content == approved_content
     # DE has no approved variant, so it must take the live-translation
     # branch rather than REUSABLE -- verified by real delivery/non-empty
-    # content (a provider/render failure would leave no SENT delivery at
-    # all); whether the wired live googletrans dependency's OUTPUT
-    # linguistically differs from the source text is the same third-party
-    # concern noted above, observed and reported, never gating this check.
+    # content AND that a genuine translation occurred: `variant_source_
+    # content` is deliberately linguistic prose, so a DE destination coming
+    # back byte-identical to it is treated as a real failure here, not an
+    # acceptable echo (see the fanout loop above for the full rationale --
+    # a real provider/transport failure now raises via the adapter's
+    # fail-closed `raise_exception=True` contract before ever reaching a
+    # SENT delivery, so reaching this comparison means the provider really
+    # did respond).
     de_ok = False
     if de_delivery is not None:
         fetched = await variant_channels["de"].fetch_message(int(de_delivery["discord_message_id"]))
-        de_ok = bool(fetched.content)
+        de_ok = bool(fetched.content) and fetched.content != variant_source_content
         if fetched.content == variant_source_content:
             note = (
-                "live googletrans did not change en->de content for the approved-variant "
-                "sibling (unofficial/unauthenticated provider currently echoing input)"
+                "REJECTED: en->de approved-variant sibling destination content is "
+                "byte-identical to the deliberately linguistic source prose -- a real "
+                "translation did not occur for this delivery"
             )
             ctx.observations.append(note)
-            print(f"  [observed] {note}.", flush=True)
+            print(f"  [FAIL] {note}.", flush=True)
     results["translation_group.approved_variant_reused_verbatim"] = fr_ok
-    results["translation_group.approved_variant_sibling_live_translation_delivered"] = de_ok
+    results["translation_group.approved_variant_sibling_genuinely_translated"] = de_ok
 
 
 async def _group_translation_group_provider_boundary(

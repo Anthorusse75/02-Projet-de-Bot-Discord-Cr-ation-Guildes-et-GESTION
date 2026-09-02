@@ -2,23 +2,46 @@
 
 ## Statut
 
-**`PENDING_HUMAN_REVIEW`.** Aucune évaluation humaine n'a eu lieu à ce jour. Aucun score n'est
-fabriqué dans ce document ou ailleurs dans la documentation Stage09 — la colonne « Verdict humain »
-de chaque tableau ci-dessous reste vide jusqu'à ce qu'un relecteur humain la remplisse réellement.
-C'est une clause `EXTERNAL_ACCEPTANCE_ITEM` de la Definition of Done : distincte de l'intégrité
-technique (mesurée machine, 100 % sur `FULL_MASKED_MESSAGE`, voir
-`docs/90_handoffs/evidence/stage09/translation-benchmark.json`), qui ne peut, par nature, pas
-attester de la qualité *linguistique* perçue par un locuteur natif.
+**`PENDING_HUMAN_REVIEW`** pour la revue humaine elle-même — inchangé, aucune évaluation humaine
+n'a eu lieu à ce jour, aucun score n'est fabriqué. **`MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE`**
+pour la sortie machine que ce pack devrait présenter : voir « Root cause » ci-dessous. Ce pack ne
+contient donc PAS de sorties `googletrans` fraîches (il n'y en a pas eu, honnêtement) — il présente
+à la place le texte source natif de chaque échantillon plus l'erreur réelle, exacte, capturée lors
+de la tentative réelle de traduction pour chacun, jamais un texte inventé à sa place.
 
-## Portée
+## Root cause (googletrans silent-echo remediation)
+
+Un audit externe a identifié un vrai défaut fail-open dans l'adaptateur de production
+`did.translation.googletrans_adapter.GoogletransCampaignTranslationProvider` : `googletrans`
+construit son `Translator()` avec `raise_exception=False` par défaut, ce qui fait qu'une réponse
+HTTP non-200 de l'endpoint de traduction (limite de débit, blocage...) renvoie silencieusement son
+sentinel interne `DUMMY_DATA` — dont le texte traduit est le texte source **ré-échoïsé tel quel** —
+indiscernable d'une traduction réussie sans inspecter la réponse HTTP brute. **Corrigé** cette passe
+(voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel ») : le provider de production construit
+désormais `Translator(raise_exception=True)`, plus une vérification défensive indépendante du statut
+HTTP réel attaché au résultat, avant de faire confiance à `result.text`. Une vraie panne de provider
+échoue donc maintenant fermé (`TranslationProviderError`), au lieu d'être acceptée silencieusement
+comme une traduction réussie.
+
+Une fois ce correctif en place, une tentative réelle contre l'endpoint réel a révélé la cause racine
+exacte : `translate.googleapis.com` renvoie **HTTP 429** (« unusual traffic », la page officielle de
+blocage anti-abus de Google) pour toute requête depuis l'IP sortante de cet environnement ;
+`translate.google.com` et ses variantes régionales renvoient **HTTP 403**. Ce n'est pas un défaut
+DID — c'est une vraie indisponibilité externe de cette bibliothèque non officielle dans ce sandbox
+réseau spécifique, prouvée par une requête HTTP brute directe montrant la page de blocage Google
+elle-même (voir le rapport détaillé du handoff). Le correctif ci-dessus signifie que DID ne masque
+plus jamais cette panne réelle derrière une fausse traduction réussie — c'est exactement le
+changement de comportement que ce pack documente.
+
+## Portée de ce pack
 
 Ce pack sélectionne 10 échantillons représentatifs, extraits **verbatim** du corpus de benchmark
 réel et déjà committé (`backend/tests/fixtures/translation_corpus/stage09_corpus.json`, version 3,
-26 classes/104 items par langue) — aucun texte n'est inventé pour ce pack. Chaque échantillon est
-présenté dans ses quatre versions nativement rédigées (EN/FR/DE/ES ; le corpus n'est pas une seule
-version traduite dans les trois autres, chaque langue a son propre texte rédigé nativement) plutôt
-qu'une seule direction de traduction, pour que le relecteur puisse juger n'importe laquelle des
-douze directions FR↔EN↔DE↔ES pertinentes pour sa langue de compétence.
+26 classes/104 items par langue) — aucun texte source n'est inventé. Pour chaque échantillon, EN est
+utilisé comme langue source de la tentative réelle de traduction vers FR (une direction unique,
+suffisante pour documenter l'indisponibilité ; les quatre versions nativement rédigées EN/FR/DE/ES
+restent présentées pour que le relecteur humain futur puisse juger n'importe laquelle des douze
+directions une fois la traduction machine à nouveau disponible).
 
 Catégories couvertes (mission de clôture, section 10) :
 
@@ -30,7 +53,7 @@ Catégories couvertes (mission de clôture, section 10) :
 | Terminologie Hero Wars | `terminology_names_acronyms` |
 | Style embed / bouton | `embed_title_style`, `embed_description_style`, `button_label_style` |
 
-## Rubrique (à remplir par un relecteur humain — jamais par un outil automatique)
+## Rubrique (à remplir par un relecteur humain — jamais par un outil automatique, et jamais tant que la sortie machine réelle ci-dessous reste BLOCKED)
 
 Pour chaque échantillon et chaque paire de langues jugée, répondre **oui/non** à chacune des cinq
 questions ci-dessous. Pas d'échelle numérique, pas de score composite calculé automatiquement — la
@@ -51,6 +74,11 @@ mission demande explicitement « no scores unless a human actually supplies them
 
 ## Échantillons
 
+Chaque échantillon ci-dessous montre : le texte source natif dans les 4 langues (référence), puis
+**la sortie machine réelle réellement tentée** pour EN→FR (jamais fabriquée) — actuellement
+`BLOCKED` avec l'erreur réelle capturée lors du benchmark rejoué cette passe
+(`docs/90_handoffs/evidence/stage09/translation-benchmark.json`, statut global `BLOCKED`).
+
 ### 1. Prose normale — courte (`plain_prose`)
 
 | Langue | Texte source (nativement rédigé) |
@@ -60,7 +88,12 @@ mission demande explicitement « no scores unless a human actually supplies them
 | DE | Willkommen auf dem Server! Wir freuen uns sehr, dich hier zu haben. |
 | ES | ¡Bienvenido al servidor! Estamos muy contentos de tenerte aquí. |
 
-Verdict humain (1-5 ci-dessus, par paire de langues jugée) : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `translation provider error (attempt 3/3): Unexpected
+status code "429" from ['translate.googleapis.com']` (intégrité technique : non applicable, aucune
+sortie obtenue).
+
+Verdict humain (1-5 ci-dessus, par paire de langues jugée) : _(à remplir — bloqué tant que la
+traduction machine reste indisponible)_
 
 ### 2. Prose normale — négation et pronoms (`negation_and_pronouns`)
 
@@ -71,7 +104,11 @@ Verdict humain (1-5 ci-dessus, par paire de langues jugée) : _(à remplir)_
 | DE | Sie sagte, dass sie selbst nicht an der Veranstaltung teilnehmen werde, bat uns aber, alle daran zu erinnern, dass sie trotzdem ohne sie stattfindet. |
 | ES | Ella dijo que no asistiría personalmente al evento, pero nos pidió que le recordáramos a todos que de todos modos se llevará a cabo sin ella. |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown` (le disjoncteur du provider s'est ouvert après 5 échecs consécutifs réels ; voir
+l'échantillon 1 pour l'erreur brute sous-jacente).
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 3. Prose longue / contextuelle — phrase longue (`long_sentence`)
 
@@ -82,7 +119,10 @@ Verdict humain : _(à remplir)_
 | DE | Obwohl das Winterupdate zahlreiche Balance-Änderungen für fast jede Klasse mit sich brachte, war die Reaktion der Community überwältigend positiv, da die meisten Spieler das neue Tempo als deutlich lohnender empfinden als zuvor. |
 | ES | Aunque la actualización de invierno introdujo una gran cantidad de cambios de equilibrio en casi todas las clases, la respuesta de la comunidad ha sido abrumadoramente positiva, y la mayoría de los jugadores coincide en que el nuevo ritmo resulta mucho más gratificante que antes. |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 4. Prose longue / contextuelle — multi-paragraphe (`multi_paragraph`)
 
@@ -93,7 +133,10 @@ Verdict humain : _(à remplir)_
 | DE | Staffel drei ist endlich da und bringt neue Herausforderungen und Belohnungen für alle mit sich.<br><br>Außerdem haben wir mehrere ältere Gegenstände neu ausbalanciert, die kaum noch genutzt wurden, es könnte sich also lohnen, eure alten Builds erneut anzuschauen.<br><br>Wie immer, danke, dass ihr Teil dieser Community seid und für euer anhaltendes Feedback. |
 | ES | La temporada tres por fin ha llegado, trayendo nuevos desafíos y recompensas para que todos disfruten.<br><br>También hemos reequilibrado varios objetos antiguos que habían caído en desuso, así que podría valer la pena revisar tus antiguas construcciones.<br><br>Como siempre, gracias por formar parte de esta comunidad y por vuestros comentarios continuos. |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 5. Dense en tokens techniques — mentions/URL/variables/emoji (`mixed_technical_and_linguistic`)
 
@@ -104,14 +147,15 @@ Verdict humain : _(à remplir)_
 | DE | Hallo \<@123456789012345678>! Dein Event {{event_name}} beginnt \<t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in \<#234567890123456789>. |
 | ES | ¡Hola \<@123456789012345678>! Tu evento {{event_name}} comienza \<t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en \<#234567890123456789>. |
 
-Point d'attention spécifique pour le relecteur : les tokens techniques (mentions Discord `<@...>`,
-horodatage `<t:...>`, URL, variable `{{event_name}}`, commande `!rsvp`, salon `<#...>`) doivent
-apparaître **identiques** dans la version cible — ce n'est pas un jugement de qualité de traduction
-mais une vérification d'intégrité déjà couverte à 100 % côté machine (parseur/protecteur, REQ-MSG-
-011/012/023) ; le relecteur humain juge uniquement la qualité linguistique du texte autour de ces
-tokens.
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
 
-Verdict humain : _(à remplir)_
+Point d'attention pour quand la traduction redeviendra disponible : les tokens techniques (mentions
+Discord `<@...>`, horodatage `<t:...>`, URL, variable `{{event_name}}`, commande `!rsvp`, salon
+`<#...>`) doivent apparaître **identiques** dans la version cible — déjà couvert à 100 % côté machine
+(parseur/protecteur, REQ-MSG-011/012/023), indépendamment de cette indisponibilité du provider.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 6. Dense en tokens techniques — placeholders multiples (`multiple_placeholders_dense`)
 
@@ -122,7 +166,10 @@ Verdict humain : _(à remplir)_
 | DE | Hallo \<@123456789012345678> und \<@!234567890123456789>, euer Team {{team_name}} hat sich in \<#345678901234567890> platziert! Zeremonie \<t:1735689600:F>, Details unter https://example.com/results/{{season_id}}, reagiert mit \<a:party:456789012345678901> und führt \</rsvp:789012345678901234> aus. |
 | ES | Hola \<@123456789012345678> y \<@!234567890123456789>, ¡tu equipo {{team_name}} se clasificó en \<#345678901234567890>! Ceremonia \<t:1735689600:F>, detalles en https://example.com/results/{{season_id}}, reacciona con \<a:party:456789012345678901> y ejecuta \</rsvp:789012345678901234>. |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 7. Terminologie Hero Wars — noms propres / acronymes (`terminology_names_acronyms`)
 
@@ -133,12 +180,15 @@ Verdict humain : _(à remplir)_
 | DE | Herzlichen Glückwunsch an Hero-Wars-Champion Alexandra Petrova (alias „Lexi") zum Sieg im NA-Regionalfinale -- ihr Signature-Build, der DPS/Support-Hybrid, war der MVP des gesamten Turniers. |
 | ES | Felicidades a la campeona de Hero Wars Alexandra Petrova (alias «Lexi») por ganar la final regional de NA -- su build característica, el híbrido DPS/soporte, fue el MVP de todo el torneo. |
 
-Point d'attention spécifique : le relecteur juge si « Hero Wars », « DPS », « MVP », « NA » et le nom
-propre « Alexandra Petrova » / surnom « Lexi » sont traités de façon appropriée pour un contexte de
-communauté de jeu (généralement non traduits), sans jugement automatique — c'est exactement le rôle
-prévu du glossaire (REQ-MSG-014/015) pour les termes dont la communauté attend une forme figée.
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
 
-Verdict humain : _(à remplir)_
+Point d'attention pour quand la traduction redeviendra disponible : le relecteur jugera si
+« Hero Wars », « DPS », « MVP », « NA » et le nom propre « Alexandra Petrova » / surnom « Lexi »
+sont traités de façon appropriée pour un contexte de communauté de jeu (généralement non traduits) —
+c'est exactement le rôle prévu du glossaire (REQ-MSG-014/015).
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 8. Style embed — titre (`embed_title_style`)
 
@@ -149,7 +199,10 @@ Verdict humain : _(à remplir)_
 | DE | Ergebnisse der Meisterschaft der dritten Staffel |
 | ES | Resultados del campeonato de la tercera temporada |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 9. Style embed — description (`embed_description_style`)
 
@@ -160,7 +213,10 @@ Verdict humain : _(à remplir)_
 | DE | Nach drei intensiven Wochen des Wettbewerbs kämpften sich sechzehn Teams bis zu einem einzigen Champion durch. Unten findest du die Endtabelle, die wertvollsten Spieler und einen Link zu den vollständigen Match-Wiederholungen. |
 | ES | Tras tres intensas semanas de competición, dieciséis equipos lucharon hasta dejar un único campeón. A continuación encontrarás la clasificación final, los jugadores más valiosos y un enlace a las repeticiones completas de las partidas. |
 
-Verdict humain : _(à remplir)_
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
+
+Verdict humain : _(à remplir — bloqué)_
 
 ### 10. Style bouton — label court (`button_label_style`)
 
@@ -171,27 +227,26 @@ Verdict humain : _(à remplir)_
 | DE | Vollständige Rangliste ansehen |
 | ES | Ver clasificación completa |
 
-Point d'attention spécifique : un label de bouton doit rester court et impératif/nominal dans la
-langue cible, pas une phrase complète — le relecteur juge si la forme reste idiomatique pour un
-composant UI, pas seulement grammaticalement correcte.
+**Sortie machine réelle EN→FR** : `BLOCKED` — `circuit open: 5 consecutive failures, retry after
+cooldown`.
 
-Verdict humain : _(à remplir)_
+Point d'attention pour quand la traduction redeviendra disponible : un label de bouton doit rester
+court et impératif/nominal dans la langue cible, pas une phrase complète.
 
-## Limitation connexe, honnêtement documentée
-
-Une exécution en direct du provider `googletrans` réel dans le sandbox de cette passe a montré
-qu'il renvoie actuellement un texte identique à l'entrée (écho) plutôt qu'une traduction, pour
-toutes les directions testées — voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel » et
-`docs/90_handoffs/evidence/stage09/discord-live-stage09-full-chain.json` (`notes`). Ce pack présente
-donc les textes **source, nativement rédigés dans chaque langue** (issus du corpus de benchmark, qui
-lui a mesuré une intégrité technique de 100 % lors de sa dernière exécution réseau réelle — voir
-`translation-benchmark.json`), plutôt que des sorties `googletrans` fraîches captées dans ce sandbox
-spécifique, pour que la revue humaine porte sur la qualité linguistique attendue du pipeline et ne
-soit pas invalidée par cette fragilité externe ponctuelle du tiers.
+Verdict humain : _(à remplir — bloqué)_
 
 ## Prochaine étape
 
-Quand un relecteur humain compétent dans une ou plusieurs des quatre langues est disponible, il
-remplit directement les champs « Verdict humain » ci-dessus (oui/non par question, par paire de
-langues jugée) et le statut de ce document passe de `PENDING_HUMAN_REVIEW` à son résultat réel —
-jamais l'inverse, jamais un score inventé en attendant.
+Deux conditions distinctes doivent être remplies avant que ce pack redevienne actionnable, et aucune
+des deux ne doit être forcée ou contournée :
+
+1. **Traduction machine** : le provider `googletrans` réel doit redevenir joignable (statut
+   `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` levé) — vérifiable en rejouant
+   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py`
+   et/ou `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`, qui
+   doit rapporter `PASS` (jamais `BLOCKED`) avant que ce pack soit régénéré avec de vraies sorties.
+2. **Revue humaine** : une fois (1) satisfaite et ce pack régénéré avec des sorties machine réelles,
+   un relecteur humain compétent dans une ou plusieurs des quatre langues remplit directement les
+   champs « Verdict humain » ci-dessus (oui/non par question, par paire de langues jugée) et le
+   statut passe de `PENDING_HUMAN_REVIEW` à son résultat réel — jamais l'inverse, jamais un score
+   inventé en attendant.

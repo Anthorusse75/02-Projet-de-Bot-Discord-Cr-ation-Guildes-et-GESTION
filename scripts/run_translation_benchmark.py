@@ -67,6 +67,18 @@ class MeasurementRecord:
     protected_integrity_ok: bool | None
     error: str | None
     translated_preview: str | None  # first 80 chars only, for manual spot-check
+    #: True when the fully-reconstructed translated text is character-for-
+    #: character identical to the original source content. Deliberately
+    #: informational, never a pass/fail gate on its own: some genuinely
+    #: correct translations of proper nouns/acronyms/technical-only content
+    #: legitimately come back unchanged. What actually gates provider health
+    #: is `error` (see `did.translation.googletrans_adapter
+    #: ._production_translator` and its `raise_exception=True` fail-closed
+    #: contract, which turns a provider transport failure into a real error
+    #: here rather than a silent echo) -- this field exists purely so a
+    #: human reviewing the evidence can see how often it happened, never to
+    #: itself flip PASS/FAIL.
+    identical_to_source: bool | None
 
 
 async def _run_one(
@@ -129,6 +141,7 @@ async def _run_one(
             protected_integrity_ok=integrity_ok,
             error=None,
             translated_preview=restored[:80],
+            identical_to_source=(restored == content),
         )
     except Exception as exc:
         latency = time.perf_counter() - started
@@ -143,6 +156,7 @@ async def _run_one(
             protected_integrity_ok=None,
             error=str(exc),
             translated_preview=None,
+            identical_to_source=None,
         )
 
 
@@ -171,7 +185,11 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
                 record = await _run_one(provider, item, strategy, source_language, target_language)
                 records.append(record)
 
+    summary = _summarize(records)
+    status, status_reason = _overall_status(summary)
     return {
+        "status": status,
+        "status_reason": status_reason,
         "meta": {
             "generated_at": datetime.now(UTC).isoformat(),
             "googletrans_distribution_version": GOOGLETRANS_DISTRIBUTION_VERSION,
@@ -183,7 +201,7 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
             "items_per_language": {lang: len(items) for lang, items in items_by_language.items()},
         },
         "records": [asdict(r) for r in records],
-        "summary": _summarize(records),
+        "summary": summary,
     }
 
 
@@ -204,6 +222,8 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
                 "errors": 0,
                 "integrity_ok": 0,
                 "integrity_checked": 0,
+                "identical_to_source": 0,
+                "identical_to_source_checked": 0,
                 "latency_sum": 0.0,
                 "latency_count": 0,
             },
@@ -217,6 +237,10 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
             bucket["integrity_checked"] = int(bucket["integrity_checked"]) + 1
             if record.protected_integrity_ok:
                 bucket["integrity_ok"] = int(bucket["integrity_ok"]) + 1
+        if record.identical_to_source is not None:
+            bucket["identical_to_source_checked"] = int(bucket["identical_to_source_checked"]) + 1
+            if record.identical_to_source:
+                bucket["identical_to_source"] = int(bucket["identical_to_source"]) + 1
         if record.latency_seconds is not None:
             bucket["latency_sum"] = float(bucket["latency_sum"]) + record.latency_seconds
             bucket["latency_count"] = int(bucket["latency_count"]) + 1
@@ -230,16 +254,74 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
         avg_latency = float(bucket["latency_sum"]) / latency_count if latency_count else None
         total_provider_invocations += int(bucket["provider_invocations"])
         summary[strategy] = {
+            # Provider/network success -- did the real googletrans call
+            # complete without a (now fail-closed) transport/provider error.
             "measurement_records": bucket["measurement_records"],
             "provider_invocations": bucket["provider_invocations"],
             "errors": bucket["errors"],
+            # Protected-token integrity -- a DIFFERENT concept from
+            # translation quality: whether URLs/mentions/placeholders/etc.
+            # survived the round trip intact. A record can have perfect
+            # integrity while still being an untranslated echo, which is
+            # exactly why this is never treated as "translation quality".
             "protected_integrity_rate": integrity_rate,
+            # Translation sanity / linguistic qualification (informational
+            # only, see MeasurementRecord.identical_to_source) -- how many
+            # successful (non-error) measurements came back byte-identical
+            # to the source content. Never used to gate PASS/FAIL: some
+            # content (proper nouns, acronyms, technical-only strings) can
+            # correctly remain unchanged.
+            "identical_to_source_count": bucket["identical_to_source"],
+            "identical_to_source_checked": bucket["identical_to_source_checked"],
             "average_latency_seconds": round(avg_latency, 3) if avg_latency else None,
         }
     summary["_totals"] = {
         "provider_invocations_all_strategies": total_provider_invocations,
     }
     return summary
+
+
+def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
+    """The single honest PASS/BLOCKED/FAIL verdict for this benchmark run,
+    gated on the actual production strategy (`FULL_MASKED_MESSAGE`) only --
+    ``NAIVE_PER_TEXT_NODE`` is a deliberate negative control never selected
+    by production code (see `select_translation_strategy()`) and is allowed
+    to have a lower integrity rate without blocking this verdict.
+
+    BLOCKED means the real provider/transport is not currently working in
+    this environment (a real, fail-closed `TranslationProviderError` was
+    raised for one or more production-strategy calls -- see
+    `did.translation.googletrans_adapter._production_translator`) -- this is
+    an honest external-unavailability result, not a technical defect in this
+    benchmark or in DID's own code, and must never be silently reported as
+    PASS."""
+    production = summary.get(SegmentationStrategy.FULL_MASKED_MESSAGE.value)
+    if production is None:
+        return "BLOCKED", "no measurements recorded for the production strategy"
+    errors = int(production["errors"])
+    measurement_records = int(production["measurement_records"])
+    if errors > 0:
+        return (
+            "BLOCKED",
+            f"{errors}/{measurement_records} production-strategy (FULL_MASKED_MESSAGE) "
+            "measurements failed with a real provider/transport error -- the real "
+            "googletrans provider is not currently able to translate in this "
+            "environment. See each failing record's own `error` field for the raw "
+            "provider failure. This is never counted as a successful translation, "
+            "and this status is never silently reported as PASS.",
+        )
+    integrity_rate = production["protected_integrity_rate"]
+    if integrity_rate is None or integrity_rate < 1.0:
+        return (
+            "FAIL",
+            f"production-strategy (FULL_MASKED_MESSAGE) protected-token integrity is "
+            f"{integrity_rate!r}, below the required 100%.",
+        )
+    return (
+        "PASS",
+        "production strategy (FULL_MASKED_MESSAGE): 0 provider/transport errors, "
+        "100% protected-token integrity.",
+    )
 
 
 def main() -> int:
@@ -281,7 +363,13 @@ def main() -> int:
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"wrote {args.out}")
     print(json.dumps(report["summary"], indent=2))
-    return 0
+    status = report["status"]
+    print(f"benchmark status: {status} -- {report['status_reason']}")
+    # Never transform BLOCKED/FAIL into a successful exit code: a genuine
+    # provider/transport failure or an integrity regression must fail this
+    # step (and, when run through validate_stage.py, the whole validation
+    # run) rather than being silently swallowed into PASS.
+    return 0 if status == "PASS" else 1
 
 
 if __name__ == "__main__":

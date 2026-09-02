@@ -8,33 +8,37 @@
 > absentes »). En cas de divergence entre une section historique et cette section, **cette section fait
 > foi**.
 
-> **Statut :** `STAGE_09_COMPLETE_DRAFT_PR_OPEN`. Toutes les clauses techniques/canoniques de la
-> Definition of Done sont satisfaites avec preuve réelle ; seules des clauses **externes à toute
-> passe technique** restent ouvertes (revue sémantique humaine, participation live d'un provider de
-> traduction tiers réellement présent dans le sandbox, reproduction sûre d'un `UNKNOWN_OUTCOME` réel
-> — voir « État actuel » ci-dessous). **PR #9 reste Draft, `DO NOT MERGE — EXTERNAL AUDIT REQUIRED`.**
+> **Statut :** `STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE`. Un audit externe a trouvé un vrai
+> défaut fail-open dans l'adaptateur de traduction de production (voir ci-dessous) — **corrigé** cette
+> passe. Une fois corrigé, une tentative réelle a révélé que le provider `googletrans` réel est
+> actuellement **indisponible** dans ce sandbox réseau (HTTP 429/403 réels contre l'endpoint Google).
+> Ce n'est PAS un défaut de code DID — DID échoue désormais correctement fermé au lieu d'accepter
+> silencieusement l'écho comme une traduction réussie — mais tant que le provider externe reste
+> indisponible, **le canal d'acceptation de traduction réelle Stage09 n'est pas satisfait**, et
+> Stage09 n'est PAS déclaré complet. **PR #9 reste Draft, `DO NOT MERGE — EXTERNAL AUDIT REQUIRED`.**
 
 ## État actuel (vérité unique)
 
 | Champ | Valeur |
 |---|---|
 | Date | `2026-09-02` |
-| HEAD final (cette passe de clôture évidence) | le commit qui contient exactement ce texte est par construction le dernier commit poussé de cette passe -- voir `git log -1 --format=%H` sur `stage/09-campaigns`, identique au head affiché sur PR #9 après le push de cette passe |
+| HEAD final (cette passe de remédiation) | le commit qui contient exactement ce texte est par construction le dernier commit poussé de cette passe -- voir `git log -1 --format=%H` sur `stage/09-campaigns`, identique au head affiché sur PR #9 après le push de cette passe |
 | Base main (départ) | `c41b61ae96cdb1d767c8d924212a6466b768ed60` — le commit de `main` à partir duquel la branche `stage/09-campaigns` a divergé ; `main` a continué d'avancer depuis (voir `git log main` pour son HEAD courant), ce champ documente uniquement le point de divergence, pas un état encore à jour de `main` |
 | Branche | `stage/09-campaigns` |
 | PR | #9, Draft, ouverte, non mergée |
-| Statut `CURRENT_STATE` | `STAGE_09_COMPLETE_DRAFT_PR_OPEN` (voir `docs/10_implementation/00_CURRENT_STATE.md`) |
-| Migration | `0021_stage_08 → 0032_stage_09` ; tête unique `0032_stage_09` (32 migrations Stage09, 33 fichiers avec `__init__.py`) ; rehearsal `downgrade base → upgrade head → downgrade 0001_stage_01 → upgrade head` validé sur PostgreSQL réel |
-| REQ-MSG | 31/31 `IMPLEMENTED`, 0 `PARTIALLY_IMPLEMENTED`, 0 `NOT_STARTED` |
-| Runtime | `did.runtime.py` exécute le Campaign Engine réel (scheduler + worker + réconciliation de livraison, `GoogletransCampaignTranslationProvider` réel câblé) dans les process production |
-| API HTTP | Surface Stage09 complète (WP14) : campagnes/targets/triggers/glossaire/variables/rétention/édition-suppression possédée/intervention |
-| UI (Campaign Center) | Surfaces d'authoring produit complètes : éditeur MessageModel/embed, variables typées, glossaire, trigger d'événement, rétention, sélecteur `target_kind`/modes Translation Group, édition/suppression possédée, requeue/intervention |
-| Suite de tests | `pytest backend/tests/unit` + `integration` (régression complète, non filtrée par stage), `-k stage09` : 576 tests collectés ; frontend `npm run test` + `npx playwright test` (voir « Suite de tests réelle » ci-dessous pour les décomptes PASS exacts de cette passe) |
-| Qualification live Discord | Un seul point d'entrée canonique désormais : `python scripts/validate_stage.py 09 --include-discord-live` exécute **à la fois** l'adaptateur-primitives (`validate_discord_live_stage09.py`, 5/5) **et** la matrice produit complète (`validate_discord_live_stage09_full_chain.py`, 11 groupes/59 vérifications incl. les scénarios Translation Group avec le vrai provider `GoogletransCampaignTranslationProvider`) — aucun des deux ne remplace l'autre, les deux doivent PASS |
-| Preuve live committée | `docs/90_handoffs/evidence/stage09/discord-live-stage09.json` (primitives) et `docs/90_handoffs/evidence/stage09/discord-live-stage09-full-chain.json` (chaîne complète, **committé cette passe** — corrige une mention précédente erronée de ce fichier comme "gitignored") |
-| Benchmark de traduction | `docs/90_handoffs/evidence/stage09/translation-benchmark.json` — 26 classes/104 items, `FULL_MASKED_MESSAGE` (production) 100.0 % d'intégrité ; non rejoué durant cette passe d'évidence (aucun code de traduction/parseur/protecteur/provider modifié — seul le SCRIPT de validation live invoque désormais le provider de production déjà existant, ce qui n'exige pas un nouveau run du benchmark) |
-| Limitation externe connue (documentée, non un défaut DID) | Le `googletrans==4.0.2` réel, appelé en direct dans ce sandbox, renvoie actuellement un texte identique à l'entrée (écho) plutôt qu'une traduction, bien que `detected_source_language` soit correct — fragilité avérée de cette bibliothèque non officielle contre l'endpoint Google actuel, hors périmètre de correction de cette passe (« ne pas redesigner »). Le routage/comptage/contrat de non-fallback silencieux, qui EST la responsabilité du code DID, reste prouvé live à 100% ; l'écho lui-même est enregistré comme observation non bloquante dans le champ `notes` du rapport JSON committé, jamais masqué |
-| Limitations honnêtement externes restantes | (A) revue sémantique humaine : `PENDING_HUMAN_REVIEW` — voir pack § dédiée ; (B) participation live d'un provider de traduction tiers réel attaché à un Translation Group (distinct du provider `googletrans` propre à DID) : aucun bot externe de ce type n'existe dans ce sandbox — `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, prouvé à la place que l'état lié/non-`DISABLED` bloque correctement le fan-out (`MANUAL_CONFIGURATION_REQUIRED`, zéro mutation Discord) ; (C) reproduction sûre d'un `UNKNOWN_OUTCOME` réel contre Discord : `NOT_SAFELY_REPRODUCIBLE_LIVE`, couvert par injection de panne déterministe en intégration |
+| Statut `CURRENT_STATE` | `STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE` (voir `docs/10_implementation/00_CURRENT_STATE.md`) — **régression délibérée depuis `STAGE_09_COMPLETE_DRAFT_PR_OPEN`** ; Stage09 n'est PAS déclaré complet tant que cette clause externe reste bloquée |
+| Migration | `0021_stage_08 → 0032_stage_09` ; tête unique `0032_stage_09` (32 migrations Stage09, 33 fichiers avec `__init__.py`) ; rehearsal `downgrade base → upgrade head → downgrade 0001_stage_01 → upgrade head` validé sur PostgreSQL réel ; **inchangée cette passe** |
+| REQ-MSG | 31/31 `IMPLEMENTED`, 0 `PARTIALLY_IMPLEMENTED`, 0 `NOT_STARTED` (inchangé -- REQ-MSG-009 reste structurellement `IMPLEMENTED`, l'exigence ne mande pas la disponibilité continue d'un tiers externe, mais le gate d'acceptation live Stage09 de traduction réelle est distinct et lui N'EST PAS satisfait tant que le provider est indisponible) |
+| **Root cause corrigée (fail-open googletrans)** | `did.translation.googletrans_adapter.GoogletransCampaignTranslationProvider` construisait `googletrans.Translator()` avec ses défauts, dont `raise_exception=False` -- une réponse HTTP non-200 de l'endpoint de traduction renvoyait alors silencieusement le sentinel interne `DUMMY_DATA` de `googletrans`, dont le texte traduit est **l'entrée elle-même ré-échoïsée**, indiscernable d'une traduction réussie. **Corrigé** : `_production_translator()` construit désormais `Translator(raise_exception=True)`, plus une vérification défensive indépendante du statut HTTP réel attaché au résultat (`result._response.status_code`) avant de faire confiance à `result.text` -- une vraie panne échoue maintenant fermé (`TranslationProviderError`), plus jamais silencieusement acceptée comme une traduction |
+| **Root cause du provider (externe, prouvée)** | Une fois le correctif en place, une tentative réelle contre `translate.googleapis.com` (l'endpoint gtx par défaut de googletrans) renvoie **HTTP 429** (page officielle « unusual traffic » de Google, capturée en brut) pour l'IP sortante de ce sandbox ; `translate.google.com` et ses variantes régionales renvoient **HTTP 403**. Prouvé stable sur plusieurs tentatives espacées et plusieurs endpoints/modes `http2` -- une vraie indisponibilité réseau externe de cette bibliothèque non officielle, pas un défaut DID |
+| Runtime | `did.runtime.py` exécute le Campaign Engine réel (scheduler + worker + réconciliation de livraison, `GoogletransCampaignTranslationProvider` réel câblé, maintenant fail-closed) dans les process production -- inchangé structurellement, le comportement en cas de panne provider est ce qui a changé |
+| API HTTP / UI (Campaign Center) | Inchangées cette passe -- surface Stage09 complète (WP14), toutes les surfaces d'authoring produit |
+| Suite de tests | `pytest backend/tests/unit` + `integration` (régression complète, non filtrée par stage), `-k stage09` : 576+ tests collectés (15 nouveaux tests unitaires sur le fail-closed de l'adaptateur cette passe) ; voir « Validation canonique de la remédiation » ci-dessous pour les décomptes PASS exacts |
+| Qualification live Discord (primitives + chaîne complète) | Point d'entrée canonique inchangé : `python scripts/validate_stage.py 09 --include-discord-live` exécute les deux scripts live dans la même exécution. **Résultat de cette passe : FAIL honnête**, pas un faux PASS -- 9 des 11 groupes de scénarios restent 100% PASS (rien lié à la traduction n'est affecté : IMMEDIATE/ONE_SHOT_DEFERRED/RECURRING/EVENT_TRIGGERED/LOGICAL_GROUP/édition-suppression/embed-bouton/équité Governor/rétention, plus SOURCE_ONLY et EXISTING_PROVIDER et le groupe frontière-provider qui n'ont jamais besoin d'une traduction réelle) ; seuls les échantillons de prose délibérément linguistique de DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES/variante-approuvée-sœur échouent désormais **honnêtement**, avec la vraie erreur 429 du provider capturée dans les logs applicatifs (`campaign.schedule.evaluation_failed`, `reason: "unexpected error: translation provider error (attempt 3/3): Unexpected status code \"429\"..."`) -- jamais un contenu source ré-échoïsé accepté comme traduit |
+| Preuve live committée | `docs/90_handoffs/evidence/stage09/discord-live-stage09.json` (primitives, inchangé, 5/5) et `docs/90_handoffs/evidence/stage09/discord-live-stage09-full-chain.json` (chaîne complète, **régénéré cette passe**, `"status": "FAIL"` honnête, voir détail ci-dessus) |
+| Benchmark de traduction | `docs/90_handoffs/evidence/stage09/translation-benchmark.json` -- **rejoué cette passe** (le provider de production a changé -- fail-closed -- donc l'évidence précédente, mesurée contre l'ancien comportement fail-open, n'était plus valide). Nouveau statut : **`BLOCKED`**, 1248/1248 mesures en échec réel sur les 4 stratégies (312 chacune), 0 traduction obtenue -- jamais transformé en `PASS`. Le rapport distingue désormais explicitement succès provider/réseau, intégrité de tokens protégés, et sanité de traduction (`identical_to_source_count`, jamais un gate à lui seul) |
+| Smoke réseau réel étendu | `backend/tests/network/test_stage09_translation_network.py` étendu à une matrice EN→FR/FR→EN/DE→ES/ES→DE de prose délibérément linguistique (plus le smoke de préservation de placeholder existant) ; rejoué réellement cette passe : **5/5 en échec réel** (429/circuit ouvert), jamais un faux succès. Ce smoke est désormais câblé comme étape bloquante avant le benchmark complet dans `validate_stage.py 09 --profile translation-benchmark --allow-network` |
+| Limitations honnêtement externes restantes | (A) revue sémantique humaine : `PENDING_HUMAN_REVIEW` -- pack régénéré cette passe avec le statut machine réel `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` (jamais de sortie fabriquée), voir pack § dédiée ; (B) **provider de traduction propre à DID (`googletrans`) actuellement indisponible** : `GOOGLETRANS_PROVIDER_CURRENTLY_UNAVAILABLE`, HTTP 429/403 réels prouvés, hors du contrôle de cette passe technique -- c'est la clause bloquante principale de cette passe ; (C) participation live d'un provider de traduction tiers réel attaché à un Translation Group (distinct de (B)) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé ; (D) reproduction sûre d'un `UNKNOWN_OUTCOME` réel contre Discord : `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé |
 
 ## Passe de remédiation externe (17 findings, intégrée)
 
@@ -875,141 +879,121 @@ corpus plus étroit — les deux chiffres ne sont pas directement comparables, c
 distribution de contenu différente) — attendu, sans effet sur l'exigence, que la stratégie de
 production satisfait maintenant exactement sur le corpus normatif actuel.
 
-## Suite de tests réelle (état courant, passe de clôture évidence)
+## Suite de tests réelle (état courant, passe de remédiation fail-closed)
 
 | Gate | Résultat |
 |---|---|
-| `uv run pytest --collect-only -q backend/tests -k stage09` | **576 tests collectés** |
-| `uv run pytest backend/tests/unit/` (régression complète, non filtrée par stage) | voir le run canonique `scripts/validate_stage.py 09` (section « Validation canonique » ci-dessous) pour le décompte exact de cette passe |
-| `DID_RUN_INTEGRATION=1 uv run pytest backend/tests/integration/` (régression complète, PostgreSQL réel) | idem |
-| `npm run test` (frontend, vitest) | idem |
-| `npx playwright test` (frontend, incl. axe, stages 07/08/09) | idem |
-| `uv run ruff check .` / `ruff format --check .` | PASS |
-| `uv run mypy src/did` (mode strict) | PASS |
-| `npm run openapi:check` | PASS — snapshot à jour |
-| `npm run build` (frontend) | PASS |
-| Migration `0032_stage_09` (tête actuelle, 32 migrations Stage09) | `downgrade base` → `upgrade head` → `downgrade 0001_stage_01` → `upgrade head`, tête unique confirmée |
-| `scripts/validate_discord_live_stage09.py --include` | **5/5 scénarios PASS** (adaptateur, inchangé) |
-| `scripts/validate_discord_live_stage09_full_chain.py --include` | **59/59 vérifications PASS**, 11 groupes de scénarios (9 groupes produit + 2 nouveaux groupes Translation Group, ajoutés durant cette passe de clôture évidence — voir « Qualification live Discord réelle » ci-dessous) |
-| `python scripts/validate_stage.py 09 --include-discord-live` | **canonique** : invoque désormais les deux scripts ci-dessus dans la même exécution, rapports séparés, aucun des deux ne se substitue à l'autre, les deux doivent PASS |
+| `uv run pytest backend/tests/unit/test_stage09_translation_adapter.py` | **15 passed** (9 préexistants + 6 nouveaux : construction fail-closed du provider de production, rejet 429/403 même sans exception levée par googletrans lui-même, passage 200 inchangé, absence de `_response` non pénalisée) |
+| `python scripts/validate_stage.py 09` (défaut, sans réseau réel) | **PASS**, inchangé -- l'adaptateur corrigé n'affecte aucun test offline (les doubles factices n'exposent jamais `_response`, donc la vérification défensive ne se déclenche jamais pour eux) |
+| `python scripts/validate_stage.py 08` | **PASS**, inchangé -- aucune régression |
+| `python scripts/validate_stage.py 09 --profile failure-injection` | **PASS**, inchangé |
+| `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py` | **5 failed** (réel, honnête) -- 4 nouvelles directions de prose linguistique (EN→FR/FR→EN/DE→ES/ES→DE) + le smoke de préservation de placeholder existant, tous en échec réel avec `TranslationProviderError` (HTTP 429 réel ou disjoncteur ouvert), plus aucun ne peut silencieusement passer sur un écho |
+| `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` | **BLOCKED** (honnête, jamais transformé en PASS) -- la nouvelle étape de smoke réseau gate désormais le benchmark complet et échoue avant lui ; exécuté séparément en direct (voir ci-dessous), le benchmark complet confirme **1248/1248 mesures en échec réel** sur les 4 stratégies |
+| `python scripts/validate_stage.py 09 --include-discord-live` | **FAIL** (honnête) -- voir « Qualification live Discord réelle » ci-dessous pour le détail exact des groupes qui échouent et de ceux qui restent 100% verts |
 
-Le corpus de benchmark de traduction (26 classes/104 items, stratégie de production) n'a **pas** été
-rejoué durant cette passe de clôture évidence : aucun code de traduction, de parseur, de protecteur ou
-de provider n'a changé — seul le SCRIPT de qualification live a été étendu pour invoquer le
-`GoogletransCampaignTranslationProvider` de production déjà existant, ce qui n'exige pas un nouveau
-run du benchmark (l'évidence déjà committée reste valide pour l'implémentation actuelle, inchangée).
-Voir `docs/90_handoffs/evidence/stage09/translation-benchmark.json` pour la preuve committée la plus
-récente.
+Le corpus de benchmark de traduction (26 classes/104 items) **a été rejoué** cette passe (contrairement
+à la passe précédente) : le provider de production a changé de comportement (fail-closed), rendant
+l'évidence précédente -- mesurée contre l'ancien comportement fail-open -- non représentative de
+l'implémentation actuelle. Nouveau résultat committé : **`BLOCKED`**, 0 traduction réelle obtenue sur
+les 1248 mesures (4 stratégies x 12 directions x 26 items), toutes en échec réel HTTP 429 ou disjoncteur
+ouvert après 5 échecs consécutifs -- jamais compté comme une traduction réussie. Voir
+`docs/90_handoffs/evidence/stage09/translation-benchmark.json` (`status: "BLOCKED"`,
+`status_reason` détaillé, et le nouveau champ `identical_to_source_count` par stratégie, toujours à 0
+ici puisque aucune mesure n'a atteint une sortie -- toutes ont `error` renseigné).
 
 ## Qualification live Discord réelle
 
-`scripts/validate_discord_live_stage09.py` exécute le vrai `DiscordPyMessageSender` contre le
-sandbox Guild A réel (salon temporaire créé/supprimé, contenu synthétique uniquement, zéro
-secret/id/PII committé) : **5/5 scénarios PASS** (envoi immédiat allowed_mentions=none, edit
-possédé, delete possédé, dédup même nonce, nonce différent crée un message distinct) — preuve
-committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`).
+`scripts/validate_discord_live_stage09.py` : **5/5 scénarios PASS**, inchangé (n'implique aucune
+traduction) — preuve committée (`docs/90_handoffs/evidence/stage09/discord-live-stage09.json`).
 
-**La matrice produit complète** (`scripts/validate_discord_live_stage09_full_chain.py`) traverse la
-chaîne production complète — application/API → occurrence → fan-out → livraison durable →
-`discord_io_job` durable → un vrai `DurableDiscordIOWorker` → un vrai `DiscordWorkloadGovernor` →
-l'adaptateur `DiscordPyMessageSender` réel → Discord réel → résultat/réconciliation durable — contre
-les deux Guilds réels du sandbox (A et B). Onze groupes de scénarios : IMMEDIATE+CHANNEL,
-ONE_SHOT_DEFERRED, RECURRING, EVENT_TRIGGERED, LOGICAL_GROUP, édition/suppression possédée par chemin
-de job durable complet, richesse embed/bouton, équité du Workload Governor cross-Guild, rétention
-sans impact sur le message Discord réel, et — **ajoutés durant cette passe de clôture évidence** —
-`translation_group_did_fanout` et `translation_group_provider_boundary`. **59/59 vérifications PASS**
-en une seule exécution continue — preuve committée
-`docs/90_handoffs/evidence/stage09/discord-live-stage09-full-chain.json` (fichier tracké dans git,
-corrige une mention précédente erronée du chemin `artifacts/...` gitignoré comme « committé »).
+**La matrice produit complète** (`scripts/validate_discord_live_stage09_full_chain.py`, 11 groupes)
+donne un résultat honnêtement **mixte** cette passe -- exactement ce que le fail-closed doit produire
+quand le provider externe est indisponible, jamais un faux PASS global :
 
-Détail des deux nouveaux groupes Translation Group (mission de clôture évidence, sections 4/5) :
+- **9 groupes à 100% PASS, sans changement** : IMMEDIATE+CHANNEL, ONE_SHOT_DEFERRED, RECURRING,
+  EVENT_TRIGGERED, LOGICAL_GROUP, édition/suppression possédée, embed/bouton, équité Workload
+  Governor, rétention -- rien de tout cela ne dépend de la traduction.
+- **`translation_group_did_fanout` -- PASS partiel, échec honnête sur ce qui dépend réellement du
+  provider** : SOURCE_ONLY reste PASS (aucune traduction requise). Les quatre directions
+  DID_TRANSLATED_FANOUT (EN/FR/DE/ES) échouent désormais correctement : le contenu source utilisé est
+  déliberement de la prose linguistique (voir ci-dessous), et la vraie panne provider
+  (`translation provider error (attempt 3/3): Unexpected status code "429"...`) empêche l'occurrence
+  d'atteindre son fan-out complet -- capturé en toute transparence dans les logs applicatifs réels
+  (`campaign.schedule.evaluation_failed`). SELECTED_LANGUAGES et la variante-approuvée-sœur DE échouent
+  pour la même raison réelle.
+- **`translation_group_provider_boundary` -- 100% PASS, inchangé** : ce groupe ne dépend jamais du
+  provider `googletrans` propre à DID (il prouve l'inverse -- qu'un provider *externe* lié bloque
+  correctement le fan-out), donc non affecté par cette indisponibilité.
 
-- **`translation_group_did_fanout`** exerce en live, avec le vrai
-  `GoogletransCampaignTranslationProvider()` construit exactement comme `did.runtime.py` le fait en
-  production (jamais un provider factice) : SOURCE_ONLY (seul le salon source publie), DID_TRANSLATED_
-  FANOUT pour chacune des quatre langues source FR/EN/DE/ES (routage correct, comptage exact de
-  destinations, contenu non vide, exactement un message par livraison), SELECTED_LANGUAGES (sous-
-  ensemble exact demandé, jamais la source), et la réutilisation de variante approuvée (FR réutilisée
-  verbatim sans nouvel appel provider, DE — sans variante approuvée — retraduit réellement en live).
-  Ce que ces vérifications prouvent est strictement ce dont le code DID est responsable : routage,
-  comptage, contenu non vide, un seul message. Elles ne dépendent PAS de la sortie linguistique du
-  tiers `googletrans` : dans ce sandbox, cette dépendance non officielle renvoie actuellement un texte
-  identique à l'entrée (écho, voir « État actuel » ci-dessus) — chaque occurrence observée est
-  enregistrée sans être masquée dans le champ `notes` du rapport JSON committé, jamais utilisée pour
-  faire échouer une assertion que le code DID ne possède pas.
-- **`translation_group_provider_boundary`** distingue explicitement ce provider `googletrans` propre à
-  DID d'un véritable bot provider externe attaché à un Translation Group. Aucun bot externe de ce type
-  n'existe dans ce sandbox — **aucune tentative de le simuler** : à la place, la vérification prouve en
-  live qu'un `translation_provider_bindings` réel dont le statut n'est pas `DISABLED` bloque
-  correctement le fan-out (`MANUAL_CONFIGURATION_REQUIRED`, zéro livraison créée, zéro message Discord
-  envoyé dans l'un ou l'autre salon de destination) — la limitation d'absence de provider externe réel
-  dans ce sandbox est documentée honnêtement, jamais contournée par un double.
+**Changement de contenu et d'assertion (remédiation)** : les échantillons synthétiques utilisés par
+`translation_group_did_fanout` sont désormais de la **prose délibérément linguistique**, native par
+langue (jamais des chaînes technique-only du type « Full chain translation source EN (synthetic) »)
+-- pour qu'une destination traduite identique au texte source soit objectivement un échec, pas une
+zone grise. Et l'assertion elle-même est désormais un **vrai échec bloquant** (`routing_ok = False`)
+quand une destination revient identique à la source, plus seulement une observation non bloquante --
+corrigeant un vrai défaut de sévérité de test trouvé par l'audit externe : la version précédente ne
+faisait qu'observer/logger un écho sans jamais faire échouer le scénario correspondant.
 
-La reproduction à la demande d'un `UNKNOWN_OUTCOME`/`INTERVENTION_REQUIRED` réel contre Discord
-(nécessite une défaillance réseau/API ambiguë) reste non sûrement reproductible en live ; couverte à
-la place par injection de panne déterministe (`test_stage09_delivery_worker_postgres.py`,
-`test_stage09_retention_postgres.py`), raison explicitement notée. Les deux validateurs live sont skip
-par défaut sans `--include`, comme tous les autres validateurs live du dépôt, et ne se substituent
-jamais l'un à l'autre — `scripts/validate_stage.py 09 --include-discord-live` les invoque désormais
-tous les deux dans la même exécution canonique.
+La reproduction à la demande d'un `UNKNOWN_OUTCOME`/`INTERVENTION_REQUIRED` réel contre Discord reste
+non sûrement reproductible en live ; couverte par injection de panne déterministe, inchangé.
 
 ## Audit final Definition of Done — taxonomie à trois voies
 
-La mission de clôture évidence impose de distinguer, clause par clause : **TECHNICALLY_SATISFIED**
-(prouvé par du code/test/CI réel, sous le contrôle de cette passe) ; **EXTERNAL_ACCEPTANCE_ITEM**
-(dépend d'une action ou d'une ressource légitimement hors du périmètre d'une passe technique — revue
-humaine, bot tiers réel, merge) ; **NOT_SATISFIED** (un vrai défaut resterait ouvert — aucune clause
-ci-dessous n'est dans cet état).
+**Ce tableau régresse délibérément** depuis la passe précédente : la clause de traduction live n'est
+plus `TECHNICALLY_SATISFIED`, elle est `NOT_SATISFIED` (bloquée par une clause externe légitime, pas
+par un défaut d'implémentation) tant que le provider `googletrans` réel reste indisponible.
 
 | Clause | Statut | Preuve |
 |---|---|---|
-| Migrations | **TECHNICALLY_SATISFIED** | rehearsal complet `downgrade base → upgrade head → downgrade 0001_stage_01 → upgrade head`, 32 migrations, tête unique `0032_stage_09` |
-| Engine | **TECHNICALLY_SATISFIED** | moteur de campagne complet, câblé dans les process réels (`did.runtime.py`), réconciliation de livraison câblée |
-| UI | **TECHNICALLY_SATISFIED** | Campaign Center complet incl. toutes les surfaces d'authoring produit |
-| Fuzz | **TECHNICALLY_SATISFIED** | tests property-based du parseur/protecteur (REQ-MSG-011/023), dans la suite unit régressée |
-| Failure | **TECHNICALLY_SATISFIED** | `pytest.mark.failure_injection` -- fencing de bail, courses concurrentes, restart mi-chaîne, dans la suite integration régressée |
-| Load | **TECHNICALLY_SATISFIED** | `tests/load/test_stage09_campaign_fairness_load.py` (marker `load`) : backlog de campagnes en masse sans privation d'apply structurel ni de part équitable d'un autre Guild |
-| Real corpus | **TECHNICALLY_SATISFIED** | corpus de traduction 26 classes/104 items, `FULL_MASKED_MESSAGE` 100.0% d'intégrité, evidence committée (non rejoué cette passe, justification ci-dessus) |
-| Live (primitives + chaîne complète) | **TECHNICALLY_SATISFIED** | `validate_discord_live_stage09.py` (5/5) + `validate_discord_live_stage09_full_chain.py` (59/59, 11 groupes) via le point d'entrée canonique unique `validate_stage.py 09 --include-discord-live` |
-| Live (provider de traduction tiers réellement présent) | **EXTERNAL_ACCEPTANCE_ITEM** | `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE` — aucun bot provider externe n'existe dans ce sandbox ; l'état bloquant est prouvé live à sa place (`translation_group_provider_boundary`), jamais simulé |
-| Live (UNKNOWN_OUTCOME réel) | **EXTERNAL_ACCEPTANCE_ITEM** | `NOT_SAFELY_REPRODUCIBLE_LIVE` — nécessite une défaillance réseau/API ambiguë non déclenchable de façon sûre et fiable ; couvert par injection de panne déterministe |
-| All REQ proofs | **TECHNICALLY_SATISFIED** | 31/31 REQ-MSG-001..031 `IMPLEMENTED`, preuve fichier:ligne dans `00_REQUIREMENTS_TRACEABILITY.md` |
-| Regressions 01–08 | **TECHNICALLY_SATISFIED** | suite pytest complète non filtrée par stage couvre les huit stages précédents, aucune régression |
-| Docs/handoff/state | **TECHNICALLY_SATISFIED** | ce document et `docs/10_implementation/00_CURRENT_STATE.md` normalisés cette passe en une seule vérité courante |
-| Revue sémantique humaine | **EXTERNAL_ACCEPTANCE_ITEM** | `PENDING_HUMAN_REVIEW` — aucune évaluation humaine n'a eu lieu, aucun score fabriqué ; pack d'échantillons FR/EN/DE/ES préparé, `docs/90_handoffs/evidence/stage09/human-semantic-review-pack.md` |
-| Commit/push/PR/merge | Partiel, délibérément **EXTERNAL_ACCEPTANCE_ITEM** pour le merge | chaque passe commitée et poussée normalement ; PR #9 reste Draft/ouverte, `DO NOT MERGE — EXTERNAL AUDIT REQUIRED` -- le merge n'est pas un critère qu'une passe technique autonome peut ou doit satisfaire seule |
+| Migrations | **TECHNICALLY_SATISFIED** | inchangé |
+| Engine | **TECHNICALLY_SATISFIED** | inchangé -- le comportement fail-closed en cas de panne provider EST le comportement correct de l'Engine |
+| UI | **TECHNICALLY_SATISFIED** | inchangé |
+| Fuzz | **TECHNICALLY_SATISFIED** | inchangé |
+| Failure | **TECHNICALLY_SATISFIED** | inchangé |
+| Load | **TECHNICALLY_SATISFIED** | inchangé |
+| Real corpus / benchmark de traduction | **NOT_SATISFIED (bloqué par une cause externe)** | `BLOCKED` -- 1248/1248 mesures en échec réel, 0 traduction obtenue ; le provider externe `googletrans` est indisponible dans ce sandbox (HTTP 429/403 réels, prouvés) -- pas un défaut d'implémentation DID, mais le gate d'acceptation lui-même n'est objectivement pas satisfait tant que cette indisponibilité dure |
+| Live (primitives) | **TECHNICALLY_SATISFIED** | `validate_discord_live_stage09.py` 5/5, inchangé |
+| Live (chaîne complète, hors traduction) | **TECHNICALLY_SATISFIED** | 9/11 groupes 100% PASS, aucun dépendant de la traduction |
+| Live (chaîne complète, DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES/variante-sœur) | **NOT_SATISFIED (bloqué par une cause externe)** | échec honnête, provider indisponible -- voir détail ci-dessus ; jamais transformé en PASS |
+| Live (provider de traduction tiers réellement présent) | **EXTERNAL_ACCEPTANCE_ITEM** | inchangé, `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE` |
+| Live (UNKNOWN_OUTCOME réel) | **EXTERNAL_ACCEPTANCE_ITEM** | inchangé, `NOT_SAFELY_REPRODUCIBLE_LIVE` |
+| All REQ proofs | **TECHNICALLY_SATISFIED** | 31/31 REQ-MSG-001..031 `IMPLEMENTED`, inchangé -- REQ-MSG-009 exige structurellement l'existence d'un port/adaptateur de traduction, pas la disponibilité continue du tiers ; cette clause de traçabilité reste distincte du gate d'acceptation live de traduction réelle ci-dessus, qui lui n'est PAS satisfait |
+| Regressions 01–08 | **TECHNICALLY_SATISFIED** | inchangé |
+| Docs/handoff/state | **TECHNICALLY_SATISFIED** | ce document, `00_CURRENT_STATE.md` et le pack de revue humaine mis à jour honnêtement cette passe |
+| Revue sémantique humaine | **EXTERNAL_ACCEPTANCE_ITEM** (bloquée en amont) | `PENDING_HUMAN_REVIEW`, et la sortie machine qu'elle devrait juger est elle-même `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` -- le pack documente cette double dépendance honnêtement plutôt que de fabriquer une sortie |
+| Commit/push/PR/merge | Partiel, **EXTERNAL_ACCEPTANCE_ITEM** pour le merge | inchangé, `DO NOT MERGE — EXTERNAL AUDIT REQUIRED` |
 
-Toutes les clauses techniques sont **TECHNICALLY_SATISFIED** avec preuve réelle. Aucune clause n'est
-`NOT_SATISFIED`. Seules des clauses légitimement **EXTERNAL_ACCEPTANCE_ITEM** restent ouvertes, ce qui
-justifie `CURRENT_STATE = STAGE_09_COMPLETE_DRAFT_PR_OPEN` sans marquer Stage09 « intégré » ni
-autoriser le merge.
+**Résultat** : au moins une clause technique/canonique (`Real corpus` / `Live chaîne complète pour la
+traduction`) est désormais `NOT_SATISFIED` -- même si la cause profonde est externe (provider tiers
+indisponible), ce n'est **pas** une clause `EXTERNAL_ACCEPTANCE_ITEM` au sens de la Definition of
+Done : le gate d'acceptation « traduction réelle » lui-même est un critère technique/canonique de
+Stage09 (REQ-MSG-009/011/023/024), et il n'est objectivement pas rempli tant que le provider ne
+répond pas réellement. `CURRENT_STATE` régresse donc à `STAGE_09_BLOCKED_TRANSLATION_PROVIDER_
+UNAVAILABLE` -- Stage09 n'est PAS déclaré complet, conformément à l'instruction explicite de ne
+jamais transformer un `NOT_SATISFIED` en `STAGE_09_COMPLETE_DRAFT_PR_OPEN`.
 
 ## Écarts connus (non dissimulés)
 
-Tous les écarts historiques (réconciliation de livraison non câblée, surfaces d'authoring Stage09
-restantes en UI/API, matrice de qualification live incomplète, modes Translation Group non exercés
-en live) sont **fermés**. Restent honnêtement ouverts — les trois clauses `EXTERNAL_ACCEPTANCE_ITEM`
-ci-dessus :
-
-1. **Revue sémantique humaine** : aucune évaluation humaine n'a eu lieu ; aucun score n'est
-   fabriqué. `PENDING_HUMAN_REVIEW` — dimension séparée de l'intégrité technique, qui elle est
-   mesurée machine à 100%.
-2. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du provider
-   `googletrans` propre à DID, lui-même exercé en live) : aucun bot externe de ce type n'existe dans
-   ce sandbox — `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`. L'état bloquant (provider lié, statut
-   non-`DISABLED`) est prouvé en live à sa place (`translation_group_provider_boundary` : zéro
-   livraison, zéro message Discord).
-3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** :
-   nécessite une défaillance réseau/API ambiguë, non déclenchable de façon fiable et sûre contre un
-   sandbox réel ; `NOT_SAFELY_REPRODUCIBLE_LIVE`, couvert par le double contrôlable de
-   `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
-4. **Fragilité externe du provider `googletrans` réel dans ce sandbox** (non un écart de Stage09,
-   documentée pour complétude) : le round-trip API réussit (`detected_source_language` correct) mais
-   le texte renvoyé est actuellement identique à l'entrée pour toutes les directions testées — une
-   fragilité pré-existante de cette bibliothèque non officielle, hors périmètre de correction de
-   cette passe. N'affecte aucune assertion sous la responsabilité du code DID (routage, comptage,
-   contrat de non-fallback silencieux), tous prouvés live à 100%.
+1. **Provider de traduction `googletrans` propre à DID, actuellement indisponible** (clause bloquante
+   principale de cette passe) : `GOOGLETRANS_PROVIDER_CURRENTLY_UNAVAILABLE`. Root cause prouvée en
+   direct : `translate.googleapis.com` (endpoint gtx par défaut) renvoie HTTP 429 (« unusual traffic »,
+   page de blocage Google authentique) ; `translate.google.com` et ses variantes régionales renvoient
+   HTTP 403. Stable sur plusieurs tentatives, plusieurs endpoints, les deux modes `http2`. Le défaut
+   fail-open qui masquait auparavant cette panne (googletrans renvoyant silencieusement son sentinel
+   `DUMMY_DATA` -- un écho de l'entrée -- quand `raise_exception=False`, son défaut) est **corrigé** :
+   `GoogletransCampaignTranslationProvider` construit désormais son `Translator` avec
+   `raise_exception=True` et vérifie défensivement le statut HTTP réel avant de faire confiance à la
+   sortie. Une vraie panne échoue donc maintenant fermé, visible, jamais silencieusement acceptée.
+2. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, bloquée en amont par (1) -- le pack
+   d'échantillons documente honnêtement `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` plutôt que de
+   fabriquer des sorties, voir `docs/90_handoffs/evidence/stage09/human-semantic-review-pack.md`.
+3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct de (1), un bot
+   externe attaché à un Translation Group) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé --
+   aucun bot externe de ce type n'existe dans ce sandbox ; l'état bloquant (provider lié, statut
+   non-`DISABLED`) reste prouvé en live (`translation_group_provider_boundary`, non affecté par (1)).
+4. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** :
+   `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé, couvert par injection de panne déterministe.
 
 Voir `docs/10_implementation/STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` pour la matrice complète des
-31 IDs (désormais 31/31 `IMPLEMENTED`) et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md`
-pour la preuve fichier:ligne de chacun.
+31 IDs et `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` pour la preuve fichier:ligne de
+chacun.

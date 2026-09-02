@@ -29,6 +29,23 @@ from did.domain.translation_provider import (
 from did.translation.circuit_breaker import CircuitBreaker
 
 
+def _production_translator() -> Translator:
+    """The real, production ``googletrans.Translator`` construction.
+
+    ``raise_exception=True`` is load-bearing, not cosmetic: googletrans's own
+    default (``raise_exception=False``) makes a non-200 response from the
+    translate endpoint (rate-limited, blocked, ...) silently return its
+    internal ``DUMMY_DATA`` sentinel, whose ``translated_text`` is the
+    *original input text echoed back* -- indistinguishable from a real,
+    successful no-op translation unless the caller inspects the raw HTTP
+    response itself. Passing ``raise_exception=True`` makes googletrans raise
+    on that same condition instead, so a real provider/transport failure
+    surfaces as an exception here (turned into :class:`TranslationProviderError`
+    below) rather than DID silently accepting an untranslated echo as if it
+    were a completed translation."""
+    return Translator(raise_exception=True)
+
+
 class GoogletransCampaignTranslationProvider:
     """Structurally implements :class:`CampaignTranslationProvider`."""
 
@@ -39,7 +56,7 @@ class GoogletransCampaignTranslationProvider:
         max_attempts: int = 3,
         retry_backoff_seconds: float = 0.5,
         circuit_breaker: CircuitBreaker | None = None,
-        translator_factory: Callable[[], Translator] = Translator,
+        translator_factory: Callable[[], Translator] = _production_translator,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if timeout_seconds <= 0:
@@ -93,6 +110,23 @@ class GoogletransCampaignTranslationProvider:
             close = getattr(translator, "client", None)
             if close is not None:
                 await close.aclose()
+        # Defense in depth alongside `raise_exception=True` on the translator
+        # itself (see `_production_translator`): googletrans stores the raw
+        # HTTP response as a private attribute on the result it returns.
+        # `raise_exception=True` should already have turned a non-2xx
+        # response into an exception before we get here, but a future
+        # googletrans release changing that contract must not silently
+        # downgrade into an accepted echo -- reject explicitly on whatever
+        # status is actually present, rather than trusting `result.text`
+        # blindly.
+        response = getattr(result, "_response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None and not 200 <= status_code < 300:
+            raise TranslationProviderError(
+                f"googletrans transport failure: HTTP {status_code} from the "
+                "translation endpoint (non-2xx response was not raised as an "
+                "exception by the translator itself)"
+            )
         return TranslationResult(
             source_language=source_language,
             target_language=target_language,

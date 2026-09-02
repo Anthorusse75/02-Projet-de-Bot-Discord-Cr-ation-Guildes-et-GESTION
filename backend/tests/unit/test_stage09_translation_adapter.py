@@ -17,7 +17,10 @@ from did.domain.translation_provider import (
     TranslationTimeoutError,
 )
 from did.translation.circuit_breaker import CircuitBreaker, CircuitState
-from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
+from did.translation.googletrans_adapter import (
+    GoogletransCampaignTranslationProvider,
+    _production_translator,
+)
 
 pytestmark = [pytest.mark.security]
 
@@ -221,3 +224,83 @@ class TestGoogletransAdapterWiring:
 
         with pytest.raises(TranslationCircuitOpenError):
             await adapter.translate("hi", source_language="en", target_language="de")
+
+
+class TestProductionTranslatorConstruction:
+    """``googletrans``'s own default (``raise_exception=False``) silently
+    turns a non-2xx transport response into its ``DUMMY_DATA`` sentinel,
+    whose ``translated_text`` echoes the input -- indistinguishable from a
+    genuine no-op translation. The production factory must not use that
+    default."""
+
+    def test_production_translator_raises_on_transport_failure(self) -> None:
+        translator = _production_translator()
+        assert translator.raise_exception is True
+
+
+class TestGoogletransAdapterFailsClosedOnTransportFailure:
+    """Even with ``raise_exception=True`` upstream, the adapter must not
+    blindly trust ``result.text`` -- a defensive check on whatever HTTP
+    status googletrans attaches to its result must independently reject a
+    non-2xx response, so a future googletrans release silently changing that
+    raise contract cannot regress DID back into accepting an echo."""
+
+    def _adapter_with_response(
+        self, *, status_code: int | None, text: str = "hello", src: str = "en"
+    ) -> GoogletransCampaignTranslationProvider:
+        class _FakeResponse:
+            def __init__(self, code: int) -> None:
+                self.status_code = code
+
+        class _FakeResult:
+            def __init__(self) -> None:
+                self.text = text
+                self.src = src
+                if status_code is not None:
+                    self._response = _FakeResponse(status_code)
+
+        class _FakeClientStub:
+            async def aclose(self) -> None:
+                return None
+
+        class _FakeTranslator:
+            def __init__(self) -> None:
+                self.client = _FakeClientStub()
+
+            async def translate(self, text: str, *, src: str, dest: str) -> _FakeResult:
+                return _FakeResult()
+
+        return GoogletransCampaignTranslationProvider(
+            timeout_seconds=1.0,
+            max_attempts=1,
+            retry_backoff_seconds=0.001,
+            translator_factory=_FakeTranslator,
+            sleep=lambda _seconds: asyncio.sleep(0),
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_2xx_status_is_rejected_even_without_an_exception(self) -> None:
+        adapter = self._adapter_with_response(status_code=429)
+        with pytest.raises(TranslationProviderError):
+            await adapter.translate("hi", source_language="en", target_language="fr")
+
+    @pytest.mark.asyncio
+    async def test_403_status_is_rejected(self) -> None:
+        adapter = self._adapter_with_response(status_code=403)
+        with pytest.raises(TranslationProviderError):
+            await adapter.translate("hi", source_language="en", target_language="fr")
+
+    @pytest.mark.asyncio
+    async def test_200_status_passes_through(self) -> None:
+        adapter = self._adapter_with_response(status_code=200, text="salut")
+        result = await adapter.translate("hi", source_language="en", target_language="fr")
+        assert result.translated_text == "salut"
+
+    @pytest.mark.asyncio
+    async def test_missing_response_attribute_does_not_block_result(self) -> None:
+        """A fake/stub translator (as used by every other test in this
+        module) that never sets `_response` at all must not be penalized --
+        the defensive check only fires when a status is actually present."""
+        adapter = self._adapter_with_response(status_code=None, text="salut")
+        result = await adapter.translate("hi", source_language="en", target_language="fr")
+        assert result.translated_text == "salut"

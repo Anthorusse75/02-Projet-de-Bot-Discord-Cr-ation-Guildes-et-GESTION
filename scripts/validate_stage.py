@@ -847,6 +847,32 @@ def stage_09(
     if profile == "translation-benchmark":
         return (
             Step(
+                "STAGE 09 real-network translation smoke (linguistic prose, "
+                "fail-closed on provider transport failure)",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/network/test_stage09_translation_network.py",
+                    "-v",
+                ),
+                # This step gates the benchmark step below: it proves the real
+                # googletrans provider is genuinely translating (not returning
+                # its own DUMMY_DATA echo, see
+                # did.translation.googletrans_adapter._production_translator)
+                # before the ~45-50 minute benchmark run is spent measuring
+                # something that -- if the provider is down -- can no longer
+                # silently look like a technical-integrity PASS. A provider
+                # transport failure now surfaces as a real, fail-closed
+                # TranslationProviderError from this smoke step, which stops
+                # the run here (main() breaks on the first non-PASS step)
+                # rather than burning ~1,950 network calls to reach the same
+                # honest conclusion.
+                120,
+                ROOT,
+                {"DID_ALLOW_NETWORK": "1"},
+            ),
+            Step(
                 "STAGE 09 real translation benchmark (network)",
                 (
                     uv,
