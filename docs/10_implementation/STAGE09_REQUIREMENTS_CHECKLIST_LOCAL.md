@@ -89,37 +89,46 @@ placeholder côté provider est root-causée et corrigée (retry bornée avec r�
 placeholders dans `did.campaigns.rendering`, 12 tests déterministes) ; un défaut de comptage
 d'appels provider réels dans le script de benchmark, trouvé par audit externe, est corrigé
 (`provider_invocation_count` explicite, jamais dérivé de `segment_count`, compté même sur
-erreur/reprise/échec partiel d'une stratégie segmentée ; 20 tests déterministes côté script de
-benchmark) ; **le transport `googletrans` `/translate_a/single` lui-même s'est révélé
-spécifiquement indisponible (HTTP 429, prouvé sur deux machines du réseau du product owner), tandis
-qu'une sonde du RPC Google Translate Web (`batchexecute`, id `MkEWBc`) a réussi (HTTP 200, vraie
-traduction) depuis la même machine -- la production a donc basculé vers un nouvel adaptateur,
-`GoogleTranslateRpcCampaignTranslationProvider` (`did.translation.google_translate_rpc_adapter`),
-avec le même contrat fail-closed** ; **un audit externe a ensuite trouvé que le contrat de
-requête/réponse RPC réellement codé pour cet adaptateur était inventé (paramètres de requête
-fabriqués, forme de réponse devinée) plutôt qu'empiriquement prouvé -- seuls l'endpoint et le RPC id
-l'étaient. Corrigé : requête et parsing de réponse désormais alignés exactement sur le contrat réel
-prouvé par la sonde du product owner (mêmes paramètres, même enveloppe `f.req`, même en-tête
-`Referer`, même forme de réponse), et la fixture de test déterministe reflète désormais la forme
-réellement capturée plutôt qu'une forme inventée pour correspondre au parseur** — voir
-`STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5) pour le détail complet de chaque remédiation.
+erreur/reprise/échec partiel d'une stratégie segmentée) ; **le transport `googletrans`
+`/translate_a/single` lui-même s'est révélé spécifiquement indisponible (HTTP 429, prouvé sur deux
+machines du réseau du product owner), tandis qu'une sonde du RPC Google Translate Web (`batchexecute`,
+id `MkEWBc`) a réussi (HTTP 200, vraie traduction) depuis la même machine -- la production a donc
+basculé vers un nouvel adaptateur, `GoogleTranslateRpcCampaignTranslationProvider`
+(`did.translation.google_translate_rpc_adapter`), avec le même contrat fail-closed** ; **un audit
+externe a ensuite trouvé que le contrat de requête/réponse RPC réellement codé pour cet adaptateur
+était inventé (paramètres de requête fabriqués, forme de réponse devinée) plutôt qu'empiriquement
+prouvé -- seuls l'endpoint et le RPC id l'étaient. Corrigé : requête et parsing de réponse désormais
+alignés exactement sur le contrat réel prouvé par la sonde du product owner (mêmes paramètres, même
+enveloppe `f.req`, même en-tête `Referer`, même forme de réponse), et la fixture de test déterministe
+reflète désormais la forme réellement capturée plutôt qu'une forme inventée pour correspondre au
+parseur -- ce contrat corrigé a depuis été confirmé empiriquement par un smoke réseau réel du product
+owner (`5 passed in 6.16s`, SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`)** ; **un second audit
+externe a ensuite trouvé que le comptage `provider_invocation_count` ci-dessus, bien qu'exact au
+niveau du port `provider.translate(...)`, sous-comptait encore les vraies tentatives réseau, car
+l'adaptateur RPC a sa propre reprise bornée interne (`max_attempts=3`) invisible à ce niveau -- un
+seul appel `translate()` pouvait donc générer jusqu'à 3 vrais POST HTTP sans que le comptage le
+reflète. Corrigé par un mécanisme d'observation `contextvars`-based au niveau transport
+(`count_transport_attempts()`, notifié immédiatement avant chaque vrai `await client.post(...)`,
+jamais sur un fast-fail de circuit breaker) ; le champ JSON reste nommé pareil mais désigne désormais
+honnêtement le nombre exact de vraies tentatives HTTP RPC, prouvé par 10 nouveaux tests déterministes
+pilotant le vrai adaptateur contre `httpx.MockTransport`** — voir `STAGE_09_HANDOFF.md` § « État
+actuel » (Root cause 5 et Root cause 6) pour le détail complet de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
 1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
-2. **Confirmation du smoke réseau puis du benchmark canonique avec retry contre le nouveau transport
-   RPC depuis un réseau fonctionnel** (clause mise à jour cette passe, remplace l'ancienne clause
-   « provider `googletrans` indisponible ») : le product owner a prouvé par une sonde ponctuelle à un
-   seul appel que le RPC `batchexecute` fonctionne (HTTP 200) depuis la même machine où `googletrans`
-   échoue désormais (HTTP 429) — mais ce sandbox de développement lui-même reste sans accès réseau
-   fonctionnel, donc ni le smoke complet ni le benchmark contre ce nouveau transport n'ont pu y être
-   exécutés. Commandes exactes à exécuter par le product owner, dans l'ordre :
-   (a) `uv run pytest backend/tests/network/test_stage09_translation_network.py -m translation_network`
-   (doit passer 5/5 contre `GoogleTranslateRpcCampaignTranslationProvider`, désormais avec le contrat
-   de wire corrigé -- c'est la première vérification empirique de ce contrat corrigé) ; (b) seulement
-   si (a) passe, `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
-   (doit rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`).
+2. **Confirmation du benchmark canonique avec retry contre le nouveau transport RPC depuis un réseau
+   fonctionnel, avec un comptage désormais exact au niveau transport** (clause mise à jour cette
+   passe) : **(a) CONFIRMÉE** -- le product owner a exécuté
+   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py
+   -m translation_network` depuis le Zenbook contre le SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`
+   → `5 passed in 6.16s`, confirmant empiriquement le contrat de wire corrigé. **(b) reste à
+   exécuter**, ce sandbox de développement restant sans accès réseau fonctionnel :
+   `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
+   (doit rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`) -- désormais avec
+   un comptage `provider_invocations` exact au niveau des vraies tentatives HTTP, pas seulement des
+   appels au port haut niveau.
 3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
 4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :

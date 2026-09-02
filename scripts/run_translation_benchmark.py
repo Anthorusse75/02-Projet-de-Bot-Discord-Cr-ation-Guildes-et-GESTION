@@ -54,6 +54,7 @@ from did.translation.google_translate_rpc_adapter import (
     BATCHEXECUTE_URL,
     RPC_ID,
     GoogleTranslateRpcCampaignTranslationProvider,
+    count_transport_attempts,
 )
 from did.translation.segmentation import (
     SegmentationStrategy,
@@ -123,18 +124,35 @@ class MeasurementRecord:
     #: measurement needed (0 for every raw, no-retry strategy row below;
     #: only ever nonzero for PRODUCTION_STRATEGY_LABEL measurements).
     retry_count: int = 0
-    #: The EXACT number of real provider.translate(...) invocations
-    #: actually attempted for this measurement -- incremented the instant a
-    #: call starts, regardless of whether it later raises, whether a
-    #: bounded integrity retry occurs, or whether a later segment/attempt
-    #: fails. External-review finding: `segment_count` (the structural
-    #: segmentation of the FINAL candidate only) previously stood in for
-    #: this and silently under-counted real provider calls whenever a
-    #: retry or a partial multi-segment failure occurred (e.g. attempt 1
-    #: fails integrity, attempt 2 succeeds -> segment_count reported only
-    #: attempt 2's 1 call, hiding attempt 1's real call entirely). Never
-    #: derive `provider_invocations` from `segment_count` again --
-    #: `segment_count` stays purely a structural measurement.
+    #: The EXACT number of real HTTP RPC POST attempts actually made to the
+    #: production transport for this measurement -- via
+    #: `did.translation.google_translate_rpc_adapter.count_transport_attempts()`,
+    #: which observes the adapter's own internal transport layer, not
+    #: merely calls to the high-level `provider.translate(...)` port.
+    #:
+    #: Second external-review finding (first: see the class docstring
+    #: history below): `GoogleTranslateRpcCampaignTranslationProvider
+    #: .translate()` has its OWN bounded provider retry
+    #: (`max_attempts`, default 3) -- one logical `provider.translate(...)`
+    #: call can silently generate up to 3 real HTTP POSTs before returning
+    #: or raising. Counting `provider.translate()` CALLS (as this field
+    #: originally did) therefore under-counts real network attempts by up
+    #: to 3x whenever the adapter's own retry engages -- the adapter's own
+    #: deterministic HTTP-429-then-success test already proves this
+    #: behavior. Fixed by wrapping every measurement (every segment, every
+    #: adapter-internal retry, every bounded integrity-retry attempt) in a
+    #: single `count_transport_attempts()` context, which observes the
+    #: adapter's own `_call_rpc` immediately before each real
+    #: `await client.post(...)` -- never a circuit-breaker fast-fail (no
+    #: network attempt is made then), never a retry-backoff sleep, never
+    #: response parsing.
+    #:
+    #: (First finding, historical: `segment_count`, the structural
+    #: segmentation of the FINAL candidate only, previously stood in for
+    #: this and silently under-counted whenever a retry occurred or a
+    #: multi-segment strategy failed partway through. Never derive
+    #: `provider_invocations` from `segment_count` -- it stays purely a
+    #: structural measurement.)
     provider_invocation_count: int = 0
 
 
@@ -148,82 +166,78 @@ async def _run_one(
     content = item["content"]
     nodes = parse(content)
     protection = protect(nodes)
-    invocation_count = 0
 
     async def translate_segment(segment: str) -> str:
-        nonlocal invocation_count
-        # Incremented the instant a real call is attempted -- before
-        # awaiting it -- so a raising/hanging call is still counted, and a
-        # multi-segment strategy that fails partway through still reports
-        # every segment call already attempted before the failure.
-        invocation_count += 1
         result = await provider.translate(
             segment, source_language=source_language, target_language=target_language
         )
         return result.translated_text
 
     started = time.perf_counter()
-    try:
-        if strategy is SegmentationStrategy.NAIVE_PER_TEXT_NODE:
-            protected_positions = [i for i, n in enumerate(nodes) if not isinstance(n, TextNode)]
-            placeholders = dict(
-                zip(
-                    protected_positions,
-                    [fp.placeholder for fp in protection.fingerprints],
-                    strict=True,
-                )
-            )
-            translated_masked = await translate_nodes_naively(
-                nodes, placeholders, translate_segment
-            )
-            n_segments = count_text_nodes(nodes)
-        else:
-            translated_masked = await translate_masked_text(
-                protection.masked_text, strategy, translate_segment
-            )
-            n_segments = segment_count(protection.masked_text, strategy)
-        latency = time.perf_counter() - started
-
+    with count_transport_attempts() as get_transport_attempts:
         try:
-            # Exercises the SAME production-grade validator the delivery
-            # pipeline uses (placeholder integrity + reparse-and-compare +
-            # Markdown structural balance), not a weaker benchmark-only check.
-            restored = validate_full_pipeline(nodes, translated_masked, protection)
-            integrity_ok = True
-        except IntegrityViolation as exc:
-            restored = f"<INTEGRITY_VIOLATION: {exc}>"
-            integrity_ok = False
+            if strategy is SegmentationStrategy.NAIVE_PER_TEXT_NODE:
+                protected_positions = [
+                    i for i, n in enumerate(nodes) if not isinstance(n, TextNode)
+                ]
+                placeholders = dict(
+                    zip(
+                        protected_positions,
+                        [fp.placeholder for fp in protection.fingerprints],
+                        strict=True,
+                    )
+                )
+                translated_masked = await translate_nodes_naively(
+                    nodes, placeholders, translate_segment
+                )
+                n_segments = count_text_nodes(nodes)
+            else:
+                translated_masked = await translate_masked_text(
+                    protection.masked_text, strategy, translate_segment
+                )
+                n_segments = segment_count(protection.masked_text, strategy)
+            latency = time.perf_counter() - started
 
-        return MeasurementRecord(
-            item_id=item["id"],
-            item_class=item["class"],
-            strategy=strategy.value,
-            source_language=source_language,
-            target_language=target_language,
-            segment_count=n_segments,
-            latency_seconds=round(latency, 3),
-            protected_integrity_ok=integrity_ok,
-            error=None,
-            translated_preview=restored[:80],
-            identical_to_source=(restored == content),
-            provider_invocation_count=invocation_count,
-        )
-    except Exception as exc:
-        latency = time.perf_counter() - started
-        return MeasurementRecord(
-            item_id=item["id"],
-            item_class=item["class"],
-            strategy=strategy.value,
-            source_language=source_language,
-            target_language=target_language,
-            segment_count=0,
-            latency_seconds=round(latency, 3),
-            protected_integrity_ok=None,
-            error=str(exc),
-            translated_preview=None,
-            identical_to_source=None,
-            provider_invocation_count=invocation_count,
-        )
+            try:
+                # Exercises the SAME production-grade validator the delivery
+                # pipeline uses (placeholder integrity + reparse-and-compare +
+                # Markdown structural balance), not a weaker benchmark-only check.
+                restored = validate_full_pipeline(nodes, translated_masked, protection)
+                integrity_ok = True
+            except IntegrityViolation as exc:
+                restored = f"<INTEGRITY_VIOLATION: {exc}>"
+                integrity_ok = False
+
+            return MeasurementRecord(
+                item_id=item["id"],
+                item_class=item["class"],
+                strategy=strategy.value,
+                source_language=source_language,
+                target_language=target_language,
+                segment_count=n_segments,
+                latency_seconds=round(latency, 3),
+                protected_integrity_ok=integrity_ok,
+                error=None,
+                translated_preview=restored[:80],
+                identical_to_source=(restored == content),
+                provider_invocation_count=get_transport_attempts(),
+            )
+        except Exception as exc:
+            latency = time.perf_counter() - started
+            return MeasurementRecord(
+                item_id=item["id"],
+                item_class=item["class"],
+                strategy=strategy.value,
+                source_language=source_language,
+                target_language=target_language,
+                segment_count=0,
+                latency_seconds=round(latency, 3),
+                protected_integrity_ok=None,
+                error=str(exc),
+                translated_preview=None,
+                identical_to_source=None,
+                provider_invocation_count=get_transport_attempts(),
+            )
 
 
 async def _run_one_production(
@@ -253,26 +267,54 @@ async def _run_one_production(
         raise ValueError(f"max_integrity_attempts must be at least 1, got {max_integrity_attempts}")
     content = item["content"]
     nodes = parse(content)
-    invocation_count = 0
+
+    async def translate_segment(segment: str) -> str:
+        result = await provider.translate(
+            segment, source_language=source_language, target_language=target_language
+        )
+        return result.translated_text
 
     started = time.perf_counter()
     last_error: IntegrityViolation | None = None
-    for attempt in range(1, max_integrity_attempts + 1):
-        protection = protect(nodes)
+    # The WHOLE bounded integrity-retry loop below is wrapped in one
+    # count_transport_attempts() context so the returned count reflects
+    # every real HTTP POST across every integrity-retry attempt -- not
+    # just the winning (or final, exhausted) attempt's own POSTs.
+    with count_transport_attempts() as get_transport_attempts:
+        for attempt in range(1, max_integrity_attempts + 1):
+            protection = protect(nodes)
 
-        async def translate_segment(segment: str) -> str:
-            nonlocal invocation_count
-            invocation_count += 1
-            result = await provider.translate(
-                segment, source_language=source_language, target_language=target_language
+            try:
+                translated_masked = await translate_masked_text(
+                    protection.masked_text,
+                    SegmentationStrategy.FULL_MASKED_MESSAGE,
+                    translate_segment,
+                )
+            except Exception as exc:
+                latency = time.perf_counter() - started
+                return MeasurementRecord(
+                    item_id=item["id"],
+                    item_class=item["class"],
+                    strategy=PRODUCTION_STRATEGY_LABEL,
+                    source_language=source_language,
+                    target_language=target_language,
+                    segment_count=0,
+                    latency_seconds=round(latency, 3),
+                    protected_integrity_ok=None,
+                    error=str(exc),
+                    translated_preview=None,
+                    identical_to_source=None,
+                    retry_count=attempt - 1,
+                    provider_invocation_count=get_transport_attempts(),
+                )
+            n_segments = segment_count(
+                protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE
             )
-            return result.translated_text
-
-        try:
-            translated_masked = await translate_masked_text(
-                protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE, translate_segment
-            )
-        except Exception as exc:
+            try:
+                restored = validate_full_pipeline(nodes, translated_masked, protection)
+            except IntegrityViolation as exc:
+                last_error = exc
+                continue  # bounded retry: fresh placeholders on the next loop iteration
             latency = time.perf_counter() - started
             return MeasurementRecord(
                 item_id=item["id"],
@@ -280,59 +322,38 @@ async def _run_one_production(
                 strategy=PRODUCTION_STRATEGY_LABEL,
                 source_language=source_language,
                 target_language=target_language,
-                segment_count=0,
+                segment_count=n_segments,
                 latency_seconds=round(latency, 3),
-                protected_integrity_ok=None,
-                error=str(exc),
-                translated_preview=None,
-                identical_to_source=None,
+                protected_integrity_ok=True,
+                error=None,
+                translated_preview=restored[:80],
+                identical_to_source=(restored == content),
                 retry_count=attempt - 1,
-                provider_invocation_count=invocation_count,
+                provider_invocation_count=get_transport_attempts(),
             )
-        n_segments = segment_count(protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE)
-        try:
-            restored = validate_full_pipeline(nodes, translated_masked, protection)
-        except IntegrityViolation as exc:
-            last_error = exc
-            continue  # bounded retry: fresh placeholders on the next loop iteration
+
+        # Every attempt exhausted -- fails closed exactly like production
+        # would (IntegrityViolation propagates from render_field_text);
+        # recorded here as an integrity failure, not silently downgraded to
+        # a bare error.
         latency = time.perf_counter() - started
+        assert last_error is not None
+        preview = f"<INTEGRITY_VIOLATION after {max_integrity_attempts} attempts: {last_error}>"
         return MeasurementRecord(
             item_id=item["id"],
             item_class=item["class"],
             strategy=PRODUCTION_STRATEGY_LABEL,
             source_language=source_language,
             target_language=target_language,
-            segment_count=n_segments,
+            segment_count=0,
             latency_seconds=round(latency, 3),
-            protected_integrity_ok=True,
+            protected_integrity_ok=False,
             error=None,
-            translated_preview=restored[:80],
-            identical_to_source=(restored == content),
-            retry_count=attempt - 1,
-            provider_invocation_count=invocation_count,
+            translated_preview=preview[:80],
+            identical_to_source=None,
+            retry_count=max_integrity_attempts - 1,
+            provider_invocation_count=get_transport_attempts(),
         )
-
-    # Every attempt exhausted -- fails closed exactly like production would
-    # (IntegrityViolation propagates from render_field_text); recorded here
-    # as an integrity failure, not silently downgraded to a bare error.
-    latency = time.perf_counter() - started
-    assert last_error is not None
-    preview = f"<INTEGRITY_VIOLATION after {max_integrity_attempts} attempts: {last_error}>"
-    return MeasurementRecord(
-        item_id=item["id"],
-        item_class=item["class"],
-        strategy=PRODUCTION_STRATEGY_LABEL,
-        source_language=source_language,
-        target_language=target_language,
-        segment_count=0,
-        latency_seconds=round(latency, 3),
-        protected_integrity_ok=False,
-        error=None,
-        translated_preview=preview[:80],
-        identical_to_source=None,
-        retry_count=max_integrity_attempts - 1,
-        provider_invocation_count=invocation_count,
-    )
 
 
 async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
@@ -407,15 +428,23 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
 
 def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
     """``measurement_records`` = one row per (item, strategy, direction);
-    ``provider_invocations`` = the REAL number of network calls to the
-    production translation provider attempted for that measurement (``MeasurementRecord.
-    provider_invocation_count``, incremented at the instant each call
-    starts) -- counted whether the call succeeded, raised, or was later
-    rejected by integrity validation, and across every bounded-retry
-    attempt. Never derived from ``segment_count`` (the structural
-    segmentation of the FINAL candidate only): an external-review finding
-    showed that under-counts real calls whenever a retry occurred or a
-    multi-segment strategy failed partway through."""
+    ``provider_invocations`` = the EXACT number of real HTTP RPC POST
+    attempts made to the production transport for that measurement
+    (``MeasurementRecord.provider_invocation_count``, observed via
+    ``did.translation.google_translate_rpc_adapter.count_transport_attempts()``
+    -- one notification per real ``await client.post(...)``, immediately
+    before it) -- counted whether the attempt succeeded, returned non-2xx,
+    timed out, raised a transport error, or was later rejected by
+    integrity validation; across every one of the adapter's own internal
+    bounded-retry attempts AND every bounded integrity-retry attempt.
+    Never a circuit-breaker fast-fail (no network attempt is made then).
+    Never derived from ``segment_count`` (the structural segmentation of
+    the FINAL candidate only) or from a mere count of
+    ``provider.translate()`` calls -- the latter under-counts real network
+    attempts whenever the adapter's own internal retry engages (one
+    logical ``translate()`` call can generate up to ``max_attempts`` real
+    POSTs), exactly as it under-counted whenever a bounded integrity retry
+    or a multi-segment partial failure occurred before this."""
     by_strategy: dict[str, dict[str, Any]] = {}
     for record in records:
         bucket = by_strategy.setdefault(

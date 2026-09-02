@@ -55,13 +55,29 @@ translated parts at ``translation_data[5]``, a spacing flag at
 ``translation_data[3]``, detected source at ``parsed[2]``) -- returning a
 real, verified HTTP 200 translation. This module is now aligned to that
 exact proven contract; the invented variant above is not retained anywhere.
+
+**Real-network confirmation**: the corrected contract above was verified
+live from the product owner's own machine --
+``DID_ALLOW_NETWORK=1 uv run pytest
+backend/tests/network/test_stage09_translation_network.py -m
+translation_network`` reported 5 passed against this exact adapter.
+
+**Transport-attempt observability**: :func:`translate` may make MORE than
+one real HTTP POST for a single call, via its own bounded provider retry
+(``max_attempts``) -- callers that need an exact count of real network
+attempts (not calls to the high-level ``translate()`` port) can wrap a
+call with :func:`count_transport_attempts`. See that function's own
+docstring for why this is a context-local observer rather than a mutable
+counter attached to the provider instance.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
 import httpx
@@ -94,6 +110,55 @@ _DEFAULT_USER_AGENT = (
 #: part of the product owner's own proven, same-machine HTTP-200 request
 #: contract (see module docstring's "Wire contract correction" note).
 _REFERER = "https://translate.google.com/"
+
+#: An optional per-context sink notified immediately before each real HTTP
+#: RPC POST attempt (see `_call_rpc` below). `contextvars.ContextVar`
+#: rather than a mutable attribute on the provider instance: a single
+#: provider instance is commonly shared across many calls (e.g. the
+#: benchmark script reuses one instance for its whole run, precisely so
+#: `CircuitBreaker` state persists across measurements) -- a plain
+#: instance attribute swapped between measurements would silently produce
+#: wrong counts the moment two measurements' calls ever overlap (e.g. if
+#: the benchmark is later parallelized with `asyncio.gather`). A
+#: ContextVar is copied into each new asyncio Task at creation time and is
+#: otherwise scoped to the current call chain, so concurrent callers never
+#: observe each other's attempt counts. Default `None` -- production code
+#: never sets this, so `_call_rpc` costs one `ContextVar.get()` plus a
+#: `None` check per attempt: no observable overhead.
+_transport_attempt_sink: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar(
+    "did_translation_rpc_transport_attempt_sink", default=None
+)
+
+
+@contextlib.contextmanager
+def count_transport_attempts() -> Iterator[Callable[[], int]]:
+    """Context manager that counts every real HTTP RPC POST attempt made
+    by any :class:`GoogleTranslateRpcCampaignTranslationProvider` call
+    within this context -- including every attempt made by the provider's
+    own internal bounded retry, and every attempt across multiple
+    ``translate()`` calls made inside the same ``with`` block (e.g. one
+    per message segment, or one per bounded integrity-retry attempt).
+    Yields a zero-argument getter for the running count; read it any time
+    after (or before exiting) the ``with`` block.
+
+    Deliberately does NOT count: circuit-breaker fast-fails (no HTTP
+    attempt is made when the circuit is open -- see
+    :meth:`CircuitBreaker.call`, which never invokes the wrapped operation
+    in that case), retry backoff sleeps, or response parsing/integrity
+    validation -- only the instant immediately before each real
+    ``await client.post(...)``.
+    """
+    count = 0
+
+    def _mark() -> None:
+        nonlocal count
+        count += 1
+
+    token = _transport_attempt_sink.set(_mark)
+    try:
+        yield lambda: count
+    finally:
+        _transport_attempt_sink.reset(token)
 
 
 def _build_query_params() -> dict[str, str]:
@@ -429,6 +494,13 @@ class GoogleTranslateRpcCampaignTranslationProvider:
         # real network/socket setup at all.
         client = self._client_factory()
         try:
+            # Notified the instant BEFORE the real network attempt -- never
+            # after -- so a call that times out, raises a transport error,
+            # or returns a non-2xx status is still counted (see
+            # count_transport_attempts's own docstring).
+            sink = _transport_attempt_sink.get()
+            if sink is not None:
+                sink()
             response = await client.post(
                 BATCHEXECUTE_URL,
                 params=_build_query_params(),

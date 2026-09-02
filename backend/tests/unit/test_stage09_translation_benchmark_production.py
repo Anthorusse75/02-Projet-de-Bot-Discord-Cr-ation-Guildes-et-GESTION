@@ -5,25 +5,36 @@ integrity retry did.campaigns.rendering.render_field_text applies to every
 real delivery, and the benchmark's own PASS/BLOCKED/FAIL verdict gated on
 that measurement rather than a raw single-attempt strategy.
 
-No real network call is made -- a fake ``provider.translate`` stands in,
-exactly like did.campaigns.rendering's own retry tests
-(backend/tests/unit/test_stage09_rendering.py), which is what actually
-proves this mechanism deterministically; this file additionally proves the
-BENCHMARK SCRIPT's own (separate, corpus-shaped) implementation of the same
-mechanism is correct and reports honestly.
+No real network call is made -- a fake ``provider.translate`` stands in for
+the retry/PASS-FAIL-logic tests, exactly like did.campaigns.rendering's own
+retry tests (backend/tests/unit/test_stage09_rendering.py); the
+transport-attempt-ACCOUNTING tests below instead drive the REAL
+``GoogleTranslateRpcCampaignTranslationProvider`` against an
+``httpx.MockTransport`` (still no real network call), because accounting
+correctness depends on the adapter's own internal HTTP-level retry
+behavior, which a fake provider that never touches HTTP cannot exercise --
+see ``TestTransportAttemptAccounting``'s own docstring for why the earlier
+``_FakeProvider``-based accounting tests were replaced.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 
+from did.translation.circuit_breaker import CircuitBreaker
+from did.translation.google_translate_rpc_adapter import (
+    GoogleTranslateRpcCampaignTranslationProvider,
+)
 from run_translation_benchmark import (
     PRODUCTION_STRATEGY_LABEL,
     SegmentationStrategy,
@@ -34,6 +45,38 @@ from run_translation_benchmark import (
 )
 
 pytestmark = [pytest.mark.security]
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
+
+
+def _valid_response_body(translated_text: str, *, rpc_id: str = "MkEWBc") -> str:
+    """A batchexecute response body in the real captured shape (see
+    did.translation.google_translate_rpc_adapter's own module docstring
+    and test_stage09_google_translate_rpc_adapter.py for the full proven
+    contract this mirrors)."""
+    translation_data = [None, None, None, True, None, [[translated_text]]]
+    segment_entry = [translation_data]
+    level1 = [segment_entry]
+    inner = [None, level1, "en"]
+    entry = ["wrb.fr", rpc_id, json.dumps(inner), None, None, None, "generic"]
+    chunk_line = json.dumps([entry])
+    return f")]}}'\n\n{chunk_line}\n"
+
+
+def _extract_sent_text(request: httpx.Request) -> str:
+    """Reads back the exact text a real POST attempt sent, so a MockTransport
+    handler can echo it as the "translation" -- a trivially
+    integrity-preserving same-text round trip, since the whole point of
+    these tests is transport-attempt accounting, not translation content."""
+    sent = httpx.QueryParams(request.content.decode())
+    envelope = json.loads(sent["f.req"])
+    rpc_args = json.loads(envelope[0][0][1])
+    text = rpc_args[0][0]
+    assert isinstance(text, str)
+    return text
+
 
 _ITEM = {"id": "test-item", "class": "plain_prose", "content": "Ping <@123456789012345678> now."}
 #: Three real sentences, each split into its own SENTENCE_GROUPING segment
@@ -171,149 +214,243 @@ class TestOverallStatusGatesOnProduction:
         assert status == "BLOCKED"
 
 
-class TestProviderInvocationAccounting:
-    """External-review finding: `_summarize()` used to derive
-    `provider_invocations` from `record.segment_count` -- the structural
-    segmentation of the FINAL candidate only -- which silently under-counts
-    real provider calls whenever a bounded retry occurred (an earlier,
-    failed attempt's call vanished from the count) or a multi-segment
-    strategy failed partway through (calls already made before the failure
-    vanished too). These tests prove the fix: `provider_invocation_count`
-    is the exact, explicit count of every real call attempted, independent
-    of `segment_count` and counted even on error/exhaustion."""
+class TestTransportAttemptAccounting:
+    """Third external-review finding: `provider_invocation_count` counted
+    calls to the high-level `provider.translate(...)` PORT, which is not
+    the same thing as real HTTP RPC POST attempts -- `GoogleTranslateRpc
+    CampaignTranslationProvider.translate()` has its own bounded internal
+    retry (`max_attempts`, default 3), so one logical `translate()` call
+    can silently generate up to 3 real POSTs before returning or raising
+    (the adapter's own deterministic HTTP-429-then-success test already
+    proves this). The earlier version of this class used `_FakeProvider`,
+    which never touches HTTP at all and therefore could not exercise (or
+    catch a regression in) this accounting -- these tests instead drive
+    the REAL `GoogleTranslateRpcCampaignTranslationProvider` against an
+    `httpx.MockTransport` fake HTTP transport, so `count_transport_
+    attempts()` (the mechanism `_run_one`/`_run_one_production` now use)
+    observes real transport-layer attempts exactly as it would against a
+    real network."""
 
-    async def test_production_success_without_retry_counts_exactly_one_call(self) -> None:
-        async def _identity(text: str) -> str:
-            return text
+    async def test_single_successful_call_counts_one_transport_attempt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
 
-        provider = _FakeProvider(_identity)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+        )
         record = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert record.error is None
+        assert record.retry_count == 0
         assert record.provider_invocation_count == 1
-        assert provider.calls == 1
 
-    async def test_one_corruption_then_success_counts_both_real_calls(self) -> None:
-        """The exact bug report: attempt 1 calls googletrans and fails
-        integrity, attempt 2 calls googletrans and succeeds -- actual
-        provider calls = 2, and `segment_count` on the returned record
-        (which reflects only the winning attempt) must never be mistaken
-        for this count again."""
-        calls = 0
+    async def test_transport_429_then_success_counts_both_attempts(self) -> None:
+        """1 `provider.translate()` call, but the adapter's own internal
+        retry makes 2 real POSTs -- `provider_invocation_count` must
+        report 2, not 1."""
+        call_count = 0
 
-        async def _corrupt_first(text: str) -> str:
-            nonlocal calls
-            calls += 1
-            return _mutate_one_placeholder(text) if calls == 1 else text
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(429, text="rate limited")
+            return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
 
-        provider = _FakeProvider(_corrupt_first)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
         record = await _run_one_production(provider, _ITEM, "en", "fr")
-        assert record.retry_count == 1
+        assert record.error is None
+        assert record.retry_count == 0  # no INTEGRITY retry -- purely the adapter's own retry
         assert record.provider_invocation_count == 2
-        assert record.segment_count == 1  # structural only -- the winning attempt's shape
-        assert provider.calls == 2
+        assert call_count == 2
 
-    async def test_persistent_corruption_counts_every_attempted_call(self) -> None:
-        """The second bug report: both bounded attempts call googletrans
-        and both fail integrity -- actual provider calls = 2, even though
-        the exhausted record's `segment_count` is 0."""
+    async def test_two_429s_then_success_counts_all_three_attempts(self) -> None:
+        call_count = 0
 
-        async def _always_corrupt(text: str) -> str:
-            return _mutate_one_placeholder(text)
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return httpx.Response(429, text="rate limited")
+            return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
 
-        provider = _FakeProvider(_always_corrupt)
-        record = await _run_one_production(provider, _ITEM, "en", "fr", max_integrity_attempts=2)
-        assert record.protected_integrity_ok is False
-        assert record.provider_invocation_count == 2
-        assert record.segment_count == 0  # structural field, never the call count
-        assert provider.calls == 2
-
-    async def test_transport_exception_on_first_invocation_still_counts_that_call(self) -> None:
-        async def _raise(text: str) -> str:
-            raise RuntimeError("simulated transport failure")
-
-        provider = _FakeProvider(_raise)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
         record = await _run_one_production(provider, _ITEM, "en", "fr")
-        assert record.error == "simulated transport failure"
-        assert record.provider_invocation_count == 1
-        assert provider.calls == 1
+        assert record.error is None
+        assert record.provider_invocation_count == 3
+        assert call_count == 3
 
-    async def test_segmented_comparative_strategy_reports_the_real_call_count(self) -> None:
-        """A raw comparative strategy (never retried) that splits into
-        multiple real segments must report exactly that many real calls --
-        not conflated with `segment_count`, even though they happen to be
-        equal here (no failure occurred)."""
+    async def test_persistent_429_exhausts_the_bound_and_counts_every_attempt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, text="rate limited")
 
-        async def _identity(text: str) -> str:
-            return text
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
+        record = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert record.error is not None  # a real transport error, not an integrity failure
+        assert record.provider_invocation_count == 3
 
-        provider = _FakeProvider(_identity)
+    async def test_timeout_then_success_counts_both_attempts(self) -> None:
+        call_count = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                await asyncio.sleep(1.0)
+                return httpx.Response(200, text="unused")
+            return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            timeout_seconds=0.05,
+            max_attempts=2,
+        )
+        record = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert record.error is None
+        assert record.provider_invocation_count == 2
+
+    async def test_circuit_already_open_counts_zero_new_attempts(self) -> None:
+        """Once the circuit is open, the wrapped operation (and therefore
+        `_call_rpc`, and therefore the real POST) is never invoked at all
+        -- see `CircuitBreaker.call`. The next measurement must report 0
+        new transport attempts, not a stale/carried-over count."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, text="rate limited")
+
+        breaker = CircuitBreaker(failure_threshold=1, cooldown_seconds=60)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=1,
+            circuit_breaker=breaker,
+        )
+        first = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert first.error is not None
+        assert first.provider_invocation_count == 1  # trips the circuit open
+
+        second = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert second.error is not None  # TranslationCircuitOpenError, fails fast
+        assert second.provider_invocation_count == 0  # no HTTP attempt was made this time
+
+    async def test_segmented_strategy_counts_every_segments_internal_retries(self) -> None:
+        """3 real segments (SENTENCE_GROUPING on the 3-sentence corpus
+        item), each needing one adapter-internal retry -- 6 real POSTs
+        total, all within the ONE `count_transport_attempts()` context
+        that wraps the whole measurement."""
+        call_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count % 2 == 1:
+                return httpx.Response(429, text="rate limited")
+            return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
         record = await _run_one(
-            provider,
-            _MULTI_SENTENCE_ITEM,
-            SegmentationStrategy.SENTENCE_GROUPING,
-            "en",
-            "fr",
+            provider, _MULTI_SENTENCE_ITEM, SegmentationStrategy.SENTENCE_GROUPING, "en", "fr"
         )
         assert record.error is None
         assert record.segment_count == 3
+        assert record.provider_invocation_count == 6
+        assert call_count == 6
+
+    async def test_integrity_retry_includes_every_internal_transport_attempt(self) -> None:
+        """attempt 1: POST #1 is a transient 429 (adapter-internal retry),
+        POST #2 succeeds but with a corrupted placeholder (fails
+        integrity, triggers a bounded INTEGRITY retry with fresh
+        placeholders); attempt 2: POST #3 succeeds cleanly. 3 real POSTs
+        total, spanning both retry mechanisms."""
+        call_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(429, text="rate limited")
+            text = _extract_sent_text(request)
+            if call_count == 2:
+                text = _mutate_one_placeholder(text)
+            return httpx.Response(200, text=_valid_response_body(text))
+
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
+        record = await _run_one_production(provider, _ITEM, "en", "fr")
+        assert record.error is None
+        assert record.protected_integrity_ok is True
+        assert record.retry_count == 1  # one bounded INTEGRITY retry
         assert record.provider_invocation_count == 3
-        assert provider.calls == 3
+        assert call_count == 3
 
-    async def test_segmented_strategy_failing_partway_still_reports_calls_already_made(
-        self,
-    ) -> None:
-        """The mission's own explicit scenario: a segmented strategy fails
-        after one or more successful segment calls -- every call already
-        attempted before the failure must still be counted, never reset to
-        0 alongside the (correctly) zeroed `segment_count`."""
-        calls = 0
+    async def test_partial_segmentation_failure_counts_attempts_already_made(self) -> None:
+        """Segment 1 succeeds in 1 POST; segment 2 exhausts the adapter's
+        own 3-attempt bound and raises, stopping the strategy before
+        segment 3 is ever attempted (segments translate strictly
+        sequentially). Total real POSTs = 1 + 3 = 4; segment 3 contributes
+        0. `segment_count` is correctly 0 (the strategy never completed),
+        but `provider_invocation_count` must still report every attempt
+        that was genuinely made."""
+        call_count = 0
 
-        async def _fail_on_second_segment(text: str) -> str:
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise RuntimeError("simulated mid-segmentation transport failure")
-            return text
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(200, text=_valid_response_body(_extract_sent_text(request)))
+            return httpx.Response(429, text="rate limited")
 
-        provider = _FakeProvider(_fail_on_second_segment)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
         record = await _run_one(
-            provider,
-            _MULTI_SENTENCE_ITEM,
-            SegmentationStrategy.SENTENCE_GROUPING,
-            "en",
-            "fr",
+            provider, _MULTI_SENTENCE_ITEM, SegmentationStrategy.SENTENCE_GROUPING, "en", "fr"
         )
         assert record.error is not None
         assert record.segment_count == 0  # the strategy never completed
-        assert record.provider_invocation_count == 2  # but 2 real calls were already made
-        assert provider.calls == 2
+        assert record.provider_invocation_count == 4  # 1 (segment 1) + 3 (segment 2, exhausted)
+        assert call_count == 4  # segment 3 was never attempted
 
-    async def test_summarize_counts_invocations_from_error_records_too(self) -> None:
-        """The `_summarize()` half of the same bug: error records used to
-        be skipped entirely (a `continue` before the accumulation line),
-        silently dropping their real invocation count from the aggregate."""
+    async def test_summarize_and_totals_reflect_real_attempts_not_translate_calls(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, text="rate limited")
 
-        async def _raise(text: str) -> str:
-            raise RuntimeError("boom")
-
-        provider = _FakeProvider(_raise)
+        provider = GoogleTranslateRpcCampaignTranslationProvider(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            sleep=_no_sleep,
+            max_attempts=3,
+        )
         record = await _run_one_production(provider, _ITEM, "en", "fr")
-        assert record.provider_invocation_count == 1
+        assert record.error is not None
+        assert record.provider_invocation_count == 3  # NOT 1 (a single translate() call)
+
         summary = _summarize([record])
         bucket = summary[PRODUCTION_STRATEGY_LABEL]
         assert bucket["errors"] == 1
-        assert bucket["provider_invocations"] == 1
-
-    async def test_totals_aggregate_the_explicit_counter_across_records(self) -> None:
-        async def _identity(text: str) -> str:
-            return text
-
-        provider = _FakeProvider(_identity)
-        record_a = await _run_one_production(provider, _ITEM, "en", "fr")
-        record_b = await _run_one(
-            provider, _MULTI_SENTENCE_ITEM, SegmentationStrategy.SENTENCE_GROUPING, "en", "fr"
-        )
-        summary = _summarize([record_a, record_b])
-        assert summary["_totals"]["provider_invocations_all_strategies"] == 1 + 3
+        assert bucket["provider_invocations"] == 3
+        assert summary["_totals"]["provider_invocations_all_strategies"] == 3
 
 
 class TestMaxIntegrityAttemptsValidation:
