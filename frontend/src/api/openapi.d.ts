@@ -346,7 +346,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Triggers */
+        get: operations["list_triggers_api_v1_campaigns__campaign_id__triggers_get"];
         put?: never;
         /** Create Trigger */
         post: operations["create_trigger_api_v1_campaigns__campaign_id__triggers_post"];
@@ -363,7 +364,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Trigger Sources
+         * @description Trigger source bindings are Guild-scoped (RLS), not owner-scoped --
+         *     unlike every other list endpoint in this router there is no single
+         *     context that can see every Guild's bindings for a trigger at once, so
+         *     the caller names one explicit Guild at a time (mirroring how a
+         *     destination Guild is picked for a CHANNEL/LOGICAL_GROUP/
+         *     TRANSLATION_GROUP target in the UI).
+         */
+        get: operations["list_trigger_sources_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_get"];
         put?: never;
         /** Create Trigger Source */
         post: operations["create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post"];
@@ -3776,6 +3786,39 @@ export interface operations {
             };
         };
     };
+    list_triggers_api_v1_campaigns__campaign_id__triggers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_trigger_api_v1_campaigns__campaign_id__triggers_post: {
         parameters: {
             query?: never;
@@ -3795,6 +3838,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trigger_sources_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_get: {
+        parameters: {
+            query: {
+                guild_id: string;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

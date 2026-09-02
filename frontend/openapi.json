@@ -4130,6 +4130,49 @@
       }
     },
     "/api/v1/campaigns/{campaign_id}/triggers": {
+      "get": {
+        "operationId": "list_triggers_api_v1_campaigns__campaign_id__triggers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Triggers Api V1 Campaigns  Campaign Id  Triggers Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Triggers",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
       "post": {
         "operationId": "create_trigger_api_v1_campaigns__campaign_id__triggers_post",
         "parameters": [
@@ -4196,6 +4239,69 @@
       }
     },
     "/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources": {
+      "get": {
+        "description": "Trigger source bindings are Guild-scoped (RLS), not owner-scoped --\nunlike every other list endpoint in this router there is no single\ncontext that can see every Guild's bindings for a trigger at once, so\nthe caller names one explicit Guild at a time (mirroring how a\ndestination Guild is picked for a CHANNEL/LOGICAL_GROUP/\nTRANSLATION_GROUP target in the UI).",
+        "operationId": "list_trigger_sources_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "trigger_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trigger Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Trigger Sources Api V1 Campaigns  Campaign Id  Triggers  Trigger Id  Sources Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Trigger Sources",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
       "post": {
         "operationId": "create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post",
         "parameters": [

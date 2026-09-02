@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -76,6 +76,19 @@ export const useGlobalUserGlossary = (u: DiscordSnowflake) => useQuery({
 export const useGuildGlossary = (u: DiscordSnowflake, guildId: string) => useQuery({
   enabled: Boolean(guildId), queryKey: queryKeys.guildGlossary(u, guildId),
   queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>(`/api/v1/guilds/${guildId}/glossary`),
+})
+// REQ-MSG-027/030 mission section 12: triggers are owned by the caller
+// (like the campaign itself); their source bindings are Guild-scoped (RLS)
+// so, mirroring the Guild glossary/target patterns above, a source list
+// stays disabled until an explicit destination Guild id is entered.
+export const useCampaignTriggers = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'triggers'),
+  queryFn: () => apiRequest<{triggers:CampaignTrigger[]}>(`/api/v1/campaigns/${campaignId}/triggers`),
+})
+export const useTriggerSources = (u: DiscordSnowflake, campaignId: string | undefined, triggerId: string | undefined, guildId: string) => useQuery({
+  enabled: Boolean(campaignId && triggerId && guildId),
+  queryKey: ['did', u, 'campaigns', campaignId ?? 'none', 'triggers', triggerId ?? 'none', 'sources', guildId || 'none'] as const,
+  queryFn: () => apiRequest<{trigger_sources:TriggerSourceBinding[]}>(`/api/v1/campaigns/${campaignId}/triggers/${triggerId}/sources?guild_id=${encodeURIComponent(guildId)}`),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

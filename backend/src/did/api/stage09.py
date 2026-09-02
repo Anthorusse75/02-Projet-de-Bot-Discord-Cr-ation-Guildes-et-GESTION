@@ -454,6 +454,18 @@ def _trigger_source_response_from_domain(binding: TriggerSourceBinding) -> dict[
     }
 
 
+def _trigger_source_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "guild_id": str(row["guild_id"]),
+        "trigger_id": str(row["trigger_id"]),
+        "source_scope_kind": row["source_scope_kind"],
+        "discord_resource_id": (
+            str(row["discord_resource_id"]) if row.get("discord_resource_id") is not None else None
+        ),
+    }
+
+
 def _template_variable_response(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -1332,6 +1344,16 @@ async def create_trigger(
     return _trigger_response(row)
 
 
+@router.get("/api/v1/campaigns/{campaign_id}/triggers")
+async def list_triggers(
+    campaign_id: UUID, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    rows = await repo.list_triggers_for_campaign(session.discord_user_id, campaign_id)
+    return {"triggers": [_trigger_response(row) for row in rows]}
+
+
 @router.post(
     "/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources",
     status_code=status.HTTP_201_CREATED,
@@ -1378,6 +1400,29 @@ async def create_trigger_source(
         binding=binding,
     )
     return _trigger_source_response_from_domain(result.binding)
+
+
+@router.get("/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources")
+async def list_trigger_sources(
+    campaign_id: UUID,
+    trigger_id: UUID,
+    guild_id: str,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Trigger source bindings are Guild-scoped (RLS), not owner-scoped --
+    unlike every other list endpoint in this router there is no single
+    context that can see every Guild's bindings for a trigger at once, so
+    the caller names one explicit Guild at a time (mirroring how a
+    destination Guild is picked for a CHANNEL/LOGICAL_GROUP/
+    TRANSLATION_GROUP target in the UI)."""
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    trigger_row = await repo.get_trigger(session.discord_user_id, trigger_id)
+    if trigger_row is None or trigger_row["campaign_id"] != campaign_id:
+        raise CampaignNotOwnedByCaller(str(trigger_id))
+    rows = await repo.load_trigger_sources(parse_snowflake(guild_id), trigger_id)
+    return {"trigger_sources": [_trigger_source_response(dict(row)) for row in rows]}
 
 
 # ---------------------------------------------------------------------------

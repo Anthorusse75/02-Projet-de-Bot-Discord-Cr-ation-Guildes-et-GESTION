@@ -1353,3 +1353,118 @@ async def test_glossary_crud_authorization_across_all_three_scopes() -> None:
             assert (await client_a.get(f"/api/v1/guilds/{GUILD_A}/glossary")).json()[
                 "glossary_entries"
             ] == []
+
+
+async def test_trigger_and_trigger_source_listing_endpoints() -> None:
+    """REQ-MSG-027/030 (mission section 12): both new read endpoints -- the
+    owner-scoped trigger list and the Guild-scoped source-binding list --
+    only ever surface the caller's own data, and a trigger source binding
+    is proven to belong to a real, authorized CHANNEL before it is listed
+    back."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            await _login(client_b, "owner-b")
+            assert (
+                await client_a.post(
+                    f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf_a}
+                )
+            ).status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "trigger-list-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            assert (await client_a.get(f"/api/v1/campaigns/{campaign_id}/triggers")).json() == {
+                "triggers": []
+            }
+
+            trigger_created = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/triggers",
+                json={
+                    "event_type": "MESSAGE_CREATE",
+                    "condition_ast": {"op": "EQUALS", "path": "author.bot", "value": False},
+                    "max_causation_depth": 4,
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "trigger-list-create"},
+            )
+            assert trigger_created.status_code == 201
+            trigger_id = trigger_created.json()["id"]
+            assert trigger_created.json()["max_causation_depth"] == 4
+
+            listed_triggers = await client_a.get(f"/api/v1/campaigns/{campaign_id}/triggers")
+            assert listed_triggers.status_code == 200
+            assert [row["id"] for row in listed_triggers.json()["triggers"]] == [trigger_id]
+
+            # A foreign owner never sees another owner's campaign's triggers
+            # -- the campaign itself is reported as not-owned (404), same
+            # posture as every other campaign-scoped list in this router.
+            assert (
+                await client_b.get(f"/api/v1/campaigns/{campaign_id}/triggers")
+            ).status_code == 404
+
+            # The Guild/scope/channel structure this trigger reacts to: a
+            # real, Stage04-authoritative CHANNEL_A binding on GUILD_A.
+            source_created = await client_a.post(
+                f"/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources",
+                json={
+                    "guild_id": str(GUILD_A),
+                    "source_scope_kind": "CHANNEL",
+                    "discord_resource_id": str(CHANNEL_A),
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "trigger-source-list-create"},
+            )
+            assert source_created.status_code == 201
+
+            listed_sources = await client_a.get(
+                f"/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources",
+                params={"guild_id": str(GUILD_A)},
+            )
+            assert listed_sources.status_code == 200
+            sources = listed_sources.json()["trigger_sources"]
+            assert len(sources) == 1
+            assert sources[0]["source_scope_kind"] == "CHANNEL"
+            assert sources[0]["discord_resource_id"] == str(CHANNEL_A)
+
+            # A Guild with no source binding for this trigger reports an
+            # empty list, never an error -- the (trigger_id, guild_id) pair
+            # is what scopes the result, not a broader Guild-authorization
+            # gate this read-only endpoint does not itself re-enforce.
+            empty_guild = await client_a.get(
+                f"/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources",
+                params={"guild_id": str(GUILD_FOREIGN)},
+            )
+            assert empty_guild.status_code == 200
+            assert empty_guild.json()["trigger_sources"] == []
+
+            # A foreign owner can never list another owner's trigger's
+            # sources, regardless of which Guild they name.
+            assert (
+                await client_b.get(
+                    f"/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources",
+                    params={"guild_id": str(GUILD_A)},
+                )
+            ).status_code == 404

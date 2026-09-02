@@ -122,6 +122,13 @@ const glossaryBehaviors: Record<string, MessageKey> = {
 const glossaryMatchModes: Record<string, MessageKey> = {
   EXACT: 'campaigns.glossary.matchMode.exact', CASE_INSENSITIVE: 'campaigns.glossary.matchMode.caseInsensitive',
 }
+const triggerSourceScopeKinds: Record<string, MessageKey> = {
+  GUILD: 'campaigns.triggers.sourceScope.guild', CHANNEL: 'campaigns.triggers.sourceScope.channel', CATEGORY: 'campaigns.triggers.sourceScope.category',
+}
+const triggerConditionOps: Record<string, MessageKey> = {
+  ALWAYS: 'campaigns.triggers.op.always', EQUALS: 'campaigns.triggers.op.equals', NOT_EQUALS: 'campaigns.triggers.op.notEquals',
+  CONTAINS: 'campaigns.triggers.op.contains', AND: 'campaigns.triggers.op.and', OR: 'campaigns.triggers.op.or', NOT: 'campaigns.triggers.op.not',
+}
 // Every code did.api.main / did.api.stage09 raise for a campaign-scoped
 // request -- an unrecognized code (a future backend addition this UI has
 // not been updated for yet) always falls back to errors.generic rather
@@ -146,6 +153,9 @@ const campaignErrorCodes: Record<string, MessageKey> = {
   CAMPAIGN_TEMPLATE_VARIABLE_NAME_CONFLICT: 'errors.campaigns.templateVariableNameConflict',
   CAMPAIGN_GLOSSARY_INPUT_INVALID: 'errors.campaigns.glossaryInputInvalid',
   CAMPAIGN_GLOSSARY_TERM_CONFLICT: 'errors.campaigns.glossaryTermConflict',
+  CAMPAIGN_TRIGGER_INPUT_INVALID: 'errors.campaigns.triggerInputInvalid',
+  CAMPAIGN_TRIGGER_CONDITION_INVALID: 'errors.campaigns.triggerConditionInvalid',
+  CAMPAIGN_TRIGGER_SOURCE_INPUT_INVALID: 'errors.campaigns.triggerSourceInputInvalid',
 }
 export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'
@@ -162,6 +172,8 @@ export const templateVariableTypeKey = (value: string): MessageKey => templateVa
 export const glossaryScopeKey = (value: string): MessageKey => glossaryScopes[value] ?? 'common.unknown'
 export const glossaryBehaviorKey = (value: string): MessageKey => glossaryBehaviors[value] ?? 'common.unknown'
 export const glossaryMatchModeKey = (value: string): MessageKey => glossaryMatchModes[value] ?? 'common.unknown'
+export const triggerSourceScopeKindKey = (value: string): MessageKey => triggerSourceScopeKinds[value] ?? 'common.unknown'
+export const triggerConditionOpKey = (value: string): MessageKey => triggerConditionOps[value] ?? 'common.unknown'
 
 export function auditTargetKey(value: string): MessageKey {
   if (value === 'ROLE') return 'resource.role'

@@ -15,6 +15,8 @@ type Stage09State = {
   deliveries: Array<Record<string, unknown>>
   templateVariables: Array<Record<string, unknown>>
   glossaryEntries: Array<Record<string, unknown>>
+  triggers: Array<Record<string, unknown>>
+  triggerSources: Array<Record<string, unknown>>
 }
 function freshState(): Stage09State {
   return {
@@ -31,6 +33,8 @@ function freshState(): Stage09State {
     }],
     templateVariables: [],
     glossaryEntries: [],
+    triggers: [],
+    triggerSources: [],
   }
 }
 
@@ -185,6 +189,40 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     if (glossaryDeleteMatch && method === 'DELETE') {
       state.glossaryEntries = state.glossaryEntries.filter((entry) => entry.id !== glossaryDeleteMatch[1])
       return route.fulfill({ status: 204, body: '' })
+    }
+    const triggersMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/triggers$/)
+    if (triggersMatch && method === 'GET') {
+      return route.fulfill({ json: { triggers: state.triggers.filter((item) => item.campaign_id === triggersMatch[1]) } })
+    }
+    if (triggersMatch && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      // REQ-MSG-020, Option B: Stage09 has no content-capture capability at
+      // all right now, so a trigger declaring requires_message_content is
+      // always rejected -- mirrors did.campaigns.message_content_policy's
+      // real, permanent block so the UI's warning is exercised honestly.
+      if (body.requires_message_content === true) {
+        return route.fulfill({ status: 422, json: { error: { code: 'CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE', message_key: 'errors.campaigns.triggerMessageContentUnavailable', params: {}, request_id: 'stage09-e2e' } } })
+      }
+      const created = {
+        id: `trigger-${state.triggers.length + 1}`, campaign_id: triggersMatch[1], event_type: body.event_type,
+        condition_ast: body.condition_ast, max_causation_depth: body.max_causation_depth, requires_message_content: false, version: 1,
+      }
+      state.triggers.push(created)
+      return route.fulfill({ status: 201, json: created })
+    }
+    const triggerSourcesMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/triggers\/([^/]+)\/sources$/)
+    if (triggerSourcesMatch && method === 'GET') {
+      const guildId = new URL(route.request().url()).searchParams.get('guild_id')
+      return route.fulfill({ json: { trigger_sources: state.triggerSources.filter((item) => item.trigger_id === triggerSourcesMatch[2] && item.guild_id === guildId) } })
+    }
+    if (triggerSourcesMatch && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const created = {
+        id: `trigger-source-${state.triggerSources.length + 1}`, guild_id: body.guild_id, trigger_id: triggerSourcesMatch[2],
+        source_scope_kind: body.source_scope_kind, discord_resource_id: body.discord_resource_id ?? null,
+      }
+      state.triggerSources.push(created)
+      return route.fulfill({ status: 201, json: created })
     }
     return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message_key: 'errors.resource.notFound', params: {}, request_id: 'stage09-e2e' } } })
   })
@@ -482,6 +520,52 @@ test('@a11y REQ-MSG-014 mission section 11: glossary terms are authored across a
   expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
+test('@a11y REQ-MSG-027/030 mission section 12: an event trigger is authored with a structured condition, a source is bound, and the MESSAGE_CONTENT blocker is enforced end to end', async ({ page }) => {
+  const state = freshState()
+  state.campaigns[0].publication_mode = 'EVENT_TRIGGERED'
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.locator('.campaign-detail')).toBeVisible()
+  const triggers = page.locator('.campaign-triggers')
+  await expect(triggers).toBeVisible()
+
+  await triggers.locator('#trigger-create-event-type').fill('MESSAGE_CREATE')
+  await triggers.locator('#trigger-create-condition-kind').selectOption('COMPARISON')
+  await triggers.locator('#trigger-comparison-path').fill('author.bot')
+  await triggers.locator('#trigger-comparison-value-type').selectOption('BOOLEAN')
+  await triggers.locator('#trigger-comparison-value').fill('false')
+  await triggers.locator('#trigger-create-depth').fill('4')
+  await triggers.getByRole('button', { name: 'Add trigger' }).click()
+  await expect(page.getByText('Event trigger created.')).toBeVisible()
+  await expect(triggers.getByText('MESSAGE_CREATE')).toBeVisible()
+  await expect(triggers.getByText('Max depth 4')).toBeVisible()
+
+  // MESSAGE_CONTENT blocker semantics (REQ-MSG-020, Option B): declaring
+  // the dependency is always rejected right now -- proven end to end
+  // against the real error code/message, not merely a static UI warning.
+  await triggers.locator('#trigger-create-event-type').fill('MESSAGE_UPDATE')
+  await triggers.getByRole('checkbox', { name: 'Requires raw message content' }).check()
+  await expect(triggers.getByText('This capability is not currently available')).toBeVisible()
+  await triggers.getByRole('button', { name: 'Add trigger' }).click()
+  await expect(page.getByText('This trigger requires message content, which is not currently supported.')).toBeVisible()
+  await expect(triggers.getByText('MESSAGE_UPDATE')).toHaveCount(0)
+
+  await triggers.getByRole('button', { name: 'Manage sources' }).click()
+  const sourcesPanel = triggers.locator('.trigger-sources')
+  await expect(sourcesPanel).toBeVisible()
+  await sourcesPanel.locator('#trigger-source-guild-id').fill(A)
+  await sourcesPanel.locator('#trigger-source-scope').selectOption('CHANNEL')
+  await sourcesPanel.locator('#trigger-source-resource-id').fill(CHANNEL)
+  await sourcesPanel.getByRole('button', { name: 'Add source' }).click()
+  await expect(page.getByText('Trigger source added.')).toBeVisible()
+  await expect(sourcesPanel.locator('.trigger-source-row').getByText('Channel', { exact: true })).toBeVisible()
+  await expect(sourcesPanel.getByText(CHANNEL)).toBeVisible()
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 const localeHeadings = { en: 'Message & campaign center', fr: 'Centre de messages et campagnes', de: 'Nachrichten- und Kampagnenzentrale', es: 'Centro de mensajes y campañas' }
 for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized STAGE 09 surface has no raw enums or keys (${locale})`, async ({ page }) => {
   const state = freshState(); state.campaigns[0].lifecycle_status = 'PAUSED'
@@ -495,12 +579,22 @@ for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized 
   state.glossaryEntries.push(
     { id: 'glossary-1', scope_kind: 'CAMPAIGN', campaign_id: CAMPAIGN_ID, guild_id: null, source_term: 'Widget', behavior: 'FORCED_TRANSLATION', target_language_code: null, forced_translation: 'Gadgeto', match_mode: 'EXACT' },
   )
+  state.campaigns[0].publication_mode = 'EVENT_TRIGGERED'
+  state.triggers.push(
+    { id: 'trigger-1', campaign_id: CAMPAIGN_ID, event_type: 'MESSAGE_CREATE', condition_ast: { op: 'AND', clauses: [{ op: 'EQUALS', path: 'author.bot', value: false }] }, max_causation_depth: 3, requires_message_content: false, version: 1 },
+  )
+  state.triggerSources.push(
+    { id: 'trigger-source-1', guild_id: A, trigger_id: 'trigger-1', source_scope_kind: 'CATEGORY', discord_resource_id: CHANNEL },
+  )
   await mockStage09(page, locale, state)
   await page.goto(`/guild/${A}/campaigns`)
   await expect(page.locator('html')).toHaveAttribute('lang', locale)
   await expect(page.getByRole('heading', { name: heading })).toBeVisible()
   await page.getByRole('button', { name: /Autumn sale/ }).click()
   await expect(page.locator('.campaign-detail')).toBeVisible()
+  await page.locator('.campaign-triggers button').first().click()
+  await page.locator('.trigger-sources #trigger-source-guild-id').fill(A)
+  await expect(page.locator('.trigger-sources')).toBeVisible()
   await expect(page.getByText('PAUSED', { exact: true })).toHaveCount(0)
   await expect(page.getByText('INTERVENTION_REQUIRED', { exact: true })).toHaveCount(0)
   await expect(page.getByText(/^campaigns\./)).toHaveCount(0)

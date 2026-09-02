@@ -13,6 +13,7 @@ import { Badge, Button, EmptyState, ErrorState, Input, Select, Skeleton, Status,
 import { GlossaryEditor } from './GlossaryEditor'
 import { MessageModelEditor } from './MessageModelEditor'
 import { TemplateVariableEditor } from './TemplateVariableEditor'
+import { TriggerEditor } from './TriggerEditor'
 import './campaigns.css'
 
 const publicationModes: readonly PublicationMode[] = ['IMMEDIATE', 'ONE_SHOT_DEFERRED', 'RECURRING', 'EVENT_TRIGGERED']
@@ -407,7 +408,7 @@ export function CampaignCenter() {
       <section className="campaign-schedule">
         <h3>{t('campaigns.schedule')}</h3>
         {selected.publication_mode === 'IMMEDIATE' && <p className="hint">{t('campaigns.schedule.immediateNote')}</p>}
-        {selected.publication_mode === 'EVENT_TRIGGERED' && <p className="hint">{t('campaigns.schedule.eventNote')}</p>}
+        {selected.publication_mode === 'EVENT_TRIGGERED' && <p className="hint">{t('campaigns.schedule.eventNoteSeeTriggers')}</p>}
         {canCreateSchedule && <div className="schedule-form">
           <Select labelKey="campaigns.schedule.kind" value={scheduleKind} onChange={(event) => setScheduleKind(event.target.value as ScheduleKind)}>
             <option value="ONE_SHOT">{t('campaigns.schedule.oneShot')}</option>
@@ -422,6 +423,8 @@ export function CampaignCenter() {
           {scheduleResult && <Status>{t('campaigns.schedule.next', { value: scheduleResult.next_fire_at ?? scheduleResult.fire_at ?? '—' })}</Status>}
         </div>}
       </section>
+
+      {selected.publication_mode === 'EVENT_TRIGGERED' && <TriggerEditor campaignId={selected.id} userId={userId} />}
 
       <TemplateVariableEditor campaignId={selected.id} userId={userId} />
 
