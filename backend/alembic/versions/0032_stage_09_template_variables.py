@@ -56,7 +56,9 @@ def upgrade() -> None:
             name="fk_message_campaign_template_variables_campaign",
             ondelete="CASCADE",
         ),
-        sa.CheckConstraint("length(trim(name)) > 0", name="ck_message_campaign_template_variables_name"),
+        sa.CheckConstraint(
+            "length(trim(name)) > 0", name="ck_message_campaign_template_variables_name"
+        ),
         sa.CheckConstraint(
             "variable_type IN "
             "('TRANSLATABLE_TEXT','NON_TRANSLATABLE','LOCALIZED_VALUE','PROTECTED')",
@@ -78,12 +80,8 @@ def upgrade() -> None:
             "campaign_id", "name", name="uq_message_campaign_template_variables_name"
         ),
     )
-    op.execute(
-        "ALTER TABLE message_campaign_template_variables ENABLE ROW LEVEL SECURITY"
-    )
-    op.execute(
-        "ALTER TABLE message_campaign_template_variables FORCE ROW LEVEL SECURITY"
-    )
+    op.execute("ALTER TABLE message_campaign_template_variables ENABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE message_campaign_template_variables FORCE ROW LEVEL SECURITY")
     op.execute(
         "CREATE POLICY message_campaign_template_variables_owner_isolation "
         "ON message_campaign_template_variables "

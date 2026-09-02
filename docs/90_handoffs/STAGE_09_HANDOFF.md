@@ -569,7 +569,7 @@ mission de clôture).
    part), avertissement + blocage réel 422 `CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE` exposé de
    bout en bout côté UI si `requires_message_content` est coché.
 5. **Surface produit de rétention, honnête plutôt qu'inventée (mission section 13)** : nouvel
-   endpoint `GET /api/v1/retention-policy` -- rétention reste délibérément un paramètre
+   endpoint `GET .../retention-policy` -- rétention reste délibérément un paramètre
    système unique (`did.campaigns.retention.RetentionPolicy`), aucune configurabilité par
    campagne/Guild n'a été inventée puisque le modèle de données n'en a jamais eu ; l'UI affiche la
    politique réelle (jours de rétention, ce qui est purgé) à côté de l'historique de livraisons
