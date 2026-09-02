@@ -25,6 +25,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "src"))
 
+from did.campaigns.rendering import DEFAULT_MAX_INTEGRITY_ATTEMPTS
 from did.messaging.parser import TextNode, parse
 from did.messaging.protector import IntegrityViolation, protect, validate_full_pipeline
 from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
@@ -35,6 +36,19 @@ from did.translation.segmentation import (
     translate_masked_text,
     translate_nodes_naively,
 )
+
+#: A distinct pseudo-strategy label (never a real SegmentationStrategy
+#: member) for the ONE measurement set that matters for the benchmark's
+#: overall PASS/BLOCKED/FAIL verdict: FULL_MASKED_MESSAGE -- the only
+#: strategy did.translation.segmentation.select_translation_strategy()
+#: actually ever selects -- wrapped in the exact same bounded integrity
+#: retry did.campaigns.rendering.render_field_text applies in the real
+#: delivery path (mission: "STAGE09 -- FINAL TRANSLATION INTEGRITY
+#: FINDING"). The four fixed-strategy, no-retry measurements below remain
+#: unchanged as purely comparative evidence -- this benchmark no longer
+#: conflates "what a raw single strategy attempt measures" with "what
+#: production actually does before a delivery is sent".
+PRODUCTION_STRATEGY_LABEL = "PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY"
 
 # External-review finding: googletrans.__version__ (the module attribute) is
 # stale upstream -- it reports "3.4.0" even when the installed *distribution*
@@ -79,6 +93,10 @@ class MeasurementRecord:
     #: human reviewing the evidence can see how often it happened, never to
     #: itself flip PASS/FAIL.
     identical_to_source: bool | None
+    #: How many bounded-integrity-retry attempts beyond the first this
+    #: measurement needed (0 for every raw, no-retry strategy row below;
+    #: only ever nonzero for PRODUCTION_STRATEGY_LABEL measurements).
+    retry_count: int = 0
 
 
 async def _run_one(
@@ -160,6 +178,102 @@ async def _run_one(
         )
 
 
+async def _run_one_production(
+    provider: GoogletransCampaignTranslationProvider,
+    item: dict[str, str],
+    source_language: str,
+    target_language: str,
+    *,
+    max_integrity_attempts: int = DEFAULT_MAX_INTEGRITY_ATTEMPTS,
+) -> MeasurementRecord:
+    """Measures the ACTUAL production behavior, not a raw single-attempt
+    strategy in isolation: FULL_MASKED_MESSAGE segmentation (the only
+    strategy production ever selects) wrapped in the exact same bounded
+    integrity retry ``did.campaigns.rendering.render_field_text`` applies
+    to every real delivery -- fresh placeholders regenerated every attempt
+    (a new ``protect()`` call, never reusing a corrupted attempt's nonces),
+    every candidate independently validated through the exact same
+    ``validate_full_pipeline()`` production gate, final exhaustion still
+    fails closed (recorded as an integrity error here, exactly like any
+    other measurement error)."""
+    content = item["content"]
+    nodes = parse(content)
+
+    started = time.perf_counter()
+    last_error: IntegrityViolation | None = None
+    for attempt in range(1, max_integrity_attempts + 1):
+        protection = protect(nodes)
+
+        async def translate_segment(segment: str) -> str:
+            result = await provider.translate(
+                segment, source_language=source_language, target_language=target_language
+            )
+            return result.translated_text
+
+        try:
+            translated_masked = await translate_masked_text(
+                protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE, translate_segment
+            )
+        except Exception as exc:
+            latency = time.perf_counter() - started
+            return MeasurementRecord(
+                item_id=item["id"],
+                item_class=item["class"],
+                strategy=PRODUCTION_STRATEGY_LABEL,
+                source_language=source_language,
+                target_language=target_language,
+                segment_count=0,
+                latency_seconds=round(latency, 3),
+                protected_integrity_ok=None,
+                error=str(exc),
+                translated_preview=None,
+                identical_to_source=None,
+                retry_count=attempt - 1,
+            )
+        n_segments = segment_count(protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE)
+        try:
+            restored = validate_full_pipeline(nodes, translated_masked, protection)
+        except IntegrityViolation as exc:
+            last_error = exc
+            continue  # bounded retry: fresh placeholders on the next loop iteration
+        latency = time.perf_counter() - started
+        return MeasurementRecord(
+            item_id=item["id"],
+            item_class=item["class"],
+            strategy=PRODUCTION_STRATEGY_LABEL,
+            source_language=source_language,
+            target_language=target_language,
+            segment_count=n_segments,
+            latency_seconds=round(latency, 3),
+            protected_integrity_ok=True,
+            error=None,
+            translated_preview=restored[:80],
+            identical_to_source=(restored == content),
+            retry_count=attempt - 1,
+        )
+
+    # Every attempt exhausted -- fails closed exactly like production would
+    # (IntegrityViolation propagates from render_field_text); recorded here
+    # as an integrity failure, not silently downgraded to a bare error.
+    latency = time.perf_counter() - started
+    assert last_error is not None
+    preview = f"<INTEGRITY_VIOLATION after {max_integrity_attempts} attempts: {last_error}>"
+    return MeasurementRecord(
+        item_id=item["id"],
+        item_class=item["class"],
+        strategy=PRODUCTION_STRATEGY_LABEL,
+        source_language=source_language,
+        target_language=target_language,
+        segment_count=0,
+        latency_seconds=round(latency, 3),
+        protected_integrity_ok=False,
+        error=None,
+        translated_preview=preview[:80],
+        identical_to_source=None,
+        retry_count=max_integrity_attempts - 1,
+    )
+
+
 async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
     """Runs every strategy over the FULL directed language matrix: every
     ordered pair (source, target) of distinct languages in
@@ -185,6 +299,16 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
                 record = await _run_one(provider, item, strategy, source_language, target_language)
                 records.append(record)
 
+    # The ACTUAL production measurement (item H): FULL_MASKED_MESSAGE with
+    # the same bounded integrity retry render_field_text applies to every
+    # real delivery -- run over the SAME full item/direction matrix as the
+    # four comparative strategies above, kept as a fifth, clearly-labelled
+    # bucket rather than replacing or averaging into them.
+    for source_language, target_language in directions:
+        for item in items_by_language[source_language]:
+            record = await _run_one_production(provider, item, source_language, target_language)
+            records.append(record)
+
     summary = _summarize(records)
     status, status_reason = _overall_status(summary)
     return {
@@ -198,6 +322,8 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
             "languages": languages,
             "directions": [f"{s}->{d}" for s, d in directions],
             "strategies": [s.value for s in strategies],
+            "production_strategy": PRODUCTION_STRATEGY_LABEL,
+            "production_max_integrity_attempts": DEFAULT_MAX_INTEGRITY_ATTEMPTS,
             "items_per_language": {lang: len(items) for lang, items in items_by_language.items()},
         },
         "records": [asdict(r) for r in records],
@@ -226,9 +352,16 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
                 "identical_to_source_checked": 0,
                 "latency_sum": 0.0,
                 "latency_count": 0,
+                "measurements_that_retried": 0,
+                "total_retry_attempts": 0,
             },
         )
         bucket["measurement_records"] = int(bucket["measurement_records"]) + 1
+        if record.retry_count > 0:
+            bucket["measurements_that_retried"] = int(bucket["measurements_that_retried"]) + 1
+            bucket["total_retry_attempts"] = (
+                int(bucket["total_retry_attempts"]) + record.retry_count
+            )
         if record.error is not None:
             bucket["errors"] = int(bucket["errors"]) + 1
             continue
@@ -274,6 +407,14 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
             "identical_to_source_count": bucket["identical_to_source"],
             "identical_to_source_checked": bucket["identical_to_source_checked"],
             "average_latency_seconds": round(avg_latency, 3) if avg_latency else None,
+            # Bounded integrity retry (item F: "expose/record integrity
+            # retry count") -- always 0 for the four raw, no-retry
+            # strategies above; only ever nonzero for PRODUCTION_STRATEGY_
+            # LABEL, where it directly measures how often the real provider
+            # corrupted a placeholder and how often a bounded retry with
+            # fresh placeholders recovered it.
+            "measurements_that_retried": bucket["measurements_that_retried"],
+            "total_retry_attempts": bucket["total_retry_attempts"],
         }
     summary["_totals"] = {
         "provider_invocations_all_strategies": total_provider_invocations,
@@ -283,10 +424,19 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
 
 def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
     """The single honest PASS/BLOCKED/FAIL verdict for this benchmark run,
-    gated on the actual production strategy (`FULL_MASKED_MESSAGE`) only --
+    gated on ``PRODUCTION_STRATEGY_LABEL`` -- the ACTUAL production
+    behavior (FULL_MASKED_MESSAGE wrapped in the same bounded integrity
+    retry the real delivery path applies), not a raw single-attempt
+    strategy measured in isolation. The four fixed-strategy, no-retry
+    buckets (including plain ``FULL_MASKED_MESSAGE``) remain in the report
+    as comparative evidence but never gate this verdict -- see item H/I of
+    the mission this remediation answers: a raw strategy's own integrity
+    rate (e.g. the real 311/312 that motivated this remediation) is
+    retained as the empirical finding, not erased, but the verdict itself
+    must reflect what production actually does before a delivery is sent.
     ``NAIVE_PER_TEXT_NODE`` is a deliberate negative control never selected
-    by production code (see `select_translation_strategy()`) and is allowed
-    to have a lower integrity rate without blocking this verdict.
+    by production code (see `select_translation_strategy()`) and never
+    gates this verdict either.
 
     BLOCKED means the real provider/transport is not currently working in
     this environment (a real, fail-closed `TranslationProviderError` was
@@ -295,7 +445,7 @@ def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
     an honest external-unavailability result, not a technical defect in this
     benchmark or in DID's own code, and must never be silently reported as
     PASS."""
-    production = summary.get(SegmentationStrategy.FULL_MASKED_MESSAGE.value)
+    production = summary.get(PRODUCTION_STRATEGY_LABEL)
     if production is None:
         return "BLOCKED", "no measurements recorded for the production strategy"
     errors = int(production["errors"])
@@ -303,7 +453,7 @@ def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
     if errors > 0:
         return (
             "BLOCKED",
-            f"{errors}/{measurement_records} production-strategy (FULL_MASKED_MESSAGE) "
+            f"{errors}/{measurement_records} production ({PRODUCTION_STRATEGY_LABEL}) "
             "measurements failed with a real provider/transport error -- the real "
             "googletrans provider is not currently able to translate in this "
             "environment. See each failing record's own `error` field for the raw "
@@ -314,13 +464,16 @@ def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
     if integrity_rate is None or integrity_rate < 1.0:
         return (
             "FAIL",
-            f"production-strategy (FULL_MASKED_MESSAGE) protected-token integrity is "
-            f"{integrity_rate!r}, below the required 100%.",
+            f"production ({PRODUCTION_STRATEGY_LABEL}) protected-token integrity is "
+            f"{integrity_rate!r}, below the required 100% even after bounded integrity "
+            f"retry (max {DEFAULT_MAX_INTEGRITY_ATTEMPTS} attempts per measurement).",
         )
+    retried = int(production["measurements_that_retried"])
     return (
         "PASS",
-        "production strategy (FULL_MASKED_MESSAGE): 0 provider/transport errors, "
-        "100% protected-token integrity.",
+        f"production ({PRODUCTION_STRATEGY_LABEL}): 0 provider/transport errors, 100% "
+        f"protected-token integrity ({retried}/{measurement_records} measurements needed "
+        "a bounded integrity retry to reach that result).",
     )
 
 

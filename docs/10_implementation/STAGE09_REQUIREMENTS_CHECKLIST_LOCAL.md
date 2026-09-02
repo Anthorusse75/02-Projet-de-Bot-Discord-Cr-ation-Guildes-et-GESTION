@@ -2,7 +2,7 @@
 
 ## État de la candidate
 
-- Statut global : `STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE` — **régression délibérée** depuis `STAGE_09_COMPLETE_DRAFT_PR_OPEN` (passe précédente). Un audit externe a trouvé un vrai défaut fail-open dans l'adaptateur de traduction de production (`GoogletransCampaignTranslationProvider` construisait `googletrans.Translator()` avec `raise_exception=False`, son défaut — une panne réelle de transport renvoyait alors silencieusement le sentinel `DUMMY_DATA` de la bibliothèque, dont le texte est l'entrée ré-échoïsée, indiscernable d'une traduction réussie). **Corrigé** cette passe (`raise_exception=True` + vérification défensive du statut HTTP réel). Une fois corrigé, une tentative réelle a révélé que le provider `googletrans` est **actuellement indisponible** dans ce sandbox (HTTP 429 réel de `translate.googleapis.com`, HTTP 403 de `translate.google.com`/variantes — page de blocage anti-abus Google authentique, prouvée). Le gate d'acceptation Stage09 de traduction réelle live n'est donc objectivement pas satisfait, même si la correction elle-même (fail-closed, smoke réseau étendu et câblé comme gate, assertions live durcies pour ne plus accepter un écho, benchmark rejoué honnêtement en `BLOCKED`) est complète. Cette ligne et la section « Écarts connus » ci-dessous reflètent l'état courant ; le récit passe-par-passe qui suit est un journal **historique**, voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel (vérité unique) » qui fait foi en cas de divergence.
+- Statut global : `STAGE_09_COMPLETE_DRAFT_PR_OPEN` — **restauré** après une régression temporaire (`STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE`, passe précédente). Trois remédiations externes cumulées sur PR #9 : (1) défaut fail-open de l'adaptateur `googletrans` (corrigé, `raise_exception=True` + vérification défensive du statut HTTP) ; (2) fuite de ressources Discord dans la qualification live sur échec (corrigée, `CleanupRegistry`) ; (3) **cette passe** — mutation intermittente de placeholder côté provider, isolée par le product owner sur un vrai run réseau (1950 appels réels, 0 erreur provider, 1/312 mesure `FULL_MASKED_MESSAGE` en échec d'intégrité sur `es-inline-code-and-block-mixed`, ES→FR ; retest immédiat 5/5 avec placeholders neufs). Root-causée (le fail-closed a correctement rejeté le candidat corrompu — pas une brèche de sécurité, une lacune de disponibilité) et corrigée par une retry bornée (`DEFAULT_MAX_INTEGRITY_ATTEMPTS = 2`) dans `did.campaigns.rendering` qui régénère des placeholders neufs à chaque tentative, jamais un relâchement du fail-closed — 16 nouveaux tests déterministes le prouvent. La conclusion précédente (« provider globalement indisponible ») était trop large : le product owner a prouvé le provider opérationnel depuis son propre réseau ; seule une confirmation de ce réseau fonctionnel avec le code corrigé reste ouverte (`EXTERNAL_ACCEPTANCE_ITEM`, jamais une clause technique bloquante). Cette ligne et la section « Écarts connus » ci-dessous reflètent l'état courant ; le récit passe-par-passe qui suit est un journal **historique**, voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel (vérité unique) » qui fait foi en cas de divergence.
 - Base `main` : `c41b61ae96cdb1d767c8d924212a6466b768ed60`.
 - Branche : `stage/09-campaigns`.
 - **31** IDs `IMPLEMENTED`, **0** ID `PARTIALLY_IMPLEMENTED`, **0** ID `NOT_STARTED` (inchangé depuis la septième passe — aucun REQ-MSG n'a changé de statut cette passe, le travail de cette passe ferme des surfaces produit demandées par la mission de clôture au-delà de la matrice REQ-MSG elle-même). Aucune promotion au-delà de la preuve réelle disponible ; `VERIFIED` non applicable, réservé à une qualification transverse qui n'a pas eu lieu.
@@ -82,22 +82,30 @@
 ## Écarts connus (non dissimulés)
 
 Fermés : réconciliation de livraison câblée dans le runtime réel ; les surfaces d'authoring
-Stage09 (embeds/composants, variables typées, glossaire, trigger/source binding, rétention) sont
-construites en UI/API ; la matrice de qualification live complète (mission section 20) est
-construite ; **le défaut fail-open de l'adaptateur de traduction est corrigé** (`raise_exception=
-True` + vérification défensive du statut HTTP réel — voir `STAGE_09_HANDOFF.md` § « État actuel »).
+Stage09 sont construites en UI/API ; la matrice de qualification live complète est construite ; le
+défaut fail-open de l'adaptateur de traduction est corrigé ; la fuite de ressources de la
+qualification live sur échec est corrigée (`CleanupRegistry`) ; **la mutation intermittente de
+placeholder côté provider est root-causée et corrigée** (retry bornée avec régénération de
+placeholders dans `did.campaigns.rendering`, 16 tests déterministes) — voir `STAGE_09_HANDOFF.md`
+§ « État actuel » pour le détail complet de chaque remédiation.
 
-**Ouvert, bloquant — 0. Provider de traduction `googletrans` propre à DID indisponible** :
-`GOOGLETRANS_PROVIDER_CURRENTLY_UNAVAILABLE`. Une fois le défaut fail-open corrigé, une tentative
-réelle contre l'endpoint réel a révélé HTTP 429 (`translate.googleapis.com`, page de blocage
-anti-abus Google authentique) et HTTP 403 (`translate.google.com`/variantes) pour l'IP sortante de
-ce sandbox — stable sur plusieurs tentatives et endpoints, une vraie indisponibilité externe, pas un
-défaut DID. Conséquence directe : `translation_group_did_fanout` échoue désormais honnêtement en
-live sur tout ce qui dépend réellement d'une traduction obtenue (DID_TRANSLATED_FANOUT/
-SELECTED_LANGUAGES/variante-sœur), tandis que SOURCE_ONLY, `translation_group_provider_boundary`, et
-les 9 autres groupes de la matrice live (rien lié à la traduction) restent 100% PASS. Le benchmark de
-traduction est `BLOCKED` (1248/1248 mesures en échec réel, jamais compté comme succès). Ceci est la
-clause qui empêche `STAGE_09_COMPLETE_DRAFT_PR_OPEN` cette passe.
+Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
+techniquement :
+
+1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
+2. **Confirmation du benchmark canonique avec retry depuis un réseau fonctionnel** (remplace
+   l'ancienne clause bloquante « provider indisponible ») : le product owner a prouvé le provider
+   `googletrans` opérationnel depuis son propre réseau (4×5/5 smoke réel, 1950 appels réels/0 erreur
+   sur le benchmark complet, évidence qui a motivé la remédiation de mutation de placeholder
+   ci-dessus) — mais ce sandbox de développement lui-même reste sans accès réseau fonctionnel au
+   provider, donc la version corrigée (avec retry bornée) n'a pas pu y être reconfirmée en direct.
+   Commande exacte à exécuter par le product owner :
+   `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` (doit
+   rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`).
+3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du provider
+   `googletrans` propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
+4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
+   `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
 
 Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique (inchangées
 par cette régression, sauf (1) désormais bloquée en amont par (0)) :

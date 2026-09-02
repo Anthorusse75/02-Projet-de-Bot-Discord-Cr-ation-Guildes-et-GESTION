@@ -7,6 +7,8 @@ content is ever decided through.
 
 from __future__ import annotations
 
+import logging
+import re
 from uuid import uuid4
 
 import pytest
@@ -215,6 +217,213 @@ class TestRenderFieldText:
                 glossary_entries=(),
                 translate_masked_text=_dropping_translate,
             )
+
+
+def _mutate_one_placeholder(text: str) -> str:
+    """Simulates a real, externally-observed provider failure mode
+    (mission: "STAGE09 -- FINAL TRANSLATION INTEGRITY FINDING"): the
+    provider does not drop or duplicate a placeholder (that's a separate,
+    already-covered failure mode) -- it transforms ONE issued placeholder
+    into a DIFFERENT token that is still shaped exactly like a valid DIDPH
+    placeholder (same ``DIDPH{index:04d}Q{8 hex}ZH`` pattern), by flipping
+    one hex digit of the nonce. This is exactly the "invented unknown
+    placeholder token" case a real benchmark run isolated on
+    ``es-inline-code-and-block-mixed`` (ES->FR, FULL_MASKED_MESSAGE, 1/312)."""
+    match = re.search(r"DIDPH(\d{4})Q([0-9A-F]{8})ZH", text)
+    assert match is not None, "fixture text must contain at least one placeholder"
+    index, nonce = match.group(1), match.group(2)
+    flipped_char = "1" if nonce[-1] != "1" else "2"
+    mutated = f"DIDPH{index}Q{nonce[:-1]}{flipped_char}ZH"
+    return text[: match.start()] + mutated + text[match.end() :]
+
+
+class TestBoundedIntegrityRetryOnPlaceholderMutation:
+    """Deterministic regression coverage for the googletrans intermittent
+    placeholder-mutation finding: a provider output that changes an issued
+    placeholder into a different, still valid-looking DIDPH token must
+    never reach publication, and the bounded-retry recovery path (fresh
+    placeholders regenerated per attempt, never an unbounded loop) must be
+    exercised, not merely asserted."""
+
+    UNIT = TranslationUnit(
+        FieldPath(TranslatableFieldKind.CONTENT), "Ping <@123456789012345678> now."
+    )
+
+    async def test_a_provider_that_always_mutates_the_placeholder_fails_closed(self) -> None:
+        """No corrupted candidate reaches the caller even after retrying --
+        the FINAL attempt's failure still propagates as IntegrityViolation,
+        proving retry is recovery, never a relaxation of the fail-closed
+        guarantee."""
+        calls = 0
+
+        async def _always_corrupt(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            return _mutate_one_placeholder(masked_text)
+
+        with pytest.raises(IntegrityViolation, match="invented unknown placeholder"):
+            await render_field_text(
+                self.UNIT,
+                target_language="fr",
+                campaign_id=CAMPAIGN_ID,
+                guild_id=GUILD_ID,
+                template_variable_definitions={},
+                glossary_entries=(),
+                translate_masked_text=_always_corrupt,
+            )
+        # Exactly the default bound (2), never open-ended.
+        assert calls == 2
+
+    async def test_retry_recovers_when_only_the_first_attempt_is_corrupted(self) -> None:
+        """The real-world evidence this remediation is built on: a fresh
+        retry with regenerated placeholders succeeded 5/5 times against the
+        exact content/direction that failed once in the real benchmark.
+        This test proves the mechanism, not just the anecdote: attempt 1's
+        placeholder is corrupted, attempt 2 (necessarily a DIFFERENT,
+        freshly-generated placeholder, since protect() draws a new random
+        nonce every call) is left untouched, and the final result is the
+        correct, uncorrupted restoration."""
+        calls = 0
+
+        async def _corrupt_first_call_only(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _mutate_one_placeholder(masked_text)
+            return masked_text
+
+        result = await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_corrupt_first_call_only,
+        )
+        assert result == "Ping <@123456789012345678> now."
+        assert calls == 2  # one retry, never more than the bound
+
+    async def test_the_two_attempts_use_different_placeholders_never_reused(self) -> None:
+        """Proves retry actually regenerates placeholders rather than
+        resending the same masked text (which would just risk the same
+        corruption again) -- the exact mechanism the mission requires."""
+        seen_masked_texts: list[str] = []
+
+        async def _record_and_corrupt_first(masked_text: str) -> str:
+            seen_masked_texts.append(masked_text)
+            if len(seen_masked_texts) == 1:
+                return _mutate_one_placeholder(masked_text)
+            return masked_text
+
+        await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_record_and_corrupt_first,
+        )
+        assert len(seen_masked_texts) == 2
+        assert seen_masked_texts[0] != seen_masked_texts[1]
+
+    async def test_custom_max_integrity_attempts_bounds_retries_deterministically(self) -> None:
+        """The retry ceiling is a real, callable-configurable bound (item F:
+        "set a strict maximum"), not a hidden constant -- proves 3 attempts
+        are made when configured for 3, and no more."""
+        calls = 0
+
+        async def _always_corrupt(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            return _mutate_one_placeholder(masked_text)
+
+        with pytest.raises(IntegrityViolation):
+            await render_field_text(
+                self.UNIT,
+                target_language="fr",
+                campaign_id=CAMPAIGN_ID,
+                guild_id=GUILD_ID,
+                template_variable_definitions={},
+                glossary_entries=(),
+                translate_masked_text=_always_corrupt,
+                max_integrity_attempts=3,
+            )
+        assert calls == 3
+
+    async def test_no_retry_loop_when_translation_is_not_requested(self) -> None:
+        """translate_masked_text=None can never produce a corrupted
+        candidate (nothing translates it) -- the retry machinery must not
+        loop pointlessly in that case."""
+        result = await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=None,
+        )
+        assert result == "Ping <@123456789012345678> now."
+
+    async def test_integrity_retry_is_logged_as_a_registered_event(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Item F: "expose/record integrity retry count" -- verifies the
+        real, registered EventId fires (never a bare/unstructured log
+        call) exactly once for the one retry in the recovery scenario."""
+        calls = 0
+
+        async def _corrupt_first_call_only(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _mutate_one_placeholder(masked_text)
+            return masked_text
+
+        with caplog.at_level(logging.WARNING, logger="did.campaigns.rendering"):
+            await render_field_text(
+                self.UNIT,
+                target_language="fr",
+                campaign_id=CAMPAIGN_ID,
+                guild_id=GUILD_ID,
+                template_variable_definitions={},
+                glossary_entries=(),
+                translate_masked_text=_corrupt_first_call_only,
+            )
+        retry_records = [
+            r for r in caplog.records if getattr(r, "msg", None) == "translation.integrity.retry"
+        ]
+        assert len(retry_records) == 1
+        assert retry_records[0].fields["attempt"] == 1
+        assert retry_records[0].fields["max_attempts"] == 2
+
+    async def test_render_message_model_end_to_end_recovers_from_one_corrupted_field(self) -> None:
+        """The same recovery proven at the field level also works through
+        the real per-delivery entrypoint every Stage09 delivery actually
+        calls."""
+        model = MessageModel(content="Ping <@123456789012345678> now.")
+        calls = 0
+
+        async def _corrupt_first_call_only(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _mutate_one_placeholder(masked_text)
+            return masked_text
+
+        result = await render_message_model(
+            model,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_corrupt_first_call_only,
+        )
+        assert result.content == "Ping <@123456789012345678> now."
+        assert calls == 2
 
 
 class TestRenderMessageModel:

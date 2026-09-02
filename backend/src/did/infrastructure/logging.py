@@ -55,6 +55,16 @@ class EventId(StrEnum):
     #: prevent. Diagnosable, sanitized (guild_id only, never message
     #: content/ids beyond what is already durably stored).
     CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED = "campaign.bot_message.uncorrelated_skipped"
+    #: A translation provider's output failed placeholder-set integrity
+    #: validation (did.messaging.protector.IntegrityViolation) -- e.g. the
+    #: provider transformed an issued DIDPH placeholder into a different,
+    #: syntactically valid one. Rendering retried with freshly regenerated
+    #: placeholders (did.campaigns.rendering.render_field_text); this event
+    #: fires for every such retry, never for the final outcome alone, so a
+    #: nonzero rate here is directly observable without waiting for a
+    #: bounded-retry exhaustion. Sanitized: never includes message content,
+    #: placeholder values, or the offending translated text.
+    TRANSLATION_INTEGRITY_RETRY = "translation.integrity.retry"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"
