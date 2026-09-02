@@ -87,9 +87,28 @@ own convention -- see ``validate_discord_live_stage09.py``'s docstring):
     itself.
 
 Skipped unless --include is passed. Creates temporary channels/logical
-groups in the real sandbox Guild(s), uses synthetic content only, cleans up
-fully, and writes a sanitized JSON report with zero secrets, zero raw
-Discord ids, zero PII.
+groups in the real sandbox Guild(s), uses synthetic content only, and writes
+a sanitized JSON report (including a "cleanup" summary, see below) with zero
+secrets, zero raw Discord ids, zero PII.
+
+Cleanup correctness (external review finding, fixed): every created channel
+is registered with a `CleanupRegistry` (scripts/_stage09_cleanup_registry.py)
+IMMEDIATELY on creation and cleaned up from a `finally` block that always
+runs, regardless of how a scenario group exits (success, assertion failure,
+provider failure, timeout, cancellation, or a discord.py event-handler
+exception). A previous version of this script batched created channels into
+a second list that was only populated after every scenario group had already
+completed successfully -- a mid-run failure left that second list empty, and
+the `finally` block that used it deleted nothing, even though real channels
+had already been created. That defect is what left the ``did-s09-fc-...``
+orphan channels this repository's own sandbox accumulated after interrupted
+live runs; `scripts/cleanup_stage09_orphan_fixtures.py` is the separate,
+conservative one-time sweep that removed them (name-match AND audit-log-
+confirmed bot authorship required by default -- never a bare name-prefix
+match). This canonical script itself now reports FAIL (never a false PASS)
+if any resource it created remains undeleted when it finishes -- see its
+own report's "cleanup" field: created/deletion_attempted/deleted_or_already_
+absent/failed/remaining.
 """
 
 from __future__ import annotations
@@ -181,25 +200,40 @@ def main() -> int:
     from _stage09_full_chain_impl import run_live
 
     try:
-        scenarios, observations = asyncio.run(
+        scenarios, observations, cleanup_summary = asyncio.run(
             asyncio.wait_for(run_live(guild_a, guild_b, token, groups), timeout=180.0)
         )
     except Exception as exc:
+        # Real Discord channels created before the failure are still
+        # cleaned up inside run_live's own `finally` block regardless of
+        # this exception -- see _stage09_cleanup_registry.py. Its summary is
+        # attached to the exception (when available) so a BLOCKED report
+        # never silently omits cleanup evidence just because the run itself
+        # failed partway through.
+        report_cleanup = getattr(exc, "cleanup_summary", None)
         args.report.write_text(
             json.dumps(
                 {
                     "status": "BLOCKED",
                     "reason": str(exc),
                     "generated_at": datetime.now(UTC).isoformat(),
+                    "cleanup": report_cleanup,
                 },
                 indent=2,
             ),
             encoding="utf-8",
         )
-        print(f"Discord live STAGE 09 full-chain qualification: BLOCKED ({exc})")
+        cleanup_note = f", cleanup={report_cleanup}" if report_cleanup is not None else ""
+        print(f"Discord live STAGE 09 full-chain qualification: BLOCKED ({exc}){cleanup_note}")
         return 1
 
-    all_pass = all(scenarios.values())
+    # A canonical run must never report PASS while resources it created
+    # remain undeleted -- a leaked orphan channel in the real sandbox is a
+    # real defect this validator itself must catch, not merely something to
+    # note. cleanup_all() is best-effort (one failing deletion never blocks
+    # cleanup of the rest -- see CleanupRegistry), so `remaining` reflects
+    # genuine leftovers, not merely deletions still in flight.
+    all_pass = all(scenarios.values()) and cleanup_summary["remaining"] == 0
     report = {
         "status": "PASS" if all_pass else "FAIL",
         "scope": (
@@ -212,9 +246,15 @@ def main() -> int:
         "generated_at": datetime.now(UTC).isoformat(),
         "scenarios": scenarios,
         "notes": observations,
+        "cleanup": cleanup_summary,
     }
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Discord live STAGE 09 full-chain qualification: {report['status']} -- {args.report}")
+    if cleanup_summary["remaining"] > 0:
+        print(
+            f"  [FAIL] {cleanup_summary['remaining']} resource(s) created by this run remain "
+            'undeleted in the real sandbox -- see the report\'s own "cleanup" field.'
+        )
     return 0 if all_pass else 1
 
 

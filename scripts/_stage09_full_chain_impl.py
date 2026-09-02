@@ -24,6 +24,7 @@ from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from _stage09_cleanup_registry import CleanupRegistry
 from did.api.main import create_app
 from did.campaigns.approved_variants import compute_source_fingerprint
 from did.campaigns.dispatch import CampaignDeliveryExecutor
@@ -267,6 +268,7 @@ class _Context:
         language_profiles: LanguageProfileRepository,
         translation_groups: TranslationGroupRepository,
         provider_bindings: TranslationProviderBindingRepository,
+        cleanup: CleanupRegistry,
     ) -> None:
         self.client_http = client_http
         self.csrf = csrf
@@ -291,7 +293,10 @@ class _Context:
         self.language_profiles = language_profiles
         self.translation_groups = translation_groups
         self.provider_bindings = provider_bindings
-        self.temp_channels: list[discord.TextChannel] = []
+        #: Every Discord resource created by this run is registered here the
+        #: instant it is created (never batched into a second list synced
+        #: only on success) -- see _stage09_cleanup_registry.py for why.
+        self.cleanup = cleanup
         #: Non-blocking observations about real-world conditions outside
         #: DID's own code (e.g. whether the live googletrans dependency is
         #: currently producing genuinely different text) -- recorded in the
@@ -377,6 +382,24 @@ async def _drain_all(ctx: _Context, guild_id: int, *, max_jobs: int = 10) -> int
     return count
 
 
+async def _create_temp_channel(
+    ctx: _Context, guild: discord.Guild, name: str
+) -> discord.TextChannel:
+    """Creates a real temporary text channel and registers it for cleanup
+    IMMEDIATELY, before this function returns -- registration must never be
+    deferred/batched into a second list, so a mid-run exception/timeout/
+    cancellation anywhere after this point still leaves the channel
+    correctly tracked for deletion (see _stage09_cleanup_registry.py)."""
+    channel = await guild.create_text_channel(name)
+    ctx.cleanup.register(
+        kind="channel",
+        label=f"{channel.name} ({channel.id})",
+        delete=channel.delete,
+        already_absent_exceptions=(discord.NotFound,),
+    )
+    return channel
+
+
 async def _seed_channel(ctx: _Context, guild: discord.Guild, channel: discord.TextChannel) -> None:
     async with ctx.admin_engine.begin() as connection:
         await _seed_stage04_cache(connection, guild.id, [channel.id], ctx.bot_user_id)
@@ -390,8 +413,7 @@ async def _send_immediate(
     create -> real HTTP target create (real Stage04 authorization) -> real
     HTTP activate (synchronously fans out + routes to a durable job for
     IMMEDIATE campaigns) -> the real worker/governor/adapter chain."""
-    channel = await guild.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.append(channel)
+    channel = await _create_temp_channel(ctx, guild, f"did-s09-fc-{uuid4().hex[:8]}")
     await _seed_channel(ctx, guild, channel)
 
     created = await ctx.client_http.post(
@@ -453,8 +475,7 @@ async def _group_immediate_channel(ctx: _Context, results: dict[str, bool]) -> N
 
 async def _group_one_shot_deferred(ctx: _Context, results: dict[str, bool]) -> None:
     content = "Full chain one-shot deferred (synthetic, live qualification)."
-    channel = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.append(channel)
+    channel = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
     await _seed_channel(ctx, ctx.guild_a, channel)
 
     created = await ctx.client_http.post(
@@ -513,8 +534,7 @@ async def _group_one_shot_deferred(ctx: _Context, results: dict[str, bool]) -> N
 
 async def _group_recurring(ctx: _Context, results: dict[str, bool]) -> None:
     content = "Full chain recurring (synthetic, live qualification)."
-    channel = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.append(channel)
+    channel = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
     await _seed_channel(ctx, ctx.guild_a, channel)
 
     created = await ctx.client_http.post(
@@ -597,8 +617,7 @@ async def _group_event_triggered(ctx: _Context, results: dict[str, bool]) -> Non
     script to wait out that grace window for no reason."""
     content = "Full chain event-triggered (synthetic, live qualification)."
     event_type = "GUILD_MEMBER_ADD"
-    channel = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.append(channel)
+    channel = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
     await _seed_channel(ctx, ctx.guild_a, channel)
 
     created = await ctx.client_http.post(
@@ -677,9 +696,8 @@ async def _group_event_triggered(ctx: _Context, results: dict[str, bool]) -> Non
 
 async def _group_logical_group(ctx: _Context, results: dict[str, bool]) -> None:
     content = "Full chain logical group (synthetic, live qualification)."
-    channel_1 = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    channel_2 = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.extend([channel_1, channel_2])
+    channel_1 = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
+    channel_2 = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
     async with ctx.admin_engine.begin() as connection:
         await _seed_stage04_cache(
             connection, ctx.guild_a.id, [channel_1.id, channel_2.id], ctx.bot_user_id
@@ -831,9 +849,8 @@ async def _group_embed_button(ctx: _Context, results: dict[str, bool]) -> None:
 
 async def _group_governor_fairness(ctx: _Context, results: dict[str, bool]) -> None:
     content = "Full chain governor fairness (synthetic, live qualification)."
-    channel_a = await ctx.guild_a.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    channel_b = await ctx.guild_b.create_text_channel(f"did-s09-fc-{uuid4().hex[:8]}")
-    ctx.temp_channels.extend([channel_a, channel_b])
+    channel_a = await _create_temp_channel(ctx, ctx.guild_a, f"did-s09-fc-{uuid4().hex[:8]}")
+    channel_b = await _create_temp_channel(ctx, ctx.guild_b, f"did-s09-fc-{uuid4().hex[:8]}")
     await _seed_channel(ctx, ctx.guild_a, channel_a)
     await _seed_channel(ctx, ctx.guild_b, channel_b)
 
@@ -999,8 +1016,7 @@ async def _setup_translation_group(
     codes = (source_code, *variant_codes)
     channels: dict[str, discord.TextChannel] = {}
     for code in codes:
-        channel = await guild.create_text_channel(f"did-s09-fc-tr-{code}-{uuid4().hex[:6]}")
-        ctx.temp_channels.append(channel)
+        channel = await _create_temp_channel(ctx, guild, f"did-s09-fc-tr-{code}-{uuid4().hex[:6]}")
         channels[code] = channel
     async with ctx.admin_engine.begin() as connection:
         await _seed_stage04_cache(
@@ -1493,17 +1509,23 @@ GROUP_FUNCTIONS = {
 
 async def run_live(
     guild_a_id: int, guild_b_id: int, token: str, groups: tuple[str, ...]
-) -> tuple[dict[str, bool], list[str]]:
+) -> tuple[dict[str, bool], list[str], dict[str, int]]:
     admin_engine = create_database_engine(ADMIN_URL, pool_size=5)
     app_engine = create_database_engine(APP_URL, pool_size=5)
     results: dict[str, bool] = {}
     observations: list[str] = []
+    #: Created BEFORE anything else that could create a Discord resource, and
+    #: referenced directly (by identity, never copied into a second list
+    #: only after a run succeeds) everywhere a channel is created and in the
+    #: `finally` block below -- see _stage09_cleanup_registry.py for why
+    #: that distinction is the actual fix for the orphan-channel defect this
+    #: remediation closes.
+    cleanup = CleanupRegistry()
     try:
         await _reset(admin_engine, guild_a_id, guild_b_id)
 
         intents = discord.Intents.default()
         discord_client = discord.Client(intents=intents)
-        temp_channels: list[discord.TextChannel] = []
         captured_exception: list[BaseException] = []
 
         @discord_client.event
@@ -1631,12 +1653,12 @@ async def run_live(
                             language_profiles=language_profiles,
                             translation_groups=translation_groups,
                             provider_bindings=provider_bindings,
+                            cleanup=cleanup,
                         )
 
                         for group_name in groups:
                             await GROUP_FUNCTIONS[group_name](ctx, results)
 
-                        temp_channels.extend(ctx.temp_channels)
                         observations.extend(ctx.observations)
             except BaseException as exc:
                 # discord.py's own event dispatch swallows an exception
@@ -1649,17 +1671,25 @@ async def run_live(
                 # BLOCKED honestly instead.
                 captured_exception.append(exc)
             finally:
-                for channel in temp_channels:
-                    try:
-                        await channel.delete()
-                    except discord.NotFound:
-                        pass
+                # `cleanup` is referenced by identity, not copied/snapshotted
+                # -- every channel any scenario group registered before this
+                # point (successful group, partial group, or a group that
+                # raised) is cleaned up here, regardless of why control
+                # reached this `finally` block.
+                await cleanup.cleanup_all()
                 await discord_client.close()
 
         await discord_client.start(token)
         if captured_exception:
+            # Cleanup already ran in on_ready's own `finally` above by the
+            # time we get here -- attach its summary to the exception so a
+            # BLOCKED report (main()'s except-branch) can still honestly
+            # record created/deleted/failed/remaining counts instead of
+            # silently omitting cleanup evidence just because the run itself
+            # failed.
+            captured_exception[0].cleanup_summary = cleanup.summary()  # type: ignore[attr-defined]
             raise captured_exception[0]
-        return results, observations
+        return results, observations, cleanup.summary()
     finally:
         await _reset(admin_engine, guild_a_id, guild_b_id)
         await app_engine.dispose()

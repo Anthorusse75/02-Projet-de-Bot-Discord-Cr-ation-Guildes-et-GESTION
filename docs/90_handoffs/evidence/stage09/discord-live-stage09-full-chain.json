@@ -14,7 +14,7 @@
     "translation_group_did_fanout",
     "translation_group_provider_boundary"
   ],
-  "generated_at": "2026-09-02T12:04:09.108970+00:00",
+  "generated_at": "2026-09-02T12:22:05.790879+00:00",
   "scenarios": {
     "immediate_channel.delivery_reconciled_sent": true,
     "immediate_channel.discord_content_matches": true,
@@ -71,11 +71,18 @@
     "translation_group.es_source_content_matches": true,
     "translation_group.es_source_translated_destinations_genuine": false,
     "translation_group.selected_languages_exact_subset": false,
-    "translation_group.approved_variant_reused_verbatim": true,
+    "translation_group.approved_variant_reused_verbatim": false,
     "translation_group.approved_variant_sibling_genuinely_translated": false,
     "translation_group.existing_provider_publishes_only_source": true,
     "translation_group.provider_bound_blocks_fanout_no_mutation": true,
     "translation_group.provider_bound_no_discord_messages_sent": true
   },
-  "notes": []
+  "notes": [],
+  "cleanup": {
+    "created": 42,
+    "deletion_attempted": 42,
+    "deleted_or_already_absent": 42,
+    "failed": 0,
+    "remaining": 0
+  }
 }
