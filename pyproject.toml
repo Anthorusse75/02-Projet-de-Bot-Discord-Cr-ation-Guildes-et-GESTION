@@ -13,21 +13,26 @@ dependencies = [
   "cryptography==50.0.0",
   "discord.py==2.7.1",
   "fastapi==0.141.1",
+  "googletrans==4.0.2",
   "httpx==0.28.1",
   "pydantic==2.13.4",
   "pydantic-settings==2.15.0",
+  "python-dateutil==2.9.0.post0",
   "redis==8.1.0",
   "sqlalchemy==2.0.52",
+  "tzdata==2025.2",
   "uvicorn==0.52.3",
 ]
 
 [dependency-groups]
 dev = [
+  "hypothesis==6.167.1",
   "mypy==2.3.1",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
   "ruff==0.16.3",
+  "types-python-dateutil==2.9.0.20250822",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -45,6 +50,7 @@ markers = [
   "failure_injection: exercises a controlled failure or race",
   "discord_live: requires explicit Discord sandbox credentials",
   "load: deterministic local load and fairness benchmark",
+  "translation_network: requires real outbound network access to googletrans",
 ]
 
 [tool.coverage.run]
@@ -66,7 +72,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF"]
 ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
-"backend/tests/**" = ["S105", "S106"]
+"backend/tests/**" = ["S105", "S106", "S311"]
 "backend/alembic/versions/**" = ["E501"]
 "scripts/check_secrets.py" = ["S603"]
 "scripts/validate_stage.py" = ["S603"]
@@ -80,3 +86,7 @@ packages = ["did"]
 [[tool.mypy.overrides]]
 module = "backend.alembic.*"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "googletrans.*"
+ignore_missing_imports = true

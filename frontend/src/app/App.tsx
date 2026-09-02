@@ -14,6 +14,7 @@ import { LibraryScreen } from '../features/library/LibraryScreen'
 import { CloneScreen } from '../features/cloning/CloneScreen'
 import { useInteractionStore } from '../shared/state/interaction'
 import { TranslationWorkspace } from '../features/translations/TranslationWorkspace'
+import { CampaignCenter } from '../features/campaigns/CampaignCenter'
 
 export function App() {
   const announcement = useInteractionStore((state) => state.announcement)
@@ -35,6 +36,7 @@ export function App() {
             <Route path="library" element={<LibraryScreen />} />
             <Route path="clone" element={<CloneScreen />} />
             <Route path="translations" element={<TranslationWorkspace />} />
+            <Route path="campaigns" element={<CampaignCenter />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />

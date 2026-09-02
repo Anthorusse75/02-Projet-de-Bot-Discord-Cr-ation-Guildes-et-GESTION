@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TranslationWorkspace } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -43,6 +43,59 @@ export const dashboardCapabilitiesOptions = (u: DiscordSnowflake, g: DiscordSnow
 export const useDashboardCapabilities = (u: DiscordSnowflake, g: DiscordSnowflake, resourceId?: string) => useQuery(dashboardCapabilitiesOptions(u, g, resourceId))
 export const useGuildDashboardCapabilities = (u: DiscordSnowflake, guildIds: readonly DiscordSnowflake[]) => useQueries({
   queries: guildIds.map((guildId) => dashboardCapabilitiesOptions(u, guildId)),
+})
+// STAGE 09 -- campaigns are owned by the caller (not Guild-scoped in the
+// URL: a single campaign can target many Guilds), so unlike tenantQuery
+// above these keys carry no Guild id at all.
+export const useCampaigns = (u: DiscordSnowflake) => useQuery({ queryKey: queryKeys.campaigns(u), queryFn: () => apiRequest<{campaigns:Campaign[]}>('/api/v1/campaigns') })
+export const useCampaignTargets = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'targets'),
+  queryFn: () => apiRequest<{targets:CampaignTarget[]}>(`/api/v1/campaigns/${campaignId}/targets`),
+})
+export const useCampaignDeliveries = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'deliveries'),
+  queryFn: () => apiRequest<{deliveries:CampaignDelivery[]}>(`/api/v1/campaigns/${campaignId}/deliveries`),
+})
+export const useCampaignTemplateVariables = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'template-variables'),
+  queryFn: () => apiRequest<{template_variables:TemplateVariable[]}>(`/api/v1/campaigns/${campaignId}/template-variables`),
+})
+// REQ-MSG-014 mission section 11: the three glossary scopes are fetched
+// independently -- CAMPAIGN and GLOBAL_USER need only the caller's own id
+// and are always safe to fetch, GUILD needs an explicit destination Guild
+// id (there is no single "current Guild" for a campaign, which may target
+// many) so that query stays disabled until one is entered.
+export const useCampaignGlossary = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'glossary'),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>(`/api/v1/campaigns/${campaignId}/glossary`),
+})
+export const useGlobalUserGlossary = (u: DiscordSnowflake) => useQuery({
+  queryKey: queryKeys.globalGlossary(u),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>('/api/v1/glossary'),
+})
+export const useGuildGlossary = (u: DiscordSnowflake, guildId: string) => useQuery({
+  enabled: Boolean(guildId), queryKey: queryKeys.guildGlossary(u, guildId),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>(`/api/v1/guilds/${guildId}/glossary`),
+})
+// REQ-MSG-027/030 mission section 12: triggers are owned by the caller
+// (like the campaign itself); their source bindings are Guild-scoped (RLS)
+// so, mirroring the Guild glossary/target patterns above, a source list
+// stays disabled until an explicit destination Guild id is entered.
+export const useCampaignTriggers = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'triggers'),
+  queryFn: () => apiRequest<{triggers:CampaignTrigger[]}>(`/api/v1/campaigns/${campaignId}/triggers`),
+})
+export const useTriggerSources = (u: DiscordSnowflake, campaignId: string | undefined, triggerId: string | undefined, guildId: string) => useQuery({
+  enabled: Boolean(campaignId && triggerId && guildId),
+  queryKey: ['did', u, 'campaigns', campaignId ?? 'none', 'triggers', triggerId ?? 'none', 'sources', guildId || 'none'] as const,
+  queryFn: () => apiRequest<{trigger_sources:TriggerSourceBinding[]}>(`/api/v1/campaigns/${campaignId}/triggers/${triggerId}/sources?guild_id=${encodeURIComponent(guildId)}`),
+})
+// REQ-MSG-019/REQ-DATA-002 mission section 13: retention is one
+// system-level policy, never a per-caller value -- a single shared query
+// key (no user id) reflects that truthfully.
+export const useRetentionPolicy = () => useQuery({
+  queryKey: ['did', 'retention-policy'] as const,
+  queryFn: () => apiRequest<RetentionPolicy>('/api/v1/retention-policy'),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

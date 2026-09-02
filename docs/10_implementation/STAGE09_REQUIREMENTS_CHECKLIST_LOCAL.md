@@ -1,0 +1,165 @@
+# Checklist locale STAGE 09 — 31 exigences (REQ-MSG-001..031)
+
+## État de la candidate
+
+- Statut global : `STAGE_09_COMPLETE_DRAFT_PR_OPEN` — **restauré** après une régression temporaire (`STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE`, passe précédente). Trois remédiations externes cumulées sur PR #9 : (1) défaut fail-open de l'adaptateur `googletrans` (corrigé, `raise_exception=True` + vérification défensive du statut HTTP) ; (2) fuite de ressources Discord dans la qualification live sur échec (corrigée, `CleanupRegistry`) ; (3) **cette passe** — mutation intermittente de placeholder côté provider, isolée par le product owner sur un vrai run réseau (1950 appels réels, 0 erreur provider, 1/312 mesure `FULL_MASKED_MESSAGE` en échec d'intégrité sur `es-inline-code-and-block-mixed`, ES→FR ; retest immédiat 5/5 avec placeholders neufs). Root-causée (le fail-closed a correctement rejeté le candidat corrompu — pas une brèche de sécurité, une lacune de disponibilité) et corrigée par une retry bornée (`DEFAULT_MAX_INTEGRITY_ATTEMPTS = 2`) dans `did.campaigns.rendering` qui régénère des placeholders neufs à chaque tentative, jamais un relâchement du fail-closed — 12 nouveaux tests déterministes le prouvent, plus 20 côté script de benchmark (dont 11 corrigeant un défaut de comptage d'appels provider trouvé par audit externe sur cette même remédiation, voir « Écarts connus »). La conclusion précédente (« provider globalement indisponible ») était trop large : le product owner a prouvé le provider opérationnel depuis son propre réseau ; seule une confirmation de ce réseau fonctionnel avec le code corrigé reste ouverte (`EXTERNAL_ACCEPTANCE_ITEM`, jamais une clause technique bloquante). Cette ligne et la section « Écarts connus » ci-dessous reflètent l'état courant ; le récit passe-par-passe qui suit est un journal **historique**, voir `docs/90_handoffs/STAGE_09_HANDOFF.md` § « État actuel (vérité unique) » qui fait foi en cas de divergence.
+- Base `main` : `c41b61ae96cdb1d767c8d924212a6466b768ed60`.
+- Branche : `stage/09-campaigns`.
+- **31** IDs `IMPLEMENTED`, **0** ID `PARTIALLY_IMPLEMENTED`, **0** ID `NOT_STARTED` (inchangé depuis la septième passe — aucun REQ-MSG n'a changé de statut cette passe, le travail de cette passe ferme des surfaces produit demandées par la mission de clôture au-delà de la matrice REQ-MSG elle-même). Aucune promotion au-delà de la preuve réelle disponible ; `VERIFIED` non applicable, réservé à une qualification transverse qui n'a pas eu lieu.
+- Toute promotion est appuyée par fichier:ligne + test dans `00_REQUIREMENTS_TRACEABILITY.md`.
+- Les surfaces d'authoring Stage09 et la matrice de qualification live complète (WP16), listées comme absentes par les passes précédentes, sont désormais construites et prouvées -- voir « Écarts connus » ci-dessous pour ce qui reste honnêtement ouvert.
+
+## Matrice des 31 IDs
+
+| REQ ID | Implémentation principale | Test / preuve | Statut |
+|---|---|---|---|
+| REQ-MSG-001 | `fan_out_occurrence` (immédiat) + `run_scheduler_tick` (différé/récurrent) + `consume_event_for_trigger` (événementiel) — les 4 modes de publication ont maintenant un chemin d'orchestration réel | test_stage09_activation_postgres.py, test_stage09_scheduler_loop_postgres.py, test_stage09_event_consumer_postgres.py | IMPLEMENTED |
+| REQ-MSG-002 | `TargetKind.LOGICAL_GROUP` réutilisant l'abstraction Stage04 (`expand_logical_group`), autorisation à la création complétée (`logical_group_belongs_to_guild`) | test_stage09_logical_groups_postgres.py, test_stage09_target_resolution.py::TestLogicalGroupResolution, test_stage09_authorization.py | IMPLEMENTED |
+| REQ-MSG-003 | `CampaignGuildAuthorizationChecker` contre le vrai `AuthorizationService`/`PermissionEvaluator` ; autorisation à la création complétée (appartenance topologique Stage04/08, y compris LOGICAL_GROUP) | test_stage09_authorization.py (23 tests) | IMPLEMENTED |
+| REQ-MSG-004 | `validate_message_model` limites Discord réelles | test_stage09_message_safety.py::TestMessageModelLimits | IMPLEMENTED |
+| REQ-MSG-005 | UNIQUE(guild_id, delivery_key) + fencing strict + **identité de job nommée** (`claim_delivery`/`process_delivery`, corrige un vrai défaut où un job nommant la livraison A pouvait en réclamer une autre) + résultat de `finalize_delivery` honoré (`STALE_OUTCOME`) + fan-out amont maintenant réel | test_stage09_delivery_worker_postgres.py (20 tests), test_stage09_activation_postgres.py | IMPLEMENTED |
+| REQ-MSG-006 | `AllowedMentionsCompiler` défaut aucune mention | test_stage09_message_safety.py::TestAllowedMentionsCompiler | IMPLEMENTED |
+| REQ-MSG-007 | `TranslationPublicationMode` + gate publication-mode + `evaluate_translation_group_safety` basé sur l'état réel de provider Stage08 (fail-closed vers `MANUAL_CONFIGURATION_REQUIRED`) ; API `did.api.stage09` expose `translation_publication_mode`/`selected_language_profile_ids` explicitement ; frontend `CampaignCenter.tsx` propose désormais les 4 modes explicitement (jamais déduits) avec sélecteur de langues réel pour SELECTED_LANGUAGES | test_stage09_translation_group_safety.py, test_stage09_translation_group_provider_safety_postgres.py, test_stage09_target_resolution.py::TestTranslationGroupResolution, frontend/e2e/stage09.spec.ts (test REQ-MSG-007, 4 modes exercés) | IMPLEMENTED |
+| REQ-MSG-008 | structurel : aucune dépendance au bot existant | — | IMPLEMENTED |
+| REQ-MSG-009 | `googletrans_adapter.py` seul importeur ; port de domaine | tests unitaires + réseau réel (backend/tests/network) | IMPLEMENTED |
+| REQ-MSG-010 | `parser.parse` avant tout appel de traduction | test_stage09_parser_protector.py | IMPLEMENTED |
+| REQ-MSG-011 | URL/mentions/timestamps/emoji/code/commandes/variables préservés, benchmark réel à 100% (stratégie de production) sur corpus étendu (26 classes) | fuzz/property tests + translation-benchmark.json | IMPLEMENTED |
+| REQ-MSG-012 | `validate_full_pipeline` échoue fermé (placeholder + reparse + structure) | test_stage09_parser_protector.py::TestCorruptionFailsClosed/TestFullPipelineValidator | IMPLEMENTED |
+| REQ-MSG-013 | `did.messaging.translation_policy` — typage champ-par-champ explicite, maintenant câblé dans `did.campaigns.rendering` (pipeline de rendu réel) | test_stage09_translation_policy.py + test_stage09_rendering.py | IMPLEMENTED |
+| REQ-MSG-014 | `GlossaryEntry.specificity` (3 tiers) + `resolve_applicable_entries`, câblé dans `did.campaigns.rendering` | test_stage09_glossary.py + test_stage09_campaigns_postgres.py::TestGlossaryGuildScopeRls + test_stage09_rendering.py | IMPLEMENTED |
+| REQ-MSG-015 | glossaire protégé + `validate_full_pipeline` ; nouveau paramètre `foreign_placeholders` corrige un faux positif réel découvert en composant deux couches de protection (variables/glossaire) | test_stage09_parser_protector.py + test_stage09_rendering.py | IMPLEMENTED |
+| REQ-MSG-016 | `ApprovedVariant` + `resolve_variant_for_delivery`, câblés dans le fan-out réel ; le raccourci `approve_fresh_translations` a été supprimé ; l'approbation réelle passe par `approve_variant(approving_discord_user_id=...)` ; désormais exposé par l'API réelle (GET/POST `.../variants/{language_code}[/approve]`), le principal approbateur venant toujours de la session authentifiée, jamais du corps de requête | test_stage09_approved_variants.py + test_stage09_activation_postgres.py + test_stage09_api_postgres.py | IMPLEMENTED |
+| REQ-MSG-017 | décision REUSABLE/STALE/MISSING maintenant câblée bout-en-bout dans `fan_out_occurrence` | test_stage09_activation_postgres.py::TestFanOutTranslation | IMPLEMENTED |
+| REQ-MSG-018 | `did.messaging.template_variables` — 4 types, câblés dans `did.campaigns.rendering` | test_stage09_template_variables.py + test_stage09_rendering.py | IMPLEMENTED |
+| REQ-MSG-019 | colonnes delivery complètes + bail réel + politique de rétention bornée (`RetentionPolicy`, 1..3650 jours, défaut 90, désactivable) + purge Guild/owner-isolée (`purge_expired_deliveries`/`purge_terminal_deliveries`, ne touche jamais un état actif/UNKNOWN/intervention) | test_stage09_campaigns_postgres.py, test_stage09_retention_postgres.py (16 tests) | IMPLEMENTED |
+| REQ-MSG-020 | `CampaignTrigger.requires_message_content` + blocker/avertissement/fail-closed, câblé dans `consume_event_for_trigger` et `simulate_campaign` | test_stage09_message_content_policy.py, test_stage09_causality.py, test_stage09_event_consumer_postgres.py, test_stage09_simulation.py | IMPLEMENTED |
+| REQ-MSG-021 | AST conditions bornée + RRULE/IANA/DST réels + curseur naive/aware corrigé, câblé dans `run_scheduler_tick` (a révélé et corrigé un vrai bug : `claim_due_schedules` omettait `fire_at`, rendant un schedule ONE_SHOT réclamé non ré-évaluable) | test_stage09_causality.py, test_stage09_campaigns_postgres.py::TestScheduleCursorPersistenceRoundTrip, test_stage09_scheduler_loop_postgres.py | IMPLEMENTED |
+| REQ-MSG-022 | `simulate_campaign` complet : destinations + autorisation + permission bot + état de traduction (REUSABLE/STALE/MISSING/pas de provider) + avertissements MESSAGE_CONTENT + estimation de livraisons, zéro mutation | test_stage09_simulation.py (9 tests) | IMPLEMENTED |
+| REQ-MSG-023 | TEXT jamais fragmenté artificiellement autour des tokens protégés | benchmark réel : NAIVE_PER_TEXT_NODE dégrade nettement l'intégrité | IMPLEMENTED |
+| REQ-MSG-024 | benchmark réel googletrans, 4 stratégies, matrice complète FR↔EN↔DE↔ES, corpus étendu à 26 classes normatives (104 items) | docs/90_handoffs/evidence/stage09/translation-benchmark.json | IMPLEMENTED |
+| REQ-MSG-025 | root-cause corrigé (trim de ponctuation finale d'URL) ; requalifié sur le corpus étendu à 26 classes (voir preuve exacte dans le handoff) | translation-benchmark.json ; test_stage09_parser_protector.py::TestUrlTrailingPunctuationTrim(AdversarialRobustness) | IMPLEMENTED |
+| REQ-MSG-026 | requalifié : SHOULD conditionnel satisfait par la non-variation appuyée sur preuve, désormais sur le corpus étendu | translation-benchmark.json + segmentation.py docstring | IMPLEMENTED |
+| REQ-MSG-027 | `should_trigger` exige un `TriggerSourceBinding` explicite, câblé dans `consume_event_for_trigger` | test_stage09_causality.py + test_stage09_event_consumer_postgres.py | IMPLEMENTED |
+| REQ-MSG-028 | `source_language_code` indépendant, testé explicitement | test_stage09_campaign_domain.py::TestSourceLanguageIndependentOfUiLocale | IMPLEMENTED |
+| REQ-MSG-029 | nonce + `enforce_nonce` réellement soumis ; classification réelle des exceptions discord.py (4xx définitif vs 429/5xx ambigu) dans l'adaptateur réel, pas seulement un faux sender | test_stage09_discord_message_sender.py::TestRealDiscordExceptionClassification (7 tests) + test_stage09_delivery_worker_postgres.py::TestWorkerUsesRealAdapterExceptionClassification (3 tests, pipeline complet) | IMPLEMENTED |
+| REQ-MSG-030 | **Requalifié** : la revendication de blocage MESSAGE_CONTENT était erronée (GUILD_MESSAGES, non privilégié, suffit à recevoir MESSAGE_CREATE) et retirée. Garde anti-boucle ancêtre + profondeur consommante, plus le côté production réel : `message_occurrences.source_ancestry`/`source_causation_depth` (migration `0029_stage_09`) et `did.campaigns.event_transport` corrèle durablement un `MESSAGE_CREATE` du bot à sa livraison SENT, tague l'ancestry avant évaluation des triggers, survit aux deux ordres de course Gateway/finalize | test_stage03_gateway_contract.py (intent+normalisation, 11 tests), test_settings.py (4 tests), test_stage09_ancestry_postgres.py (7 tests PostgreSQL réels : auto-boucle, A->B->A, cross-Guild A->B->C->A, deux ordres de course, age-out) | IMPLEMENTED |
+| REQ-MSG-031 | `EditPayload.to_discord_kwargs` fournit toujours allowed_mentions + politique d'attachments réelle | test_stage09_message_safety.py + test_stage09_discord_message_sender.py::TestEditReplaceAllAttachmentConversion | IMPLEMENTED |
+
+## Corrections majeures de cette quatrième passe (non dissimulées)
+
+1. **Identité de job de livraison (CRITIQUE)** : `submit_delivery_to_governor` construisait un `WorkloadJob` nommant `delivery_id=A` mais son opération appelait `process_one_pending_delivery(guild_id)`, qui réclame N'IMPORTE QUELLE livraison `PENDING` suivante — un job retardé/rejoué/périmé pour A pouvait consommer B. Corrigé par `CampaignsRepository.claim_delivery` (identité nommée, même fencing que `claim_next_delivery`) et `did.campaigns.delivery_worker.process_delivery` ; 9 tests prouvent l'isolation A/B, le replay après SENT, et une vraie course concurrente.
+2. **Résultat de fencing de finalisation ignoré** : `_send_and_finalize` ignorait le booléen retourné par `finalize_delivery()`. Vérifié maintenant sur chaque issue (SENT/FAILED/UNKNOWN) ; un nouveau `STALE_OUTCOME` est renvoyé au lieu de mentir sur un SENT/FAILED/UNKNOWN durable quand le fencing a été perdu (ex. un reconciler vole le bail pendant que l'envoi original est encore en vol) — jamais de nonce neuf, jamais d'envoi en double.
+3. **Classification réelle des erreurs discord.py** : l'adaptateur ne traduisait jamais la vraie hiérarchie d'exceptions discord.py. Classifie maintenant par statut HTTP réel : 4xx (hors 429) devient `DiscordSendError` (échec connu) ; 429/5xx restent ambigus (propagent tels quels) — cohérent avec le fait que discord.py gère déjà ses propres retries de rate-limit en interne.
+4. **Autorisation à la création complétée** : `channel_belongs_to_guild`/`resource_type`/`translation_group_belongs_to_guild` prouvent maintenant l'appartenance réelle à la Guild via l'état Stage04/08 faisant autorité (pas seulement l'id fourni par l'appelant) ; le contrôle bot-can-send est explicitement un preflight non bloquant à la création (REQ-MSG-003 place l'application dure au moment de la livraison), documenté et testé dans les deux sens.
+5. **Orchestration WP12 réelle** (le plus gros écart de la passe précédente) : `did.campaigns.activation.fan_out_occurrence` (occurrence → livraisons, idempotent/restart-safe via un cycle de bail CLAIMED→FANNED_OUT/FAILED réutilisant des colonnes provisionnées depuis WP1 mais jamais câblées), `did.campaigns.rendering` (pipeline de rendu à deux couches variables/glossaire, a révélé et corrigé un vrai faux positif d'intégrité croisée entre couches), `did.campaigns.scheduler_loop.run_scheduler_tick`, `did.campaigns.event_consumer.consume_event_for_trigger`, `did.campaigns.simulation.simulate_campaign`.
+6. **Corpus de benchmark étendu** : de 6 à 26 classes normatives par langue (104 items au total) — phrases courtes/longues, négation/pronoms, multi-phrases/multi-paragraphes, listes/emphase Markdown, URLs adversariales, texte `@everyone`/`@here` littéral, emoji statiques/animés, timestamps multiples, références de commande slash, phrase dense multi-placeholders, terminologie/noms propres/acronymes, code mixte, styles embed/bouton, contenu long (multi-Ko).
+
+## Corrections majeures de cette cinquième passe (non dissimulées)
+
+1. **Connexion au runtime réel (le plus gros écart de la passe précédente)** : `did.runtime.py` ne câblait jamais le Campaign Engine à un process durable. `did.campaigns.runtime.CampaignSchedulerRuntime` compose désormais `run_scheduler_tick` + `event_transport.consume_new_events_for_guild` + `dispatch.route_pending_deliveries_to_jobs` en une boucle de polling réelle, exécutée dans le process "scheduler" existant aux côtés de `ReconcileScheduler` via `asyncio.gather` (jamais un second process/bot/token) ; côté worker, `DurableDiscordIOWorker` route désormais un job nommé `SEND_CAMPAIGN_MESSAGE` vers `CampaignDeliveryExecutor.execute_leased`, qui appelle `process_delivery(delivery_id=<identité exacte du job>)` — jamais `process_one_pending_delivery` pour un job nommé.
+2. **Dispatch durable de livraison** : `did.campaigns.dispatch.enqueue_delivery_job`/`route_pending_deliveries_to_jobs` créent un `discord_io_job` durable (identité logique = `delivery_id`) pour chaque livraison en attente — a révélé un vrai bug de contrainte CHECK (`ck_discord_io_jobs_priority` limitée à 0-5, alors que `SEND_CAMPAIGN_MESSAGE` utilise la priorité 6), corrigé par la migration `0026_stage_09`. Le fencing à deux niveaux est documenté explicitement : le job durable est un signal grossier « tente maintenant », l'état/bail propre de `message_deliveries` reste la seule source de vérité — `CampaignDeliveryExecutor.execute_leased` complète toujours normalement le job quelle que soit l'issue réelle, pour que le mécanisme de retry du job ne combatte jamais la réconciliation indépendante de `message_deliveries`.
+3. **Fencing de fan-out d'occurrence** : `fan_out_occurrence` ignorait le résultat booléen de `finalize_occurrence_fanout()`. Un heartbeat de renouvellement de bail (miroir du pattern déjà utilisé par `DurableDiscordIOWorker`) tourne désormais pendant l'expansion des destinations ; la perte du bail lève `FanOutLeaseLostError` au lieu de rapporter un faux succès — prouvé par une vraie course (vol de bail via SQL admin en cours de rendu) et un renouvellement à travers un fan-out lent.
+4. **Faille `event_type` non vérifiée (CRITIQUE)** : `consume_event_for_trigger`/`should_trigger` ne vérifiaient jamais que `trigger.event_type == event.event_type` — un trigger MEMBER_JOIN aurait pu se déclencher sur n'importe quel autre type d'événement partageant la même source. Corrigé en premier contrôle de `should_trigger` ; régression dédiée prouvant qu'un type d'événement erroné ne déclenche jamais, même avec binding/condition/payload par ailleurs valides.
+5. **Owner non fiable côté consommation d'événement** : `consume_event_for_trigger` acceptait un paramètre `owner_discord_user_id` fourni par l'appelant. L'appartenance est désormais dérivée exclusivement du `trigger` chargé durablement ; un déclenchement cross-owner échoue sans jamais divulguer l'existence de la ressource.
+6. **Transport d'événement Stage03 réel** : `did.campaigns.event_transport.consume_new_events_for_guild` lit le vrai `discord_gateway_inbox` via un curseur durable par Guild (`message_campaign_event_cursor`, migration `0028_stage_09`), reconstruit un `EventEnvelope` réel, résout les triggers candidats par `event_type` exact (`CampaignsRepository.list_candidate_triggers_for_event`), fait correspondre la source par `TriggerSourceBinding.matches`, déclenche le fan-out, et avance le curseur — sans second bus d'événements. Prouvé pour survie à un crash avant consommation et à un rejeu du même événement. Le contenu de message (MESSAGE_CREATE) reste hors périmètre captable, voir REQ-MSG-030 ci-dessus.
+7. **Cibles de groupe logique (REQ-MSG-002)** et **politique de rétention (REQ-MSG-019)** et **sécurité anti double-traduction (REQ-MSG-007)** : voir le détail dans `00_REQUIREMENTS_TRACEABILITY.md`.
+8. **Identité d'approbation de variante (REQ-MSG-016)** : le raccourci `approve_fresh_translations` (auto-approbation au nom du owner sans revue humaine réelle) est supprimé ; `approve_variant` exige désormais un principal approbateur explicite et distinct.
+9. **Trois bugs réels supplémentaires trouvés et corrigés en écrivant les tests d'intégration PostgreSQL réels de cette passe** (aucun contourné, tous corrigés à la racine avec régression) : (a) traduction multi-langue d'un même fan-out réutilisait une seule fonction de traduction statique au lieu d'une par langue de destination ; (b) collision de `delivery_key` entre plusieurs destinations LOGICAL_GROUP partageant `language_profile_id=None` ; (c) troncature `VARCHAR(128)` de `delivery_key` pour une occurrence événementielle — corrigé en hachant la clé (SHA-256) plutôt qu'en la concaténant brute.
+
+## Corrections majeures de cette sixième passe (non dissimulées)
+
+1. **API Stage09 complète (WP14)** : `did.api.stage09` -- campagnes CRUD (création idempotente, PATCH DRAFT-only en CAS), targets (CHANNEL/LOGICAL_GROUP/TRANSLATION_GROUP via `create_authorized_campaign_target`), schedule (validation RRULE anticipée), simulation, activate/pause/resume/cancel, historique de livraisons, preview/approve de variantes (principal approbateur toujours la session authentifiée, jamais un champ client -- `VariantApprovalInput` n'a même pas ce champ), triggers/trigger-sources. Une campagne foreign/inexistante renvoie systématiquement la même forme générique 404, jamais de split 403/404 qui divulguerait l'existence. L'activation est prouvée par deux moyens indépendants ne jamais appeler l'adaptateur d'envoi Discord : un test source/graphe d'import/`sys.modules`, et une activation IMMEDIATE réelle asserée directement contre les lignes DB (`message_occurrences`/`message_deliveries`/`discord_io_jobs`), jamais seulement la réponse HTTP.
+2. **Preuve de la chaîne complète du runtime réel (sections 22/23 de la mission)** : chaque test de sécurité de bail antérieur ne prouvait qu'un étage isolément. `test_stage09_runtime_chain_postgres.py` prouve désormais `CampaignSchedulerRuntime.tick()` réel (pas un callback factice) suivi de `DurableDiscordIOWorker.run_guild_once()` réel comme une seule chaîne continue, plus deux instances de scheduler concurrentes sur le même schedule dû (la composition de fencing tient au niveau du vrai point d'entrée, pas seulement de la primitive `claim_due_schedules`), plus un redémarrage de process en plein milieu de la chaîne (une instance runtime/worker fraîche, sans état partagé, termine le travail qu'une instance "morte" avait mis en file).
+3. **REQ-MSG-016 promu à `IMPLEMENTED`** : l'exigence ne nomme aucune UI dans son texte ("la plateforme... fournit preview, édition, politiques de revue et variantes approuvées") ; l'API réelle fournit désormais ces trois capacités bout-en-bout.
+
+## Corrections majeures de cette septième passe (non dissimulées)
+
+1. **REQ-MSG-030 requalifié -- la revendication de blocage externe était fausse** : la passe précédente affirmait que le taggage d'ancestry côté production était bloqué par ADR-008 exigeant l'intent privilégié MESSAGE_CONTENT. C'était une erreur d'analyse du contrat Gateway de Discord : GUILD_MESSAGES (non privilégié, reçoit MESSAGE_CREATE/UPDATE/DELETE) est distinct de MESSAGE_CONTENT (privilégié, peuple content/embeds/attachments) -- ADR-008 ne gate que le second. `Settings.discord_campaign_message_events_enabled` (GUILD_MESSAGES, désactivé par défaut) et `discord_campaign_message_content_enabled` (MESSAGE_CONTENT, rejeté à la configuration sans le premier) sont ajoutés ; `SUPPORTED_DISPATCHES` gagne MESSAGE_CREATE/UPDATE/DELETE, normalisés en identité structurelle SEULEMENT (jamais content/embeds/attachments/components, quels que soient les intents actifs).
+2. **Côté production de l'ancestry construit** : `message_occurrences` gagne `source_causation_depth`/`source_ancestry` (migration `0029_stage_09`), peuplés à la création de l'occurrence dans `scheduler_loop.py`/`event_consumer.py`/`api.stage09.activate_campaign`. `did.campaigns.event_transport.consume_new_events_for_guild` corrèle durablement un `MESSAGE_CREATE` auto-généré à la livraison SENT exacte qui l'a produit (`CampaignsRepository.find_delivery_by_discord_message`) et tague l'événement dérivé avec l'ancestry/causation réels de l'occurrence avant toute évaluation de trigger -- survit aux deux ordres de course (finalize HTTP avant ou après l'écho Gateway) sans supposer d'ordre : un `MESSAGE_CREATE` du bot non résolu ne fait simplement pas avancer le curseur par Guild existant jusqu'à résolution, borné par `BOT_MESSAGE_CORRELATION_GRACE_SECONDS` pour qu'un message qui ne se corrèlera jamais ne bloque pas indéfiniment le traitement des événements de cette Guild. Aucune nouvelle table durable au-delà des deux colonnes d'occurrence -- les timestamps `discord_gateway_inbox` et `message_campaign_event_cursor` existants suffisent déjà.
+3. **REQ-MSG-007 complété côté frontend** : `CampaignCenter.tsx` remplace la note "pas encore disponible" par le vrai sélecteur `target_kind` (CHANNEL/LOGICAL_GROUP/TRANSLATION_GROUP) et, pour TRANSLATION_GROUP, un sélecteur de mode de publication explicite (les 4 modes) plus, pour SELECTED_LANGUAGES, une sélection réelle de profils de langue Stage08 -- aucun mode déduit, aucune liste codée en dur, chaque requête activée seulement une fois Guild + type de cible choisis.
+4. **31/31 REQ-MSG-001..031 `IMPLEMENTED`** : vérifié par extraction automatique de la table complète de `00_REQUIREMENTS_TRACEABILITY.md` (0 `PARTIALLY_IMPLEMENTED`, 0 `NOT_STARTED`).
+
+## Écarts connus (non dissimulés)
+
+Fermés : réconciliation de livraison câblée dans le runtime réel ; les surfaces d'authoring
+Stage09 sont construites en UI/API ; la matrice de qualification live complète est construite ; le
+défaut fail-open de l'adaptateur de traduction est corrigé ; la fuite de ressources de la
+qualification live sur échec est corrigée (`CleanupRegistry`) ; la mutation intermittente de
+placeholder côté provider est root-causée et corrigée (retry bornée avec régénération de
+placeholders dans `did.campaigns.rendering`, 12 tests déterministes) ; un défaut de comptage
+d'appels provider réels dans le script de benchmark, trouvé par audit externe, est corrigé
+(`provider_invocation_count` explicite, jamais dérivé de `segment_count`, compté même sur
+erreur/reprise/échec partiel d'une stratégie segmentée) ; **le transport `googletrans`
+`/translate_a/single` lui-même s'est révélé spécifiquement indisponible (HTTP 429, prouvé sur deux
+machines du réseau du product owner), tandis qu'une sonde du RPC Google Translate Web (`batchexecute`,
+id `MkEWBc`) a réussi (HTTP 200, vraie traduction) depuis la même machine -- la production a donc
+basculé vers un nouvel adaptateur, `GoogleTranslateRpcCampaignTranslationProvider`
+(`did.translation.google_translate_rpc_adapter`), avec le même contrat fail-closed** ; **un audit
+externe a ensuite trouvé que le contrat de requête/réponse RPC réellement codé pour cet adaptateur
+était inventé (paramètres de requête fabriqués, forme de réponse devinée) plutôt qu'empiriquement
+prouvé -- seuls l'endpoint et le RPC id l'étaient. Corrigé : requête et parsing de réponse désormais
+alignés exactement sur le contrat réel prouvé par la sonde du product owner (mêmes paramètres, même
+enveloppe `f.req`, même en-tête `Referer`, même forme de réponse), et la fixture de test déterministe
+reflète désormais la forme réellement capturée plutôt qu'une forme inventée pour correspondre au
+parseur -- ce contrat corrigé a depuis été confirmé empiriquement par un smoke réseau réel du product
+owner (`5 passed in 6.16s`, SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`)** ; **un second audit
+externe a ensuite trouvé que le comptage `provider_invocation_count` ci-dessus, bien qu'exact au
+niveau du port `provider.translate(...)`, sous-comptait encore les vraies tentatives réseau, car
+l'adaptateur RPC a sa propre reprise bornée interne (`max_attempts=3`) invisible à ce niveau -- un
+seul appel `translate()` pouvait donc générer jusqu'à 3 vrais POST HTTP sans que le comptage le
+reflète. Corrigé par un mécanisme d'observation `contextvars`-based au niveau transport
+(`count_transport_attempts()`, notifié immédiatement avant chaque vrai `await client.post(...)`,
+jamais sur un fast-fail de circuit breaker) ; le champ JSON reste nommé pareil mais désigne désormais
+honnêtement le nombre exact de vraies tentatives HTTP RPC, prouvé par 10 nouveaux tests déterministes
+pilotant le vrai adaptateur contre `httpx.MockTransport`** ; **le vrai benchmark canonique du product
+owner contre ce code (SHA `1d71164f5ab24f1585048b3fcc226461d5b2ce1d`, 2285 vraies tentatives HTTP) a
+rapporté `FAIL` -- 12/12 échecs de production isolés à la classe `url_adversarial`, sur les 12 paires
+de langues dirigées, chaque échec persistant après la seconde tentative d'intégrité. Reproduction
+forensique réelle (un seul appel EN→FR) : le placeholder d'URL et l'URL elle-même sont préservés
+byte pour byte -- Google supprime seulement l'espace entre le "." final de phrase qui suit
+immédiatement le placeholder et le mot cible suivant, ce qui fait que l'URL restaurée absorbe
+lexicalement ce mot -- `validate_reparsed_structure()` rejette alors correctement ce token comme non
+présent dans la source. Ce n'est ni un placeholder inventé/perdu, ni un défaut du parseur d'URL, ni
+une mutation d'URL par Google. **Corrigé** : `did.messaging.protector.restore_source_proven_url_
+boundary_spacing()`, une normalisation pure intégrée après la validation exacte du multi-ensemble de
+placeholders mais avant la restauration, restaurant UN espace uniquement quand le
+`ProtectionResult.masked_text` source prouve déjà que cette frontière existait avant traduction --
+jamais inféré depuis la langue cible ou la seule syntaxe d'URL. Scope strictement limité à "." + espace
+sur les placeholders `ProtectedKind.URL` uniquement ; le regex d'URL, `validate_reparsed_structure()`
+et le reste du fail-closed restent inchangés. 13 nouveaux tests déterministes
+(`test_stage09_parser_protector.py`) et 1 nouveau test (`test_stage09_rendering.py`, prouve l'absence
+de reprise d'intégrité artificielle) le prouvent** — voir `STAGE_09_HANDOFF.md` § « État actuel »
+(Root cause 5, Root cause 6, Root cause 7) pour le détail complet de chaque remédiation.
+
+Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
+techniquement :
+
+1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
+2. **Confirmation de la qualification ciblée `url_adversarial` PUIS du benchmark canonique contre le
+   code corrigé, depuis un réseau fonctionnel** (clause mise à jour cette passe) : **(a) CONFIRMÉE** --
+   le product owner a exécuté
+   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py
+   -m translation_network` depuis le Zenbook contre le SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`
+   → `5 passed in 6.16s`, confirmant empiriquement le contrat de wire corrigé. **(b) nouvelle cette
+   passe, reste à exécuter** :
+   `DID_ALLOW_NETWORK=1 uv run pytest
+   backend/tests/network/test_stage09_translation_network_url_adversarial.py
+   -m translation_network -v -s` -- 12 mesures réelles ciblées sur la classe `url_adversarial`
+   uniquement, via le vrai `_run_one_production()` de production ; doit passer 12/12 avant (c).
+   **(c) seulement si (b) passe** :
+   `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
+   (doit désormais rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY` -- le run
+   précédent a rapporté `FAIL`, voir ci-dessus).
+3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
+   traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
+4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
+   `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
+
+Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique (inchangées
+par cette régression, sauf (1) désormais bloquée en amont par (0)) :
+
+1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, bloquée en amont par (0) — le pack documente honnêtement `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` plutôt que de fabriquer une sortie : `docs/90_handoffs/evidence/stage09/human-semantic-review-pack.md`.
+2. **Provider de traduction tiers réellement présent dans le sandbox** (distinct de (0), un bot externe attaché à un Translation Group) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé — l'état bloquant (provider lié, statut non-`DISABLED`) reste prouvé en live (`translation_group_provider_boundary`, non affecté par (0)). Le chemin de traduction direct propre à DID a depuis basculé de `googletrans` vers `GoogleTranslateRpcCampaignTranslationProvider` (voir écarts ci-dessus) ; cela ne change rien à ce point, qui concerne un bot externe tiers.
+3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** : `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé, couvert par le double contrôlable de `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
+
+Voir `docs/90_handoffs/STAGE_09_HANDOFF.md` pour le détail complet, les décisions d'architecture et les preuves.

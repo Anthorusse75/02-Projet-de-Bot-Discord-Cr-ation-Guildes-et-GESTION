@@ -31,6 +31,7 @@ def test_minimal_intents_do_not_enable_privileged_or_message_content() -> None:
     intents = minimal_gateway_intents()
     assert intents.guilds is True
     assert intents.members is False
+    assert intents.guild_messages is False
     assert intents.message_content is False
     assert intents.presences is False
     assert member_data_capability(enable_member_events=False) is (
@@ -39,6 +40,46 @@ def test_minimal_intents_do_not_enable_privileged_or_message_content() -> None:
     assert member_data_capability(enable_member_events=True) is (
         MemberDataCapability.FULL_MEMBER_EVENTS
     )
+
+
+class TestCampaignMessageIntentContract:
+    """REQ-MSG-030: proves the non-privileged GUILD_MESSAGES intent contract
+    did.settings.config.Settings/did.runtime.py wire for the
+    campaign-message-ancestry producing side. The genuinely PRIVILEGED
+    MESSAGE_CONTENT intent is never requested at all -- there is no
+    parameter on minimal_gateway_intents that could turn it on (Option B,
+    see did.campaigns.message_content_policy's module docstring), proven
+    below by the absence of any such parameter/intent ever being True."""
+
+    def test_default_behavior_never_requests_guild_messages_or_message_content(self) -> None:
+        intents = minimal_gateway_intents()
+        assert intents.guild_messages is False
+        assert intents.message_content is False
+
+    def test_guild_messages_can_be_enabled_for_stage09_without_message_content(self) -> None:
+        intents = minimal_gateway_intents(enable_campaign_message_events=True)
+        assert intents.guild_messages is True
+        assert intents.message_content is False
+
+    def test_no_message_content_parameter_exists(self) -> None:
+        import inspect
+
+        parameters = inspect.signature(minimal_gateway_intents).parameters
+        assert "enable_message_content" not in parameters
+
+    def test_member_intent_remains_independently_controlled(self) -> None:
+        intents = minimal_gateway_intents(
+            enable_member_events=True, enable_campaign_message_events=False
+        )
+        assert intents.members is True
+        assert intents.guild_messages is False
+        assert intents.message_content is False
+
+        intents = minimal_gateway_intents(
+            enable_member_events=False, enable_campaign_message_events=True
+        )
+        assert intents.members is False
+        assert intents.guild_messages is True
 
 
 def test_contract_fixture_derived_from_official_docs_is_detected_only_by_flag() -> None:
@@ -181,6 +222,101 @@ def test_supported_dispatches_are_normalized(
     assert expected in envelope.payload
     assert envelope.discord_sequence == 1
     assert envelope.schema_version == 1
+
+
+class TestMessageDispatchNormalization:
+    """REQ-MSG-030: MESSAGE_CREATE/UPDATE/DELETE are only ever captured
+    when did.settings.config.Settings.discord_campaign_message_events_enabled
+    is on (see TestCampaignMessageIntentContract) -- once captured,
+    normalization must extract ONLY structural message identity, never
+    content/embeds/attachments/components, regardless of whether the raw
+    Gateway payload happens to carry them (e.g. because MESSAGE_CONTENT is
+    also enabled, or because the message is the bot's own -- Discord always
+    includes an app's own sent-message content even without that intent)."""
+
+    def test_message_create_extracts_only_structural_identity(self) -> None:
+        envelope = normalize_gateway_dispatch(
+            dispatch(
+                "MESSAGE_CREATE",
+                {
+                    "id": "777777777777777777",
+                    "channel_id": "666666666666666666",
+                    "guild_id": str(GUILD),
+                    "author": {"id": "888888888888888888", "bot": True},
+                    "content": "this must never survive normalization",
+                    "embeds": [{"title": "should also never survive"}],
+                    "attachments": [{"filename": "secret.txt"}],
+                    "components": [{"type": 1}],
+                },
+            ),
+            discord_session_id=SESSION,
+        )
+        assert envelope is not None
+        assert envelope.guild_id == GUILD
+        assert envelope.payload == {
+            "message_id": 777777777777777777,
+            "channel_id": 666666666666666666,
+            "author_discord_user_id": 888888888888888888,
+            "author_is_bot": True,
+        }
+        assert "content" not in envelope.payload
+        assert "embeds" not in envelope.payload
+        assert "attachments" not in envelope.payload
+        assert "components" not in envelope.payload
+
+    def test_message_create_from_a_regular_member_is_not_marked_bot_authored(self) -> None:
+        envelope = normalize_gateway_dispatch(
+            dispatch(
+                "MESSAGE_CREATE",
+                {
+                    "id": "777777777777777777",
+                    "channel_id": "666666666666666666",
+                    "guild_id": str(GUILD),
+                    "author": {"id": "111111111111111112", "bot": False},
+                    "content": "hello there",
+                },
+            ),
+            discord_session_id=SESSION,
+        )
+        assert envelope is not None
+        assert envelope.payload["author_is_bot"] is False
+        assert envelope.payload["author_discord_user_id"] == 111111111111111112
+
+    def test_message_update_extracts_only_structural_identity(self) -> None:
+        envelope = normalize_gateway_dispatch(
+            dispatch(
+                "MESSAGE_UPDATE",
+                {
+                    "id": "777777777777777777",
+                    "channel_id": "666666666666666666",
+                    "guild_id": str(GUILD),
+                    "author": {"id": "888888888888888888", "bot": True},
+                    "content": "edited content must never survive",
+                },
+            ),
+            discord_session_id=SESSION,
+        )
+        assert envelope is not None
+        assert "content" not in envelope.payload
+        assert envelope.payload["message_id"] == 777777777777777777
+
+    def test_message_delete_extracts_only_message_and_channel_id(self) -> None:
+        envelope = normalize_gateway_dispatch(
+            dispatch(
+                "MESSAGE_DELETE",
+                {
+                    "id": "777777777777777777",
+                    "channel_id": "666666666666666666",
+                    "guild_id": str(GUILD),
+                },
+            ),
+            discord_session_id=SESSION,
+        )
+        assert envelope is not None
+        assert envelope.payload == {
+            "message_id": 777777777777777777,
+            "channel_id": 666666666666666666,
+        }
 
 
 def test_guild_create_normalizes_initial_structure_without_member_list() -> None:

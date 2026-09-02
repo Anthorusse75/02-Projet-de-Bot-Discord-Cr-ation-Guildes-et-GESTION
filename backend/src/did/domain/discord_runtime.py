@@ -73,6 +73,15 @@ class WorkloadPriority(IntEnum):
     USER_REFRESH = 3
     BACKGROUND_RECONCILE = 4
     LOW_MAINTENANCE = 5
+    #: Stage 09 campaign message sends (WP13). Deliberately the lowest
+    #: (least urgent) tier of all -- appended after LOW_MAINTENANCE rather
+    #: than interleaved with the existing values so no prior comparison
+    #: anywhere in the codebase changes meaning. Bulk campaign fan-out must
+    #: never preempt structural apply, critical reconcile, or any other
+    #: Stage's higher-priority Discord workload; per-Guild dispatch
+    #: fairness across campaigns/other Guilds is still fully provided by
+    #: DiscordWorkloadGovernor's own round-robin, independent of this tier.
+    SEND_CAMPAIGN_MESSAGE = 6
 
 
 @dataclass(frozen=True, slots=True)
