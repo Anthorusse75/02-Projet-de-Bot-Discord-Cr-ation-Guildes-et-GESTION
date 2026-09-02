@@ -930,6 +930,32 @@ restent hors périmètre, déjà couverts ailleurs par des doubles contrôlables
 sont skip par défaut sans `--include`, comme tous les autres validateurs live du dépôt, et ne se
 substituent jamais l'un à l'autre.
 
+## Audit final Definition of Done (section M de la mission)
+
+La mission de clôture (`docs/10_implementation/STAGE_09_MESSAGE_CAMPAIGN_AUTOMATION_TRANSLATION.md`,
+§M) définit la Definition of Done comme : *« Migrations/engine/UI, fuzz/failure/load/real
+corpus/live, all REQ proofs, regressions 01–08, docs/handoff/state, commit/push/PR/merge. »*
+Vérifié clause par clause à l'issue de cette neuvième passe :
+
+| Clause | Statut | Preuve |
+|---|---|---|
+| Migrations | ✅ | rehearsal complet `downgrade base → upgrade head → downgrade 0001_stage_01 → upgrade head`, 32 migrations, tête unique `0032_stage_09` (voir Suite de tests réelle ci-dessus) |
+| Engine | ✅ | moteur de campagne complet, câblé dans les process réels (`did.runtime.py`) depuis la cinquième/huitième passe |
+| UI | ✅ | Campaign Center complet incl. toutes les surfaces d'authoring produit fermées cette passe |
+| Fuzz | ✅ | tests property-based du parseur/protecteur (REQ-MSG-011/023), inchangés cette passe, toujours dans la suite unit régressée |
+| Failure | ✅ | `pytest.mark.failure_injection` -- fencing de bail, courses concurrentes, restart mi-chaîne, tous dans la suite integration régressée (252 passants) |
+| Load | ✅ | `tests/load/test_stage09_campaign_fairness_load.py` (3 tests, marker `load`, exclu du run par défaut) exécuté explicitement cette passe : **3/3 PASS** -- un backlog de campagnes en masse ne prive jamais un apply structurel du même Guild, ni la part équitable d'un autre Guild, et un reconcile critique se dispatch avant le travail de campagne en file |
+| Real corpus | ✅ | corpus de traduction 26 classes/104 items, rejoué cette passe (voir Suite de tests réelle) |
+| Live | ✅ | deux validateurs live réels : adaptateur (5/5) + chaîne complète (40/40, nouveau cette passe) |
+| All REQ proofs | ✅ | 31/31 REQ-MSG-001..031 `IMPLEMENTED`, inchangé, preuve fichier:ligne dans `00_REQUIREMENTS_TRACEABILITY.md` |
+| Regressions 01–08 | ✅ | suite pytest complète non filtrée par stage (`tests/unit`, `tests/integration`) couvre les huit stages précédents, aucune régression |
+| Docs/handoff/state | ✅ | ce document et `STAGE09_REQUIREMENTS_CHECKLIST_LOCAL.md` mis à jour cette passe ; `CURRENT_STATE` reste `STAGE_09_IMPLEMENTATION_IN_PROGRESS` (voir ci-dessous) |
+| Commit/push/PR/merge | Partiel, délibérément | chaque passe commitée et poussée normalement ; PR #9 reste Draft/ouverte, jamais mergée -- le merge n'est pas un critère que cette passe autonome peut ou doit satisfaire seule |
+
+Seule la revue sémantique humaine (voir Écarts connus ci-dessous) et le merge lui-même restent hors
+du périmètre qu'une passe technique peut fermer seule ; toutes les autres clauses de la Definition of
+Done sont satisfaites avec preuve réelle, pas déclarées sans vérification.
+
 ## Écarts connus (non dissimulés)
 
 Tous les écarts identifiés jusqu'à la huitième passe (réconciliation de livraison non câblée,
