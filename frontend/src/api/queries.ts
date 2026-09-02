@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -59,6 +59,23 @@ export const useCampaignDeliveries = (u: DiscordSnowflake, campaignId: string | 
 export const useCampaignTemplateVariables = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
   enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'template-variables'),
   queryFn: () => apiRequest<{template_variables:TemplateVariable[]}>(`/api/v1/campaigns/${campaignId}/template-variables`),
+})
+// REQ-MSG-014 mission section 11: the three glossary scopes are fetched
+// independently -- CAMPAIGN and GLOBAL_USER need only the caller's own id
+// and are always safe to fetch, GUILD needs an explicit destination Guild
+// id (there is no single "current Guild" for a campaign, which may target
+// many) so that query stays disabled until one is entered.
+export const useCampaignGlossary = (u: DiscordSnowflake, campaignId: string | undefined) => useQuery({
+  enabled: Boolean(campaignId), queryKey: queryKeys.campaignDetail(u, campaignId ?? 'none', 'glossary'),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>(`/api/v1/campaigns/${campaignId}/glossary`),
+})
+export const useGlobalUserGlossary = (u: DiscordSnowflake) => useQuery({
+  queryKey: queryKeys.globalGlossary(u),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>('/api/v1/glossary'),
+})
+export const useGuildGlossary = (u: DiscordSnowflake, guildId: string) => useQuery({
+  enabled: Boolean(guildId), queryKey: queryKeys.guildGlossary(u, guildId),
+  queryFn: () => apiRequest<{glossary_entries:GlossaryEntry[]}>(`/api/v1/guilds/${guildId}/glossary`),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

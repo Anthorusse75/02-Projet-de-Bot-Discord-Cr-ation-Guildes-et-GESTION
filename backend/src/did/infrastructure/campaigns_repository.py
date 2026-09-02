@@ -1572,6 +1572,121 @@ class CampaignsRepository:
             )
         return [dict(row) for row in rows]
 
+    async def list_campaign_glossary_entries(
+        self, owner_discord_user_id: int, campaign_id: UUID
+    ) -> list[dict[str, Any]]:
+        """CAMPAIGN-scope entries for one campaign -- the authoring surface
+        for :meth:`create_glossary_entry`'s highest-precedence tier, distinct
+        from :meth:`list_applicable_glossary_entries` (the Guild-scoped
+        fan-out-time read of every tier at once)."""
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_glossary_entries "
+                            "WHERE scope_kind='CAMPAIGN' AND campaign_id=:campaign_id "
+                            "ORDER BY source_term"
+                        ),
+                        {"campaign_id": campaign_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def list_guild_glossary_entries(
+        self, guild_id: int, owner_discord_user_id: int
+    ) -> list[dict[str, Any]]:
+        """GUILD-scope entries for one Guild -- visible to every one of the
+        Guild's authorized campaign owners under the same dual-condition RLS
+        policy migration 0024_stage_09 added, not only the entry's own
+        author (deliberate: a Guild's glossary is a shared, Guild-level
+        concern). The caller opening this TenantContext must already be
+        Guild-authorized -- verified by the API layer before this is ever
+        called, exactly like every other Guild-scoped write in this
+        repository."""
+        context = TenantContext(guild_id, user_id=owner_discord_user_id)
+        async with tenant_transaction(self._factory, context) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_glossary_entries "
+                            "WHERE scope_kind='GUILD' ORDER BY source_term"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def list_global_user_glossary_entries(
+        self, owner_discord_user_id: int
+    ) -> list[dict[str, Any]]:
+        async with tenant_transaction(
+            self._factory, UserContext(user_id=owner_discord_user_id)
+        ) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM message_glossary_entries "
+                            "WHERE scope_kind='GLOBAL_USER' ORDER BY source_term"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(row) for row in rows]
+
+    async def get_glossary_entry_for_management(
+        self, admin_factory: async_sessionmaker[Any], entry_id: UUID
+    ) -> dict[str, Any] | None:
+        """Admin-factory read (bypasses RLS) used ONLY to discover an
+        entry's ``scope_kind``/``guild_id``/``owner_discord_user_id`` before
+        the API layer decides how to authorize and re-open the correctly-
+        scoped transaction for :meth:`delete_glossary_entry` -- never
+        returned to a caller directly, and never itself the authorization
+        decision."""
+        async with admin_factory() as session, session.begin():
+            row = (
+                (
+                    await session.execute(
+                        text("SELECT * FROM message_glossary_entries WHERE id=:id"),
+                        {"id": entry_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
+    async def delete_glossary_entry(
+        self, entry_id: UUID, *, guild_id: int | None, owner_discord_user_id: int
+    ) -> bool:
+        """``guild_id=None`` deletes a CAMPAIGN/GLOBAL_USER entry (owner-only
+        RLS); a real ``guild_id`` deletes a GUILD entry under that Guild's
+        shared RLS (any of the Guild's authorized owners, matching
+        :meth:`list_guild_glossary_entries`'s own rationale) -- the caller
+        must have already verified Guild authorization before calling this
+        with a non-None ``guild_id``."""
+        context: TenantContext | UserContext = (
+            TenantContext(guild_id, user_id=owner_discord_user_id)
+            if guild_id is not None
+            else UserContext(user_id=owner_discord_user_id)
+        )
+        async with tenant_transaction(self._factory, context) as session:
+            result = await session.execute(
+                text("DELETE FROM message_glossary_entries WHERE id=:id"), {"id": entry_id}
+            )
+        return cast(CursorResult[Any], result).rowcount == 1
+
     async def create_template_variable(self, variable: CampaignTemplateVariable) -> None:
         """REQ-MSG-018 (mission section 10). Owner-scoped, same posture as
         :meth:`create_trigger` -- a template variable belongs to the

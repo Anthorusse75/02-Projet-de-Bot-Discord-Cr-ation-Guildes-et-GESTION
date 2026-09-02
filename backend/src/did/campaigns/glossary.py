@@ -123,3 +123,23 @@ def apply_glossary_protection(
     return GlossaryApplication(
         nodes=tuple(new_nodes), restore_overrides=restore_overrides, matched_term_count=matched
     )
+
+
+def matched_source_terms(entries: Sequence[GlossaryEntry], text: str) -> tuple[str, ...]:
+    """REQ-MSG-022 simulation/preview integration (mission section 11):
+    which of ``entries`` (already narrowed to what is applicable via
+    :func:`resolve_applicable_entries`) literally appear in ``text`` --
+    a preview-time authoring aid so an author can see which of their
+    configured glossary terms would actually be protected, not merely
+    that terms exist. Checked one entry at a time (never the combined
+    :func:`_compile_pattern` used for the real fan-out-time application) so
+    the result names every matching entry, not just the first overlapping
+    span at each position -- this is a preview list, not a rendering."""
+    matched: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        pattern = _compile_pattern([entry])
+        if pattern is not None and pattern.search(text) and entry.source_term not in seen:
+            matched.append(entry.source_term)
+            seen.add(entry.source_term)
+    return tuple(matched)

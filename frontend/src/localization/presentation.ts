@@ -113,6 +113,15 @@ const templateVariableTypes: Record<string, MessageKey> = {
   LOCALIZED_VALUE: 'campaigns.templateVariables.type.localizedValue',
   PROTECTED: 'campaigns.templateVariables.type.protected',
 }
+const glossaryScopes: Record<string, MessageKey> = {
+  CAMPAIGN: 'campaigns.glossary.scope.campaign', GUILD: 'campaigns.glossary.scope.guild', GLOBAL_USER: 'campaigns.glossary.scope.globalUser',
+}
+const glossaryBehaviors: Record<string, MessageKey> = {
+  DO_NOT_TRANSLATE: 'campaigns.glossary.behavior.doNotTranslate', FORCED_TRANSLATION: 'campaigns.glossary.behavior.forcedTranslation',
+}
+const glossaryMatchModes: Record<string, MessageKey> = {
+  EXACT: 'campaigns.glossary.matchMode.exact', CASE_INSENSITIVE: 'campaigns.glossary.matchMode.caseInsensitive',
+}
 // Every code did.api.main / did.api.stage09 raise for a campaign-scoped
 // request -- an unrecognized code (a future backend addition this UI has
 // not been updated for yet) always falls back to errors.generic rather
@@ -135,6 +144,8 @@ const campaignErrorCodes: Record<string, MessageKey> = {
   CAMPAIGN_DELIVERY_NOT_DELETABLE: 'errors.campaigns.deliveryNotDeletable',
   CAMPAIGN_TEMPLATE_VARIABLE_INPUT_INVALID: 'errors.campaigns.templateVariableInputInvalid',
   CAMPAIGN_TEMPLATE_VARIABLE_NAME_CONFLICT: 'errors.campaigns.templateVariableNameConflict',
+  CAMPAIGN_GLOSSARY_INPUT_INVALID: 'errors.campaigns.glossaryInputInvalid',
+  CAMPAIGN_GLOSSARY_TERM_CONFLICT: 'errors.campaigns.glossaryTermConflict',
 }
 export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
 export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'
@@ -148,6 +159,9 @@ export const translationStateKey = (value: string): MessageKey => translationSta
 export const variantOutcomeKey = (value: string): MessageKey => variantOutcomes[value] ?? 'common.unknown'
 export const campaignErrorKey = (code: string): MessageKey => campaignErrorCodes[code] ?? 'errors.generic'
 export const templateVariableTypeKey = (value: string): MessageKey => templateVariableTypes[value] ?? 'common.unknown'
+export const glossaryScopeKey = (value: string): MessageKey => glossaryScopes[value] ?? 'common.unknown'
+export const glossaryBehaviorKey = (value: string): MessageKey => glossaryBehaviors[value] ?? 'common.unknown'
+export const glossaryMatchModeKey = (value: string): MessageKey => glossaryMatchModes[value] ?? 'common.unknown'
 
 export function auditTargetKey(value: string): MessageKey {
   if (value === 'ROLE') return 'resource.role'

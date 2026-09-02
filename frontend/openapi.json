@@ -572,6 +572,107 @@
         "title": "ExportInput",
         "type": "object"
       },
+      "GlossaryBehavior": {
+        "enum": [
+          "DO_NOT_TRANSLATE",
+          "FORCED_TRANSLATION"
+        ],
+        "title": "GlossaryBehavior",
+        "type": "string"
+      },
+      "GlossaryEntryCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "behavior": {
+            "$ref": "#/components/schemas/GlossaryBehavior"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "forced_translation": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forced Translation"
+          },
+          "guild_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guild Id"
+          },
+          "match_mode": {
+            "$ref": "#/components/schemas/GlossaryMatchMode",
+            "default": "CASE_INSENSITIVE"
+          },
+          "scope_kind": {
+            "$ref": "#/components/schemas/GlossaryScope"
+          },
+          "source_term": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Term",
+            "type": "string"
+          },
+          "target_language_code": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Language Code"
+          }
+        },
+        "required": [
+          "scope_kind",
+          "source_term",
+          "behavior"
+        ],
+        "title": "GlossaryEntryCreateInput",
+        "type": "object"
+      },
+      "GlossaryMatchMode": {
+        "enum": [
+          "EXACT",
+          "CASE_INSENSITIVE"
+        ],
+        "title": "GlossaryMatchMode",
+        "type": "string"
+      },
+      "GlossaryScope": {
+        "enum": [
+          "GLOBAL_USER",
+          "GUILD",
+          "CAMPAIGN"
+        ],
+        "title": "GlossaryScope",
+        "type": "string"
+      },
       "GroupLanguageInput": {
         "additionalProperties": false,
         "properties": {
@@ -3432,6 +3533,51 @@
         ]
       }
     },
+    "/api/v1/campaigns/{campaign_id}/glossary": {
+      "get": {
+        "operationId": "list_campaign_glossary_api_v1_campaigns__campaign_id__glossary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Campaign Glossary Api V1 Campaigns  Campaign Id  Glossary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Campaign Glossary",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
     "/api/v1/campaigns/{campaign_id}/pause": {
       "post": {
         "operationId": "pause_campaign_api_v1_campaigns__campaign_id__pause_post",
@@ -4254,6 +4400,121 @@
         ]
       }
     },
+    "/api/v1/glossary": {
+      "get": {
+        "operationId": "list_global_user_glossary_api_v1_glossary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Global User Glossary Api V1 Glossary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Global User Glossary",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      },
+      "post": {
+        "description": "REQ-MSG-014 (mission section 11): authorized CRUD across all three\nscopes -- CAMPAIGN requires owning the named campaign, GUILD requires\nreal Guild authorization (never merely \"the caller is logged in\"),\nGLOBAL_USER requires nothing beyond authentication (it is scoped to the\ncaller's own owner id by construction). The shape/behavior validation\n(CAMPAIGN needs campaign_id xor guild_id, FORCED_TRANSLATION needs\nforced_translation text, ...) is delegated entirely to\ndid.domain.campaigns.GlossaryEntry.__post_init__, never duplicated\nhere.",
+        "operationId": "create_glossary_entry_endpoint_api_v1_glossary_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlossaryEntryCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Glossary Entry Endpoint Api V1 Glossary Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Glossary Entry Endpoint",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
+    "/api/v1/glossary/{entry_id}": {
+      "delete": {
+        "description": "A CAMPAIGN/GLOBAL_USER entry may only be deleted by its own owner. A\nGUILD entry may be deleted by any of the Guild's authorized owners\n(matching CampaignsRepository.list_guild_glossary_entries's own\nrationale for that scope) -- verified by a real Guild-authorization\ncheck here, never merely inferred from the entry's own stored\nowner_discord_user_id.",
+        "operationId": "delete_glossary_entry_endpoint_api_v1_glossary__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Glossary Entry Endpoint",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
     "/api/v1/guilds": {
       "get": {
         "operationId": "guilds_api_v1_guilds_get",
@@ -4853,6 +5114,50 @@
         "summary": "Export Portable",
         "tags": [
           "stage-06-portability"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/glossary": {
+      "get": {
+        "operationId": "list_guild_glossary_api_v1_guilds__guild_id__glossary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Guild Glossary Api V1 Guilds  Guild Id  Glossary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Guild Glossary",
+        "tags": [
+          "stage-09-campaigns"
         ]
       }
     },

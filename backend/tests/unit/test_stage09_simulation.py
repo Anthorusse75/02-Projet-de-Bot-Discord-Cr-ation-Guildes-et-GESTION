@@ -389,3 +389,80 @@ class TestSimulateCampaignTemplateVariables:
             translation_provider_available=True,
         )
         assert report.undeclared_template_variable_names == frozenset()
+
+
+class TestSimulateCampaignGlossary:
+    """REQ-MSG-014/022 simulation/preview integration (mission section 11)."""
+
+    async def test_an_applicable_matching_term_is_surfaced(self) -> None:
+        from did.domain.campaigns import GlossaryBehavior, GlossaryEntry, GlossaryScope
+
+        campaign = _campaign(message_model={"content": "Our Widget just shipped!"})
+        target = _channel_target(campaign_id=campaign.id)
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+            glossary_entries=(entry,),
+        )
+        assert report.matched_glossary_terms == ("Widget",)
+
+    async def test_a_non_matching_entry_is_never_surfaced(self) -> None:
+        from did.domain.campaigns import GlossaryBehavior, GlossaryEntry, GlossaryScope
+
+        campaign = _campaign(message_model={"content": "Our Widget just shipped!"})
+        target = _channel_target(campaign_id=campaign.id)
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Gadget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+            glossary_entries=(entry,),
+        )
+        assert report.matched_glossary_terms == ()
+
+    async def test_a_campaign_scoped_entry_for_a_different_campaign_never_applies(self) -> None:
+        from did.domain.campaigns import GlossaryBehavior, GlossaryEntry, GlossaryScope
+
+        campaign = _campaign(message_model={"content": "Our Widget just shipped!"})
+        target = _channel_target(campaign_id=campaign.id)
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.CAMPAIGN,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+            campaign_id=uuid4(),  # a different campaign
+        )
+        report = await simulate_campaign(
+            campaign=campaign,
+            targets=(target,),
+            authorization=_FakeAuthorization(),
+            topology_by_target={},
+            approved_variants={},
+            language_profile_codes={},
+            translation_provider_available=True,
+            glossary_entries=(entry,),
+        )
+        assert report.matched_glossary_terms == ()

@@ -1181,3 +1181,175 @@ async def test_template_variable_crud_validation_and_ownership() -> None:
                 f"/api/v1/campaigns/{campaign_id}/template-variables"
             )
             assert listed_after_delete.json()["template_variables"] == []
+
+
+async def test_glossary_crud_authorization_across_all_three_scopes() -> None:
+    """REQ-MSG-014 (mission section 11): CAMPAIGN needs campaign ownership,
+    GUILD needs real Guild authorization (never merely being logged in),
+    GLOBAL_USER needs only authentication -- each verified independently,
+    plus duplicate-term conflict and shape-invalid rejection."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register(
+        "owner-a",
+        DiscordUser(OWNER_A, "owner-a", None, None),
+        (DiscordGuild(GUILD_A, "Guild A", None, True, 0),),
+    )
+    oauth.register("owner-b", DiscordUser(OWNER_B, "owner-b", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        await container.installations.record_detected(
+            guild_id=GUILD_A,
+            name="Guild A",
+            icon_hash=None,
+            owner_id=OWNER_A,
+            application_id=123,
+            bot_user_id=BOT_ID,
+        )
+        async with _client(application) as client_a, _client(application) as client_b:
+            csrf_a = await _login(client_a, "owner-a")
+            csrf_b = await _login(client_b, "owner-b")
+            assert (
+                await client_a.post(
+                    f"/api/v1/guilds/{GUILD_A}/bootstrap", headers={"X-CSRF-Token": csrf_a}
+                )
+            ).status_code == 200
+            await _seed_stage04_snapshot_for_guild_a()
+
+            created = await client_a.post(
+                "/api/v1/campaigns",
+                json=CAMPAIGN_BODY,
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-tests"},
+            )
+            assert created.status_code == 201
+            campaign_id = created.json()["campaign"]["id"]
+
+            # GLOBAL_USER: only authentication required.
+            global_entry = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "GLOBAL_USER",
+                    "source_term": "Widget",
+                    "behavior": "DO_NOT_TRANSLATE",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-global"},
+            )
+            assert global_entry.status_code == 201
+            global_id = global_entry.json()["id"]
+
+            # CAMPAIGN: requires owning the campaign -- a foreign owner is
+            # rejected with the same generic not-found shape.
+            foreign_campaign_entry = await client_b.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "CAMPAIGN",
+                    "campaign_id": campaign_id,
+                    "source_term": "Gadget",
+                    "behavior": "DO_NOT_TRANSLATE",
+                },
+                headers={"X-CSRF-Token": csrf_b, "Idempotency-Key": "glossary-foreign-campaign"},
+            )
+            assert foreign_campaign_entry.status_code == 404
+
+            campaign_entry = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "CAMPAIGN",
+                    "campaign_id": campaign_id,
+                    "source_term": "Gadget",
+                    "behavior": "FORCED_TRANSLATION",
+                    "forced_translation": "Widget",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-campaign"},
+            )
+            assert campaign_entry.status_code == 201
+            campaign_entry_id = campaign_entry.json()["id"]
+
+            # Shape-invalid: FORCED_TRANSLATION without forced_translation text.
+            invalid = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "GLOBAL_USER",
+                    "source_term": "Thingamajig",
+                    "behavior": "FORCED_TRANSLATION",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-invalid"},
+            )
+            assert invalid.status_code == 422
+
+            # GUILD: unauthorized Guild is rejected before persistence.
+            unauthorized_guild_entry = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "GUILD",
+                    "guild_id": str(GUILD_FOREIGN),
+                    "source_term": "Doohickey",
+                    "behavior": "DO_NOT_TRANSLATE",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-unauth-guild"},
+            )
+            assert unauthorized_guild_entry.status_code == 403
+
+            guild_entry = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "GUILD",
+                    "guild_id": str(GUILD_A),
+                    "source_term": "Doohickey",
+                    "behavior": "DO_NOT_TRANSLATE",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-guild"},
+            )
+            assert guild_entry.status_code == 201
+            guild_entry_id = guild_entry.json()["id"]
+
+            # Duplicate term within the same (owner, scope, campaign/guild,
+            # language) tuple is a conflict, never a silent overwrite.
+            duplicate = await client_a.post(
+                "/api/v1/glossary",
+                json={
+                    "scope_kind": "GLOBAL_USER",
+                    "source_term": "Widget",
+                    "behavior": "DO_NOT_TRANSLATE",
+                },
+                headers={"X-CSRF-Token": csrf_a, "Idempotency-Key": "glossary-dup"},
+            )
+            assert duplicate.status_code == 409
+
+            # Listing surfaces exactly the right scope.
+            assert len((await client_a.get("/api/v1/glossary")).json()["glossary_entries"]) == 1
+            assert (
+                len(
+                    (await client_a.get(f"/api/v1/campaigns/{campaign_id}/glossary")).json()[
+                        "glossary_entries"
+                    ]
+                )
+                == 1
+            )
+            unauthorized_guild_list = await client_b.get(f"/api/v1/guilds/{GUILD_A}/glossary")
+            assert unauthorized_guild_list.status_code == 403
+            authorized_guild_list = await client_a.get(f"/api/v1/guilds/{GUILD_A}/glossary")
+            assert authorized_guild_list.status_code == 200
+            assert len(authorized_guild_list.json()["glossary_entries"]) == 1
+
+            # A foreign owner can never delete another owner's GLOBAL_USER/
+            # CAMPAIGN entry.
+            assert (
+                await client_b.delete(
+                    f"/api/v1/glossary/{global_id}", headers={"X-CSRF-Token": csrf_b}
+                )
+            ).status_code == 404
+            assert (
+                await client_b.delete(
+                    f"/api/v1/glossary/{campaign_entry_id}", headers={"X-CSRF-Token": csrf_b}
+                )
+            ).status_code == 404
+
+            deleted = await client_a.delete(
+                f"/api/v1/glossary/{guild_entry_id}", headers={"X-CSRF-Token": csrf_a}
+            )
+            assert deleted.status_code == 204
+            assert (await client_a.get(f"/api/v1/guilds/{GUILD_A}/glossary")).json()[
+                "glossary_entries"
+            ] == []

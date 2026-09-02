@@ -1275,3 +1275,122 @@ class TestGlossaryGuildScopeRls:
             owner_discord_user_id=OWNER_A, guild_id=GUILD_A
         )
         assert entry.id in {row["id"] for row in visible_to_a}
+
+
+@pytest.mark.asyncio
+class TestGlossaryManagementCrud:
+    """REQ-MSG-014 (mission section 11): the authoring-side CRUD surface --
+    distinct from TestGlossaryGuildScopeRls above (which proves the
+    fan-out-time read); this proves list_campaign_glossary_entries/
+    list_guild_glossary_entries/list_global_user_glossary_entries/
+    get_glossary_entry_for_management/delete_glossary_entry."""
+
+    async def test_campaign_scope_list_and_delete(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        campaign = _campaign(OWNER_A)
+        await repo.create_campaign(campaign)
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.CAMPAIGN,
+            campaign_id=campaign.id,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        rows = await repo.list_campaign_glossary_entries(OWNER_A, campaign.id)
+        assert {row["id"] for row in rows} == {entry.id}
+        # A foreign owner sees nothing for a campaign they do not own.
+        assert await repo.list_campaign_glossary_entries(OWNER_B, campaign.id) == []
+
+        deleted = await repo.delete_glossary_entry(
+            entry.id, guild_id=None, owner_discord_user_id=OWNER_A
+        )
+        assert deleted is True
+        assert await repo.list_campaign_glossary_entries(OWNER_A, campaign.id) == []
+
+    async def test_global_user_scope_is_owner_isolated(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Gadget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        assert {row["id"] for row in await repo.list_global_user_glossary_entries(OWNER_A)} == {
+            entry.id
+        }
+        assert await repo.list_global_user_glossary_entries(OWNER_B) == []
+        # A foreign owner's delete attempt (RLS-scoped to their own
+        # owner_discord_user_id) never touches OWNER_A's entry.
+        assert (
+            await repo.delete_glossary_entry(entry.id, guild_id=None, owner_discord_user_id=OWNER_B)
+            is False
+        )
+        assert {row["id"] for row in await repo.list_global_user_glossary_entries(OWNER_A)} == {
+            entry.id
+        }
+
+    async def test_guild_scope_any_authorized_owner_can_list_and_delete(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        """Deliberately the OPPOSITE isolation rule from CAMPAIGN/
+        GLOBAL_USER: a GUILD entry is a shared, Guild-level concern (see
+        migration 0024_stage_09's own docstring) -- OWNER_B, who never
+        created this entry, can still list AND delete it once the API
+        layer has confirmed they are Guild-authorized (this repository
+        method trusts that check already happened, exactly like every
+        other Guild-scoped write)."""
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=GUILD_A,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+
+        rows = await repo.list_guild_glossary_entries(GUILD_A, OWNER_B)
+        assert {row["id"] for row in rows} == {entry.id}
+        # Never visible under a different Guild's context.
+        assert await repo.list_guild_glossary_entries(GUILD_B, OWNER_B) == []
+
+        deleted = await repo.delete_glossary_entry(
+            entry.id, guild_id=GUILD_A, owner_discord_user_id=OWNER_B
+        )
+        assert deleted is True
+        assert await repo.list_guild_glossary_entries(GUILD_A, OWNER_A) == []
+
+    async def test_get_glossary_entry_for_management_reveals_scope_for_authorization(
+        self, campaigns_context: CampaignsRepository
+    ) -> None:
+        repo = campaigns_context
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GUILD,
+            guild_id=GUILD_A,
+            source_term="Widget",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+        await repo.create_glossary_entry(entry)
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+            found = await repo.get_glossary_entry_for_management(admin_factory, entry.id)
+            assert found is not None
+            assert found["scope_kind"] == "GUILD"
+            assert found["guild_id"] == GUILD_A
+            assert await repo.get_glossary_entry_for_management(admin_factory, uuid4()) is None
+        finally:
+            await admin_engine.dispose()

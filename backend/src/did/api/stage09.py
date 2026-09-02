@@ -84,6 +84,10 @@ from did.domain.campaigns import (
     CampaignTrigger,
     DstAmbiguousPolicy,
     DstNonexistentPolicy,
+    GlossaryBehavior,
+    GlossaryEntry,
+    GlossaryMatchMode,
+    GlossaryScope,
     LifecycleStatus,
     MessageCampaign,
     MessageOccurrence,
@@ -211,6 +215,23 @@ class TemplateVariableUpdateInput(BaseModel):
     variable_type: TemplateVariableType
     value: str | None = None
     values_by_language: dict[str, str] | None = None
+
+
+class GlossaryEntryCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_kind: GlossaryScope
+    source_term: str = Field(min_length=1, max_length=200)
+    behavior: GlossaryBehavior
+    campaign_id: UUID | None = None
+    guild_id: str | None = None
+    target_language_code: str | None = Field(default=None, min_length=2, max_length=16)
+    forced_translation: str | None = Field(default=None, max_length=2000)
+    match_mode: GlossaryMatchMode = GlossaryMatchMode.CASE_INSENSITIVE
+
+    @field_validator("guild_id")
+    @classmethod
+    def guild_snowflake(cls, value: str | None) -> str | None:
+        return str(parse_snowflake(value)) if value is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +465,20 @@ def _template_variable_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _glossary_entry_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "scope_kind": row["scope_kind"],
+        "source_term": row["source_term"],
+        "behavior": row["behavior"],
+        "campaign_id": str(row["campaign_id"]) if row.get("campaign_id") is not None else None,
+        "guild_id": str(row["guild_id"]) if row.get("guild_id") is not None else None,
+        "target_language_code": row.get("target_language_code"),
+        "forced_translation": row.get("forced_translation"),
+        "match_mode": row["match_mode"],
+    }
+
+
 def _simulation_response(report: CampaignSimulationReport) -> dict[str, Any]:
     return {
         "destinations": [
@@ -480,6 +515,7 @@ def _simulation_response(report: CampaignSimulationReport) -> dict[str, Any]:
             for warning in report.message_content_warnings
         ],
         "undeclared_template_variable_names": sorted(report.undeclared_template_variable_names),
+        "matched_glossary_terms": list(report.matched_glossary_terms),
     }
 
 
@@ -783,6 +819,7 @@ async def simulate(
         message_content_guild_id=0,
         logical_group_expansion_by_target=context.logical_group_expansion_by_target,
         template_variable_definitions=context.template_variable_definitions,
+        glossary_entries=context.glossary_entries,
     )
     return _simulation_response(report)
 
@@ -1468,3 +1505,160 @@ async def delete_template_variable(
     deleted = await repo.delete_template_variable(session.discord_user_id, campaign_id, variable_id)
     if not deleted:
         raise CampaignNotOwnedByCaller(str(variable_id))
+
+
+# ---------------------------------------------------------------------------
+# 10. Glossary
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/v1/glossary", status_code=status.HTTP_201_CREATED)
+async def create_glossary_entry_endpoint(
+    body: GlossaryEntryCreateInput,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-MSG-014 (mission section 11): authorized CRUD across all three
+    scopes -- CAMPAIGN requires owning the named campaign, GUILD requires
+    real Guild authorization (never merely "the caller is logged in"),
+    GLOBAL_USER requires nothing beyond authentication (it is scoped to the
+    caller's own owner id by construction). The shape/behavior validation
+    (CAMPAIGN needs campaign_id xor guild_id, FORCED_TRANSLATION needs
+    forced_translation text, ...) is delegated entirely to
+    did.domain.campaigns.GlossaryEntry.__post_init__, never duplicated
+    here."""
+    del idempotency_key
+    repo, _ = _require_campaigns(container)
+    if body.scope_kind is GlossaryScope.CAMPAIGN:
+        if body.campaign_id is None:
+            raise ApiProblem(
+                status_code=422,
+                code="CAMPAIGN_GLOSSARY_INPUT_INVALID",
+                message_key="errors.campaigns.glossaryInputInvalid",
+            )
+        await _load_owned_campaign(repo, session.discord_user_id, body.campaign_id)
+    elif body.scope_kind is GlossaryScope.GUILD:
+        if body.guild_id is None:
+            raise ApiProblem(
+                status_code=422,
+                code="CAMPAIGN_GLOSSARY_INPUT_INVALID",
+                message_key="errors.campaigns.glossaryInputInvalid",
+            )
+        if not await _checker(container).is_guild_authorized(
+            guild_id=int(body.guild_id), owner_discord_user_id=session.discord_user_id
+        ):
+            raise ApiProblem(
+                status_code=403,
+                code="CAMPAIGN_GUILD_NOT_AUTHORIZED",
+                message_key="errors.campaigns.guildNotAuthorized",
+            )
+    try:
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=session.discord_user_id,
+            scope_kind=body.scope_kind,
+            source_term=body.source_term,
+            behavior=body.behavior,
+            campaign_id=body.campaign_id if body.scope_kind is GlossaryScope.CAMPAIGN else None,
+            guild_id=(
+                int(body.guild_id)
+                if body.scope_kind is GlossaryScope.GUILD and body.guild_id is not None
+                else None
+            ),
+            target_language_code=body.target_language_code,
+            forced_translation=body.forced_translation,
+            match_mode=body.match_mode,
+        )
+    except ValueError as exc:
+        raise ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_GLOSSARY_INPUT_INVALID",
+            message_key="errors.campaigns.glossaryInputInvalid",
+        ) from exc
+    try:
+        await repo.create_glossary_entry(entry)
+    except IntegrityError as exc:
+        raise ApiProblem(
+            status_code=409,
+            code="CAMPAIGN_GLOSSARY_TERM_CONFLICT",
+            message_key="errors.campaigns.glossaryTermConflict",
+        ) from exc
+    if entry.scope_kind is GlossaryScope.CAMPAIGN:
+        assert entry.campaign_id is not None
+        rows = await repo.list_campaign_glossary_entries(session.discord_user_id, entry.campaign_id)
+    elif entry.scope_kind is GlossaryScope.GUILD:
+        assert entry.guild_id is not None
+        rows = await repo.list_guild_glossary_entries(entry.guild_id, session.discord_user_id)
+    else:
+        rows = await repo.list_global_user_glossary_entries(session.discord_user_id)
+    created_row = next(row for row in rows if row["id"] == entry.id)
+    return _glossary_entry_response(created_row)
+
+
+@router.get("/api/v1/campaigns/{campaign_id}/glossary")
+async def list_campaign_glossary(
+    campaign_id: UUID, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    repo, _ = _require_campaigns(container)
+    await _load_owned_campaign(repo, session.discord_user_id, campaign_id)
+    rows = await repo.list_campaign_glossary_entries(session.discord_user_id, campaign_id)
+    return {"glossary_entries": [_glossary_entry_response(row) for row in rows]}
+
+
+@router.get("/api/v1/guilds/{guild_id}/glossary")
+async def list_guild_glossary(
+    guild_id: str, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    parsed_guild_id = parse_snowflake(guild_id)
+    if not await _checker(container).is_guild_authorized(
+        guild_id=parsed_guild_id, owner_discord_user_id=session.discord_user_id
+    ):
+        raise ApiProblem(
+            status_code=403,
+            code="CAMPAIGN_GUILD_NOT_AUTHORIZED",
+            message_key="errors.campaigns.guildNotAuthorized",
+        )
+    repo, _ = _require_campaigns(container)
+    rows = await repo.list_guild_glossary_entries(parsed_guild_id, session.discord_user_id)
+    return {"glossary_entries": [_glossary_entry_response(row) for row in rows]}
+
+
+@router.get("/api/v1/glossary")
+async def list_global_user_glossary(
+    session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    repo, _ = _require_campaigns(container)
+    rows = await repo.list_global_user_glossary_entries(session.discord_user_id)
+    return {"glossary_entries": [_glossary_entry_response(row) for row in rows]}
+
+
+@router.delete("/api/v1/glossary/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_glossary_entry_endpoint(
+    entry_id: UUID, session: CsrfSessionDep, container: ServicesDep
+) -> None:
+    """A CAMPAIGN/GLOBAL_USER entry may only be deleted by its own owner. A
+    GUILD entry may be deleted by any of the Guild's authorized owners
+    (matching CampaignsRepository.list_guild_glossary_entries's own
+    rationale for that scope) -- verified by a real Guild-authorization
+    check here, never merely inferred from the entry's own stored
+    owner_discord_user_id."""
+    repo, admin_factory = _require_campaigns(container)
+    existing = await repo.get_glossary_entry_for_management(admin_factory, entry_id)
+    if existing is None:
+        raise CampaignNotOwnedByCaller(str(entry_id))
+    guild_id = existing.get("guild_id")
+    if guild_id is not None:
+        if not await _checker(container).is_guild_authorized(
+            guild_id=int(guild_id), owner_discord_user_id=session.discord_user_id
+        ):
+            raise CampaignNotOwnedByCaller(str(entry_id))
+    elif existing["owner_discord_user_id"] != session.discord_user_id:
+        raise CampaignNotOwnedByCaller(str(entry_id))
+    deleted = await repo.delete_glossary_entry(
+        entry_id,
+        guild_id=int(guild_id) if guild_id is not None else None,
+        owner_discord_user_id=session.discord_user_id,
+    )
+    if not deleted:
+        raise CampaignNotOwnedByCaller(str(entry_id))

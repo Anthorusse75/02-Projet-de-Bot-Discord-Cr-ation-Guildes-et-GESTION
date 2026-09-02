@@ -10,6 +10,7 @@ import type { DashboardContext } from '../../app/AppShell'
 import type { MessageKey } from '../../localization/catalog'
 import { attachmentPolicyKey, blockedReasonKey, campaignErrorKey, campaignStatusKey, deliveryStatusKey, publicationModeKey, targetKindKey, translationPublicationModeKey, translationStateKey, variantOutcomeKey } from '../../localization/presentation'
 import { Badge, Button, EmptyState, ErrorState, Input, Select, Skeleton, Status, Toast } from '../../shared/components/ui'
+import { GlossaryEditor } from './GlossaryEditor'
 import { MessageModelEditor } from './MessageModelEditor'
 import { TemplateVariableEditor } from './TemplateVariableEditor'
 import './campaigns.css'
@@ -424,6 +425,8 @@ export function CampaignCenter() {
 
       <TemplateVariableEditor campaignId={selected.id} userId={userId} />
 
+      <GlossaryEditor campaignId={selected.id} userId={userId} />
+
       <section className="campaign-simulate">
         <h3>{t('campaigns.simulate')}</h3>
         <Button labelKey="campaigns.simulate.run" variant="primary" disabled={simulating} onClick={() => void runSimulation()} />
@@ -441,6 +444,7 @@ export function CampaignCenter() {
             <Badge tone={warning.is_blocking ? 'danger' : 'ok'}>{t(warning.is_blocking ? 'campaigns.simulate.messageContentBlocked' : 'campaigns.simulate.messageContentAvailable')}</Badge>
           </li>)}</ul></div>}
           {simulation.undeclared_template_variable_names.length > 0 && <div><h4>{t('campaigns.simulate.undeclaredTemplateVariables')}</h4><ul>{simulation.undeclared_template_variable_names.map((name) => <li key={name}><Badge tone="warning">{`{{${name}}}`}</Badge></li>)}</ul></div>}
+          {simulation.matched_glossary_terms.length > 0 && <div><h4>{t('campaigns.simulate.matchedGlossaryTerms')}</h4><ul>{simulation.matched_glossary_terms.map((term) => <li key={term}><Badge>{term}</Badge></li>)}</ul></div>}
         </div> : <p>{t('campaigns.simulate.empty')}</p>}
       </section>
 

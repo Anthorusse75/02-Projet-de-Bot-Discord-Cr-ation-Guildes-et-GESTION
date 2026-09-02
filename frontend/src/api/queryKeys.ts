@@ -9,4 +9,6 @@ export const queryKeys = {
   campaigns: (userId: DiscordSnowflake) => ['did', userId, 'campaigns'] as const,
   campaignDetail: (userId: DiscordSnowflake, campaignId: string, feature: string) =>
     ['did', userId, 'campaigns', campaignId, feature] as const,
+  globalGlossary: (userId: DiscordSnowflake) => ['did', userId, 'user-control-plane', 'glossary'] as const,
+  guildGlossary: (userId: DiscordSnowflake, guildId: string) => ['did', userId, 'guild-glossary', guildId] as const,
 }

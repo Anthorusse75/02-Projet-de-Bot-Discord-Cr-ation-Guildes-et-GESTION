@@ -23,6 +23,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from did.campaigns.approved_variants import VariantOutcome, resolve_variant_for_delivery
+from did.campaigns.glossary import matched_source_terms, resolve_applicable_entries
 from did.campaigns.logical_groups import LogicalGroupExpansion
 from did.campaigns.message_content_policy import (
     MessageContentCapabilityChecker,
@@ -36,12 +37,19 @@ from did.campaigns.target_resolution import (
     TranslationGroupTopologySnapshot,
     resolve_target,
 )
-from did.domain.campaigns import ApprovedVariant, CampaignTarget, CampaignTrigger, MessageCampaign
+from did.domain.campaigns import (
+    ApprovedVariant,
+    CampaignTarget,
+    CampaignTrigger,
+    GlossaryEntry,
+    MessageCampaign,
+)
 from did.messaging.message_model import MessageModel
 from did.messaging.template_variables import (
     TemplateVariableDefinition,
     undeclared_template_variable_names_in_message_model,
 )
+from did.messaging.translation_policy import extract_translatable_units
 
 
 class DestinationTranslationState(StrEnum):
@@ -110,6 +118,13 @@ class CampaignSimulationReport:
     #: preview-time authoring aid, never a hard block (an undeclared
     #: variable still renders safely, failing closed to NON_TRANSLATABLE).
     undeclared_template_variable_names: frozenset[str] = frozenset()
+    #: REQ-MSG-014/022 (mission section 11): which of the campaign's
+    #: applicable glossary entries (CAMPAIGN > GUILD > GLOBAL_USER,
+    #: resolved against the campaign's own source language) literally
+    #: appear in its translatable text -- a preview-time authoring aid, not
+    #: a rendering; the real fan-out path re-resolves and applies this
+    #: independently.
+    matched_glossary_terms: tuple[str, ...] = ()
 
 
 async def simulate_campaign(
@@ -126,6 +141,7 @@ async def simulate_campaign(
     message_content_guild_id: int | None = None,
     logical_group_expansion_by_target: dict[UUID, LogicalGroupExpansion | None] | None = None,
     template_variable_definitions: dict[str, TemplateVariableDefinition] | None = None,
+    glossary_entries: Sequence[GlossaryEntry] = (),
 ) -> CampaignSimulationReport:
     """The complete, non-mutating preview. ``triggers``/
     ``message_content_checker``/``message_content_guild_id``/
@@ -195,6 +211,17 @@ async def simulate_campaign(
         MessageModel.from_dict(campaign.message_model), template_variable_definitions or {}
     )
 
+    applicable_glossary = resolve_applicable_entries(
+        glossary_entries,
+        campaign_id=campaign.id,
+        target_language_code=campaign.source_language_code,
+    )
+    combined_text = "\n".join(
+        unit.text
+        for unit in extract_translatable_units(MessageModel.from_dict(campaign.message_model))
+    )
+    matched_glossary_terms = matched_source_terms(applicable_glossary, combined_text)
+
     ready_count = sum(1 for d in destinations if d.ready)
     return CampaignSimulationReport(
         destinations=tuple(destinations),
@@ -205,6 +232,7 @@ async def simulate_campaign(
         blockers=blockers,
         message_content_warnings=tuple(message_content_warnings),
         undeclared_template_variable_names=undeclared_variables,
+        matched_glossary_terms=matched_glossary_terms,
     )
 
 

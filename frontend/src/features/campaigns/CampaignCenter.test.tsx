@@ -37,6 +37,7 @@ function buildState() {
     campaigns: [] as Campaign[],
     targets: [] as Campaign[],
     deliveries: [] as Campaign[],
+    glossaryEntries: [] as Campaign[],
     calls: [] as MockCall[],
   }
 }
@@ -81,7 +82,7 @@ function installApiRequestMock() {
     if (path.endsWith('/simulate') && method === 'POST') {
       return {
         destinations: [{ guild_id: guildId, discord_channel_id: channelId, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }],
-        total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [], undeclared_template_variable_names: [],
+        total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [], undeclared_template_variable_names: [], matched_glossary_terms: [],
       }
     }
     const lifecycleMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/(activate|pause|resume|cancel)$/)
@@ -103,6 +104,26 @@ function installApiRequestMock() {
     }
     if (path.endsWith('/structure') && method === 'GET') {
       return { guild_id: guildId, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [], root_channels: [{ guild_id: guildId, id: channelId, type: 0, name: 'general', position: 0, parent_id: null, resource_kind: 'CHANNEL', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'OBSERVED' }] }
+    }
+    const campaignGlossaryMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/glossary$/)
+    if (campaignGlossaryMatch && method === 'GET') return { glossary_entries: state.glossaryEntries.filter((entry) => entry.campaign_id === campaignGlossaryMatch[1]) }
+    const guildGlossaryMatch = path.match(/^\/api\/v1\/guilds\/([^/]+)\/glossary$/)
+    if (guildGlossaryMatch && method === 'GET') return { glossary_entries: state.glossaryEntries.filter((entry) => entry.guild_id === guildGlossaryMatch[1]) }
+    if (path === '/api/v1/glossary' && method === 'GET') return { glossary_entries: state.glossaryEntries.filter((entry) => entry.scope_kind === 'GLOBAL_USER') }
+    if (path === '/api/v1/glossary' && method === 'POST') {
+      const input = body as Record<string, unknown>
+      const created = {
+        id: `glossary-${state.glossaryEntries.length + 1}`, scope_kind: input.scope_kind, source_term: input.source_term, behavior: input.behavior,
+        campaign_id: input.campaign_id ?? null, guild_id: input.guild_id ?? null, target_language_code: input.target_language_code ?? null,
+        forced_translation: input.forced_translation ?? null, match_mode: input.match_mode,
+      }
+      state.glossaryEntries.push(created)
+      return created
+    }
+    const glossaryDeleteMatch = path.match(/^\/api\/v1\/glossary\/([^/]+)$/)
+    if (glossaryDeleteMatch && method === 'DELETE') {
+      state.glossaryEntries = state.glossaryEntries.filter((entry) => entry.id !== glossaryDeleteMatch[1])
+      return undefined
     }
     throw new Error(`unhandled apiRequest path in test: ${method} ${path}`)
   })

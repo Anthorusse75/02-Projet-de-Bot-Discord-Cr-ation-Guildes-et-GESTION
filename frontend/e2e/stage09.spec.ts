@@ -14,6 +14,7 @@ type Stage09State = {
   targets: Array<Record<string, unknown>>
   deliveries: Array<Record<string, unknown>>
   templateVariables: Array<Record<string, unknown>>
+  glossaryEntries: Array<Record<string, unknown>>
 }
 function freshState(): Stage09State {
   return {
@@ -29,6 +30,7 @@ function freshState(): Stage09State {
       created_at: '2026-08-30T00:00:00Z', updated_at: '2026-08-30T00:00:00Z',
     }],
     templateVariables: [],
+    glossaryEntries: [],
   }
 }
 
@@ -82,12 +84,18 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
       return route.fulfill({ status: 201, json: { id: 'schedule-1', campaign_id: path.split('/')[4], schedule_kind: body.schedule_kind, fire_at: body.fire_at ?? null, rrule: body.rrule ?? null, timezone: body.timezone ?? null, starts_at: body.starts_at ?? null, misfire_policy: 'SKIP_MISSED', dst_nonexistent_policy: 'SHIFT_FORWARD', dst_ambiguous_policy: 'EARLIEST', catch_up_bound: 1, next_fire_at: '2026-09-05T12:00:00Z', version: 1 } })
     }
     if (path.endsWith('/simulate') && method === 'POST') {
-      const campaign = state.campaigns.find((item) => item.id === path.split('/')[4])
+      const campaignId = path.split('/')[4]
+      const campaign = state.campaigns.find((item) => item.id === campaignId)
       const content = String((campaign?.message_model as { content?: string } | undefined)?.content ?? '')
       const declaredNames = new Set(state.templateVariables.map((item) => item.name))
       const referencedNames = [...content.matchAll(/\{\{([^}]+)\}\}/g)].map((match) => match[1])
       const undeclared = [...new Set(referencedNames.filter((name) => !declaredNames.has(name)))].sort()
-      return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [], undeclared_template_variable_names: undeclared } })
+      const applicableGlossary = state.glossaryEntries.filter((entry) =>
+        entry.scope_kind === 'GLOBAL_USER' || (entry.scope_kind === 'CAMPAIGN' && entry.campaign_id === campaignId))
+      const matchedGlossaryTerms = applicableGlossary
+        .filter((entry) => content.includes(String(entry.source_term)))
+        .map((entry) => String(entry.source_term))
+      return route.fulfill({ json: { destinations: [{ guild_id: A, discord_channel_id: CHANNEL, language_profile_id: null, ready: true, blocked_reason: null, translation_state: 'SOURCE', delivery_executable: true }], total_destinations: 1, ready_destinations: 1, blocked_destinations: 0, estimated_delivery_count: 1, blockers: {}, message_content_warnings: [], undeclared_template_variable_names: undeclared, matched_glossary_terms: matchedGlossaryTerms } })
     }
     const lifecycleMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/(activate|pause|resume|cancel)$/)
     if (lifecycleMatch && method === 'POST') {
@@ -150,6 +158,32 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
     }
     if (templateVariableMatch && method === 'DELETE') {
       state.templateVariables = state.templateVariables.filter((item) => item.id !== templateVariableMatch[1])
+      return route.fulfill({ status: 204, body: '' })
+    }
+    const campaignGlossaryMatch = path.match(/^\/api\/v1\/campaigns\/([^/]+)\/glossary$/)
+    if (campaignGlossaryMatch && method === 'GET') {
+      return route.fulfill({ json: { glossary_entries: state.glossaryEntries.filter((entry) => entry.campaign_id === campaignGlossaryMatch[1]) } })
+    }
+    const guildGlossaryMatch = path.match(/^\/api\/v1\/guilds\/([^/]+)\/glossary$/)
+    if (guildGlossaryMatch && method === 'GET') {
+      return route.fulfill({ json: { glossary_entries: state.glossaryEntries.filter((entry) => entry.guild_id === guildGlossaryMatch[1]) } })
+    }
+    if (path === '/api/v1/glossary' && method === 'GET') {
+      return route.fulfill({ json: { glossary_entries: state.glossaryEntries.filter((entry) => entry.scope_kind === 'GLOBAL_USER') } })
+    }
+    if (path === '/api/v1/glossary' && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const created = {
+        id: `glossary-${state.glossaryEntries.length + 1}`, scope_kind: body.scope_kind, source_term: body.source_term, behavior: body.behavior,
+        campaign_id: body.campaign_id ?? null, guild_id: body.guild_id ?? null, target_language_code: body.target_language_code ?? null,
+        forced_translation: body.forced_translation ?? null, match_mode: body.match_mode,
+      }
+      state.glossaryEntries.push(created)
+      return route.fulfill({ status: 201, json: created })
+    }
+    const glossaryDeleteMatch = path.match(/^\/api\/v1\/glossary\/([^/]+)$/)
+    if (glossaryDeleteMatch && method === 'DELETE') {
+      state.glossaryEntries = state.glossaryEntries.filter((entry) => entry.id !== glossaryDeleteMatch[1])
       return route.fulfill({ status: 204, body: '' })
     }
     return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message_key: 'errors.resource.notFound', params: {}, request_id: 'stage09-e2e' } } })
@@ -398,6 +432,56 @@ test('@a11y REQ-MSG-018 mission section 10: a typed template variable is authore
   expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
+test('@a11y REQ-MSG-014 mission section 11: glossary terms are authored across all three scopes, matched terms surface in simulation, and a term can be deleted', async ({ page }) => {
+  const state = freshState()
+  state.campaigns[0].message_model = { content: 'Our Widget is on sale!', embeds: [], action_rows: [] }
+  await mockStage09(page, 'en', state)
+  await page.goto(`/guild/${A}/campaigns`)
+  await page.getByRole('button', { name: /Autumn sale/ }).click()
+  await expect(page.locator('.campaign-detail')).toBeVisible()
+  const glossary = page.locator('.campaign-glossary')
+
+  // CAMPAIGN scope (default): DO_NOT_TRANSLATE, no Guild id required.
+  await glossary.locator('#glossary-create-term').fill('Widget')
+  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await expect(page.getByText('Glossary term created.')).toBeVisible()
+  await expect(glossary.getByText('Widget', { exact: true })).toBeVisible()
+
+  // GLOBAL_USER scope, FORCED_TRANSLATION requires forced-translation text.
+  await glossary.locator('#glossary-scope').selectOption('GLOBAL_USER')
+  await glossary.locator('#glossary-create-term').fill('Brand')
+  await glossary.locator('#glossary-create-behavior').selectOption('FORCED_TRANSLATION')
+  await glossary.locator('#glossary-create-forced').fill('Marque')
+  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await expect(page.getByText('Glossary term created.')).toBeVisible()
+  await expect(glossary.getByText('Brand', { exact: true })).toBeVisible()
+
+  // GUILD scope requires an explicit destination Guild id -- the list stays
+  // empty until one is entered (there is no single "current Guild").
+  await glossary.locator('#glossary-scope').selectOption('GUILD')
+  await expect(glossary.getByText('Load')).toBeVisible()
+  await glossary.locator('#glossary-guild-id').fill(A)
+  await glossary.locator('#glossary-create-term').fill('ServerName')
+  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await expect(page.getByText('Glossary term created.')).toBeVisible()
+  await expect(glossary.getByText('ServerName', { exact: true })).toBeVisible()
+
+  // The CAMPAIGN-scope "Widget" term literally appears in the campaign's
+  // own message content, so preview surfaces it as a matched glossary term.
+  await page.getByRole('button', { name: 'Run preview' }).click()
+  const simulationResult = page.locator('.simulation-result')
+  await expect(simulationResult.getByText('Matched glossary terms')).toBeVisible()
+  await expect(simulationResult.getByText('Widget', { exact: true })).toBeVisible()
+
+  await glossary.locator('#glossary-scope').selectOption('CAMPAIGN')
+  await glossary.getByRole('button', { name: 'Delete' }).click()
+  await expect(page.getByText('Glossary term deleted.')).toBeVisible()
+  await expect(glossary.getByText('No glossary term has been declared yet.')).toBeVisible()
+
+  const results = await new AxeBuilder({ page }).exclude('.locale-flag').analyze()
+  expect(results.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 const localeHeadings = { en: 'Message & campaign center', fr: 'Centre de messages et campagnes', de: 'Nachrichten- und Kampagnenzentrale', es: 'Centro de mensajes y campañas' }
 for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized STAGE 09 surface has no raw enums or keys (${locale})`, async ({ page }) => {
   const state = freshState(); state.campaigns[0].lifecycle_status = 'PAUSED'
@@ -407,6 +491,9 @@ for (const [locale, heading] of Object.entries(localeHeadings)) test(`localized 
   )
   state.templateVariables.push(
     { id: 'tv-1', campaign_id: CAMPAIGN_ID, name: 'price', variable_type: 'LOCALIZED_VALUE', value: null, values_by_language: { en: '$10', fr: '10 €' } },
+  )
+  state.glossaryEntries.push(
+    { id: 'glossary-1', scope_kind: 'CAMPAIGN', campaign_id: CAMPAIGN_ID, guild_id: null, source_term: 'Widget', behavior: 'FORCED_TRANSLATION', target_language_code: null, forced_translation: 'Gadgeto', match_mode: 'EXACT' },
   )
   await mockStage09(page, locale, state)
   await page.goto(`/guild/${A}/campaigns`)

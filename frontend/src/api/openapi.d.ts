@@ -194,6 +194,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns/{campaign_id}/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Campaign Glossary */
+        get: operations["list_campaign_glossary_api_v1_campaigns__campaign_id__glossary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/campaigns/{campaign_id}/pause": {
         parameters: {
             query?: never;
@@ -390,6 +407,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Global User Glossary */
+        get: operations["list_global_user_glossary_api_v1_glossary_get"];
+        put?: never;
+        /**
+         * Create Glossary Entry Endpoint
+         * @description REQ-MSG-014 (mission section 11): authorized CRUD across all three
+         *     scopes -- CAMPAIGN requires owning the named campaign, GUILD requires
+         *     real Guild authorization (never merely "the caller is logged in"),
+         *     GLOBAL_USER requires nothing beyond authentication (it is scoped to the
+         *     caller's own owner id by construction). The shape/behavior validation
+         *     (CAMPAIGN needs campaign_id xor guild_id, FORCED_TRANSLATION needs
+         *     forced_translation text, ...) is delegated entirely to
+         *     did.domain.campaigns.GlossaryEntry.__post_init__, never duplicated
+         *     here.
+         */
+        post: operations["create_glossary_entry_endpoint_api_v1_glossary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/glossary/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Glossary Entry Endpoint
+         * @description A CAMPAIGN/GLOBAL_USER entry may only be deleted by its own owner. A
+         *     GUILD entry may be deleted by any of the Guild's authorized owners
+         *     (matching CampaignsRepository.list_guild_glossary_entries's own
+         *     rationale for that scope) -- verified by a real Guild-authorization
+         *     check here, never merely inferred from the entry's own stored
+         *     owner_discord_user_id.
+         */
+        delete: operations["delete_glossary_entry_endpoint_api_v1_glossary__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds": {
         parameters: {
             query?: never;
@@ -578,6 +649,23 @@ export interface paths {
         put?: never;
         /** Export Portable */
         post: operations["export_portable_api_v1_guilds__guild_id__exports_portable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Guild Glossary */
+        get: operations["list_guild_glossary_api_v1_guilds__guild_id__glossary_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2078,6 +2166,38 @@ export interface components {
             name?: string | null;
             selection: components["schemas"]["SelectionInput"];
         };
+        /**
+         * GlossaryBehavior
+         * @enum {string}
+         */
+        GlossaryBehavior: "DO_NOT_TRANSLATE" | "FORCED_TRANSLATION";
+        /** GlossaryEntryCreateInput */
+        GlossaryEntryCreateInput: {
+            behavior: components["schemas"]["GlossaryBehavior"];
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Forced Translation */
+            forced_translation?: string | null;
+            /** Guild Id */
+            guild_id?: string | null;
+            /** @default CASE_INSENSITIVE */
+            match_mode: components["schemas"]["GlossaryMatchMode"];
+            scope_kind: components["schemas"]["GlossaryScope"];
+            /** Source Term */
+            source_term: string;
+            /** Target Language Code */
+            target_language_code?: string | null;
+        };
+        /**
+         * GlossaryMatchMode
+         * @enum {string}
+         */
+        GlossaryMatchMode: "EXACT" | "CASE_INSENSITIVE";
+        /**
+         * GlossaryScope
+         * @enum {string}
+         */
+        GlossaryScope: "GLOBAL_USER" | "GUILD" | "CAMPAIGN";
         /** GroupLanguageInput */
         GroupLanguageInput: {
             /**
@@ -3269,6 +3389,39 @@ export interface operations {
             };
         };
     };
+    list_campaign_glossary_api_v1_campaigns__campaign_id__glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pause_campaign_api_v1_campaigns__campaign_id__pause_post: {
         parameters: {
             query?: never;
@@ -3776,6 +3929,94 @@ export interface operations {
             };
         };
     };
+    list_global_user_glossary_api_v1_glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    create_glossary_entry_endpoint_api_v1_glossary_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryEntryCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_glossary_entry_endpoint_api_v1_glossary__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     guilds_api_v1_guilds_get: {
         parameters: {
             query?: never;
@@ -4133,6 +4374,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_guild_glossary_api_v1_guilds__guild_id__glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

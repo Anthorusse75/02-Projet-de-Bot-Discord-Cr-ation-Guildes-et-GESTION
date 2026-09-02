@@ -9,7 +9,11 @@ from uuid import uuid4
 
 import pytest
 
-from did.campaigns.glossary import apply_glossary_protection, resolve_applicable_entries
+from did.campaigns.glossary import (
+    apply_glossary_protection,
+    matched_source_terms,
+    resolve_applicable_entries,
+)
 from did.domain.campaigns import GlossaryBehavior, GlossaryEntry, GlossaryMatchMode, GlossaryScope
 from did.messaging.parser import ProtectedKind, ProtectedNode, parse
 from did.messaging.protector import protect, validate_and_restore
@@ -201,3 +205,29 @@ class TestApplyGlossaryProtection:
         protection = protect(application.nodes, restore_overrides=application.restore_overrides)
         restored = validate_and_restore(protection.masked_text, protection)
         assert restored == content
+
+
+class TestMatchedSourceTerms:
+    """REQ-MSG-014/022 simulation/preview integration (mission section 11)."""
+
+    def test_a_term_present_in_the_text_is_reported(self) -> None:
+        entry = _entry(source_term="Widget")
+        assert matched_source_terms([entry], "Our Widget just shipped!") == ("Widget",)
+
+    def test_a_term_absent_from_the_text_is_not_reported(self) -> None:
+        entry = _entry(source_term="Gadget")
+        assert matched_source_terms([entry], "Our Widget just shipped!") == ()
+
+    def test_case_insensitive_matching_respects_match_mode(self) -> None:
+        entry = _entry(source_term="widget", match_mode=GlossaryMatchMode.CASE_INSENSITIVE)
+        assert matched_source_terms([entry], "Our WIDGET just shipped!") == ("widget",)
+
+    def test_exact_match_mode_is_case_sensitive(self) -> None:
+        entry = _entry(source_term="Widget", match_mode=GlossaryMatchMode.EXACT)
+        assert matched_source_terms([entry], "Our widget just shipped!") == ()
+
+    def test_multiple_entries_each_reported_once(self) -> None:
+        first = _entry(source_term="Widget")
+        second = _entry(source_term="Gadget")
+        result = matched_source_terms([first, second], "The Widget and the Widget and the Gadget.")
+        assert result == ("Widget", "Gadget")
