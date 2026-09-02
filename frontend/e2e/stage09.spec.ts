@@ -58,6 +58,9 @@ async function mockStage09(page: Page, locale = 'en', state: Stage09State = fres
       const group = { id: TRANSLATION_GROUP_ID, guild_id: guild, name: 'Announcements', root_kind: 'CHANNEL_SET', routing_mode: 'HUB_AND_SPOKE', visibility_scope_id: null, source_language_profile_id: 'lang-en', provider_binding_id: null, status: 'ACTIVE', version: 1, languages: [languageEn, languageFr, languageDe], category_variants: [], channel_groups: [], channel_variants: [], routes: [] }
       return route.fulfill({ json: { guild_id: guild, source: 'DURABLE_TOPOLOGY_AND_LOCAL_DISCORD_CACHE', discord_rest_calls: 0, cache_coverage: { mode: 'FULL', freshness: 'FRESH', roles_complete: true, channels_complete: true, members_complete: true, state_version: 1 }, groups: [group], providers: [], visibility_bindings: [], languages: [languageEn, languageFr, languageDe], resource_language_policies: [] } })
     }
+    if (path === '/api/v1/retention-policy') {
+      return route.fulfill({ json: { retention_days: 90, min_retention_days: 1, max_retention_days: 3650, purged_delivery_statuses: ['SENT', 'FAILED'] } })
+    }
     if (path === '/api/v1/campaigns' && method === 'GET') return route.fulfill({ json: { campaigns: state.campaigns } })
     if (path === '/api/v1/campaigns' && method === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>
@@ -252,6 +255,11 @@ test('@a11y full campaign lifecycle: create, target, preview, activate, deliveri
   await expect(page.locator('.campaign-detail').getByText('Active')).toBeVisible()
 
   await expect(page.getByText('Sent')).toBeVisible()
+
+  // REQ-MSG-019/REQ-DATA-002 mission section 13: the system-level
+  // retention policy is surfaced truthfully next to the delivery history
+  // it describes, never as a fake per-campaign setting.
+  await expect(page.getByText('Delivery history older than 90 days may be purged')).toBeVisible()
 
   await page.getByLabel('Target language code').fill('fr')
   await page.getByRole('button', { name: 'Check variant' }).click()

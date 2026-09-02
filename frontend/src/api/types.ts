@@ -72,3 +72,4 @@ export type GlossaryEntry = { id: string; scope_kind: GlossaryScope; source_term
 export type CampaignTrigger = { id: string; campaign_id: string; event_type: string; condition_ast: Record<string, unknown>; max_causation_depth: number; requires_message_content: boolean; version: number }
 export type TriggerSourceScopeKind = 'GUILD'|'CHANNEL'|'CATEGORY'
 export type TriggerSourceBinding = { id: string; guild_id: DiscordSnowflake; trigger_id: string; source_scope_kind: TriggerSourceScopeKind; discord_resource_id: string | null }
+export type RetentionPolicy = { retention_days: number | null; min_retention_days: number; max_retention_days: number; purged_delivery_statuses: string[] }

@@ -4,7 +4,7 @@ import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ApiError, apiRequest } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
-import { useCampaignDeliveries, useCampaignTargets, useCampaigns } from '../../api/queries'
+import { useCampaignDeliveries, useCampaignTargets, useCampaigns, useRetentionPolicy } from '../../api/queries'
 import type { Campaign, CampaignSchedule, CampaignSimulationReport, CampaignTargetKind, CampaignVariantPreview, ComponentActionRow, Embed, LogicalGroup, PublicationMode, ScheduleKind, Structure, TranslationPublicationMode, TranslationWorkspace } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import type { MessageKey } from '../../localization/catalog'
@@ -99,6 +99,7 @@ export function CampaignCenter() {
   const [simulating, setSimulating] = useState(false)
 
   const deliveries = useCampaignDeliveries(userId, selected?.id)
+  const retentionPolicy = useRetentionPolicy()
 
   const [variantLanguage, setVariantLanguage] = useState('')
   const [variantPreview, setVariantPreview] = useState<CampaignVariantPreview | null>(null)
@@ -463,6 +464,11 @@ export function CampaignCenter() {
 
       <section className="campaign-deliveries">
         <h3>{t('campaigns.deliveries')}</h3>
+        {retentionPolicy.data && <p className="hint">
+          {retentionPolicy.data.retention_days === null
+            ? t('campaigns.deliveries.retentionDisabled')
+            : t('campaigns.deliveries.retentionInfo', { days: retentionPolicy.data.retention_days })}
+        </p>}
         {deliveries.isLoading ? <Skeleton /> : (deliveries.data?.deliveries.length ?? 0) === 0 ? <EmptyState messageKey="campaigns.deliveries.empty" /> :
           <table><thead><tr><th>{t('campaigns.deliveries.channel')}</th><th>{t('campaigns.deliveries.status')}</th><th>{t('campaigns.deliveries.attempts')}</th><th>{t('campaigns.deliveries.error')}</th><th>{t('campaigns.deliveries.updated')}</th><th>{t('campaigns.deliveries.actions')}</th></tr></thead>
             <tbody>{deliveries.data?.deliveries.map((delivery) => <tr key={delivery.id}>

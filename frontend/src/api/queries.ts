@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -89,6 +89,13 @@ export const useTriggerSources = (u: DiscordSnowflake, campaignId: string | unde
   enabled: Boolean(campaignId && triggerId && guildId),
   queryKey: ['did', u, 'campaigns', campaignId ?? 'none', 'triggers', triggerId ?? 'none', 'sources', guildId || 'none'] as const,
   queryFn: () => apiRequest<{trigger_sources:TriggerSourceBinding[]}>(`/api/v1/campaigns/${campaignId}/triggers/${triggerId}/sources?guild_id=${encodeURIComponent(guildId)}`),
+})
+// REQ-MSG-019/REQ-DATA-002 mission section 13: retention is one
+// system-level policy, never a per-caller value -- a single shared query
+// key (no user id) reflects that truthfully.
+export const useRetentionPolicy = () => useQuery({
+  queryKey: ['did', 'retention-policy'] as const,
+  queryFn: () => apiRequest<RetentionPolicy>('/api/v1/retention-policy'),
 })
 const terminalPlanStates = new Set(['SUCCEEDED', 'APPLIED_WITH_PENDING_PROVIDER', 'FAILED', 'CANCELLED', 'PARTIALLY_APPLIED', 'VERIFICATION_FAILED', 'STALE', 'INTERVENTION_REQUIRED'])
 export const usePlanProgress = (u: DiscordSnowflake, g: DiscordSnowflake, planId: string | undefined) => useQuery({

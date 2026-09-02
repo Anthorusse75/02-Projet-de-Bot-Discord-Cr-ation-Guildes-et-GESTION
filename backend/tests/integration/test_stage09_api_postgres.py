@@ -42,6 +42,7 @@ from pydantic import SecretStr
 from sqlalchemy import text
 
 from did.api.main import create_app
+from did.campaigns.retention import DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS, MIN_RETENTION_DAYS
 from did.infrastructure.database import create_database_engine
 from did.oauth.models import DiscordGuild, DiscordUser, OAuthTokenSet
 from did.settings import AppEnvironment, Settings
@@ -1468,3 +1469,29 @@ async def test_trigger_and_trigger_source_listing_endpoints() -> None:
                     params={"guild_id": str(GUILD_A)},
                 )
             ).status_code == 404
+
+
+async def test_retention_policy_endpoint_reports_the_real_system_level_policy() -> None:
+    """REQ-MSG-019/REQ-DATA-002 (mission section 13): retention is a
+    system-level policy -- the endpoint reports the exact bounds and
+    default from did.campaigns.retention, never a per-caller value, and
+    requires authentication like every other Stage09 endpoint."""
+    await _reset()
+    oauth = FakeOAuthClient()
+    oauth.register("owner-a", DiscordUser(OWNER_A, "owner-a", None, None), ())
+    application = _app(oauth)
+    async with application.router.lifespan_context(application):
+        async with _client(application) as client:
+            unauthenticated = await client.get("/api/v1/retention-policy")
+            assert unauthenticated.status_code == 401
+
+            await _login(client, "owner-a")
+            response = await client.get("/api/v1/retention-policy")
+            assert response.status_code == 200
+            body = response.json()
+            assert body == {
+                "retention_days": DEFAULT_RETENTION_DAYS,
+                "min_retention_days": MIN_RETENTION_DAYS,
+                "max_retention_days": MAX_RETENTION_DAYS,
+                "purged_delivery_statuses": ["SENT", "FAILED"],
+            }

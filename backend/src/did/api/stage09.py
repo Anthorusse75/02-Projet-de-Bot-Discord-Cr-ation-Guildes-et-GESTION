@@ -73,6 +73,7 @@ from did.campaigns.message_content_policy import (
     PermanentlyUnavailableMessageContentChecker,
     validate_message_content_capability,
 )
+from did.campaigns.retention import MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, RetentionPolicy
 from did.campaigns.scheduling import ScheduleEvaluationError, evaluate_recurring
 from did.campaigns.simulation import CampaignSimulationReport, simulate_campaign
 from did.domain.campaigns import (
@@ -1707,3 +1708,31 @@ async def delete_glossary_entry_endpoint(
     )
     if not deleted:
         raise CampaignNotOwnedByCaller(str(entry_id))
+
+
+# ---------------------------------------------------------------------------
+# 11. Retention policy (REQ-MSG-019/REQ-DATA-002, mission section 13)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/v1/retention-policy")
+async def get_retention_policy(session: CurrentSessionDep) -> dict[str, Any]:
+    """Delivery-history retention (did.campaigns.retention) is a
+    system-level policy, not a per-campaign or per-Guild setting -- there
+    is no durable per-owner override anywhere in the schema, and this
+    endpoint must never invent one. It truthfully reports the single
+    policy every Guild's terminal deliveries are subject to whenever a
+    purge is applied, and the bounds any override would have to respect.
+    A caller only needs to be authenticated; the policy is not scoped to
+    them."""
+    del session
+    policy = RetentionPolicy()
+    return {
+        "retention_days": policy.retention_days,
+        "min_retention_days": MIN_RETENTION_DAYS,
+        "max_retention_days": MAX_RETENTION_DAYS,
+        # Matches did.campaigns.retention's own module docstring exactly --
+        # PENDING/CLAIMED/SENDING/UNKNOWN/INTERVENTION_REQUIRED deliveries
+        # are never purged by age regardless of retention_days.
+        "purged_delivery_statuses": ["SENT", "FAILED"],
+    }

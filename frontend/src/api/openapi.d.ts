@@ -1802,6 +1802,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/retention-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Retention Policy
+         * @description Delivery-history retention (did.campaigns.retention) is a
+         *     system-level policy, not a per-campaign or per-Guild setting -- there
+         *     is no durable per-owner override anywhere in the schema, and this
+         *     endpoint must never invent one. It truthfully reports the single
+         *     policy every Guild's terminal deliveries are subject to whenever a
+         *     purge is applied, and the bounds any override would have to respect.
+         *     A caller only needs to be authenticated; the policy is not scoped to
+         *     them.
+         */
+        get: operations["get_retention_policy_api_v1_retention_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transfers": {
         parameters: {
             query?: never;
@@ -7282,6 +7309,28 @@ export interface operations {
         };
     };
     portability_support_matrix_api_v1_portability_support_matrix_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_retention_policy_api_v1_retention_policy_get: {
         parameters: {
             query?: never;
             header?: never;

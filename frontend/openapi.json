@@ -9576,6 +9576,30 @@
         ]
       }
     },
+    "/api/v1/retention-policy": {
+      "get": {
+        "description": "Delivery-history retention (did.campaigns.retention) is a\nsystem-level policy, not a per-campaign or per-Guild setting -- there\nis no durable per-owner override anywhere in the schema, and this\nendpoint must never invent one. It truthfully reports the single\npolicy every Guild's terminal deliveries are subject to whenever a\npurge is applied, and the bounds any override would have to respect.\nA caller only needs to be authenticated; the policy is not scoped to\nthem.",
+        "operationId": "get_retention_policy_api_v1_retention_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Retention Policy Api V1 Retention Policy Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Retention Policy",
+        "tags": [
+          "stage-09-campaigns"
+        ]
+      }
+    },
     "/api/v1/transfers": {
       "post": {
         "operationId": "create_live_transfer_api_v1_transfers_post",

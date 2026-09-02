@@ -49,6 +49,9 @@ function installApiRequestMock() {
     const method = String(options.method ?? 'GET')
     const body = options.body
     state.calls.push({ path, method, body })
+    if (path === '/api/v1/retention-policy' && method === 'GET') {
+      return { retention_days: 90, min_retention_days: 1, max_retention_days: 3650, purged_delivery_statuses: ['SENT', 'FAILED'] }
+    }
     if (path === '/api/v1/campaigns' && method === 'GET') return { campaigns: state.campaigns }
     if (path === '/api/v1/campaigns' && method === 'POST') {
       const input = body as Record<string, unknown>
