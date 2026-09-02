@@ -52,7 +52,9 @@ from did.oauth.stores import (
 )
 from did.permissions.capabilities import BotCapabilityChecker
 from did.settings import Settings
-from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
+from did.translation.google_translate_rpc_adapter import (
+    GoogleTranslateRpcCampaignTranslationProvider,
+)
 from did.worker.io import (
     ApplyPlanExecutor,
     DiscordWorkerRuntime,
@@ -313,7 +315,7 @@ async def run_process(
                         bot_checker=BotCapabilityChecker(),
                         translation_groups=TranslationGroupRepository(session_factory),
                     ),
-                    translation_provider=GoogletransCampaignTranslationProvider(),
+                    translation_provider=GoogleTranslateRpcCampaignTranslationProvider(),
                     lease_owner=f"campaign-scheduler-{uuid4().hex}",
                     stage04_repository=Stage04Repository(session_factory),
                     provider_bindings=TranslationProviderBindingRepository(session_factory),

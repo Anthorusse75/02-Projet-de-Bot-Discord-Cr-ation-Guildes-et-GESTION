@@ -44,7 +44,9 @@ from did.infrastructure.stage08_repository import (
 from did.messaging.message_model import MessageModel
 from did.oauth.models import DiscordGuild, DiscordUser, OAuthTokenSet
 from did.settings import AppEnvironment, Settings
-from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
+from did.translation.google_translate_rpc_adapter import (
+    GoogleTranslateRpcCampaignTranslationProvider,
+)
 from did.worker.io import DurableDiscordIOWorker
 from did.worker.io.governor import DiscordWorkloadGovernor
 
@@ -284,10 +286,11 @@ class _Context:
         self.governor = governor
         self.runtime = runtime
         #: Same real production entrypoint as `runtime`, but with the REAL
-        #: did.translation.googletrans_adapter.GoogletransCampaignTranslationProvider
-        #: wired -- exactly mirroring did.runtime.py's own construction --
-        #: instead of `translation_provider=None`. Kept as a second instance
-        #: so ordinary (non-translation) scenario groups never accidentally
+        #: did.translation.google_translate_rpc_adapter
+        #: .GoogleTranslateRpcCampaignTranslationProvider wired -- exactly
+        #: mirroring did.runtime.py's own construction -- instead of
+        #: `translation_provider=None`. Kept as a second instance so
+        #: ordinary (non-translation) scenario groups never accidentally
         #: make a live translation call.
         self.translation_runtime = translation_runtime
         self.language_profiles = language_profiles
@@ -946,8 +949,9 @@ async def _group_retention_leaves_discord_untouched(
 
 # ---------------------------------------------------------------------------
 # Translation Group live scenarios -- REQ-MSG-007/013. Wired against the
-# REAL did.translation.googletrans_adapter.GoogletransCampaignTranslationProvider
-# (never a fake), exactly as did.runtime.py itself constructs it, via
+# REAL did.translation.google_translate_rpc_adapter
+# .GoogleTranslateRpcCampaignTranslationProvider (never a fake), exactly as
+# did.runtime.py itself constructs it, via
 # ctx.translation_runtime (a second CampaignSchedulerRuntime instance kept
 # separate so ordinary non-translation scenario groups never accidentally
 # make a live translation call). IMMEDIATE+HTTP activation never wires a
@@ -1208,14 +1212,15 @@ async def _group_translation_group_did_fanout(ctx: _Context, results: dict[str, 
         # (not a proper noun/acronym/technical-only string), so a
         # translated destination coming back byte-identical to the
         # untranslated source is treated as a real failure here, not merely
-        # logged -- the googletrans-adapter-level fix
-        # (`GoogletransCampaignTranslationProvider`'s `raise_exception=True`
-        # fail-closed contract) means a genuine provider/transport failure
-        # now raises and prevents the delivery from ever reaching SENT in
-        # the first place, so reaching this comparison at all means the
-        # provider really did respond successfully -- at which point an
-        # unchanged destination for this kind of prose is a genuine
-        # translation-quality regression, not an acceptable echo.
+        # logged -- the production adapter's own fail-closed contract
+        # (`GoogleTranslateRpcCampaignTranslationProvider`, and before it
+        # `GoogletransCampaignTranslationProvider`'s `raise_exception=True`)
+        # means a genuine provider/transport failure now raises and
+        # prevents the delivery from ever reaching SENT in the first place,
+        # so reaching this comparison at all means the provider really did
+        # respond successfully -- at which point an unchanged destination
+        # for this kind of prose is a genuine translation-quality
+        # regression, not an acceptable echo.
         translated = [delivery for delivery in sent if delivery["language_profile_id"] is not None]
         routing_ok = len(translated) == 3
         seen_dest_codes: set[str] = set()
@@ -1615,9 +1620,9 @@ async def run_live(
                             lease_owner="stage09-full-chain-live",
                         )
                         # Same real production entrypoint, wired with the
-                        # REAL GoogletransCampaignTranslationProvider exactly
-                        # as did.runtime.py itself constructs it (never a
-                        # fake) -- and with stage04_repository/
+                        # REAL GoogleTranslateRpcCampaignTranslationProvider
+                        # exactly as did.runtime.py itself constructs it
+                        # (never a fake) -- and with stage04_repository/
                         # provider_bindings wired so a Translation Group's
                         # real provider-binding status genuinely gates
                         # DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES the same
@@ -1629,7 +1634,7 @@ async def run_live(
                             language_profiles=language_profiles,
                             translation_groups=translation_groups,
                             checker=_AlwaysAuthorizedChecker(),
-                            translation_provider=GoogletransCampaignTranslationProvider(),
+                            translation_provider=GoogleTranslateRpcCampaignTranslationProvider(),
                             stage04_repository=stage04_repo,
                             provider_bindings=provider_bindings,
                             lease_owner="stage09-full-chain-live-translation",

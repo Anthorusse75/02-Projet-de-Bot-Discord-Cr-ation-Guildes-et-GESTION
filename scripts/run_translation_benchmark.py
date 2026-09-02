@@ -1,9 +1,31 @@
-"""Stage 09 WP10: real googletrans benchmark over the committed corpus.
+"""Stage 09 WP10: real translation-provider benchmark over the committed
+corpus.
 
-Makes REAL network calls to the live googletrans endpoint. Never substitutes
-mocked/fixture translations for the measurements below -- if the network or
-provider is unavailable, this script records an honest BLOCKED/UNVERIFIED
-result rather than fabricating numbers.
+Makes REAL network calls to the live PRODUCTION translation provider --
+did.translation.google_translate_rpc_adapter
+.GoogleTranslateRpcCampaignTranslationProvider, the exact same construction
+did.runtime.py itself uses (the Google Translate Web RPC "batchexecute"
+transport, RPC id "MkEWBc"). Never substitutes mocked/fixture translations
+for the measurements below -- if the network or provider is unavailable,
+this script records an honest BLOCKED/UNVERIFIED result rather than
+fabricating numbers.
+
+Transport history: this benchmark originally measured
+did.translation.googletrans_adapter.GoogletransCampaignTranslationProvider
+(the unofficial `googletrans` package's `/translate_a/single` endpoint).
+That transport was empirically found to consistently receive HTTP 429/403
+from multiple machines on the product owner's own network; production
+switched to the RPC transport above as a result -- see
+did.translation.google_translate_rpc_adapter's own module docstring and
+docs/90_handoffs/STAGE_09_HANDOFF.md for the full, dated evidence trail.
+The historical googletrans-transport evidence this benchmark previously
+committed (1950 real calls, FULL_MASKED_MESSAGE 311/312, PARAGRAPH_GROUPING/
+SENTENCE_GROUPING 312/312, the placeholder-mutation finding that motivated
+did.campaigns.rendering's bounded integrity retry) is preserved as-is in
+docs/90_handoffs/evidence/stage09/ -- this script's own metadata now
+records explicitly which provider/transport produced ANY given run's
+measurements, so historical and current evidence are never conflated (see
+`meta["provider"]`/`meta["transport"]` in the report this script writes).
 
 Usage:
     uv run python scripts/run_translation_benchmark.py \
@@ -28,7 +50,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "src"))
 from did.campaigns.rendering import DEFAULT_MAX_INTEGRITY_ATTEMPTS
 from did.messaging.parser import TextNode, parse
 from did.messaging.protector import IntegrityViolation, protect, validate_full_pipeline
-from did.translation.googletrans_adapter import GoogletransCampaignTranslationProvider
+from did.translation.google_translate_rpc_adapter import (
+    BATCHEXECUTE_URL,
+    RPC_ID,
+    GoogleTranslateRpcCampaignTranslationProvider,
+)
 from did.translation.segmentation import (
     SegmentationStrategy,
     count_text_nodes,
@@ -50,23 +76,24 @@ from did.translation.segmentation import (
 #: production actually does before a delivery is sent".
 PRODUCTION_STRATEGY_LABEL = "PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY"
 
-# External-review finding: googletrans.__version__ (the module attribute) is
-# stale upstream -- it reports "3.4.0" even when the installed *distribution*
-# is 4.0.2 (the version pyproject.toml actually pins and uv.lock resolves).
-# importlib.metadata.version() reads the installed package metadata, which
-# is authoritative; the module attribute is recorded alongside it purely so
-# the upstream discrepancy stays auditable, never as the primary version.
 try:
-    GOOGLETRANS_DISTRIBUTION_VERSION = importlib.metadata.version("googletrans")
+    HTTPX_DISTRIBUTION_VERSION = importlib.metadata.version("httpx")
 except importlib.metadata.PackageNotFoundError:  # pragma: no cover - defensive
-    GOOGLETRANS_DISTRIBUTION_VERSION = "unknown"
+    HTTPX_DISTRIBUTION_VERSION = "unknown"
 
+# `googletrans` is NOT the transport that produces the measurements below --
+# see the module docstring for the full transport-switch history. Recorded
+# here ONLY as historical/environment metadata (item 11: "if googletrans
+# remains installed, its distribution version may remain as historical/
+# environment metadata, but it must NOT be presented as the network
+# implementation that generated RPC measurements") -- kept because
+# googletrans_adapter.py is itself kept for historical/comparative reasons
+# (see its own module docstring), so this package remains a real, intentional
+# dependency, just not the one this benchmark's `meta["provider"]` names.
 try:
-    import googletrans
-
-    GOOGLETRANS_MODULE_DUNDER_VERSION = googletrans.__version__
-except Exception:  # pragma: no cover - defensive, version reporting only
-    GOOGLETRANS_MODULE_DUNDER_VERSION = "unknown"
+    GOOGLETRANS_DISTRIBUTION_VERSION_ENVIRONMENT_ONLY = importlib.metadata.version("googletrans")
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - defensive
+    GOOGLETRANS_DISTRIBUTION_VERSION_ENVIRONMENT_ONLY = "not installed"
 
 
 @dataclass
@@ -86,12 +113,11 @@ class MeasurementRecord:
     #: informational, never a pass/fail gate on its own: some genuinely
     #: correct translations of proper nouns/acronyms/technical-only content
     #: legitimately come back unchanged. What actually gates provider health
-    #: is `error` (see `did.translation.googletrans_adapter
-    #: ._production_translator` and its `raise_exception=True` fail-closed
-    #: contract, which turns a provider transport failure into a real error
-    #: here rather than a silent echo) -- this field exists purely so a
-    #: human reviewing the evidence can see how often it happened, never to
-    #: itself flip PASS/FAIL.
+    #: is `error` (see `did.translation.google_translate_rpc_adapter`'s own
+    #: fail-closed contract -- a transport/parsing failure becomes a real
+    #: `TranslationProviderError` here, never a silent echo) -- this field
+    #: exists purely so a human reviewing the evidence can see how often it
+    #: happened, never to itself flip PASS/FAIL.
     identical_to_source: bool | None
     #: How many bounded-integrity-retry attempts beyond the first this
     #: measurement needed (0 for every raw, no-retry strategy row below;
@@ -113,7 +139,7 @@ class MeasurementRecord:
 
 
 async def _run_one(
-    provider: GoogletransCampaignTranslationProvider,
+    provider: GoogleTranslateRpcCampaignTranslationProvider,
     item: dict[str, str],
     strategy: SegmentationStrategy,
     source_language: str,
@@ -201,7 +227,7 @@ async def _run_one(
 
 
 async def _run_one_production(
-    provider: GoogletransCampaignTranslationProvider,
+    provider: GoogleTranslateRpcCampaignTranslationProvider,
     item: dict[str, str],
     source_language: str,
     target_language: str,
@@ -323,7 +349,7 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
         SegmentationStrategy.SENTENCE_GROUPING,
         SegmentationStrategy.NAIVE_PER_TEXT_NODE,
     ]
-    provider = GoogletransCampaignTranslationProvider(timeout_seconds=15.0, max_attempts=3)
+    provider = GoogleTranslateRpcCampaignTranslationProvider(timeout_seconds=15.0, max_attempts=3)
 
     directions = [(src, dst) for src in languages for dst in languages if src != dst]
 
@@ -351,14 +377,27 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
         "status_reason": status_reason,
         "meta": {
             "generated_at": datetime.now(UTC).isoformat(),
-            "googletrans_distribution_version": GOOGLETRANS_DISTRIBUTION_VERSION,
-            "googletrans_module_dunder_version": GOOGLETRANS_MODULE_DUNDER_VERSION,
+            # Item 11: truthful transport identification -- every
+            # measurement in THIS run (all five buckets, including the four
+            # "comparative" ones) was produced by this exact provider/
+            # transport, never presented as if it came from googletrans.
+            "provider": "GoogleTranslateRpcCampaignTranslationProvider",
+            "transport": "Google Translate Web RPC (batchexecute) -- unofficial, unauthenticated",
+            "rpc_id": RPC_ID,
+            "endpoint": BATCHEXECUTE_URL,
+            "httpx_distribution_version": HTTPX_DISTRIBUTION_VERSION,
+            "production_max_integrity_attempts": DEFAULT_MAX_INTEGRITY_ATTEMPTS,
+            # Historical/environment-only -- see the module docstring and
+            # the constant's own definition comment above. NEVER the
+            # transport that produced this run's measurements.
+            "googletrans_distribution_version_environment_only": (
+                GOOGLETRANS_DISTRIBUTION_VERSION_ENVIRONMENT_ONLY
+            ),
             "corpus_version": corpus.get("version"),
             "languages": languages,
             "directions": [f"{s}->{d}" for s, d in directions],
             "strategies": [s.value for s in strategies],
             "production_strategy": PRODUCTION_STRATEGY_LABEL,
-            "production_max_integrity_attempts": DEFAULT_MAX_INTEGRITY_ATTEMPTS,
             "items_per_language": {lang: len(items) for lang, items in items_by_language.items()},
         },
         "records": [asdict(r) for r in records],
@@ -368,8 +407,8 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
 
 def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
     """``measurement_records`` = one row per (item, strategy, direction);
-    ``provider_invocations`` = the REAL number of googletrans network calls
-    attempted for that measurement (``MeasurementRecord.
+    ``provider_invocations`` = the REAL number of network calls to the
+    production translation provider attempted for that measurement (``MeasurementRecord.
     provider_invocation_count``, incremented at the instant each call
     starts) -- counted whether the call succeeded, raised, or was later
     rejected by integrity validation, and across every bounded-retry
@@ -432,8 +471,8 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
         avg_latency = float(bucket["latency_sum"]) / latency_count if latency_count else None
         total_provider_invocations += int(bucket["provider_invocations"])
         summary[strategy] = {
-            # Provider/network success -- did the real googletrans call
-            # complete without a (now fail-closed) transport/provider error.
+            # Provider/network success -- did the real production-provider
+            # call complete without a (fail-closed) transport/provider error.
             "measurement_records": bucket["measurement_records"],
             "provider_invocations": bucket["provider_invocations"],
             "errors": bucket["errors"],
@@ -486,10 +525,10 @@ def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
     BLOCKED means the real provider/transport is not currently working in
     this environment (a real, fail-closed `TranslationProviderError` was
     raised for one or more production-strategy calls -- see
-    `did.translation.googletrans_adapter._production_translator`) -- this is
-    an honest external-unavailability result, not a technical defect in this
-    benchmark or in DID's own code, and must never be silently reported as
-    PASS."""
+    `did.translation.google_translate_rpc_adapter`'s own module docstring)
+    -- this is an honest external-unavailability result, not a technical
+    defect in this benchmark or in DID's own code, and must never be
+    silently reported as PASS."""
     production = summary.get(PRODUCTION_STRATEGY_LABEL)
     if production is None:
         return "BLOCKED", "no measurements recorded for the production strategy"
@@ -500,9 +539,9 @@ def _overall_status(summary: dict[str, Any]) -> tuple[str, str]:
             "BLOCKED",
             f"{errors}/{measurement_records} production ({PRODUCTION_STRATEGY_LABEL}) "
             "measurements failed with a real provider/transport error -- the real "
-            "googletrans provider is not currently able to translate in this "
-            "environment. See each failing record's own `error` field for the raw "
-            "provider failure. This is never counted as a successful translation, "
+            "production translation provider is not currently able to translate in "
+            "this environment. See each failing record's own `error` field for the "
+            "raw provider failure. This is never counted as a successful translation, "
             "and this status is never silently reported as PASS.",
         )
     integrity_rate = production["protected_integrity_rate"]

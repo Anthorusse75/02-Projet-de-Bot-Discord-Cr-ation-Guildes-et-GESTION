@@ -84,30 +84,37 @@
 Fermés : réconciliation de livraison câblée dans le runtime réel ; les surfaces d'authoring
 Stage09 sont construites en UI/API ; la matrice de qualification live complète est construite ; le
 défaut fail-open de l'adaptateur de traduction est corrigé ; la fuite de ressources de la
-qualification live sur échec est corrigée (`CleanupRegistry`) ; **la mutation intermittente de
-placeholder côté provider est root-causée et corrigée** (retry bornée avec régénération de
-placeholders dans `did.campaigns.rendering`, 12 tests déterministes) ; **un défaut de comptage
-d'appels provider réels dans le script de benchmark, trouvé par audit externe sur cette dernière
-remédiation, est corrigé** (`provider_invocation_count` explicite, jamais dérivé de `segment_count`,
-compté même sur erreur/reprise/échec partiel d'une stratégie segmentée ; 20 tests déterministes côté
-script de benchmark, dont 11 nouveaux pour cette correction) — voir `STAGE_09_HANDOFF.md`
+qualification live sur échec est corrigée (`CleanupRegistry`) ; la mutation intermittente de
+placeholder côté provider est root-causée et corrigée (retry bornée avec régénération de
+placeholders dans `did.campaigns.rendering`, 12 tests déterministes) ; un défaut de comptage
+d'appels provider réels dans le script de benchmark, trouvé par audit externe, est corrigé
+(`provider_invocation_count` explicite, jamais dérivé de `segment_count`, compté même sur
+erreur/reprise/échec partiel d'une stratégie segmentée ; 20 tests déterministes côté script de
+benchmark) ; **le transport `googletrans` `/translate_a/single` lui-même s'est révélé
+spécifiquement indisponible (HTTP 429, prouvé sur deux machines du réseau du product owner), tandis
+qu'une sonde du RPC Google Translate Web (`batchexecute`, id `MkEWBc`) a réussi (HTTP 200, vraie
+traduction) depuis la même machine -- la production a donc basculé vers un nouvel adaptateur,
+`GoogleTranslateRpcCampaignTranslationProvider` (`did.translation.google_translate_rpc_adapter`),
+avec le même contrat fail-closed, 38 nouveaux tests déterministes** — voir `STAGE_09_HANDOFF.md`
 § « État actuel » pour le détail complet de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
 1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
-2. **Confirmation du benchmark canonique avec retry depuis un réseau fonctionnel** (remplace
-   l'ancienne clause bloquante « provider indisponible ») : le product owner a prouvé le provider
-   `googletrans` opérationnel depuis son propre réseau (4×5/5 smoke réel, 1950 appels réels/0 erreur
-   sur le benchmark complet, évidence qui a motivé la remédiation de mutation de placeholder
-   ci-dessus) — mais ce sandbox de développement lui-même reste sans accès réseau fonctionnel au
-   provider, donc la version corrigée (avec retry bornée) n'a pas pu y être reconfirmée en direct.
-   Commande exacte à exécuter par le product owner :
-   `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` (doit
+2. **Confirmation du smoke réseau puis du benchmark canonique avec retry contre le nouveau transport
+   RPC depuis un réseau fonctionnel** (clause mise à jour cette passe, remplace l'ancienne clause
+   « provider `googletrans` indisponible ») : le product owner a prouvé par une sonde ponctuelle à un
+   seul appel que le RPC `batchexecute` fonctionne (HTTP 200) depuis la même machine où `googletrans`
+   échoue désormais (HTTP 429) — mais ce sandbox de développement lui-même reste sans accès réseau
+   fonctionnel, donc ni le smoke complet ni le benchmark contre ce nouveau transport n'ont pu y être
+   exécutés. Commandes exactes à exécuter par le product owner, dans l'ordre :
+   (a) `uv run pytest backend/tests/network/test_stage09_translation_network.py -m translation_network`
+   (doit passer 5/5 contre `GoogleTranslateRpcCampaignTranslationProvider`) ; (b) seulement si (a)
+   passe, `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network` (doit
    rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY`).
-3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du provider
-   `googletrans` propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
+3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
+   traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
 4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
    `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
 
@@ -115,7 +122,7 @@ Restent honnêtement ouverts — trois clauses légitimement externes à toute p
 par cette régression, sauf (1) désormais bloquée en amont par (0)) :
 
 1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, bloquée en amont par (0) — le pack documente honnêtement `MACHINE_TRANSLATION_CURRENTLY_UNAVAILABLE` plutôt que de fabriquer une sortie : `docs/90_handoffs/evidence/stage09/human-semantic-review-pack.md`.
-2. **Provider de traduction tiers réellement présent dans le sandbox** (distinct de (0), un bot externe attaché à un Translation Group) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé — l'état bloquant (provider lié, statut non-`DISABLED`) reste prouvé en live (`translation_group_provider_boundary`, non affecté par (0)).
+2. **Provider de traduction tiers réellement présent dans le sandbox** (distinct de (0), un bot externe attaché à un Translation Group) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé — l'état bloquant (provider lié, statut non-`DISABLED`) reste prouvé en live (`translation_group_provider_boundary`, non affecté par (0)). Le chemin de traduction direct propre à DID a depuis basculé de `googletrans` vers `GoogleTranslateRpcCampaignTranslationProvider` (voir écarts ci-dessus) ; cela ne change rien à ce point, qui concerne un bot externe tiers.
 3. **UNKNOWN_OUTCOME/INTERVENTION_REQUIRED réel non reproductible à la demande contre Discord** : `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé, couvert par le double contrôlable de `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
 
 Voir `docs/90_handoffs/STAGE_09_HANDOFF.md` pour le détail complet, les décisions d'architecture et les preuves.

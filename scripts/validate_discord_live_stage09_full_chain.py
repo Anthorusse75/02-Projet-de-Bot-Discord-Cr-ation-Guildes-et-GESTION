@@ -27,45 +27,62 @@ entrypoints the running system uses, never a re-implementation:
     composition, not the adapter alone.
   * For the ``translation_group_*`` groups, a second real
     ``CampaignSchedulerRuntime`` constructed with the REAL
-    ``GoogletransCampaignTranslationProvider()`` -- the exact same
+    ``GoogleTranslateRpcCampaignTranslationProvider()`` -- the exact same
     production construction ``did.runtime.py`` itself uses -- never a
     fake/controllable double, wired with a real
     ``TranslationProviderBindingRepository`` so provider-binding status
     genuinely gates DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES the same way
     the production scheduler process does.
 
+Transport history (see ``docs/90_handoffs/STAGE_09_HANDOFF.md`` for the full
+dated evidence trail, and ``did.translation.google_translate_rpc_adapter``'s
+own module docstring for the technical detail): the originally selected
+production transport, ``did.translation.googletrans_adapter
+.GoogletransCampaignTranslationProvider`` (the unofficial ``googletrans``
+package's ``/translate_a/single`` endpoint), was empirically found -- from
+multiple machines on the product owner's own network, with that adapter's
+own real fail-open defect already fixed (see below) -- to consistently
+receive HTTP 429/403 from that specific endpoint. A real network probe of
+Google's OTHER unofficial public endpoint, the ``batchexecute`` web RPC
+framework the translate.google.com website itself calls from the browser,
+succeeded from the same machine at the same time. Stage09's production
+transport was switched to that RPC provider as a result;
+``GoogletransCampaignTranslationProvider`` is kept only as historical/
+comparative code and is no longer constructed on this or any other
+production/live-qualification path.
+
 Honest scope (documented rather than half-built, matching this repository's
 own convention -- see ``validate_discord_live_stage09.py``'s docstring):
   * SOURCE_ONLY, DID_TRANSLATED_FANOUT (per FR/EN/DE/ES source language),
     SELECTED_LANGUAGES, and approved-variant reuse are all exercised live
     against real Discord, through DID's own real
-    ``GoogletransCampaignTranslationProvider``. What these checks assert is
-    both what DID's own code is responsible for (correct destination
-    routing, correct destination count, non-empty delivered content,
-    exactly-one-message-per-delivery) AND that a genuine translation
-    actually occurred: the content used is deliberately linguistic prose
-    (never a proper noun/acronym/technical-only string), so a translated
-    destination coming back byte-identical to the untranslated source is
-    treated as a real failure, not logged and excused. A previous version of
-    this script only logged that identity as a non-blocking ``[observed]``
-    note -- a real test-severity defect an external audit found: it masked
-    the fact that ``GoogletransCampaignTranslationProvider`` was silently
-    accepting a transport failure (googletrans's own ``DUMMY_DATA`` echo
-    fallback, triggered by its unsafe ``raise_exception=False`` default) as
-    a successful translation. Both issues are fixed now: the adapter itself
-    fails closed on a transport failure (``_production_translator`` in
-    ``did.translation.googletrans_adapter``), and this script's assertions
-    no longer excuse an echo that does slip through. When the real
-    googletrans endpoint is genuinely unavailable (proven in this sandbox --
-    HTTP 429/403 from Google's own endpoints), these translation-dependent
-    checks now correctly FAIL rather than reporting a false PASS; any
-    resulting content-identity rejection is still recorded in the JSON
-    report's own ``notes`` field alongside the group's own ``[FAIL]`` log
-    line, never silently dropped.
+    ``GoogleTranslateRpcCampaignTranslationProvider``. What these checks
+    assert is both what DID's own code is responsible for (correct
+    destination routing, correct destination count, non-empty delivered
+    content, exactly-one-message-per-delivery) AND that a genuine
+    translation actually occurred: the content used is deliberately
+    linguistic prose (never a proper noun/acronym/technical-only string),
+    so a translated destination coming back byte-identical to the
+    untranslated source is treated as a real failure, not logged and
+    excused. An earlier version of this script only logged that identity as
+    a non-blocking ``[observed]`` note -- a real test-severity defect an
+    external audit found: it masked the fact that the production adapter
+    of the time was silently accepting a transport failure (googletrans's
+    own ``DUMMY_DATA`` echo fallback, triggered by its unsafe
+    ``raise_exception=False`` default) as a successful translation. Both
+    issues were fixed at the time (the googletrans adapter itself made to
+    fail closed on a transport failure, and this script's assertions made
+    to no longer excuse an echo that does slip through) before the
+    transport was switched again to the current RPC provider above --
+    which inherits the exact same fail-closed contract, never an
+    untranslated-input or empty-string fallback on its own failure. Any
+    content-identity rejection is still recorded in the JSON report's own
+    ``notes`` field alongside the group's own ``[FAIL]`` log line, never
+    silently dropped.
   * EXISTING_PROVIDER (an actual external Translation-Group-attached
-    provider bot, distinct from DID's own googletrans path) is only
-    exercised live against a genuine external provider bot if one actually
-    exists in the sandbox. No external provider participates in this
+    provider bot, distinct from DID's own direct-translation path above) is
+    only exercised live against a genuine external provider bot if one
+    actually exists in the sandbox. No external provider participates in this
     sandbox, so ``translation_group_provider_boundary`` instead proves,
     live, that a bound-but-not-DISABLED provider-binding status is
     correctly detected as MANUAL_CONFIGURATION_REQUIRED/BLOCKED: zero fan-
