@@ -425,6 +425,40 @@ class TestBoundedIntegrityRetryOnPlaceholderMutation:
         assert result.content == "Ping <@123456789012345678> now."
         assert calls == 2
 
+    @pytest.mark.parametrize("invalid", [0, -1, -5])
+    async def test_render_field_text_rejects_non_positive_max_integrity_attempts(
+        self, invalid: int
+    ) -> None:
+        """An invalid bound must fail explicitly and immediately (item:
+        "must fail explicitly with ValueError, not reach an internal
+        assertion") -- never silently produce a zero-attempt loop that
+        would otherwise trip the bare `assert last_error is not None`."""
+        with pytest.raises(ValueError, match="max_integrity_attempts must be at least 1"):
+            await render_field_text(
+                self.UNIT,
+                target_language="fr",
+                campaign_id=CAMPAIGN_ID,
+                guild_id=GUILD_ID,
+                template_variable_definitions={},
+                glossary_entries=(),
+                translate_masked_text=_identity_translate,
+                max_integrity_attempts=invalid,
+            )
+
+    async def test_render_message_model_rejects_non_positive_max_integrity_attempts(self) -> None:
+        model = MessageModel(content="Ping <@123456789012345678> now.")
+        with pytest.raises(ValueError, match="max_integrity_attempts must be at least 1"):
+            await render_message_model(
+                model,
+                target_language="fr",
+                campaign_id=CAMPAIGN_ID,
+                guild_id=GUILD_ID,
+                template_variable_definitions={},
+                glossary_entries=(),
+                translate_masked_text=_identity_translate,
+                max_integrity_attempts=0,
+            )
+
 
 class TestRenderMessageModel:
     async def test_only_translatable_fields_are_rendered_technical_fields_untouched(self) -> None:

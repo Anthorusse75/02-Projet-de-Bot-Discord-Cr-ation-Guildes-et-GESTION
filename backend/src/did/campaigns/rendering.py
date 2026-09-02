@@ -118,7 +118,14 @@ async def render_field_text(
     validated through the exact same ``validate_full_pipeline()`` fail-
     closed gate; only the last attempt's ``IntegrityViolation`` ever
     propagates. When ``translate_masked_text is None`` there is nothing a
-    provider could have corrupted, so no retry loop is needed at all."""
+    provider could have corrupted, so no retry loop is needed at all.
+
+    Raises ``ValueError`` immediately for ``max_integrity_attempts < 1`` --
+    never lets an invalid bound reach the loop below and silently produce
+    zero attempts (which would otherwise trip the internal ``assert
+    last_error is not None`` with an unhelpful bare AssertionError)."""
+    if max_integrity_attempts < 1:
+        raise ValueError(f"max_integrity_attempts must be at least 1, got {max_integrity_attempts}")
     original_nodes = parse(unit.text)
     resolved_nodes, template_overrides = resolve_template_variables(
         original_nodes, template_variable_definitions, target_language=target_language
@@ -225,7 +232,13 @@ async def render_message_model(
     text for a destination that was supposed to be translated; bounded
     integrity retry (see ``render_field_text``) is not a relaxation of that
     guarantee -- every candidate still passes the same fail-closed
-    validation, retried or not."""
+    validation, retried or not.
+
+    Raises ``ValueError`` immediately for ``max_integrity_attempts < 1``,
+    even for a model with zero translatable units (where ``render_field_
+    text``'s own identical check would otherwise never run)."""
+    if max_integrity_attempts < 1:
+        raise ValueError(f"max_integrity_attempts must be at least 1, got {max_integrity_attempts}")
     units = extract_translatable_units(source_model)
     rendered: dict[FieldPath, str] = {}
     for unit in units:

@@ -97,6 +97,19 @@ class MeasurementRecord:
     #: measurement needed (0 for every raw, no-retry strategy row below;
     #: only ever nonzero for PRODUCTION_STRATEGY_LABEL measurements).
     retry_count: int = 0
+    #: The EXACT number of real provider.translate(...) invocations
+    #: actually attempted for this measurement -- incremented the instant a
+    #: call starts, regardless of whether it later raises, whether a
+    #: bounded integrity retry occurs, or whether a later segment/attempt
+    #: fails. External-review finding: `segment_count` (the structural
+    #: segmentation of the FINAL candidate only) previously stood in for
+    #: this and silently under-counted real provider calls whenever a
+    #: retry or a partial multi-segment failure occurred (e.g. attempt 1
+    #: fails integrity, attempt 2 succeeds -> segment_count reported only
+    #: attempt 2's 1 call, hiding attempt 1's real call entirely). Never
+    #: derive `provider_invocations` from `segment_count` again --
+    #: `segment_count` stays purely a structural measurement.
+    provider_invocation_count: int = 0
 
 
 async def _run_one(
@@ -109,8 +122,15 @@ async def _run_one(
     content = item["content"]
     nodes = parse(content)
     protection = protect(nodes)
+    invocation_count = 0
 
     async def translate_segment(segment: str) -> str:
+        nonlocal invocation_count
+        # Incremented the instant a real call is attempted -- before
+        # awaiting it -- so a raising/hanging call is still counted, and a
+        # multi-segment strategy that fails partway through still reports
+        # every segment call already attempted before the failure.
+        invocation_count += 1
         result = await provider.translate(
             segment, source_language=source_language, target_language=target_language
         )
@@ -160,6 +180,7 @@ async def _run_one(
             error=None,
             translated_preview=restored[:80],
             identical_to_source=(restored == content),
+            provider_invocation_count=invocation_count,
         )
     except Exception as exc:
         latency = time.perf_counter() - started
@@ -175,6 +196,7 @@ async def _run_one(
             error=str(exc),
             translated_preview=None,
             identical_to_source=None,
+            provider_invocation_count=invocation_count,
         )
 
 
@@ -195,9 +217,17 @@ async def _run_one_production(
     every candidate independently validated through the exact same
     ``validate_full_pipeline()`` production gate, final exhaustion still
     fails closed (recorded as an integrity error here, exactly like any
-    other measurement error)."""
+    other measurement error).
+
+    Raises ``ValueError`` immediately for ``max_integrity_attempts < 1`` --
+    never lets an invalid bound reach the loop below and silently produce
+    zero attempts (which would otherwise trip the internal ``assert
+    last_error is not None`` with an unhelpful bare AssertionError)."""
+    if max_integrity_attempts < 1:
+        raise ValueError(f"max_integrity_attempts must be at least 1, got {max_integrity_attempts}")
     content = item["content"]
     nodes = parse(content)
+    invocation_count = 0
 
     started = time.perf_counter()
     last_error: IntegrityViolation | None = None
@@ -205,6 +235,8 @@ async def _run_one_production(
         protection = protect(nodes)
 
         async def translate_segment(segment: str) -> str:
+            nonlocal invocation_count
+            invocation_count += 1
             result = await provider.translate(
                 segment, source_language=source_language, target_language=target_language
             )
@@ -229,6 +261,7 @@ async def _run_one_production(
                 translated_preview=None,
                 identical_to_source=None,
                 retry_count=attempt - 1,
+                provider_invocation_count=invocation_count,
             )
         n_segments = segment_count(protection.masked_text, SegmentationStrategy.FULL_MASKED_MESSAGE)
         try:
@@ -250,6 +283,7 @@ async def _run_one_production(
             translated_preview=restored[:80],
             identical_to_source=(restored == content),
             retry_count=attempt - 1,
+            provider_invocation_count=invocation_count,
         )
 
     # Every attempt exhausted -- fails closed exactly like production would
@@ -271,6 +305,7 @@ async def _run_one_production(
         translated_preview=preview[:80],
         identical_to_source=None,
         retry_count=max_integrity_attempts - 1,
+        provider_invocation_count=invocation_count,
     )
 
 
@@ -334,10 +369,14 @@ async def run_benchmark(corpus: dict[str, Any]) -> dict[str, object]:
 def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
     """``measurement_records`` = one row per (item, strategy, direction);
     ``provider_invocations`` = the REAL number of googletrans network calls
-    that measurement required (1 for FULL_MASKED_MESSAGE, N segments for
-    PARAGRAPH/SENTENCE grouping, N text nodes for the naive control) -- these
-    are deliberately reported separately per the external review finding
-    that "total_calls" previously conflated the two."""
+    attempted for that measurement (``MeasurementRecord.
+    provider_invocation_count``, incremented at the instant each call
+    starts) -- counted whether the call succeeded, raised, or was later
+    rejected by integrity validation, and across every bounded-retry
+    attempt. Never derived from ``segment_count`` (the structural
+    segmentation of the FINAL candidate only): an external-review finding
+    showed that under-counts real calls whenever a retry occurred or a
+    multi-segment strategy failed partway through."""
     by_strategy: dict[str, dict[str, Any]] = {}
     for record in records:
         bucket = by_strategy.setdefault(
@@ -357,6 +396,13 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
             },
         )
         bucket["measurement_records"] = int(bucket["measurement_records"]) + 1
+        # Counted unconditionally, before the error short-circuit below --
+        # a call that raised, or was made during a bounded-retry attempt
+        # that ultimately failed, was still a REAL provider invocation and
+        # must never be dropped from this count.
+        bucket["provider_invocations"] = (
+            int(bucket["provider_invocations"]) + record.provider_invocation_count
+        )
         if record.retry_count > 0:
             bucket["measurements_that_retried"] = int(bucket["measurements_that_retried"]) + 1
             bucket["total_retry_attempts"] = (
@@ -365,7 +411,6 @@ def _summarize(records: list[MeasurementRecord]) -> dict[str, object]:
         if record.error is not None:
             bucket["errors"] = int(bucket["errors"]) + 1
             continue
-        bucket["provider_invocations"] = int(bucket["provider_invocations"]) + record.segment_count
         if record.protected_integrity_ok is not None:
             bucket["integrity_checked"] = int(bucket["integrity_checked"]) + 1
             if record.protected_integrity_ok:
