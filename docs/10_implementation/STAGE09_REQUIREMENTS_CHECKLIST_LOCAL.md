@@ -191,8 +191,8 @@ Preuve committée à
 placeholders `PASS`, 0 erreur provider/transport, 36/36 en une seule tentative HTTP, 0 reprise
 d'intégrité**, et tous les échantillons `mixed_technical_and_linguistic` montrent désormais un
 espacement de frontière correct -- corroboration réelle en production du correctif Unicode. Après
-examen des 36 échantillons, **le Product Owner ACCEPTE la qualité de traduction Stage 09 au niveau du
-projet** -- décision documentée dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` §
+avoir passé en revue le pack de 36 échantillons, **le Product Owner ACCEPTE la qualité de traduction
+Stage 09 au niveau du projet** -- décision documentée dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` §
 « Acceptation Product Owner ». Ceci est explicitement une acceptation de PROJET (contenu jugé
 publiable en pratique), PAS une certification linguistique professionnelle ligne par ligne : le
 tableau « Verdict humain » de chaque échantillon reste intentionnellement vide, jamais rempli ni
@@ -201,23 +201,37 @@ EN→FR, les échantillons 16 (`negation_and_pronouns`) et 17 (`long_sentence`) 
 moins naturels, l'échantillon 18 (`mixed_technical_and_linguistic`) est satisfaisant ; aucun des trois
 n'est une mistraduction bloquante. **La qualité de traduction Stage 09 n'est plus un gate bloquant.**
 
-Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
-techniquement :
+**Cette passe (clôture live)** : le product owner a exécuté pour de vrai
+`python scripts/validate_stage.py 09 --include-discord-live` contre le SHA
+`8c00e2919555a9139263a3caff907120acb50c7f` : **`STAGE 09 PASS`**. Qualification live Discord
+primitives `PASS` (5/5 scénarios) ; matrice complète du produit `PASS` (11/11 groupes, y compris
+`translation_group_did_fanout` -- la traduction réelle aboutit désormais de bout en bout -- et
+`translation_group_provider_boundary`). Évidence : `artifacts/test-evidence/stage-09/20260911T134144319690Z-8c00e2919555-local-docker/`
+(locale au product owner, non copiée dans ce dépôt, `artifacts/` gitignored par conception). Suite
+complète également `PASS` : 906 tests unitaires, 569 tests Stage09 ciblés, 35 tests de persistance
+Stage09, migrations downgrade/re-upgrade, frontend lint/typecheck/tests/build, scan de secrets,
+validation de documentation. Observations non bloquantes, hors périmètre Stage09 (Stage 10 le cas
+échéant), jamais corrigées ici : 4 vulnérabilités `npm install` (2 modérées, 2 hautes) ; 1 chunk
+frontend de build > 500 kB ; avertissements `logging.unstructured_rejected` en exécution live sans
+échec fonctionnel concret. **La qualification live Discord n'est plus un gate bloquant pour Stage
+09.**
 
-1. **Qualification réseau/benchmark d'intégrité de placeholders** : **CLOSE** -- smoke réel
-   (`5 passed in 6.16s`) et benchmark canonique complet (`PASS`, voir ci-dessus) tous deux confirmés
-   par le product owner contre le SHA `f19d6616a170386995664de4f92fd65347063ba0`. Aucune commande
-   réseau supplémentaire n'est requise ; ne PAS rejouer ce benchmark à nouveau.
-2. **Revue de qualité de traduction** : **CLOSE (ACCEPTÉE au niveau projet, cette passe)** -- voir
-   ci-dessus. Le fichier de qualification réseau ciblé dédié
-   (`backend/tests/network/test_stage09_translation_network_mixed_technical.py`) reste committé et
-   exécutable indépendamment pour toute future régression sur cette classe précise, mais son rerun
-   n'est plus un gate bloquant maintenant que l'acceptation projet est enregistrée. Ne PAS régénérer
-   le pack de 36 échantillons à nouveau pour ce sujet.
-3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
-   traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
-4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
-   `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
+Restent honnêtement ouverts — deux clauses `EXTERNAL_ACCEPTANCE_ITEM`, ni l'une ni l'autre bloquante
+techniquement (Stage09 n'a plus de gate ouvert) :
+
+1. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
+   traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé --
+   `translation_group_provider_boundary` prouve à la place, en live, la détection correcte du
+   blocage `MANUAL_CONFIGURATION_REQUIRED`/`BLOCKED`.
+2. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
+   `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé -- couvert de façon déterministe par
+   `test_stage09_delivery_worker_postgres.py`/`test_stage09_retention_postgres.py`.
+
+Clôturés cette passe (précédemment listés comme ouverts, ne PAS rejouer) :
+- Qualification réseau/benchmark d'intégrité de placeholders : `PASS` contre le SHA
+  `f19d6616a170386995664de4f92fd65347063ba0`.
+- Revue de qualité de traduction : `ACCEPTÉE` au niveau projet (voir ci-dessus).
+- Qualification live Discord (primitives + chaîne complète) : `PASS` réel (voir ci-dessus).
 
 Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique (inchangées
 par cette régression, sauf (1) désormais bloquée en amont par (0)) :
