@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,26 @@ _LANGUAGES = sorted(_MIXED_TECHNICAL_ITEMS)
 _DIRECTIONS = [(src, dst) for src in _LANGUAGES for dst in _LANGUAGES if src != dst]
 
 
+def _is_horizontal_whitespace(character: str) -> bool:
+    """TAB, or any Unicode category "Zs" (Separator, space) -- deliberately
+    includes ASCII SPACE, NO-BREAK SPACE (U+00A0), NARROW NO-BREAK SPACE
+    (U+202F), and every other Unicode space separator, but NEVER a line
+    break. Defined independently here (not imported from
+    ``did.messaging.protector``) so this qualification's own assertion of
+    correctness never silently inherits a blind spot from the production
+    repair it is meant to verify -- see the real-network finding (SHA
+    ``450bf3b928c931a1355078d3ba3305f8eb8b3ae6``) that motivated this: the
+    production repair itself used to recognize only ASCII SPACE/TAB and
+    therefore missed a legitimate French NBSP-before-``!`` boundary."""
+    return character == "\t" or unicodedata.category(character) == "Zs"
+
+
+def _skip_horizontal_whitespace(text: str, index: int) -> int:
+    while index < len(text) and _is_horizontal_whitespace(text[index]):
+        index += 1
+    return index
+
+
 def _source_proven_boundaries(source_content: str) -> list[tuple[str, str]]:
     """Every (restore_value, punctuation) pair the SOURCE structure itself
     proves a whitespace-after-punctuation boundary for -- derived from the
@@ -111,11 +132,11 @@ def _source_proven_boundaries(source_content: str) -> list[tuple[str, str]]:
         if not hasattr(following, "text"):
             continue  # next node is itself protected, not plain text
         following_text = following.text  # type: ignore[union-attr]
-        stripped = following_text.lstrip(" \t")
-        if not stripped.startswith(punctuation):
+        boundary = _skip_horizontal_whitespace(following_text, 0)
+        if boundary >= len(following_text) or following_text[boundary] != punctuation:
             continue
-        after_punctuation = stripped[len(punctuation) :]
-        if after_punctuation and after_punctuation[0].isspace():
+        after_punctuation = boundary + 1
+        if after_punctuation < len(following_text) and following_text[after_punctuation].isspace():
             boundaries.append((node.value, punctuation))
     return boundaries
 
@@ -129,14 +150,19 @@ def _assert_boundaries_are_correctly_spaced(
     a non-whitespace character. This is exactly the defect the fix
     repairs; asserting it here (rather than trusting integrity_ok alone)
     proves the repair actually ran, not merely that no *structural*
-    violation was raised."""
+    violation was raised.
+
+    Uses ``_is_horizontal_whitespace`` (Unicode category "Zs" or TAB) to
+    locate the punctuation after the protected value, so a legitimate
+    Unicode horizontal-whitespace character (e.g. French NBSP before "!")
+    is correctly skipped over on the way to the punctuation -- while a
+    genuinely still-glued boundary (no whitespace at all after the
+    punctuation) still fails this assertion exactly as before."""
     for value, punctuation in source_proven_boundaries:
         value_index = restored_text.find(value)
         assert value_index != -1, f"restored text lost protected value {value!r} entirely"
         after_value = value_index + len(value)
-        index = after_value
-        while index < len(restored_text) and restored_text[index] in (" ", "\t"):
-            index += 1
+        index = _skip_horizontal_whitespace(restored_text, after_value)
         assert index < len(restored_text) and restored_text[index] == punctuation, (
             f"expected {value!r} to be followed by {punctuation!r} in restored text: "
             f"{restored_text!r}"

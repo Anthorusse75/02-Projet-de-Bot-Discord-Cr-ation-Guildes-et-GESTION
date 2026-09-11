@@ -555,6 +555,53 @@ class TestMixedTechnicalBoundarySpacingDoesNotTriggerAnArtificialRetry:
         assert result == self.UNIT.text
 
 
+class TestNbspBoundarySpacingDoesNotTriggerAnArtificialRetry:
+    """STAGE09 -- UNICODE HORIZONTAL WHITESPACE AT PROTECTED PUNCTUATION
+    BOUNDARIES: real-network finding (SHA
+    ``450bf3b928c931a1355078d3ba3305f8eb8b3ae6``, targeted 12-direction
+    ``mixed_technical_and_linguistic`` qualification, EN->FR) -- Google
+    correctly rendered French typography with U+00A0 NO-BREAK SPACE
+    immediately before ``!`` (``"<@123...>\\xa0!Votre"``); the missing
+    whitespace AFTER ``!`` still needed repairing, but DID's own boundary
+    scanner only recognized ASCII SPACE/TAB and never reached the ``!`` to
+    find it. After widening ``_is_horizontal_whitespace`` to Unicode
+    category "Zs", this exact real-observed shape must also succeed on the
+    FIRST provider response through the full ``render_field_text``
+    production path."""
+
+    UNIT = TranslationUnit(
+        FieldPath(TranslatableFieldKind.CONTENT),
+        "Hey <@123456789012345678>! Your event starts <t:1735689600:F>.",
+    )
+
+    async def test_the_real_observed_nbsp_defect_shape_succeeds_without_any_retry(
+        self,
+    ) -> None:
+        calls = 0
+
+        async def _translate(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            # Exact real-observed defect shape: French NBSP-before-"!"
+            # typography (legitimate, must survive untouched), AND the
+            # whitespace immediately after "!" still lost -- everything
+            # else (including the timestamp's already-correct
+            # message-final boundary) preserved byte-for-byte.
+            return re.sub(r"(DIDPH\d{4}Q[0-9A-F]{8}ZH)! ", "\\1\u00a0!", masked_text, count=1)
+
+        result = await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_translate,
+        )
+        assert calls == 1  # no integrity retry needed -- repaired on the first attempt
+        assert result == "Hey <@123456789012345678>\u00a0! Your event starts <t:1735689600:F>."
+
+
 class TestRenderMessageModel:
     async def test_only_translatable_fields_are_rendered_technical_fields_untouched(self) -> None:
         model = MessageModel(

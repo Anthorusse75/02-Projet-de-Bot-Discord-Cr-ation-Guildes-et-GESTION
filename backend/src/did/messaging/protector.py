@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+import unicodedata
 from dataclasses import dataclass
 
 from did.messaging.parser import MessageNode, ProtectedKind, ProtectedNode, TextNode
@@ -105,8 +106,29 @@ SUPPORTED_BOUNDARY_PUNCTUATION: dict[ProtectedKind, str] = {
 }
 
 
+def _is_horizontal_whitespace(character: str) -> bool:
+    """TAB, or any Unicode category "Zs" (Separator, space) character --
+    deliberately includes ASCII SPACE, NO-BREAK SPACE (U+00A0), NARROW
+    NO-BREAK SPACE (U+202F), and every other Unicode space separator, but
+    NEVER a line break (category "Zl"/"Zp" or control characters like
+    ``\\n``/``\\r`` are never "Zs") -- there is no evidence a boundary
+    ever legitimately spans a line break, and treating one as ignorable
+    pre-punctuation typography would be speculative, not source-proven.
+
+    Real-network finding (SHA ``450bf3b928c931a1355078d3ba3305f8eb8b3ae6``,
+    targeted ``mixed_technical_and_linguistic`` qualification, EN->FR):
+    Google Translate correctly rendered French typography with U+00A0
+    (NO-BREAK SPACE) immediately before ``!`` -- ``"<@123...>\\xa0!Votre"``.
+    The original ASCII-only check (``in (" ", "\\t")``) stopped at the NBSP,
+    never reached the ``!``, and therefore never detected/repaired the
+    missing whitespace AFTER it. This is Unicode-aware RECOGNITION only --
+    it never rewrites, collapses, or normalizes any pre-punctuation
+    whitespace; it only skips past it to locate the punctuation itself."""
+    return character == "\t" or unicodedata.category(character) == "Zs"
+
+
 def _skip_horizontal_whitespace(text: str, index: int) -> int:
-    while index < len(text) and text[index] in (" ", "\t"):
+    while index < len(text) and _is_horizontal_whitespace(text[index]):
         index += 1
     return index
 
@@ -176,6 +198,18 @@ def restore_source_proven_protected_boundary_spacing(
        mention/timestamp glued to the next word is not itself shaped like
        an invented protected token -- so it would have been silently
        published without this repair.
+
+    3. SHA ``450bf3b928c931a1355078d3ba3305f8eb8b3ae6``: the targeted
+       12-direction ``mixed_technical_and_linguistic`` network
+       qualification found 1/12 (EN->FR) still failing AFTER the above two
+       fixes -- Google correctly rendered French typography with U+00A0
+       NO-BREAK SPACE immediately before ``!`` (``"<@123...>\\xa0!Votre"``);
+       the original ASCII-only whitespace recognizer (``" "``/``"\\t"``
+       only) never reached the ``!`` to find the still-missing separator
+       after it. See :func:`_is_horizontal_whitespace` -- this was never a
+       placeholder/mention defect (the mention itself was preserved
+       byte-for-byte) nor a new punctuation/kind, only a Unicode-awareness
+       gap in recognizing pre-punctuation whitespace, now fixed.
 
     This function repairs the lost separator BEFORE restoration, so the
     value that ultimately gets restored/reparsed is byte-for-byte the

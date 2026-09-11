@@ -159,19 +159,47 @@ de frontière dérivées de la structure source, jamais un mot cible codé en du
 `STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5, 6, 7, 8, et la ligne « Pack de revue
 sémantique humaine ») pour le détail complet de chaque remédiation.
 
+**Cette passe (Root cause 9)** : après audit externe, le product owner a exécuté pour de vrai la
+qualification réseau ciblée de la Root cause 8 contre le SHA
+`450bf3b928c931a1355078d3ba3305f8eb8b3ae6` : `DID_ALLOW_NETWORK=1 uv run pytest
+backend/tests/network/test_stage09_translation_network_mixed_technical.py -m translation_network -v
+-s`. **Résultat : 11/12 PASS, 1/12 FAIL.** Les 12/12 directions rapportaient une intégrité de
+placeholders `PASS` (0 erreur, 1 tentative HTTP chacune, 0 reprise), mais EN→FR échouait sur
+l'espacement de frontière : sortie restaurée exacte `Salut <@123456789012345678>\xa0!Votre
+événement...` -- la frontière TIMESTAMP+"." était correctement réparée, mais la frontière
+USER_MENTION+"!" restait collée. **Root cause exacte** : Google a correctement rendu la typographie
+française avec un NO-BREAK SPACE U+00A0 immédiatement avant `!` (typographie légitime, PAS une
+corruption -- la mention elle-même était préservée byte pour byte). Le scanner de frontière de DID
+(`_skip_horizontal_whitespace` dans `did.messaging.protector`) ne reconnaissait que l'ESPACE ASCII et
+la TABULATION, donc n'atteignait jamais le `!` pour détecter l'espace toujours manquant après lui.
+**Ce n'est ni un placeholder inventé/perdu, ni une mutation de mention par Google, ni un nouveau
+type/ponctuation -- c'est une lacune de RECONNAISSANCE Unicode dans le scanner lui-même.** **Corrigé**
+: `_is_horizontal_whitespace()` élargi à TABULATION OU catégorie Unicode "Zs" (via
+`unicodedata.category`) -- couvre NBSP U+00A0, NARROW NO-BREAK SPACE U+202F, et tout autre séparateur
+d'espace Unicode, en excluant délibérément les sauts de ligne. Reconnaissance UNIQUEMENT ; aucun
+espace pré-ponctuation n'est jamais réécrit/collapsé/normalisé. La matrice
+`SUPPORTED_BOUNDARY_PUNCTUATION` reste strictement inchangée. 10 nouveaux tests déterministes dans
+`test_stage09_parser_protector.py` (classe `TestUnicodeHorizontalWhitespaceAtProtectedPunctuationBoundaries`)
+et 1 nouveau test bout-en-bout dans `test_stage09_rendering.py` le prouvent ; le scanner de frontière
+du test réseau ciblé lui-même est aussi rendu Unicode-aware, indépendamment du code de production.
+Preuve committée à
+`docs/90_handoffs/evidence/stage09/mixed-technical-network-qualification-450bf3b9-FAIL.json`.
+
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
-1. **NOUVEAU cette passe -- Qualification réseau ciblée `mixed_technical_and_linguistic` (Root cause
-   8)** : jamais encore exécutée, **gate bloquant AVANT la revue humaine**. Requiert un audit externe
-   du correctif PUIS l'exécution par le product owner :
-   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network_mixed_technical.py
-   -m translation_network -v -s`. Doit rapporter 12/12 `PASS` avec un espacement de frontière correct.
+1. **Qualification réseau ciblée `mixed_technical_and_linguistic` (Root cause 8/9)** : exécutée une
+   première fois cette passe -- **11/12 PASS, 1/12 FAIL** (EN→FR, défaut de reconnaissance Unicode,
+   maintenant corrigé). **DOIT être REJOUÉE par le product owner contre le SHA qui contient ce
+   correctif, après un nouvel audit externe** : `DID_ALLOW_NETWORK=1 uv run pytest
+   backend/tests/network/test_stage09_translation_network_mixed_technical.py -m translation_network
+   -v -s`. Doit rapporter 12/12 `PASS` avec un espacement de frontière correct. **Toujours le gate
+   bloquant AVANT la revue humaine.**
 2. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW` -- NE DOIT PAS être régénérée/remplie avant
-   que (1) ci-dessus confirme 12/12. Le pack déjà généré contre le SHA
-   `92fa8aae18542416790767909e45a755ee6e321e` a servi à DÉCOUVRIR la Root cause 8 (pas à noter la
-   qualité linguistique) et reste préservé tel quel comme évidence historique négative à
-   `docs/90_handoffs/evidence/stage09/human-semantic-review-pre-boundary-fix-92fa8aae.md`. Une fois
+   que (1) ci-dessus confirme 12/12. Les packs déjà générés (SHA
+   `92fa8aae18542416790767909e45a755ee6e321e`) ont servi à DÉCOUVRIR les Root causes 8 et 9 (pas à
+   noter la qualité linguistique) et restent préservés tels quels comme évidence historique négative
+   à `docs/90_handoffs/evidence/stage09/human-semantic-review-pre-boundary-fix-92fa8aae.md`. Une fois
    (1) confirmé : `uv run python scripts/generate_human_semantic_review_pack.py --sha <SHA post-
    qualification>`, puis un relecteur humain compétent dans la langue cible jugée remplit directement
    les champs de verdict dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` -- jamais

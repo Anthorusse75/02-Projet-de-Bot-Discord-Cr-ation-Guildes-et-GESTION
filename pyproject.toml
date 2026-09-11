@@ -76,6 +76,11 @@ ignore = ["S101"]
 "backend/alembic/versions/**" = ["E501"]
 "scripts/check_secrets.py" = ["S603"]
 "scripts/validate_stage.py" = ["S603"]
+# Deliberately exercises real, distinct Unicode horizontal-whitespace
+# characters (NO-BREAK SPACE U+00A0, NARROW NO-BREAK SPACE U+202F) as
+# literal string content -- these are exactly the real-network-observed
+# characters under test, not accidental confusables.
+"backend/tests/unit/test_stage09_parser_protector.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.13"

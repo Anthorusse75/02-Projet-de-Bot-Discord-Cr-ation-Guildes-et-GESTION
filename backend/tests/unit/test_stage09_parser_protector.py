@@ -971,3 +971,169 @@ class TestProtectedBoundarySpacingSourceProvenRepair:
         # the fix does not work; there is no second attempt to fall back on.
         restored = validate_full_pipeline(nodes, translated, protection)
         assert restored == _MIXED_TECHNICAL_SOURCE
+
+
+class TestUnicodeHorizontalWhitespaceAtProtectedPunctuationBoundaries:
+    """STAGE09 -- UNICODE HORIZONTAL WHITESPACE AT PROTECTED PUNCTUATION
+    BOUNDARIES.
+
+    Real-network finding (SHA ``450bf3b928c931a1355078d3ba3305f8eb8b3ae6``,
+    targeted 12-direction ``mixed_technical_and_linguistic`` qualification):
+    11/12 passed; EN->FR failed. Google correctly rendered French
+    typography with U+00A0 NO-BREAK SPACE immediately before ``!``:
+    ``"<@123...>\\xa0!Votre"``. The mention placeholder itself was
+    preserved byte-for-byte and the NBSP is legitimate French typography --
+    the defect was DID's own boundary scanner, which recognized only ASCII
+    SPACE/TAB as "horizontal whitespace" and therefore never reached the
+    ``!`` to discover the still-missing separator after it.
+
+    ``_is_horizontal_whitespace`` widens recognition to TAB or any Unicode
+    category "Zs" (covers NBSP U+00A0, NARROW NO-BREAK SPACE U+202F, and
+    every other Unicode space separator) while deliberately EXCLUDING line
+    breaks (never category "Zs") -- this is RECOGNITION only, used to
+    locate the punctuation; no pre-punctuation whitespace, of any kind, is
+    ever rewritten, collapsed, or normalized by this widening."""
+
+    def test_nbsp_before_user_mention_punctuation_is_recognized_and_repaired(
+        self,
+    ) -> None:
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH !Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH ! Votre événement"
+
+    def test_narrow_nbsp_before_user_mention_punctuation_is_recognized_and_repaired(
+        self,
+    ) -> None:
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH !Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH ! Votre événement"
+
+    def test_ascii_space_before_punctuation_regression_still_correct(self) -> None:
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH !Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH ! Votre événement"
+
+    def test_no_pre_punctuation_whitespace_regression_still_correct(self) -> None:
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH! Your event",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH!Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH! Votre événement"
+
+    def test_already_correct_nbsp_target_boundary_is_unchanged(self) -> None:
+        """No unnecessary modification: an already-correct NBSP-before/
+        ASCII-space-after boundary must come back byte-identical -- never
+        a needless rewrite."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH ! Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_pre_punctuation_unicode_whitespace_is_preserved_byte_for_byte(self) -> None:
+        """The repair inserts a space AFTER the punctuation only -- the
+        exact NBSP character(s) BEFORE the punctuation must survive
+        untouched, never collapsed/replaced/normalized to an ASCII space."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH  ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH  !Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH  ! Votre événement"
+        assert "  " in repaired  # both NBSPs survived, byte-for-byte
+
+    def test_newline_is_never_treated_as_horizontal_whitespace(self) -> None:
+        """A newline between the placeholder and the punctuation must NOT
+        be skipped over -- no speculative cross-line repair. Since the
+        source itself does not present the required
+        ``placeholder + horizontal-whitespace + punctuation`` shape (a
+        literal newline sits where only horizontal whitespace is
+        accepted), this is correctly treated as no source proof at all,
+        exactly like any other shape the source does not prove."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH\n! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH\n!Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_url_period_regression_with_nbsp_before_punctuation_still_correct(self) -> None:
+        """URL + "." remains correct even when Unicode horizontal
+        whitespace (not ASCII space) precedes the period in both source
+        and translated text -- proves the widening applies uniformly
+        across the whole supported matrix, not just USER_MENTION."""
+        protection = _url_protection(
+            masked_text="Visit DIDPH0000QAAAAAAAAZH . See also",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="https://example.com/x",
+        )
+        translated = "Visitez DIDPH0000QAAAAAAAAZH .Voir aussi"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "Visitez DIDPH0000QAAAAAAAAZH . Voir aussi"
+
+    def test_timestamp_period_regression_with_narrow_nbsp_before_punctuation(self) -> None:
+        """TIMESTAMP + "." remains correct with a narrow no-break space
+        preceding the period."""
+        protection = _protection_for(
+            ProtectedKind.TIMESTAMP,
+            masked_text="DIDPH0000QAAAAAAAAZH . Details",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<t:1735689600:F>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH .Details"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH . Details"
+
+    def test_exact_french_production_shape_end_to_end(self) -> None:
+        """The exact real-observed EN->FR defect shape, end to end through
+        ``validate_full_pipeline`` -- the mention's NBSP-before-``!``
+        French typography is recognized, the missing space after ``!`` is
+        restored, and the timestamp's already-correct boundary is left
+        alone."""
+        content = "Hey <@123456789012345678>! Your event starts <t:1735689600:F>."
+        nodes = parse(content)
+        protection = protect(nodes)
+        mention_fp = next(
+            fp for fp in protection.fingerprints if fp.kind is ProtectedKind.USER_MENTION
+        )
+        # Exact real-observed shape: French NBSP-before-"!" typography,
+        # AND the same lost-whitespace-after-"!" defect as before.
+        translated = protection.masked_text.replace(
+            f"{mention_fp.placeholder}! ", f"{mention_fp.placeholder} !"
+        )
+        assert translated != protection.masked_text  # the defect was actually injected
+
+        restored = validate_full_pipeline(nodes, translated, protection)
+        assert restored == ("Hey <@123456789012345678> ! Your event starts <t:1735689600:F>.")
