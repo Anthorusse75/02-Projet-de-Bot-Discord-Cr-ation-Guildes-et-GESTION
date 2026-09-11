@@ -185,34 +185,38 @@ du test réseau ciblé lui-même est aussi rendu Unicode-aware, indépendamment 
 Preuve committée à
 `docs/90_handoffs/evidence/stage09/mixed-technical-network-qualification-450bf3b9-FAIL.json`.
 
+**Cette passe (clôture de l'acceptation de traduction)** : le product owner a régénéré le pack de 36
+échantillons (`scripts/generate_human_semantic_review_pack.py`) contre le SHA
+`6acfcc2460850e0507c71be74a51584f150ded18` (correctif Root cause 9 inclus) : **36/36 intégrité de
+placeholders `PASS`, 0 erreur provider/transport, 36/36 en une seule tentative HTTP, 0 reprise
+d'intégrité**, et tous les échantillons `mixed_technical_and_linguistic` montrent désormais un
+espacement de frontière correct -- corroboration réelle en production du correctif Unicode. Après
+examen des 36 échantillons, **le Product Owner ACCEPTE la qualité de traduction Stage 09 au niveau du
+projet** -- décision documentée dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` §
+« Acceptation Product Owner ». Ceci est explicitement une acceptation de PROJET (contenu jugé
+publiable en pratique), PAS une certification linguistique professionnelle ligne par ligne : le
+tableau « Verdict humain » de chaque échantillon reste intentionnellement vide, jamais rempli ni
+fabriqué. Une formulation occasionnellement moins native est acceptée comme non bloquante -- pour
+EN→FR, les échantillons 16 (`negation_and_pronouns`) et 17 (`long_sentence`) sont compréhensibles mais
+moins naturels, l'échantillon 18 (`mixed_technical_and_linguistic`) est satisfaisant ; aucun des trois
+n'est une mistraduction bloquante. **La qualité de traduction Stage 09 n'est plus un gate bloquant.**
+
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
-1. **Qualification réseau ciblée `mixed_technical_and_linguistic` (Root cause 8/9)** : exécutée une
-   première fois cette passe -- **11/12 PASS, 1/12 FAIL** (EN→FR, défaut de reconnaissance Unicode,
-   maintenant corrigé). **DOIT être REJOUÉE par le product owner contre le SHA qui contient ce
-   correctif, après un nouvel audit externe** : `DID_ALLOW_NETWORK=1 uv run pytest
-   backend/tests/network/test_stage09_translation_network_mixed_technical.py -m translation_network
-   -v -s`. Doit rapporter 12/12 `PASS` avec un espacement de frontière correct. **Toujours le gate
-   bloquant AVANT la revue humaine.**
-2. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW` -- NE DOIT PAS être régénérée/remplie avant
-   que (1) ci-dessus confirme 12/12. Les packs déjà générés (SHA
-   `92fa8aae18542416790767909e45a755ee6e321e`) ont servi à DÉCOUVRIR les Root causes 8 et 9 (pas à
-   noter la qualité linguistique) et restent préservés tels quels comme évidence historique négative
-   à `docs/90_handoffs/evidence/stage09/human-semantic-review-pre-boundary-fix-92fa8aae.md`. Une fois
-   (1) confirmé : `uv run python scripts/generate_human_semantic_review_pack.py --sha <SHA post-
-   qualification>`, puis un relecteur humain compétent dans la langue cible jugée remplit directement
-   les champs de verdict dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` -- jamais
-   Claude/Codex/un outil IA.
-3. **Qualification réseau/benchmark d'intégrité de placeholders** : **CLOSE** -- smoke réel
+1. **Qualification réseau/benchmark d'intégrité de placeholders** : **CLOSE** -- smoke réel
    (`5 passed in 6.16s`) et benchmark canonique complet (`PASS`, voir ci-dessus) tous deux confirmés
    par le product owner contre le SHA `f19d6616a170386995664de4f92fd65347063ba0`. Aucune commande
-   réseau supplémentaire n'est requise POUR CE SUJET ; ne PAS rejouer ce benchmark à nouveau. Distinct
-   de (1) ci-dessus, qui couvre la présentation/espacement, pas l'intégrité du multi-ensemble de
-   placeholders.
-4. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
+   réseau supplémentaire n'est requise ; ne PAS rejouer ce benchmark à nouveau.
+2. **Revue de qualité de traduction** : **CLOSE (ACCEPTÉE au niveau projet, cette passe)** -- voir
+   ci-dessus. Le fichier de qualification réseau ciblé dédié
+   (`backend/tests/network/test_stage09_translation_network_mixed_technical.py`) reste committé et
+   exécutable indépendamment pour toute future régression sur cette classe précise, mais son rerun
+   n'est plus un gate bloquant maintenant que l'acceptation projet est enregistrée. Ne PAS régénérer
+   le pack de 36 échantillons à nouveau pour ce sujet.
+3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
-5. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
+4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
    `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
 
 Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique (inchangées

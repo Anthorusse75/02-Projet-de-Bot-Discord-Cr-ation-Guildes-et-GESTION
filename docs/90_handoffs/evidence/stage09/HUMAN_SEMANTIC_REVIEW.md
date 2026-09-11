@@ -2,9 +2,19 @@
 
 ## Statut
 
-**`PENDING_HUMAN_REVIEW`** -- aucune évaluation humaine n'a encore eu lieu sur ce pack. Tous les champs marqués « Verdict humain » ci-dessous sont **intentionnellement vides** : aucun score, aucune case n'a été pré-remplie par un outil automatique ou par l'agent d'implémentation, ce qui inclut explicitement Claude/Codex/tout autre assistant IA. Un relecteur humain compétent dans la langue cible jugée remplit directement ces champs -- voir la rubrique ci-dessous.
+**`PRODUCT_OWNER_ACCEPTED_PROJECT_LEVEL`** -- le Product Owner a examiné les 36 échantillons ci-dessous et accepte les traductions au niveau du projet Stage 09 (voir « Acceptation Product Owner » ci-dessous). **Ceci n'est PAS une certification linguistique professionnelle par relecteur natif** : le tableau « Verdict humain » à la fin de chaque échantillon reste **intentionnellement vide** -- aucun score de fidélité/naturel/terminologie n'a été assigné ligne par ligne, ni par un humain ni par un outil automatique, ce qui inclut explicitement Claude/Codex/tout autre assistant IA ; ces champs ne doivent jamais être fabriqués a posteriori. L'acceptation ci-dessous est une décision de projet distincte de cette rubrique.
 
-Généré le `2026-09-11T10:42:28.427538+00:00` contre le SHA `92fa8aae18542416790767909e45a755ee6e321e`, via le pipeline de production réel et inchangé (`did.campaigns.rendering.render_field_text`, `GoogleTranslateRpcCampaignTranslationProvider`, `FULL_MASKED_MESSAGE`, la même retry d'intégrité bornée que toute livraison réelle).
+Généré le `2026-09-11T12:42:42.192877+00:00` contre le SHA `6acfcc2460850e0507c71be74a51584f150ded18`, via le pipeline de production réel et inchangé (`did.campaigns.rendering.render_field_text`, `GoogleTranslateRpcCampaignTranslationProvider`, `FULL_MASKED_MESSAGE`, la même retry d'intégrité bornée que toute livraison réelle).
+
+## Acceptation Product Owner (niveau projet, PAS une certification linguistique professionnelle)
+
+**Décision : ACCEPTÉ.** Le Product Owner accepte les 36 traductions générées ci-dessous pour la clôture de Stage 09. Cette décision est une **acceptation de projet** (le contenu est jugé publiable en pratique), distincte d'une certification linguistique professionnelle par relecteur natif ligne par ligne -- cette dernière n'a pas eu lieu et le tableau « Verdict humain » de chaque échantillon reste vide par construction, comme documenté ci-dessus.
+
+Évidence technique préservée telle quelle (jamais fabriquée, jamais réécrite) : **36/36 intégrité des placeholders protégés `PASS`**, **0 erreur provider/transport sur les 36 appels**, **36/36 en une seule tentative HTTP réelle**, **0 reprise d'intégrité** -- via le pipeline de production réel inchangé (`did.campaigns.rendering.render_field_text`, `GoogleTranslateRpcCampaignTranslationProvider`, `FULL_MASKED_MESSAGE`), généré contre le SHA `6acfcc2460850e0507c71be74a51584f150ded18` (le correctif Unicode de la Root cause 9 est donc inclus dans ce run -- tous les échantillons `mixed_technical_and_linguistic` montrent un espacement de frontière correct).
+
+Une formulation occasionnellement moins idiomatique/moins naturelle qu'un texte rédigé nativement est acceptée comme **non bloquante** pour cette clôture de projet, tant que le sens reste compréhensible et qu'aucune mistraduction ne change le sens du message. Observation spécifique du Product Owner : pour la direction EN→FR, l'échantillon 16 (`negation_and_pronouns`) et l'échantillon 17 (`long_sentence`) sont compréhensibles mais moins naturels qu'une formulation française native ; l'échantillon 18 (`mixed_technical_and_linguistic`) est jugé satisfaisant. Aucun de ces trois échantillons n'a été jugé comme une mistraduction bloquante.
+
+**Conséquence pour Stage 09** : la qualité de traduction Stage 09 est considérée acceptée et ne doit plus rester bloquée sur une revue linguistique supplémentaire. Ceci clôture l'écart d'évidence humaine documenté dans `docs/90_handoffs/STAGE_09_HANDOFF.md` (Root cause 8/9 et « Limitations honnêtement externes restantes ») -- voir ce document pour la mise à jour correspondante de l'état courant de Stage 09.
 
 ## Portée de l'échantillon
 
@@ -71,7 +81,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `de-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hallo <@123456789012345678>! Dein Event {{event_name}} beginnt <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | Hello <@123456789012345678>!Your event {{event_name}} begins <t:1735689600:F>.Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hello <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -134,7 +144,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `de-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hallo <@123456789012345678>! Dein Event {{event_name}} beginnt <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | ¡Hola <@123456789012345678>!Su evento {{event_name}} comienza <t:1735689600:F>.Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
+| Texte restauré complet | ¡Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -197,7 +207,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `de-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hallo <@123456789012345678>! Dein Event {{event_name}} beginnt <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- benutze `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | Bonjour <@123456789012345678> !Votre événement {{event_name}} commence par <t:1735689600:F>.Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
+| Texte restauré complet | Bonjour <@123456789012345678> ! Votre événement {{event_name}} commence par <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -260,7 +270,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `en-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | Hallo <@123456789012345678>!Ihre Veranstaltung {{event_name}} startet <t:1735689600:F>.Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:1735689600:F>. Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -323,7 +333,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `en-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | Hola <@123456789012345678>!Su evento {{event_name}} inicia <t:1735689600:F>.Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
+| Texte restauré complet | Hola <@123456789012345678>! Su evento {{event_name}} inicia <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -344,7 +354,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `en-negation-pronouns` |
 | Classe corpus | `negation_and_pronouns` |
 | Texte source complet | She said she would not be attending the event herself, but she asked us to remind everyone that it is still happening without her. |
-| Texte restauré complet | Elle a dit qu'elle n'assisterait pas elle-même à l'événement, mais elle nous a demandé de rappeler à tout le monde que cela se produit toujours sans elle. |
+| Texte restauré complet | Elle a dit qu’elle n’assisterait pas elle-même à l’événement, mais elle nous a demandé de rappeler à tout le monde que cela se produit toujours sans elle. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -386,7 +396,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `en-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Hey <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
-| Texte restauré complet | Salut <@123456789012345678> !Votre événement {{event_name}} démarre <t:1735689600:F>.Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
+| Texte restauré complet | Salut <@123456789012345678> ! Votre événement {{event_name}} démarre <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -449,7 +459,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `es-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | ¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en <#234567890123456789>. |
-| Texte restauré complet | Hallo <@123456789012345678>!Ihre Veranstaltung {{event_name}} beginnt mit <t:1735689600:F>.Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} startet <t:1735689600:F>. Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -512,7 +522,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `es-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | ¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en <#234567890123456789>. |
-| Texte restauré complet | Hello <@123456789012345678>!Your event {{event_name}} starts <t:1735689600:F>.Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hello <@123456789012345678>! Your event {{event_name}} starts <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -575,7 +585,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `es-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | ¡Hola <@123456789012345678>! Tu evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} -- usa `!rsvp` en <#234567890123456789>. |
-| Texte restauré complet | Bonjour <@123456789012345678> !Votre événement {{event_name}} démarre <t:1735689600:F>.Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
+| Texte restauré complet | Bonjour <@123456789012345678> ! Votre événement {{event_name}} démarre <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -638,7 +648,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `fr-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Salut <@123456789012345678> ! Votre événement {{event_name}} commence <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
-| Texte restauré complet | Hallo <@123456789012345678>!Ihre Veranstaltung {{event_name}} beginnt mit <t:1735689600:F>.Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hallo <@123456789012345678>! Ihre Veranstaltung {{event_name}} beginnt mit <t:1735689600:F>. Details: https://example.com/e/{{event_id}} – verwenden Sie `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -701,7 +711,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `fr-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Salut <@123456789012345678> ! Votre événement {{event_name}} commence <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
-| Texte restauré complet | Hi <@123456789012345678>!Your event {{event_name}} begins <t:1735689600:F>.Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
+| Texte restauré complet | Hi <@123456789012345678>! Your event {{event_name}} begins <t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- use `!rsvp` in <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
@@ -764,7 +774,7 @@ Ces scores ne doivent JAMAIS être déduits mécaniquement d'un score BLEU/de si
 | ID corpus | `fr-mixed-everything` |
 | Classe corpus | `mixed_technical_and_linguistic` |
 | Texte source complet | Salut <@123456789012345678> ! Votre événement {{event_name}} commence <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>. |
-| Texte restauré complet | Hola <@123456789012345678>!Tu evento {{event_name}} comienza <t:1735689600:F>.Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
+| Texte restauré complet | Hola <@123456789012345678>! Su evento {{event_name}} comienza <t:1735689600:F>. Detalles: https://example.com/e/{{event_id}} - use `!rsvp` en <#234567890123456789>. |
 | Intégrité des placeholders protégés | `PASS` |
 | Erreur provider/transport | _(aucune)_ |
 | Nombre de tentatives HTTP réelles | 1 |
