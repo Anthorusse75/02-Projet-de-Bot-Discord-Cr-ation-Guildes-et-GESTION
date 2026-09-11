@@ -128,28 +128,36 @@ jamais inféré depuis la langue cible ou la seule syntaxe d'URL. Scope strictem
 sur les placeholders `ProtectedKind.URL` uniquement ; le regex d'URL, `validate_reparsed_structure()`
 et le reste du fail-closed restent inchangés. 13 nouveaux tests déterministes
 (`test_stage09_parser_protector.py`) et 1 nouveau test (`test_stage09_rendering.py`, prouve l'absence
-de reprise d'intégrité artificielle) le prouvent** — voir `STAGE_09_HANDOFF.md` § « État actuel »
-(Root cause 5, Root cause 6, Root cause 7) pour le détail complet de chaque remédiation.
+de reprise d'intégrité artificielle) le prouvent ; **le product owner a depuis rejoué le benchmark
+canonique complet contre le code corrigé (SHA `f19d6616a170386995664de4f92fd65347063ba0`) :
+`PASS`, 2272 vraies tentatives HTTP, `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY` 312/312 (100%), 0
+erreur, 0 reprise -- committé à `docs/90_handoffs/evidence/stage09/translation-benchmark-
+PASS-f19d6616a170.json` (résumé exact rapporté ; `records` complet non copiable depuis ce sandbox).
+Ce PASS remplace le FAIL ci-dessus comme évidence canonique courante sans jamais l'effacer -- toute
+la qualification réseau/benchmark de Stage09 est désormais close. Cette passe ferme aussi le dernier
+écart d'évidence : un script reproductible, `scripts/generate_human_semantic_review_pack.py` (23
+tests déterministes offline), génère un pack de 36 traductions réelles (12 paires dirigées × 3
+classes identiques par langue) via le pipeline de production réel inchangé, texte complet jamais
+tronqué, tous les champs de jugement humain intentionnellement vides -- jamais assignés par l'agent
+d'implémentation ni par un outil IA** — voir `STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5,
+Root cause 6, Root cause 7, et la ligne « Pack de revue sémantique humaine ») pour le détail complet
+de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
-1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW`, inchangé.
-2. **Confirmation de la qualification ciblée `url_adversarial` PUIS du benchmark canonique contre le
-   code corrigé, depuis un réseau fonctionnel** (clause mise à jour cette passe) : **(a) CONFIRMÉE** --
-   le product owner a exécuté
-   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network.py
-   -m translation_network` depuis le Zenbook contre le SHA `d206aa46117bdcfc64b0f60404ba524e7dc53e51`
-   → `5 passed in 6.16s`, confirmant empiriquement le contrat de wire corrigé. **(b) nouvelle cette
-   passe, reste à exécuter** :
-   `DID_ALLOW_NETWORK=1 uv run pytest
-   backend/tests/network/test_stage09_translation_network_url_adversarial.py
-   -m translation_network -v -s` -- 12 mesures réelles ciblées sur la classe `url_adversarial`
-   uniquement, via le vrai `_run_one_production()` de production ; doit passer 12/12 avant (c).
-   **(c) seulement si (b) passe** :
-   `python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network`
-   (doit désormais rapporter `PASS` sur le bucket `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY` -- le run
-   précédent a rapporté `FAIL`, voir ci-dessus).
+1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW` -- **le SEUL écart d'évidence externe
+   restant** (la qualification réseau/benchmark ci-dessous est désormais close). Le product owner doit
+   générer le pack pour de vrai : `uv run python scripts/generate_human_semantic_review_pack.py
+   --sha f19d6616a170386995664de4f92fd65347063ba0` (36 appels réseau réels, peu coûteux), puis un
+   relecteur humain compétent dans la langue cible jugée remplit directement les champs de verdict
+   dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` -- jamais Claude/Codex/un outil
+   IA.
+2. **Qualification réseau/benchmark** : **CLOSE** (clause mise à jour cette passe, remplace l'ancienne
+   clause encore ouverte) -- smoke réel (`5 passed in 6.16s`) et benchmark canonique complet (`PASS`,
+   voir ci-dessus) tous deux confirmés par le product owner contre le SHA
+   `f19d6616a170386995664de4f92fd65347063ba0`. Aucune commande réseau supplémentaire n'est requise ;
+   ne PAS rejouer ce benchmark à nouveau.
 3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
 4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :

@@ -1,5 +1,16 @@
 # Stage 09 — Pack de revue sémantique humaine (`PENDING_HUMAN_REVIEW`)
 
+> **SUPERSEDED (préservé comme évidence historique, jamais supprimé) :** ce pack a été généré
+> pendant la période où le transport `googletrans` était réellement indisponible (voir « Root cause »
+> ci-dessous) -- il ne contient donc que des tentatives `BLOCKED`, jamais de vraie sortie machine. La
+> traduction machine est depuis redevenue disponible (transport RPC, benchmark canonique `PASS`, SHA
+> `f19d6616a170386995664de4f92fd65347063ba0`). Le pack ACTIF pour la revue humaine est désormais
+> généré par `scripts/generate_human_semantic_review_pack.py` (36 échantillons réels, 12 paires de
+> langues dirigées × 3 classes), écrit à
+> `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` une fois exécuté par le product owner.
+> Ce fichier-ci reste tel quel, non modifié au-delà de cette note, comme trace historique du blocage
+> et de la remédiation qui a suivi.
+
 ## Statut
 
 **`PENDING_HUMAN_REVIEW`** pour la revue humaine elle-même — inchangé, aucune évaluation humaine
