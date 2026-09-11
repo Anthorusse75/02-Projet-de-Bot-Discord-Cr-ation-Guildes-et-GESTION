@@ -133,34 +133,58 @@ canonique complet contre le code corrigé (SHA `f19d6616a170386995664de4f92fd653
 `PASS`, 2272 vraies tentatives HTTP, `PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY` 312/312 (100%), 0
 erreur, 0 reprise -- committé à `docs/90_handoffs/evidence/stage09/translation-benchmark-
 PASS-f19d6616a170.json` (résumé exact rapporté ; `records` complet non copiable depuis ce sandbox).
-Ce PASS remplace le FAIL ci-dessus comme évidence canonique courante sans jamais l'effacer -- toute
-la qualification réseau/benchmark de Stage09 est désormais close. Cette passe ferme aussi le dernier
-écart d'évidence : un script reproductible, `scripts/generate_human_semantic_review_pack.py` (23
-tests déterministes offline), génère un pack de 36 traductions réelles (12 paires dirigées × 3
-classes identiques par langue) via le pipeline de production réel inchangé, texte complet jamais
-tronqué, tous les champs de jugement humain intentionnellement vides -- jamais assignés par l'agent
-d'implémentation ni par un outil IA** — voir `STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5,
-Root cause 6, Root cause 7, et la ligne « Pack de revue sémantique humaine ») pour le détail complet
-de chaque remédiation.
+Ce PASS remplace le FAIL ci-dessus comme évidence canonique courante sans jamais l'effacer -- cette
+qualification réseau/benchmark D'INTÉGRITÉ DE PLACEHOLDERS est désormais close. Un script
+reproductible, `scripts/generate_human_semantic_review_pack.py` (23 tests déterministes offline),
+génère un pack de 36 traductions réelles (12 paires dirigées × 3 classes identiques par langue) via
+le pipeline de production réel inchangé, texte complet jamais tronqué, tous les champs de jugement
+humain intentionnellement vides -- jamais assignés par l'agent d'implémentation ni par un outil IA.
+**Cette passe (Root cause 8)** : le product owner a exécuté ce script pour de vrai contre le SHA
+`92fa8aae18542416790767909e45a755ee6e321e` (36 appels réels, 36/36 intégrité de placeholders `PASS`,
+0 erreur, 1 tentative HTTP chacun, 0 reprise) -- mais le texte restauré COMPLET a révélé que les
+12/12 lignes `mixed_technical_and_linguistic` perdent l'espace après la ponctuation adjacente à DEUX
+frontières de placeholder supplémentaires (`USER_MENTION`+`!`, `TIMESTAMP`+`.`), un défaut de
+PRÉSENTATION que l'intégrité de placeholder seule ne peut jamais détecter (`validate_reparsed_
+structure()` ne l'a pas non plus rejeté). **Corrigé** : la fonction de la Root cause 7 est
+généralisée en `did.messaging.protector.restore_source_proven_protected_boundary_spacing()`, pilotée
+par une table publique explicite `SUPPORTED_BOUNDARY_PUNCTUATION` à TROIS combinaisons désormais
+empiriquement prouvées (`URL`+`.`, `USER_MENTION`+`!`, `TIMESTAMP`+`.`), jamais élargie sans la même
+preuve réelle -- même principe qu'avant (source-proven, jamais l'espacement avant la ponctuation,
+respecte la typographie française légitime sans la forcer sur une autre langue cible). 8 nouveaux
+tests déterministes cette passe dans `test_stage09_parser_protector.py` (classe renommée
+`TestProtectedBoundarySpacingSourceProvenRepair`, 19 tests au total) et 1 nouveau test dans
+`test_stage09_rendering.py`. Nouveau fichier de qualification réseau ciblé, jamais encore exécuté :
+`backend/tests/network/test_stage09_translation_network_mixed_technical.py` (12 mesures, assertions
+de frontière dérivées de la structure source, jamais un mot cible codé en dur) — voir
+`STAGE_09_HANDOFF.md` § « État actuel » (Root cause 5, 6, 7, 8, et la ligne « Pack de revue
+sémantique humaine ») pour le détail complet de chaque remédiation.
 
 Restent honnêtement ouverts — tous des clauses `EXTERNAL_ACCEPTANCE_ITEM`, aucune bloquante
 techniquement :
 
-1. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW` -- **le SEUL écart d'évidence externe
-   restant** (la qualification réseau/benchmark ci-dessous est désormais close). Le product owner doit
-   générer le pack pour de vrai : `uv run python scripts/generate_human_semantic_review_pack.py
-   --sha f19d6616a170386995664de4f92fd65347063ba0` (36 appels réseau réels, peu coûteux), puis un
-   relecteur humain compétent dans la langue cible jugée remplit directement les champs de verdict
-   dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` -- jamais Claude/Codex/un outil
-   IA.
-2. **Qualification réseau/benchmark** : **CLOSE** (clause mise à jour cette passe, remplace l'ancienne
-   clause encore ouverte) -- smoke réel (`5 passed in 6.16s`) et benchmark canonique complet (`PASS`,
-   voir ci-dessus) tous deux confirmés par le product owner contre le SHA
-   `f19d6616a170386995664de4f92fd65347063ba0`. Aucune commande réseau supplémentaire n'est requise ;
-   ne PAS rejouer ce benchmark à nouveau.
-3. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
+1. **NOUVEAU cette passe -- Qualification réseau ciblée `mixed_technical_and_linguistic` (Root cause
+   8)** : jamais encore exécutée, **gate bloquant AVANT la revue humaine**. Requiert un audit externe
+   du correctif PUIS l'exécution par le product owner :
+   `DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network_mixed_technical.py
+   -m translation_network -v -s`. Doit rapporter 12/12 `PASS` avec un espacement de frontière correct.
+2. **Revue sémantique humaine** : `PENDING_HUMAN_REVIEW` -- NE DOIT PAS être régénérée/remplie avant
+   que (1) ci-dessus confirme 12/12. Le pack déjà généré contre le SHA
+   `92fa8aae18542416790767909e45a755ee6e321e` a servi à DÉCOUVRIR la Root cause 8 (pas à noter la
+   qualité linguistique) et reste préservé tel quel comme évidence historique négative à
+   `docs/90_handoffs/evidence/stage09/human-semantic-review-pre-boundary-fix-92fa8aae.md`. Une fois
+   (1) confirmé : `uv run python scripts/generate_human_semantic_review_pack.py --sha <SHA post-
+   qualification>`, puis un relecteur humain compétent dans la langue cible jugée remplit directement
+   les champs de verdict dans `docs/90_handoffs/evidence/stage09/HUMAN_SEMANTIC_REVIEW.md` -- jamais
+   Claude/Codex/un outil IA.
+3. **Qualification réseau/benchmark d'intégrité de placeholders** : **CLOSE** -- smoke réel
+   (`5 passed in 6.16s`) et benchmark canonique complet (`PASS`, voir ci-dessus) tous deux confirmés
+   par le product owner contre le SHA `f19d6616a170386995664de4f92fd65347063ba0`. Aucune commande
+   réseau supplémentaire n'est requise POUR CE SUJET ; ne PAS rejouer ce benchmark à nouveau. Distinct
+   de (1) ci-dessus, qui couvre la présentation/espacement, pas l'intégrité du multi-ensemble de
+   placeholders.
+4. **Provider de traduction tiers réellement présent dans le sandbox** (distinct du chemin de
    traduction direct propre à DID) : `EXTERNAL_SANDBOX_CAPABILITY_NOT_AVAILABLE`, inchangé.
-4. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
+5. **`UNKNOWN_OUTCOME` réel non reproductible à la demande contre Discord** :
    `NOT_SAFELY_REPRODUCIBLE_LIVE`, inchangé.
 
 Restent honnêtement ouverts — trois clauses légitimement externes à toute passe technique (inchangées

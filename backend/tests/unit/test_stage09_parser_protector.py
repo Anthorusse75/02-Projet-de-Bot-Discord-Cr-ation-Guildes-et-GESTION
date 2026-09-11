@@ -20,7 +20,7 @@ from did.messaging.protector import (
     PlaceholderFingerprint,
     ProtectionResult,
     protect,
-    restore_source_proven_url_boundary_spacing,
+    restore_source_proven_protected_boundary_spacing,
     validate_and_restore,
     validate_full_pipeline,
     validate_reparsed_structure,
@@ -531,9 +531,20 @@ def _url_protection(masked_text: str, placeholder: str, restore_value: str) -> P
     an equivalent real ``parse()``/``protect()`` input would be indirect
     (e.g. proving "no source evidence" requires a source shape the real
     URL regex would not itself naturally produce)."""
+    return _protection_for(ProtectedKind.URL, masked_text, placeholder, restore_value)
+
+
+def _protection_for(
+    kind: ProtectedKind, masked_text: str, placeholder: str, restore_value: str
+) -> ProtectionResult:
+    """Hand-built single-fingerprint ProtectionResult of an arbitrary
+    ``ProtectedKind``, for the same precise-control reason as
+    ``_url_protection`` above -- generalized so mention/timestamp boundary
+    cases can be exercised without depending on a real ``parse()`` input
+    shape."""
     fingerprint = PlaceholderFingerprint(
         placeholder=placeholder,
-        kind=ProtectedKind.URL,
+        kind=kind,
         order_index=0,
         value_sha256="0" * 64,
         restore_value=restore_value,
@@ -550,26 +561,57 @@ _ADVERSARIAL_CONTENT = (
     f"{_ADVERSARIAL_URL_ONE}. See also (the archived version): {_ADVERSARIAL_URL_TWO}."
 )
 
+# Real corpus content (backend/tests/fixtures/translation_corpus/stage09_corpus.json,
+# item "en-mixed-everything", class mixed_technical_and_linguistic) -- the exact
+# shape whose real translations (all 12/12 directed pairs, SHA
+# 92fa8aae18542416790767909e45a755ee6e321e) exposed the USER_MENTION+"!" and
+# TIMESTAMP+"." boundary-spacing defect this remediation fixes.
+_MIXED_TECHNICAL_SOURCE = (
+    "Hey <@123456789012345678>! Your event {{event_name}} starts "
+    "<t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- "
+    "use `!rsvp` in <#234567890123456789>."
+)
 
-class TestUrlBoundarySpacingSourceProvenRepair:
-    """STAGE09 -- URL PLACEHOLDER SENTENCE-BOUNDARY INTEGRITY REMEDIATION.
 
-    Real canonical benchmark (SHA ``1d71164f5ab24f1585048b3fcc226461d5b2ce1d``):
-    FULL_MASKED_MESSAGE 300/312 (0.9615...), 12/12 production failures ==
-    class ``url_adversarial``, all 12 directed language pairs, every
-    failure persisting through the second bounded integrity attempt.
-    Forensic one-call reproduction (real MkEWBc EN->FR): the URL
-    placeholder and the URL it stands for were preserved byte-for-byte --
-    the defect is that the translator dropped the whitespace between the
-    placeholder's trailing "." and the next target-language word (e.g.
-    "DIDPHxxxx. See also" -> "DIDPHxxxx.Voir aussi"), which then makes the
-    restored URL lexically absorb "Voir" once the placeholder is replaced
-    -- correctly rejected by ``validate_reparsed_structure`` as
-    protected-looking content not present in the source. This is NOT a
-    dropped/invented placeholder, NOT a URL parser defect, and NOT a URL
-    mutation by the provider -- see ``restore_source_proven_url_boundary_
-    spacing``'s own docstring in ``did.messaging.protector`` for the full
-    root-cause writeup and the exact, narrow scope of the fix.
+class TestProtectedBoundarySpacingSourceProvenRepair:
+    """STAGE09 -- SOURCE-PROVEN PROTECTED-TOKEN BOUNDARY SPACING REMEDIATION.
+
+    Two independent real-network findings, both proven by real production
+    calls, back the exact three (kind, punctuation) combinations this
+    class exercises:
+
+    1. Real canonical benchmark (SHA ``1d71164f5ab24f1585048b3fcc226461d5b2ce1d``):
+       FULL_MASKED_MESSAGE 300/312 (0.9615...), 12/12 production failures ==
+       class ``url_adversarial``, all 12 directed language pairs, every
+       failure persisting through the second bounded integrity attempt.
+       Forensic one-call reproduction (real MkEWBc EN->FR): the URL
+       placeholder and the URL it stands for were preserved byte-for-byte --
+       the defect is that the translator dropped the whitespace between the
+       placeholder's trailing "." and the next target-language word (e.g.
+       "DIDPHxxxx. See also" -> "DIDPHxxxx.Voir aussi"), which then makes the
+       restored URL lexically absorb "Voir" once the placeholder is replaced
+       -- correctly rejected by ``validate_reparsed_structure`` as
+       protected-looking content not present in the source.
+
+    2. Real 36-row human semantic review pack (SHA
+       ``92fa8aae18542416790767909e45a755ee6e321e``): all 12/12 directed
+       pairs of the ``mixed_technical_and_linguistic`` corpus class showed
+       the SAME class of defect at two further boundaries --
+       ``USER_MENTION`` followed by "!" (e.g. "<@123...>! Your event" ->
+       "<@123...>!Your event") and ``TIMESTAMP`` followed by "." (e.g.
+       "<t:...:F>. Details" -> "<t:...:F>.Details"). Unlike the URL case
+       this does NOT fail ``validate_reparsed_structure`` (a mention/
+       timestamp glued to the next word is not itself shaped like an
+       invented protected token) -- it is a silent PRESENTATION defect
+       that placeholder-multiset integrity alone cannot detect.
+
+    Neither is a dropped/invented placeholder, a parser defect, or a
+    value mutation by the provider -- see
+    ``restore_source_proven_protected_boundary_spacing``'s own docstring
+    in ``did.messaging.protector`` for the full root-cause writeup and the
+    exact, narrow scope of the fix (only the three (kind, punctuation)
+    combinations real evidence has proven -- never widened on
+    speculation).
     """
 
     def test_real_regression_the_exact_adversarial_corpus_url_end_to_end(self) -> None:
@@ -626,7 +668,7 @@ class TestUrlBoundarySpacingSourceProvenRepair:
             restore_value="https://example.com/x",
         )
         translated = "Visitez DIDPH0000QAAAAAAAAZH. Voir aussi cela"
-        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
         assert repaired == translated
 
     def test_source_evidence_mandatory_never_invents_whitespace_absent_from_source(self) -> None:
@@ -643,7 +685,7 @@ class TestUrlBoundarySpacingSourceProvenRepair:
             restore_value="https://example.com/x",
         )
         translated = "Voir DIDPH0000QAAAAAAAAZH.)Suite"
-        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
         assert repaired == translated
 
     def test_url_only_scope_never_touches_ordinary_text_punctuation(self) -> None:
@@ -656,28 +698,38 @@ class TestUrlBoundarySpacingSourceProvenRepair:
             restore_value="https://example.com/x",
         )
         translated = "Note.Sans espace ici, puis DIDPH0000QAAAAAAAAZH.Voir aussi"
-        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
         assert repaired == "Note.Sans espace ici, puis DIDPH0000QAAAAAAAAZH. Voir aussi"
 
-    def test_non_url_placeholder_kind_is_never_touched(self) -> None:
-        """Scope is URL-kind only -- a mention/timestamp/other protected
-        kind glued to a following word by the same defect must NOT be
-        "repaired" by this mechanism (out of the empirically-proven
-        scope; a different content class showed 0 production failures in
-        the real benchmark, so there is no evidence this defect even
-        applies there)."""
-        fingerprint = PlaceholderFingerprint(
+    def test_unsupported_punctuation_for_a_supported_kind_remains_untouched(self) -> None:
+        """USER_MENTION only supports "!" (not "."), so a mention glued to
+        a following word via "." must NOT be "repaired" -- this is the
+        wrong combination in the empirically-proven matrix, even though
+        the KIND itself is supported for a DIFFERENT punctuation."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="Ping DIDPH0000QAAAAAAAAZH. See also",
             placeholder="DIDPH0000QAAAAAAAAZH",
-            kind=ProtectedKind.USER_MENTION,
-            order_index=0,
-            value_sha256="0" * 64,
             restore_value="<@123456789012345678>",
         )
-        protection = ProtectionResult(
-            masked_text="Ping DIDPH0000QAAAAAAAAZH. See also", fingerprints=(fingerprint,)
-        )
         translated = "Ping DIDPH0000QAAAAAAAAZH.Voir aussi"
-        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == translated
+
+    def test_unsupported_protected_kind_remains_untouched(self) -> None:
+        """A kind entirely absent from the empirically-proven matrix (here
+        CHANNEL_MENTION) must never be repaired, no matter how strongly
+        the source proves the boundary or how clearly the translated text
+        lost it -- widening to a new kind needs the same kind of real
+        empirical proof the existing three entries were built from."""
+        protection = _protection_for(
+            ProtectedKind.CHANNEL_MENTION,
+            masked_text="See DIDPH0000QAAAAAAAAZH. Details",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<#234567890123456789>",
+        )
+        translated = "Voir DIDPH0000QAAAAAAAAZH.Détails"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
         assert repaired == translated
 
     def test_genuine_hallucinated_url_from_ordinary_text_still_rejected(self) -> None:
@@ -741,7 +793,7 @@ class TestUrlBoundarySpacingSourceProvenRepair:
         protection = protect(nodes)
         ph_one, ph_two = (fp.placeholder for fp in protection.fingerprints)
         translated = f"See {ph_one}.Then {ph_two}."
-        repaired = restore_source_proven_url_boundary_spacing(translated, protection)
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
         assert repaired == f"See {ph_one}. Then {ph_two}."
 
     def test_retry_behavior_the_repaired_shape_succeeds_on_the_first_attempt(self) -> None:
@@ -760,3 +812,162 @@ class TestUrlBoundarySpacingSourceProvenRepair:
         restored = validate_full_pipeline(nodes, translated, protection)
         assert _ADVERSARIAL_URL_ONE in restored
         assert _ADVERSARIAL_URL_TWO in restored
+
+    def test_user_mention_exclamation_regression(self) -> None:
+        """Real defect #2 (SHA ``92fa8aae...``): a USER_MENTION placeholder
+        followed by "!" loses the whitespace after it, e.g.
+        "<@123...>! Your event" -> "<@123...>!Your event"."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH! Your event",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH!Votre événement"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH! Votre événement"
+
+    def test_french_style_source_spacing_before_exclamation_is_not_forced_onto_target(
+        self,
+    ) -> None:
+        """French source typography commonly puts a space BEFORE "!"
+        (e.g. "<@123...> ! Votre événement"). The repair must restore only
+        the whitespace AFTER the punctuation that the source proves
+        existed -- it must NEVER force the source's pre-"!" spacing choice
+        onto a target language (here English) that legitimately renders
+        no space before "!"."""
+        protection = _protection_for(
+            ProtectedKind.USER_MENTION,
+            masked_text="DIDPH0000QAAAAAAAAZH ! Votre événement",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<@123456789012345678>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH!Your event"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH! Your event"
+
+    def test_timestamp_period_regression(self) -> None:
+        """Real defect #2 (SHA ``92fa8aae...``): a TIMESTAMP placeholder
+        followed by "." loses the whitespace after it, e.g.
+        "<t:...:F>. Details" -> "<t:...:F>.Details"."""
+        protection = _protection_for(
+            ProtectedKind.TIMESTAMP,
+            masked_text="DIDPH0000QAAAAAAAAZH. Details",
+            placeholder="DIDPH0000QAAAAAAAAZH",
+            restore_value="<t:1735689600:F>",
+        )
+        translated = "DIDPH0000QAAAAAAAAZH.Details"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == "DIDPH0000QAAAAAAAAZH. Details"
+
+    def test_multiple_supported_protected_tokens_in_one_message(self) -> None:
+        """All three supported (kind, punctuation) combinations glued to
+        their following word in the SAME translated text -- each must be
+        independently repaired, without interfering with the others."""
+        mention_ph, timestamp_ph, url_ph = (
+            "DIDPH0000QAAAAAAAAZH",
+            "DIDPH0001QBBBBBBBBZH",
+            "DIDPH0002QCCCCCCCCZH",
+        )
+        fingerprints = (
+            PlaceholderFingerprint(
+                placeholder=mention_ph,
+                kind=ProtectedKind.USER_MENTION,
+                order_index=0,
+                value_sha256="0" * 64,
+                restore_value="<@123456789012345678>",
+            ),
+            PlaceholderFingerprint(
+                placeholder=timestamp_ph,
+                kind=ProtectedKind.TIMESTAMP,
+                order_index=1,
+                value_sha256="0" * 64,
+                restore_value="<t:1735689600:F>",
+            ),
+            PlaceholderFingerprint(
+                placeholder=url_ph,
+                kind=ProtectedKind.URL,
+                order_index=2,
+                value_sha256="0" * 64,
+                restore_value="https://example.com/x",
+            ),
+        )
+        protection = ProtectionResult(
+            masked_text=f"Hey {mention_ph}! It starts {timestamp_ph}. See {url_ph}. Bye",
+            fingerprints=fingerprints,
+        )
+        translated = f"Salut {mention_ph}!Ca commence {timestamp_ph}.Voir {url_ph}.Au revoir"
+        repaired = restore_source_proven_protected_boundary_spacing(translated, protection)
+        assert repaired == (
+            f"Salut {mention_ph}! Ca commence {timestamp_ph}. Voir {url_ph}. Au revoir"
+        )
+
+    def test_genuine_hallucinated_mention_still_rejected_by_reparsed_structure(self) -> None:
+        """A translator inventing a brand-new mention out of ordinary prose
+        (unrelated to any placeholder) must still fail closed -- widening
+        the boundary-spacing matrix to USER_MENTION does not weaken
+        ``validate_reparsed_structure``'s independent hallucination
+        check, which never depends on this matrix at all."""
+        content = "Please read the announcement carefully."
+        nodes = parse(content)
+        protection = protect(nodes)
+        assert protection.fingerprints == ()
+        hallucinated = "Veuillez lire <@999999999999999999> attentivement."
+        with pytest.raises(IntegrityViolation, match="not present"):
+            validate_full_pipeline(nodes, hallucinated, protection)
+
+    def test_mixed_technical_and_linguistic_corpus_shape_restores_with_correct_spacing(
+        self,
+    ) -> None:
+        """The exact real corpus shape (``en-mixed-everything``): mention,
+        template variable, timestamp, URL, inline code, and channel
+        mention all in one message. Reproduces the exact real-observed
+        defect at BOTH newly-supported boundaries (USER_MENTION+"!",
+        TIMESTAMP+".") in a single call, end to end through
+        ``validate_full_pipeline`` -- proves they compose correctly
+        alongside the untouched URL/template-variable/inline-code/
+        channel-mention content, and that the fully-repaired text is
+        byte-identical to the original source."""
+        nodes = parse(_MIXED_TECHNICAL_SOURCE)
+        protection = protect(nodes)
+        mention_fp = next(
+            fp for fp in protection.fingerprints if fp.kind is ProtectedKind.USER_MENTION
+        )
+        timestamp_fp = next(
+            fp for fp in protection.fingerprints if fp.kind is ProtectedKind.TIMESTAMP
+        )
+
+        # Exact real-observed defect: drop ONLY the whitespace immediately
+        # after the mention's "!" and the timestamp's "." -- nothing else
+        # in the masked text is altered (identity "translation" otherwise).
+        translated = protection.masked_text.replace(
+            f"{mention_fp.placeholder}! ", f"{mention_fp.placeholder}!"
+        ).replace(f"{timestamp_fp.placeholder}. ", f"{timestamp_fp.placeholder}.")
+        assert translated != protection.masked_text  # the defect was actually injected
+
+        restored = validate_full_pipeline(nodes, translated, protection)
+        assert restored == _MIXED_TECHNICAL_SOURCE
+
+    def test_mixed_technical_shape_succeeds_on_first_attempt_no_artificial_retry(
+        self,
+    ) -> None:
+        """The corrected mixed-technical defect shape must validate
+        successfully on a single ``validate_full_pipeline`` call -- the
+        repair introduces no need for an integrity retry (bounded-retry
+        behavior itself is tested end to end in
+        ``test_stage09_rendering.py``)."""
+        nodes = parse(_MIXED_TECHNICAL_SOURCE)
+        protection = protect(nodes)
+        mention_fp = next(
+            fp for fp in protection.fingerprints if fp.kind is ProtectedKind.USER_MENTION
+        )
+        timestamp_fp = next(
+            fp for fp in protection.fingerprints if fp.kind is ProtectedKind.TIMESTAMP
+        )
+        translated = protection.masked_text.replace(
+            f"{mention_fp.placeholder}! ", f"{mention_fp.placeholder}!"
+        ).replace(f"{timestamp_fp.placeholder}. ", f"{timestamp_fp.placeholder}.")
+        # A single call, no retry loop involved at all -- if this raises,
+        # the fix does not work; there is no second attempt to fall back on.
+        restored = validate_full_pipeline(nodes, translated, protection)
+        assert restored == _MIXED_TECHNICAL_SOURCE

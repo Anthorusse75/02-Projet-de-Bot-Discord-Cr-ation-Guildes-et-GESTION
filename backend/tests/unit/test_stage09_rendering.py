@@ -506,6 +506,55 @@ class TestUrlBoundarySpacingDoesNotTriggerAnArtificialRetry:
         assert result == self.UNIT.text
 
 
+class TestMixedTechnicalBoundarySpacingDoesNotTriggerAnArtificialRetry:
+    """STAGE09 -- SOURCE-PROVEN PROTECTED-TOKEN BOUNDARY SPACING
+    REMEDIATION, "no artificial retry" requirement for the second real-
+    network finding (SHA ``92fa8aae18542416790767909e45a755ee6e321e``):
+    the real 36-row human semantic review pack showed the SAME class of
+    defect as the URL case above, at two further protected-token
+    boundaries -- ``USER_MENTION`` followed by "!" and ``TIMESTAMP``
+    followed by "." -- in all 12/12 directed pairs of the
+    ``mixed_technical_and_linguistic`` corpus class. After the generalized
+    repair (``did.messaging.protector.restore_source_proven_protected_
+    boundary_spacing``), this exact real-observed defect shape must also
+    succeed on the FIRST provider response, exactly like the URL case."""
+
+    UNIT = TranslationUnit(
+        FieldPath(TranslatableFieldKind.CONTENT),
+        "Hey <@123456789012345678>! Your event {{event_name}} starts "
+        "<t:1735689600:F>. Details: https://example.com/e/{{event_id}} -- "
+        "use `!rsvp` in <#234567890123456789>.",
+    )
+
+    async def test_the_real_observed_defect_shape_succeeds_without_any_retry(self) -> None:
+        calls = 0
+
+        async def _translate(masked_text: str) -> str:
+            nonlocal calls
+            calls += 1
+            # Exact real-observed defect shape: drop the whitespace
+            # immediately after a USER_MENTION placeholder's "!" and a
+            # TIMESTAMP placeholder's "." -- every other placeholder
+            # (template variables, URL, inline code, channel mention) is
+            # preserved byte-for-byte, exactly as observed in the real
+            # 36-row human review pack.
+            result = re.sub(r"(DIDPH\d{4}Q[0-9A-F]{8}ZH)! ", r"\1!", masked_text, count=1)
+            result = re.sub(r"(DIDPH\d{4}Q[0-9A-F]{8}ZH)\. ", r"\1.", result, count=1)
+            return result
+
+        result = await render_field_text(
+            self.UNIT,
+            target_language="fr",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions={},
+            glossary_entries=(),
+            translate_masked_text=_translate,
+        )
+        assert calls == 1  # no integrity retry needed -- repaired on the first attempt
+        assert result == self.UNIT.text
+
+
 class TestRenderMessageModel:
     async def test_only_translatable_fields_are_rendered_technical_fields_untouched(self) -> None:
         model = MessageModel(
