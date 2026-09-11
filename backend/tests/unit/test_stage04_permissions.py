@@ -23,6 +23,8 @@ from did.permissions.capabilities import (
     BotCapabilityChecker,
     BotOperation,
     CapabilityOutcome,
+    audit_guild_bots,
+    bot_channel_access_map,
     hierarchy_diagnostic,
 )
 from did.permissions.models import DecisionStatus, PermissionOutcome, TraceStep
@@ -587,6 +589,61 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
     assert cannot_managed.reasons == ("capability.hierarchy.target_managed",)
     assert missing.outcome is CapabilityOutcome.CANNOT
     assert all("administrator" not in value for value in missing.remediations)
+
+
+def test_audit_guild_bots_flags_administrator_and_owner_bots_only() -> None:
+    admin_role = role(ROLE_A, bits("ADMINISTRATOR"))
+    plain_role = role(ROLE_B, bits("VIEW_CHANNEL", "SEND_MESSAGES"))
+    snapshot = guild(0, admin_role, plain_role, owner_id=900)
+    admin_bot = replace(member(ROLE_A, user_id=910), is_bot=True)
+    scoped_bot = replace(member(ROLE_B, user_id=911), is_bot=True)
+    owner_bot = replace(member(user_id=900), is_bot=True)
+    human = replace(member(ROLE_A, user_id=912), is_bot=False)
+
+    audits = audit_guild_bots(snapshot, (human, scoped_bot, owner_bot, admin_bot))
+
+    assert [item.user_id for item in audits] == [900, 910, 911]
+    by_id = {item.user_id: item for item in audits}
+    assert by_id[900].is_administrator is True  # guild-owner bot: full access, never requested
+    assert by_id[910].is_administrator is True  # explicit ADMINISTRATOR role
+    assert by_id[911].is_administrator is False
+    assert all(item.status is DecisionStatus.COMPLETE for item in audits)
+
+
+def test_audit_guild_bots_never_requests_or_grants_administrator() -> None:
+    """REQ-BOT-004 is read-only: auditing must never itself request/hold a
+    Discord scope, mutate roles, or otherwise ask for ADMINISTRATOR."""
+    scoped_bot = replace(member(ROLE_A, user_id=920), is_bot=True)
+    snapshot = guild(0, role(ROLE_A, bits("VIEW_CHANNEL")))
+
+    audits = audit_guild_bots(snapshot, (scoped_bot,))
+
+    assert audits[0].is_administrator is False
+    assert audits[0].role_ids == (ROLE_A,)
+
+
+def test_bot_channel_access_map_reflects_real_cached_overwrites_per_channel() -> None:
+    text_channel = channel(channel_id=350, channel_type=ChannelType.GUILD_TEXT)
+    voice_channel = channel(channel_id=351, channel_type=ChannelType.GUILD_VOICE)
+    bot_role = role(ROLE_A, bits("VIEW_CHANNEL", "SEND_MESSAGES"))
+    snapshot = guild(0, bot_role, channels=(text_channel, voice_channel))
+    bot = replace(member(ROLE_A, user_id=930), is_bot=True)
+
+    access = bot_channel_access_map(snapshot, bot)
+
+    by_channel = {item.channel_id: item for item in access}
+    assert by_channel[350].can_read is True
+    assert by_channel[350].can_write is True
+    assert by_channel[351].can_read is True
+    assert by_channel[351].can_write is False  # no CONNECT granted
+    assert all(item.status is DecisionStatus.COMPLETE for item in access)
+
+
+def test_bot_channel_access_map_never_invents_a_channel_the_cache_never_saw() -> None:
+    snapshot = guild(bits("VIEW_CHANNEL"))
+    bot = replace(member(user_id=931), is_bot=True)
+
+    assert bot_channel_access_map(snapshot, bot) == ()
 
 
 def test_reorder_roles_requires_every_explicit_target_strictly_below_bot() -> None:

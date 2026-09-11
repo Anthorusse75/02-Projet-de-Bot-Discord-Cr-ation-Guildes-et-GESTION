@@ -66,7 +66,12 @@ from did.infrastructure.portability_repository import (
     TransferNotFound,
 )
 from did.infrastructure.redis import create_redis_client, redis_is_ready
-from did.infrastructure.runtime_redis import RedisHotCache, RedisSingleFlight, TenantPubSub
+from did.infrastructure.runtime_redis import (
+    RedisHotCache,
+    RedisRuntimeWakeup,
+    RedisSingleFlight,
+    TenantPubSub,
+)
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
 from did.infrastructure.stage08_lifecycle_repository import Stage08LifecycleRepository
@@ -181,7 +186,12 @@ def create_app(
                 membership_singleflight=RedisSingleFlight(redis_client),
                 metrics=runtime_repository.metrics,
             )
-            installations = InstallationService(authorization=authorization, repository=repository)
+            installations = InstallationService(
+                authorization=authorization,
+                repository=repository,
+                redis=redis_client,
+                runtime_wakeup=RedisRuntimeWakeup(redis_client),
+            )
             planning_repository = PlanningRepository(session_factory)
             stage04_repository = Stage04Repository(session_factory)
             planning = PlanningService(planning_repository, stage04_repository)

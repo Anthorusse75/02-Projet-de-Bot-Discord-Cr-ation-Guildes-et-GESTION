@@ -40,6 +40,7 @@ from did.infrastructure.discord.mutations import (
 from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
+from did.permissions.views import bot_writes_humans_read_overwrite_nodes
 from did.planning.canonical import canonical_hash, canonical_json
 from did.planning.compiler import PlanCompiler
 from did.planning.dag import DagValidationError, topological_order
@@ -177,6 +178,49 @@ def test_operation_ids_are_deterministic_within_and_distinct_across_plans() -> N
     second = PlanCompiler().compile(current_guild(), graph, plan_id=second_plan)
     assert first[0].operation_id == repeated[0].operation_id
     assert first[0].operation_id != second[0].operation_id
+
+
+def test_bot_writes_humans_read_overwrite_nodes_compile_to_real_upsert_overwrites() -> None:
+    """REQ-BOT-006: the bot-writes/humans-read preset targets a real existing
+    channel/roles and compiles through the same Stage05 plan engine as any
+    other overwrite -- never a parallel mutation path."""
+    guild = current_guild()
+    channel_id = guild.channels[0].channel_id
+    bot_role_id = 900
+    human_role_id = 901
+    guild = replace(
+        guild,
+        roles=(
+            *guild.roles,
+            RoleSnapshot(GUILD, bot_role_id, "bot", 5, 0, False, guild.freshness),
+            RoleSnapshot(GUILD, human_role_id, "humans", 4, 0, False, guild.freshness),
+        ),
+    )
+    bot_node, humans_node = bot_writes_humans_read_overwrite_nodes(
+        channel_id=channel_id, bot_subject_id=bot_role_id, human_role_id=human_role_id
+    )
+    graph = DesiredStateGraph(GUILD, (bot_node, humans_node))
+
+    operations = PlanCompiler().compile(guild, graph, plan_id=uuid4())
+
+    assert {op.operation_type for op in operations} == {OperationType.UPSERT_OVERWRITE}
+    by_subject = {
+        thaw_json_object(op.desired_payload)["subject_id"]: thaw_json_object(op.desired_payload)
+        for op in operations
+    }
+    view = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
+    write = DEFAULT_PERMISSION_REGISTRY.value("SEND_MESSAGES") | DEFAULT_PERMISSION_REGISTRY.value(
+        "SEND_MESSAGES_IN_THREADS"
+    )
+    bot_payload = by_subject[bot_role_id]
+    assert bot_payload["channel_id"] == channel_id
+    assert bot_payload["target_type"] == 0
+    assert int(bot_payload["allow"]) == view | write
+    assert int(bot_payload["deny"]) == 0
+    humans_payload = by_subject[human_role_id]
+    assert humans_payload["channel_id"] == channel_id
+    assert int(humans_payload["allow"]) == view
+    assert int(humans_payload["deny"]) == write
 
 
 def test_diff_classifies_update_delete_and_no_change_without_side_effects() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import Literal
 
 from did.domain.discord_runtime import FreshnessState
 from did.domain.read_model import (
@@ -14,6 +15,7 @@ from did.domain.read_model import (
 from did.permissions.calculator import PermissionEvaluator
 from did.permissions.models import PermissionDecision
 from did.permissions.registry import DEFAULT_PERMISSION_REGISTRY, PermissionRegistry
+from did.planning.models import DesiredNode, ReferenceKind, ResourceReference, ResourceType
 
 
 class ViewAsMode(StrEnum):
@@ -158,6 +160,56 @@ def compile_simple_permissions(
         diagnostics=diagnostics,
         registry_version=registry.version,
     )
+
+
+def bot_writes_humans_read_overwrite_nodes(
+    *,
+    channel_id: int,
+    bot_subject_id: int,
+    human_role_id: int,
+    bot_target_type: Literal[0, 1] = 0,
+    registry: PermissionRegistry = DEFAULT_PERMISSION_REGISTRY,
+) -> tuple[DesiredNode, DesiredNode]:
+    """REQ-BOT-006: build the two `OVERWRITE` DesiredNodes for a real Discord
+    channel that grant a bot VIEW+WRITE and deny WRITE to a human role
+    (VIEW stays allowed). Bit values come from the same VIEW/WRITE concept
+    compiler the simple permission dashboard already uses
+    (`compile_simple_permissions`), never a separately invented bitmask.
+
+    Callers feed the returned nodes into a normal `DesiredStateGraph` and
+    apply it through the existing Stage05 plan/apply engine -- this function
+    never mutates Discord itself and is not a parallel mutation path.
+    """
+    write_bits = compile_simple_permissions(
+        (SimplePermissionConcept.WRITE,), registry=registry
+    ).allow_bits
+    view_bits = compile_simple_permissions(
+        (SimplePermissionConcept.VIEW,), registry=registry
+    ).allow_bits
+    channel_ref = ResourceReference(ReferenceKind.DISCORD_ID, str(channel_id))
+    bot_overwrite = DesiredNode.build(
+        logical_key=f"overwrite.bot-writes.{channel_id}.{bot_subject_id}",
+        resource_type=ResourceType.OVERWRITE,
+        properties={
+            "target_type": bot_target_type,
+            "allow": str(view_bits | write_bits),
+            "deny": "0",
+        },
+        relations={
+            "channel": channel_ref,
+            "subject": ResourceReference(ReferenceKind.DISCORD_ID, str(bot_subject_id)),
+        },
+    )
+    humans_overwrite = DesiredNode.build(
+        logical_key=f"overwrite.humans-read.{channel_id}.{human_role_id}",
+        resource_type=ResourceType.OVERWRITE,
+        properties={"target_type": 0, "allow": str(view_bits), "deny": str(write_bits)},
+        relations={
+            "channel": channel_ref,
+            "subject": ResourceReference(ReferenceKind.DISCORD_ID, str(human_role_id)),
+        },
+    )
+    return bot_overwrite, humans_overwrite
 
 
 @dataclass(frozen=True, slots=True)

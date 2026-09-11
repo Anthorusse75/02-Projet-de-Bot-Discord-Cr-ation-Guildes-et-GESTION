@@ -14,6 +14,8 @@ from did.api.stage04 import (
     SimulationRequest,
     VisibilityScopeCreate,
     _json_ids,
+    bot_access_map,
+    bots_audit,
     capabilities,
     coverage,
     evaluate_permission,
@@ -95,14 +97,24 @@ class InstrumentedAuthorization:
 
 
 class InstrumentedRepository:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(
+        self, events: list[str], *, members: dict[int, MemberSnapshot] | None = None
+    ) -> None:
         self.events = events
         self.guild, self.member = snapshots()
+        self._members = members or {}
 
     async def guild_snapshot(self, guild_id: int, member_id: int):
         assert guild_id == GUILD
         self.events.append("postgres_projection")
+        if member_id in self._members:
+            return self.guild, self._members[member_id]
         return self.guild, self.member
+
+    async def cached_member_snapshots(self, guild_id: int) -> tuple[MemberSnapshot, ...]:
+        assert guild_id == GUILD
+        self.events.append("postgres_projection")
+        return tuple(self._members.values())
 
     async def bot_identity(self, guild_id: int) -> tuple[int, str]:
         assert guild_id == GUILD
@@ -141,10 +153,15 @@ def session() -> SessionData:
     return SessionData("session", ACTOR, "csrf", GUILD, NOW, NOW, NOW + timedelta(hours=1), 1)
 
 
-def container(events: list[str], *, deny: bool = False) -> Any:
+def container(
+    events: list[str],
+    *,
+    deny: bool = False,
+    members: dict[int, MemberSnapshot] | None = None,
+) -> Any:
     return SimpleNamespace(
         authorization=InstrumentedAuthorization(events, deny=deny),
-        stage04_repository=InstrumentedRepository(events),
+        stage04_repository=InstrumentedRepository(events, members=members),
         runtime_repository=SimpleNamespace(metrics=RuntimeMetrics()),
     )
 
@@ -271,6 +288,47 @@ async def test_capability_operations_require_their_target(
             None,
         )
     assert (problem.value.status_code, problem.value.code) == (422, expected_code)
+
+
+def _bot(user_id: int) -> MemberSnapshot:
+    current = FreshnessSnapshot(FreshnessState.FRESH, "LOCAL_CACHE", 1, NOW, NOW, NOW)
+    return MemberSnapshot(GUILD, user_id, (), True, current, is_bot=True)
+
+
+async def test_bots_audit_endpoint_authorizes_then_flags_administrator_bots() -> None:
+    events: list[str] = []
+    services = container(events, members={OWNER: _bot(OWNER), ACTOR: _bot(ACTOR)})
+
+    response = await bots_audit(str(GUILD), session(), services)
+
+    assert events == ["authorize", "postgres_projection", "postgres_projection"]
+    assert response["guild_id"] == str(GUILD)
+    by_id = {bot["user_id"]: bot for bot in response["bots"]}
+    assert by_id[str(OWNER)]["is_administrator"] is True  # guild-owner bot: owner bypass
+    assert by_id[str(ACTOR)]["is_administrator"] is False
+
+
+async def test_bot_access_map_endpoint_returns_real_per_channel_posture() -> None:
+    events: list[str] = []
+    services = container(events, members={ACTOR: _bot(ACTOR)})
+
+    response = await bot_access_map(str(GUILD), str(ACTOR), session(), services)
+
+    assert events == ["authorize", "postgres_projection"]
+    assert response["guild_id"] == str(GUILD)
+    assert response["user_id"] == str(ACTOR)
+    assert response["channels"] == [
+        {"channel_id": str(CHANNEL), "can_read": True, "can_write": False, "status": "COMPLETE"}
+    ]
+
+
+async def test_bot_access_map_returns_404_for_a_target_that_is_not_a_bot() -> None:
+    events: list[str] = []
+    services = container(events)
+
+    with pytest.raises(ApiProblem) as problem:
+        await bot_access_map(str(GUILD), str(ACTOR), session(), services)
+    assert (problem.value.status_code, problem.value.code) == (404, "BOT_NOT_FOUND")
 
 
 def test_visibility_scope_type_and_logical_group_are_coupled_at_api_boundary() -> None:

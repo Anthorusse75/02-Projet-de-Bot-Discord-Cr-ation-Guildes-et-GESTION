@@ -1,0 +1,2 @@
+backend/tests/integration/conftest.py:9:    skip = pytest.mark.skip(reason="set DID_RUN_INTEGRATION=1 and start compose.test.yaml")
+backend/tests/network/conftest.py:9:    skip = pytest.mark.skip(reason="set DID_ALLOW_NETWORK=1 to run real outbound network tests")

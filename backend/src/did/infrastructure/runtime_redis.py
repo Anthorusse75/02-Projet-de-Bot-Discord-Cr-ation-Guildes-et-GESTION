@@ -544,6 +544,11 @@ return tostring(maximum)
             raise ValueError("guild_id must be positive")
         await self._redis.zadd(self._job_key, {str(guild_id): datetime.now().timestamp()})
 
+    async def remove_job_guild(self, guild_id: int) -> bool:
+        if guild_id <= 0:
+            raise ValueError("guild_id must be positive")
+        return bool(await self._redis.zrem(self._job_key, str(guild_id)))
+
     async def pop_job_guilds(self, *, limit: int = 256) -> list[int]:
         if not 1 <= limit <= 1000:
             raise ValueError("wakeup batch limit must be between 1 and 1000")

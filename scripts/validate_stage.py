@@ -1033,6 +1033,215 @@ def stage_09(
     return tuple(base_steps)
 
 
+def missing_gate_step(gate: str, reason: str) -> Step:
+    """A Step that always fails, naming exactly which Stage 10 acceptance
+    gate has no real implementation/proof yet. Used so the Stage 10 default
+    and per-profile step lists can never silently report a false PASS for an
+    acceptance area this task did not implement (see
+    scripts/_stage10_missing_gate.py)."""
+    python = sys.executable
+    return Step(
+        f"STAGE 10 gate pending: {gate}",
+        (python, "scripts/_stage10_missing_gate.py", "--gate", gate, "--reason", reason),
+    )
+
+
+def stage_10(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    python = sys.executable
+
+    if profile == "security":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            missing_gate_step(
+                "S10-SEC global tenant/security acceptance",
+                "endpoint-by-endpoint A/B authorization audit, RLS role audit, "
+                "Redis/WS isolation and the OAuth/session/CSRF/SSRF/CSP/CORS/IDOR/"
+                "supply-chain security review across the full route inventory are "
+                "Stage 10 product/security work not implemented by this "
+                "acceptance-tooling-only pass",
+            ),
+        )
+
+    if profile == "performance":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            missing_gate_step(
+                "S10 performance acceptance",
+                "the representative 500-channel/250-role/overwrite-boundary fixture, "
+                "large-tree UI budget and the plan/clone/campaign load, reconcile-"
+                "pressure and multi-Guild fairness suite do not exist yet; this task "
+                "only added the Stage 10 acceptance-tooling foundation, not the "
+                "Stage 10 performance fixtures. The existing 'load' profile on "
+                "STAGE 03/05/09 remains available for those stages' own budgets",
+            ),
+        )
+
+    if profile == "failure-injection":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            missing_gate_step(
+                "S10 failure/chaos acceptance",
+                "the Stage 10 product-level DB/Redis/provider/Discord timeout, 429, "
+                "reconnect, worker-crash-window and duplicate/out-of-order-event "
+                "failure matrix is not implemented; only STAGE 05 and STAGE 09 have "
+                "their own scoped failure-injection suites today",
+            ),
+        )
+
+    if profile == "e2e":
+        return (
+            missing_gate_step(
+                "S10 global E2E acceptance",
+                "the login->tenant->read->permission->plan/apply->clone->languages->"
+                "campaign Playwright journey across EN/FR/DE/ES does not exist yet; "
+                "STAGE 07/08/09's own e2e profiles cover only their local scope",
+            ),
+        )
+
+    base_steps = [
+        Step(
+            f"STAGE {stage} validator",
+            (
+                python,
+                "scripts/validate_stage.py",
+                stage,
+                *(("--include-discord-live",) if include_discord_live else ()),
+            ),
+            timeout_seconds=7200,
+        )
+        for stage in ("01", "02", "03", "04", "05", "06", "07", "08", "09")
+    ]
+    base_steps.append(
+        Step(
+            "STAGE 10 requirement audit (normal mode)",
+            (python, "scripts/audit_requirements.py"),
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-004 guild bot ADMINISTRATOR audit evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage04_permissions.py",
+                "backend/tests/integration/test_stage04_postgres.py",
+                "-k",
+                "audit_guild_bots or bot_administrator_audit",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-004.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-005 bot read/write channel map evidence (backend)",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage04_permissions.py",
+                "backend/tests/unit/test_stage04_api_contract.py",
+                "-k",
+                "access_map",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-005.xml')}",
+            ),
+            environment=TEST_ENV,
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-006 bot-writes/humans-read overwrite compiler evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage05_planning.py",
+                "-k",
+                "bot_writes_humans_read",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-006.xml')}",
+            ),
+            environment=TEST_ENV,
+        )
+    )
+    base_steps.append(
+        missing_gate_step(
+            "S10-BOT-005 dashboard UI",
+            "REQ-BOT-005's backend (`bot_channel_access_map`, the "
+            "`/bots/{bot_user_id}/access-map` endpoint) and REQ-BOT-006's "
+            "backend (`bot_writes_humans_read_overwrite_nodes` compiling real "
+            "UPSERT_OVERWRITE operations through the existing Stage05 plan "
+            "engine, apply/tenant-isolation/stale-semantics already covered by "
+            "that engine's own general overwrite integration suite) are real "
+            "and tested, see the two steps above; only REQ-BOT-005's SHOULD "
+            "dashboard visualization surface is a documented deviation, not "
+            "implemented by this pass",
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-DATA tenant purge and minimization evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage06_postgres.py",
+                "backend/tests/integration/test_stage02_api.py",
+                "backend/tests/integration/test_redis.py",
+                "backend/tests/unit/test_installation_service.py",
+                "-k",
+                "purge_tenant or delete_tenant_cascades or guild_redis_purge",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-data.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    base_steps.append(
+        missing_gate_step(
+            "S10-TEST global E2E and two-Guild live acceptance",
+            "REQ-TEST-004/005 destructive-operation coverage and the global "
+            "Playwright E2E flows, plus the mandatory two-Guild Discord live "
+            "acceptance matrix, do not exist yet",
+        )
+    )
+    base_steps.append(
+        missing_gate_step(
+            "S10-RC release candidate packaging",
+            "SBOM/checksum/image-scan and immutable RC tag packaging is not "
+            "implemented by this acceptance-tooling-only pass",
+        )
+    )
+    if include_discord_live:
+        base_steps.append(
+            missing_gate_step(
+                "Stage 10 Discord live two-Guild acceptance",
+                "--include-discord-live was requested but no Stage 10 live "
+                "acceptance script exists yet; section J's two-Guild sandbox "
+                "matrix is Stage 10 product/live work not implemented by this "
+                "acceptance-tooling-only pass",
+            )
+        )
+    base_steps.append(
+        Step(
+            "STAGE 10 requirement audit (strict closure)",
+            (python, "scripts/audit_requirements.py", "--strict-closure"),
+        )
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -1120,6 +1329,21 @@ STAGES: dict[str, StageDefinition] = {
     "09": StageDefinition(
         steps=stage_09,
         requirements=tuple(f"REQ-MSG-{index:03d}" for index in range(1, 32)),
+    ),
+    "10": StageDefinition(
+        steps=stage_10,
+        requirements=(
+            "REQ-BOT-004",
+            "REQ-BOT-005",
+            "REQ-BOT-006",
+            "REQ-DATA-001",
+            "REQ-DATA-002",
+            "REQ-TEST-001",
+            "REQ-TEST-002",
+            "REQ-TEST-003",
+            "REQ-TEST-004",
+            "REQ-TEST-005",
+        ),
     ),
 }
 
@@ -1299,6 +1523,7 @@ def main() -> int:
             "load",
             "failure-injection",
             "security",
+            "performance",
             "e2e",
             "translation-benchmark",
         ),
@@ -1326,11 +1551,14 @@ def main() -> int:
     if arguments.profile == "load" and stage not in {"03", "05", "09"}:
         print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
         return 2
-    if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
-        print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
+    if arguments.profile == "failure-injection" and stage not in {"05", "09", "10"}:
+        print("The failure-injection profile is defined only for STAGE 05, STAGE 09 and STAGE 10")
         return 2
-    if arguments.profile == "e2e" and stage not in {"07", "08", "09"}:
-        print("The e2e profile is defined only for STAGE 07, STAGE 08 and STAGE 09")
+    if arguments.profile == "e2e" and stage not in {"07", "08", "09", "10"}:
+        print("The e2e profile is defined only for STAGE 07, STAGE 08, STAGE 09 and STAGE 10")
+        return 2
+    if arguments.profile == "performance" and stage != "10":
+        print("The performance profile is defined only for STAGE 10")
         return 2
     if arguments.profile == "translation-benchmark" and stage != "09":
         print("The translation-benchmark profile is defined only for STAGE 09")
