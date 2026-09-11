@@ -6,4 +6,9 @@ export const queryKeys = {
   tenant: (userId: DiscordSnowflake, guildId: DiscordSnowflake, feature: string, ...detail: string[]) =>
     ['did', userId, guildId, feature, ...detail] as const,
   library: (userId: DiscordSnowflake) => ['did', userId, 'user-control-plane', 'library'] as const,
+  campaigns: (userId: DiscordSnowflake) => ['did', userId, 'campaigns'] as const,
+  campaignDetail: (userId: DiscordSnowflake, campaignId: string, feature: string) =>
+    ['did', userId, 'campaigns', campaignId, feature] as const,
+  globalGlossary: (userId: DiscordSnowflake) => ['did', userId, 'user-control-plane', 'glossary'] as const,
+  guildGlossary: (userId: DiscordSnowflake, guildId: string) => ['did', userId, 'guild-glossary', guildId] as const,
 }

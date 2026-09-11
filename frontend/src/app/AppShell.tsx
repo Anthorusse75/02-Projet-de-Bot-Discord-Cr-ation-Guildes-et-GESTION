@@ -15,7 +15,7 @@ import { LanguageSelector } from '../features/guilds/LanguageSelector'
 import { CommandPalette } from '../features/search/CommandPalette'
 
 export type DashboardContext = { me: Me; guild: Guild; guilds: Guild[]; connection: 'live'|'reconnecting'; capabilities: DashboardCapabilities | undefined }
-const sections = ['structure','translations','roles','permissions','plans','diagnostics','audit','templates','library','clone'] as const
+const sections = ['structure','translations','campaigns','roles','permissions','plans','diagnostics','audit','templates','library','clone'] as const
 
 export function AppShell() {
   const { t } = useTranslation(); const me = useOutletContext<Me>(); const { guildId } = useParams(); const guilds = useGuilds(me.user.discord_user_id)

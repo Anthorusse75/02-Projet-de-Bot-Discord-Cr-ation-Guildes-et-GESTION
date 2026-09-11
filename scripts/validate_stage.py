@@ -802,6 +802,237 @@ def stage_08(
     return tuple(base_steps)
 
 
+def stage_09(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    npm = executable("npm")
+    if profile == "load":
+        # Mirrors CI's stage-09-load job exactly (.github/workflows/ci.yml)
+        # -- a deterministic, in-memory fairness/load suite selected by
+        # marker, needing no database. Previously rejected outright ("The
+        # load profile is defined only for STAGE 03 and STAGE 05"), forcing
+        # anyone validating locally to hand-run CI's command instead of the
+        # validator genuinely exercising the same profile CI does.
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step(
+                "STAGE 09 deterministic campaign fairness/load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/load",
+                    "-k",
+                    "stage09",
+                    "-m",
+                    "load",
+                    "-q",
+                    f"--junitxml={relative_path(evidence_directory / 'stage09-load.xml')}",
+                ),
+            ),
+        )
+    if profile == "e2e":
+        return (
+            Step("frontend lock install", (npm, "ci"), 600, ROOT / "frontend"),
+            Step(
+                "STAGE 09 Playwright campaign center and accessibility",
+                (npm, "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+            ),
+        )
+    if profile == "translation-benchmark":
+        return (
+            Step(
+                "STAGE 09 real-network translation smoke (linguistic prose, "
+                "fail-closed on provider transport failure)",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/network/test_stage09_translation_network.py",
+                    "-v",
+                ),
+                # This step gates the benchmark step below: it proves the real
+                # googletrans provider is genuinely translating (not returning
+                # its own DUMMY_DATA echo, see
+                # did.translation.googletrans_adapter._production_translator)
+                # before the ~45-50 minute benchmark run is spent measuring
+                # something that -- if the provider is down -- can no longer
+                # silently look like a technical-integrity PASS. A provider
+                # transport failure now surfaces as a real, fail-closed
+                # TranslationProviderError from this smoke step, which stops
+                # the run here (main() breaks on the first non-PASS step)
+                # rather than burning ~1,950 network calls to reach the same
+                # honest conclusion.
+                120,
+                ROOT,
+                {"DID_ALLOW_NETWORK": "1"},
+            ),
+            Step(
+                "STAGE 09 real translation benchmark (network)",
+                (
+                    uv,
+                    "run",
+                    "python",
+                    "scripts/run_translation_benchmark.py",
+                    "--corpus",
+                    "backend/tests/fixtures/translation_corpus/stage09_corpus.json",
+                    "--out",
+                    relative_path(evidence_directory / "translation-benchmark.json"),
+                ),
+                # The real benchmark makes ~1,950 sequential, network-bound
+                # googletrans calls (4 strategies x 12 language pairs x 26
+                # content classes x ~4.4 calls/item average) at roughly
+                # 1.3-1.6s each -- genuinely ~45-50 minutes end to end, not a
+                # step the previous 600s (10 minute) timeout could ever let
+                # finish normally. Previously this always fired the wrapper's
+                # own [TIMEOUT] before the underlying script exited, even
+                # though the script itself always completed successfully and
+                # wrote a correct evidence file -- an orchestration bug, not
+                # evidence of a real failure. 5400s (90 minutes) leaves
+                # comfortable headroom above the observed real duration.
+                5400,
+            ),
+        )
+    if profile == "failure-injection":
+        # Every Stage09 Postgres integration suite that carries a real
+        # concurrency/lease-fencing/DST-restart/crash-recovery scenario is
+        # marked pytest.mark.failure_injection -- selected here by marker
+        # rather than an enumerated file list so a newly added
+        # failure-injection suite (e.g. test_stage09_runtime_chain_postgres
+        # .py's full-runtime-chain crash/restart/race tests) is picked up
+        # automatically instead of silently skipped until this list is
+        # remembered to be updated by hand. There is no separate
+        # finer-grained harness here, unlike Stage05's dedicated
+        # failure-injection suite -- documented honestly rather than
+        # fabricating a distinct profile. A fresh CI database has no schema
+        # at all until migrated -- this profile is a standalone step list
+        # (unlike the default profile, which reuses stage_01's baseline),
+        # so it must run its own migration first.
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step(
+                "migration STAGE 09 failure-injection head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "STAGE 09 failure-injection PostgreSQL tests",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/integration",
+                    "-m",
+                    "failure_injection",
+                    "-k",
+                    "stage09",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage09-failure-injection.xml"),
+                ),
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+        )
+
+    base_steps = list(stage_01(evidence_directory))
+    migration_index = next(
+        index for index, step in enumerate(base_steps) if step.name == "migration upgrade head"
+    )
+    base_steps[migration_index : migration_index + 1] = [
+        Step(
+            "migration upgrade STAGE 09 head",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration downgrade STAGE 09 to STAGE 08",
+            (uv, "run", "alembic", "downgrade", "0021_stage_08"),
+            environment=TEST_ENV,
+        ),
+        Step(
+            "migration re-upgrade STAGE 08 to STAGE 09",
+            (uv, "run", "alembic", "upgrade", "head"),
+            environment=TEST_ENV,
+        ),
+        Step("single Alembic STAGE 09 head", (uv, "run", "alembic", "heads"), environment=TEST_ENV),
+    ]
+    base_steps.append(
+        Step(
+            "STAGE 09 campaign engine unit tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "-m",
+                "not integration and not load and not discord_live and not translation_network",
+                "-k",
+                "stage09",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage09-unit.xml')}",
+            ),
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 09 campaign engine PostgreSQL tests",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage09_campaigns_postgres.py",
+                "-q",
+                f"--junitxml={relative_path(evidence_directory / 'stage09-persistence.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    live_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage09.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage09.json"),
+    ]
+    if include_discord_live:
+        live_arguments.append("--include")
+    base_steps.append(Step("Discord live STAGE 09 campaign primitives", tuple(live_arguments), 600))
+    # The 5-scenario primitives script above proves only the
+    # DiscordPyMessageSender adapter in isolation -- it is never a
+    # substitute for this full-chain qualification, and this is never a
+    # substitute for it: application/API -> occurrence -> fan-out ->
+    # durable delivery -> durable discord_io_job -> a real
+    # DurableDiscordIOWorker -> a real DiscordWorkloadGovernor -> the real
+    # adapter -> Discord -> durable result/reconciliation, plus the real
+    # DID_TRANSLATED_FANOUT/SELECTED_LANGUAGES live translation path. Both
+    # steps are required to pass for --include-discord-live to succeed --
+    # a BLOCKED/FAIL result from either one fails this whole stage (see
+    # main()'s own "if result.status != PASS: break" loop below).
+    full_chain_arguments = [
+        uv,
+        "run",
+        "python",
+        "scripts/validate_discord_live_stage09_full_chain.py",
+        "--report",
+        relative_path(evidence_directory / "discord-live-stage09-full-chain.json"),
+    ]
+    if include_discord_live:
+        full_chain_arguments.append("--include")
+    base_steps.append(
+        Step(
+            "Discord live STAGE 09 full product-chain matrix",
+            tuple(full_chain_arguments),
+            900,
+        )
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -885,6 +1116,10 @@ STAGES: dict[str, StageDefinition] = {
             *(f"REQ-I18N-{index:03d}" for index in range(1, 43)),
             "REQ-I18N-026A",
         ),
+    ),
+    "09": StageDefinition(
+        steps=stage_09,
+        requirements=tuple(f"REQ-MSG-{index:03d}" for index in range(1, 32)),
     ),
 }
 
@@ -1052,8 +1287,21 @@ def main() -> int:
     parser.add_argument("stage", choices=sorted(STAGES))
     parser.add_argument("--include-discord-live", action="store_true")
     parser.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Required in addition to --profile translation-benchmark: makes real "
+        "outbound network calls, never silently implied by the profile alone.",
+    )
+    parser.add_argument(
         "--profile",
-        choices=("default", "load", "failure-injection", "security", "e2e"),
+        choices=(
+            "default",
+            "load",
+            "failure-injection",
+            "security",
+            "e2e",
+            "translation-benchmark",
+        ),
         default="default",
     )
     arguments = parser.parse_args()
@@ -1075,14 +1323,20 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    if arguments.profile == "load" and stage not in {"03", "05"}:
-        print("The load profile is defined only for STAGE 03 and STAGE 05")
+    if arguments.profile == "load" and stage not in {"03", "05", "09"}:
+        print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
         return 2
-    if arguments.profile == "failure-injection" and stage != "05":
-        print("The failure-injection profile is defined only for STAGE 05")
+    if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
+        print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
         return 2
-    if arguments.profile == "e2e" and stage not in {"07", "08"}:
-        print("The e2e profile is defined only for STAGE 07 and STAGE 08")
+    if arguments.profile == "e2e" and stage not in {"07", "08", "09"}:
+        print("The e2e profile is defined only for STAGE 07, STAGE 08 and STAGE 09")
+        return 2
+    if arguments.profile == "translation-benchmark" and stage != "09":
+        print("The translation-benchmark profile is defined only for STAGE 09")
+        return 2
+    if arguments.profile == "translation-benchmark" and not arguments.allow_network:
+        print("The translation-benchmark profile requires --allow-network to make real calls")
         return 2
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []

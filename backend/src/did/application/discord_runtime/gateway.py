@@ -34,6 +34,17 @@ SUPPORTED_DISPATCHES = frozenset(
         "GUILD_MEMBER_ADD",
         "GUILD_MEMBER_REMOVE",
         "GUILD_MEMBER_UPDATE",
+        #: REQ-MSG-030 (producing-side campaign ancestry) and REQ-MSG-020's
+        #: non-content-requiring event triggers. Only ever captured when
+        #: did.settings.config.Settings.discord_campaign_message_events_enabled
+        #: is on -- the non-privileged GUILD_MESSAGES intent (ADR-008 does
+        #: not gate this, only the genuinely privileged MESSAGE_CONTENT
+        #: intent). Normalization below never extracts content/embeds/
+        #: attachments/components regardless of whether MESSAGE_CONTENT is
+        #: also enabled -- only structural message identity is ever stored.
+        "MESSAGE_CREATE",
+        "MESSAGE_UPDATE",
+        "MESSAGE_DELETE",
     }
 )
 MAX_NORMALIZED_PAYLOAD_BYTES = 1_048_576
@@ -313,6 +324,31 @@ def _normalized_payload(event_type: str, data: dict[str, Any]) -> dict[str, Any]
         }
     if event_type == "GUILD_DELETE":
         return {"unavailable": bool(data.get("unavailable", False))}
+    if event_type in ("MESSAGE_CREATE", "MESSAGE_UPDATE"):
+        # Deliberately extracts ONLY structural message identity --
+        # message_id/channel_id/author -- never content/embeds/
+        # attachments/components, regardless of whether the genuinely
+        # privileged MESSAGE_CONTENT intent happens to also be enabled.
+        # REQ-MSG-030's producing-side ancestry correlation
+        # (did.campaigns.event_transport) only ever needs to know THAT the
+        # bot sent a given message, never what it said.
+        author = data.get("author")
+        author_id: int | None = None
+        author_is_bot = False
+        if isinstance(author, dict):
+            author_id = _nullable_snowflake(author.get("id"), "message.author.id")
+            author_is_bot = bool(author.get("bot", False))
+        return {
+            "message_id": _snowflake(data.get("id"), "message.id"),
+            "channel_id": _snowflake(data.get("channel_id"), "message.channel_id"),
+            "author_discord_user_id": author_id,
+            "author_is_bot": author_is_bot,
+        }
+    if event_type == "MESSAGE_DELETE":
+        return {
+            "message_id": _snowflake(data.get("id"), "message.id"),
+            "channel_id": _snowflake(data.get("channel_id"), "message.channel_id"),
+        }
     raise GatewayContractError(f"unsupported Gateway dispatch: {event_type}")
 
 

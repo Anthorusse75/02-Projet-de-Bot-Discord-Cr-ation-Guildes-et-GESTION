@@ -92,6 +92,25 @@ class Settings(BaseSettings):
     guild_discovery_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     authorization_freshness_seconds: int = Field(default=120, ge=15, le=900)
     discord_member_events_enabled: bool = False
+    #: ADR-008 does not forbid a NON-privileged Gateway intent for a
+    #: documented feature -- REQ-MSG-030's campaign-message-ancestry
+    #: producing side needs GUILD_MESSAGES (receives MESSAGE_CREATE/
+    #: UPDATE/DELETE) to detect the bot's own resulting message re-entering
+    #: ingestion. This does NOT request the privileged MESSAGE_CONTENT
+    #: intent -- normalize_gateway_dispatch never extracts content/embeds/
+    #: attachments/components from a message payload regardless, only
+    #: structural identity (message_id/channel_id/author). Off by default,
+    #: same "explicit opt-in" posture as discord_member_events_enabled.
+    #:
+    #: There is deliberately no "enable MESSAGE_CONTENT" counterpart setting
+    #: (Option B, see did.campaigns.message_content_policy's module
+    #: docstring): the privileged intent is never requested by this engine
+    #: at all, because no code path anywhere in the Campaign Engine ever
+    #: extracts content/embeds/attachments regardless of which intents are
+    #: active -- a setting that requested it would ask an operator to clear
+    #: Discord's privileged-intent verification for a real capability grant
+    #: this engine could never actually exercise.
+    discord_campaign_message_events_enabled: bool = False
     discord_global_concurrency: int = Field(default=4, ge=1, le=32)
     discord_per_guild_concurrency: int = Field(default=1, ge=1, le=8)
     discord_workload_queue_limit: int = Field(default=1000, ge=10, le=100000)

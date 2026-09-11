@@ -42,6 +42,29 @@ class EventId(StrEnum):
     REDIS_CACHE_REBUILT = "redis.cache.rebuilt"
     OUTBOX_PUBLISH_FAILED = "outbox.publish.failed"
     STAGE08_POST_VERIFICATION_FAILED = "stage08.post_verification.failed"
+    CAMPAIGN_SCHEDULE_EVALUATION_FAILED = "campaign.schedule.evaluation_failed"
+    CAMPAIGN_SCHEDULER_TICK_FAILED = "campaign.scheduler.tick_failed"
+    CAMPAIGN_RECONCILIATION_TICK_FAILED = "campaign.reconciliation.tick_failed"
+    #: REQ-MSG-030 fail-closed path: a MESSAGE_CREATE confirmed to be
+    #: authored by DID's own bot identity could not be correlated to any
+    #: SENT delivery within BOT_MESSAGE_CORRELATION_GRACE_SECONDS. The
+    #: cursor still advances (never stalls the Guild forever) but the event
+    #: is deliberately never evaluated against any Stage09 trigger -- never
+    #: silently downgraded to an "ordinary" event, which would reopen the
+    #: exact self/cross-campaign loop the ancestor-loop guard exists to
+    #: prevent. Diagnosable, sanitized (guild_id only, never message
+    #: content/ids beyond what is already durably stored).
+    CAMPAIGN_BOT_MESSAGE_UNCORRELATED_SKIPPED = "campaign.bot_message.uncorrelated_skipped"
+    #: A translation provider's output failed placeholder-set integrity
+    #: validation (did.messaging.protector.IntegrityViolation) -- e.g. the
+    #: provider transformed an issued DIDPH placeholder into a different,
+    #: syntactically valid one. Rendering retried with freshly regenerated
+    #: placeholders (did.campaigns.rendering.render_field_text); this event
+    #: fires for every such retry, never for the final outcome alone, so a
+    #: nonzero rate here is directly observable without waiting for a
+    #: bounded-retry exhaustion. Sanitized: never includes message content,
+    #: placeholder values, or the offending translated text.
+    TRANSLATION_INTEGRITY_RETRY = "translation.integrity.retry"
 
 
 UNSTRUCTURED_EVENT_ID = "logging.unstructured_rejected"

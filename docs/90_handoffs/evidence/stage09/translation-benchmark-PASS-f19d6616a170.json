@@ -1,0 +1,75 @@
+{
+  "_evidence_note": "Reported by the product owner as summary-level results after running scripts/run_translation_benchmark.py (via python scripts/validate_stage.py 09 --profile translation-benchmark --allow-network) against exact HEAD f19d6616a170386995664de4f92fd65347063ba0 on their own network. This implementation pass had no network access to reproduce this run or to copy the raw local artifact into the repository (artifacts/test-evidence/ is gitignored by design -- see .gitignore). The `records` array below is therefore intentionally empty: only the per-strategy `summary` numbers the product owner actually reported are committed here, never a fabricated or reconstructed 1560-row breakdown. The raw artifact remains available locally to the product owner at the paths named below.",
+  "raw_artifact_paths_local_to_product_owner_not_committed": {
+    "benchmark": "artifacts/test-evidence/stage-09/20260902T195804260998Z-f19d6616a170-local-docker/translation-benchmark.json",
+    "summary": "artifacts/test-evidence/stage-09/20260902T195804260998Z-f19d6616a170-local-docker/summary.json"
+  },
+  "status": "PASS",
+  "status_reason": "production (PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY): 0 provider/transport errors, 100% protected-token integrity (0/312 measurements needed a bounded integrity retry).",
+  "meta": {
+    "generated_at": "2026-09-02T19:58:04.260998Z",
+    "sha": "f19d6616a170386995664de4f92fd65347063ba0",
+    "provider": "GoogleTranslateRpcCampaignTranslationProvider",
+    "transport": "Google Translate Web RPC (batchexecute) -- unofficial, unauthenticated",
+    "rpc_id": "MkEWBc",
+    "endpoint": "https://translate.google.com/_/TranslateWebserverUi/data/batchexecute",
+    "corpus_version": 3,
+    "languages": ["en", "fr", "de", "es"],
+    "directions": [
+      "en->fr", "en->de", "en->es",
+      "fr->en", "fr->de", "fr->es",
+      "de->en", "de->fr", "de->es",
+      "es->en", "es->fr", "es->de"
+    ],
+    "strategies": [
+      "FULL_MASKED_MESSAGE",
+      "PARAGRAPH_GROUPING",
+      "SENTENCE_GROUPING",
+      "NAIVE_PER_TEXT_NODE",
+      "PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY"
+    ],
+    "production_strategy": "PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY",
+    "items_per_language": { "en": 26, "fr": 26, "de": 26, "es": 26 }
+  },
+  "records": [],
+  "summary": {
+    "FULL_MASKED_MESSAGE": {
+      "measurement_records": 312,
+      "provider_invocations": 314,
+      "errors": 0,
+      "protected_integrity_rate": 1.0
+    },
+    "PARAGRAPH_GROUPING": {
+      "measurement_records": 312,
+      "provider_invocations": 336,
+      "errors": 0,
+      "protected_integrity_rate": 1.0
+    },
+    "SENTENCE_GROUPING": {
+      "measurement_records": 312,
+      "provider_invocations": 536,
+      "errors": 1,
+      "protected_integrity_rate": 1.0,
+      "protected_integrity_rate_note": "1.0 over the 311 measurements that actually completed (a real transport error accounts for the 1 error, unrelated to protected-token integrity)"
+    },
+    "NAIVE_PER_TEXT_NODE": {
+      "measurement_records": 312,
+      "provider_invocations": 774,
+      "errors": 5,
+      "protected_integrity_rate": 0.9218241042345277,
+      "note": "deliberate negative control -- never selected by production's select_translation_strategy(); a lower rate here is expected and does not gate the PASS/FAIL verdict"
+    },
+    "PRODUCTION_FULL_MASKED_MESSAGE_WITH_RETRY": {
+      "measurement_records": 312,
+      "provider_invocations": 312,
+      "errors": 0,
+      "protected_integrity_rate": 1.0,
+      "measurements_that_retried": 0,
+      "total_retry_attempts": 0,
+      "note": "this bucket, not the raw FULL_MASKED_MESSAGE bucket above, is what production.did.campaigns.rendering.render_field_text actually does before every real delivery, and is the one status/status_reason above is gated on"
+    },
+    "_totals": {
+      "provider_invocations_all_strategies": 2272
+    }
+  }
+}

@@ -13,10 +13,27 @@ from did.domain.discord_runtime import GatewayContinuity, MemberDataCapability
 from did.infrastructure.runtime_repository import RuntimeRepository
 
 
-def minimal_gateway_intents(*, enable_member_events: bool = False) -> discord.Intents:
+def minimal_gateway_intents(
+    *,
+    enable_member_events: bool = False,
+    enable_campaign_message_events: bool = False,
+) -> discord.Intents:
+    """ADR-008 ("never request a privileged intent before a documented
+    feature needs it") governs the PRIVILEGED ``message_content`` intent
+    specifically -- it does not forbid the non-privileged ``guild_messages``
+    intent for a documented feature (REQ-MSG-030's campaign-message-ancestry
+    producing side: detecting the bot's own MESSAGE_CREATE re-entering
+    ingestion). The privileged ``message_content`` intent is never
+    requested at all: Stage09 has no content-capture capability (Option B,
+    see ``did.campaigns.message_content_policy``'s module docstring) --
+    there is no parameter here that could turn it on, deliberately, so a
+    future caller cannot silently reintroduce the ADR-008 risk this
+    function previously only guarded against by construction.
+    """
     intents = discord.Intents.none()
     intents.guilds = True
     intents.members = enable_member_events
+    intents.guild_messages = enable_campaign_message_events
     return intents
 
 
@@ -36,9 +53,13 @@ class DiscordGatewayClient(discord.Client):
         repository: RuntimeRepository,
         *,
         enable_member_events: bool = False,
+        enable_campaign_message_events: bool = False,
     ) -> None:
         super().__init__(
-            intents=minimal_gateway_intents(enable_member_events=enable_member_events),
+            intents=minimal_gateway_intents(
+                enable_member_events=enable_member_events,
+                enable_campaign_message_events=enable_campaign_message_events,
+            ),
             member_cache_flags=discord.MemberCacheFlags.none(),
             max_messages=None,
         )

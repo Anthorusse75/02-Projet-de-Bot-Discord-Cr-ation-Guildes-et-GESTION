@@ -1,0 +1,34 @@
+{
+  "_evidence_note": "Reported by the product owner after external audit, running backend/tests/network/test_stage09_translation_network_mixed_technical.py (DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network_mixed_technical.py -m translation_network -v -s) against exact HEAD 450bf3b928c931a1355078d3ba3305f8eb8b3ae6. This implementation pass had no network access to reproduce this run; only the per-direction summary the product owner actually reported is recorded here, never a fabricated or reconstructed full transcript.",
+  "status": "FAIL",
+  "status_reason": "11/12 directed pairs PASS (correct protected-token integrity AND correctly-spaced boundaries); EN->FR FAILED on boundary spacing -- the USER_MENTION+\"!\" boundary was glued (\"<@123...>\\xa0!Votre\"), even though protected-token integrity itself reported PASS for all 12/12 directions (0 provider errors, 1 HTTP attempt each, 0 integrity retries).",
+  "meta": {
+    "sha_tested": "450bf3b928c931a1355078d3ba3305f8eb8b3ae6",
+    "command": "DID_ALLOW_NETWORK=1 uv run pytest backend/tests/network/test_stage09_translation_network_mixed_technical.py -m translation_network -v -s",
+    "corpus_class": "mixed_technical_and_linguistic",
+    "directions_tested": 12,
+    "provider": "GoogleTranslateRpcCampaignTranslationProvider",
+    "production_path_exercised": "did.campaigns.rendering.render_field_text via scripts/generate_human_semantic_review_pack.py's translate_one_for_review"
+  },
+  "summary": {
+    "passed": 11,
+    "failed": 1,
+    "all_12_directions_protected_integrity": "PASS",
+    "all_12_directions_provider_errors": 0,
+    "all_12_directions_http_attempts_each": 1,
+    "all_12_directions_integrity_retries": 0,
+    "failing_direction": {
+      "source_language": "en",
+      "target_language": "fr",
+      "restored_text_excerpt": "Salut <@123456789012345678>\\xa0!Votre événement {{event_name}} démarre <t:1735689600:F>. Détails : https://example.com/e/{{event_id}} -- utilisez `!rsvp` dans <#234567890123456789>.",
+      "timestamp_boundary_status": "correctly repaired (<t:1735689600:F>. Détails)",
+      "user_mention_boundary_status": "NOT repaired (<@123456789012345678>\\xa0!Votre -- missing whitespace after \"!\")",
+      "root_cause": "Google Translate correctly rendered French typography with U+00A0 NO-BREAK SPACE before \"!\" (legitimate typography, not a defect). DID's own boundary scanner (_skip_horizontal_whitespace in did.messaging.protector) recognized only ASCII SPACE (U+0020) and TAB (U+0009) as horizontal whitespace, so it never advanced past the NBSP to reach the \"!\" and detect the still-missing whitespace after it. This is NOT a Google placeholder corruption -- the mention placeholder itself was preserved byte-for-byte, and the NBSP is legitimate French typography. The defect is DID's ASCII-only horizontal-whitespace recognizer."
+    }
+  },
+  "remediation_this_pass": {
+    "fix": "did.messaging.protector._is_horizontal_whitespace widened to recognize TAB or any Unicode category \"Zs\" (Separator, space) -- covers NO-BREAK SPACE U+00A0, NARROW NO-BREAK SPACE U+202F, and every other Unicode space separator, while deliberately excluding line breaks. Used only to LOCATE punctuation; no pre-punctuation whitespace of any kind is ever rewritten, collapsed, or normalized.",
+    "supported_matrix_unchanged": "URL->'.', USER_MENTION->'!', TIMESTAMP->'.' -- no new ProtectedKind, no new punctuation added this pass.",
+    "next_step": "Product owner reruns the exact same 12-direction targeted qualification against the SHA containing this fix, after external audit. Only once 12/12 pass with correctly-spaced boundaries should the 36-row human semantic review pack be regenerated for actual scoring."
+  }
+}

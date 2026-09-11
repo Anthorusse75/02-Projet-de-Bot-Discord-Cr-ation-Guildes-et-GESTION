@@ -1,0 +1,15 @@
+{
+  "mode": "execute",
+  "include_unconfirmed_name_matches": false,
+  "generated_at": "2026-09-02T12:20:28.530907+00:00",
+  "scanned_channels": 121,
+  "name_matched": 50,
+  "audit_confirmed": 50,
+  "name_matched_unconfirmed": 0,
+  "deletion_attempted": 50,
+  "deleted_or_already_absent": 50,
+  "failed": 0,
+  "skipped_unconfirmed": 0,
+  "remaining_confirmed_orphans": 0,
+  "audit_log_accessible": true
+}

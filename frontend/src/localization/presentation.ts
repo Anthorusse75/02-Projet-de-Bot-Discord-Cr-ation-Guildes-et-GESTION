@@ -64,6 +64,117 @@ export function auditEventKey(value: string): MessageKey {
   if (value.includes('CHANNEL') || value.includes('THREAD') || value.includes('GUILD')) return 'audit.event.structure'
   return 'audit.event.generic'
 }
+// STAGE 09 -- campaigns
+const campaignStatuses: Record<string, MessageKey> = {
+  DRAFT: 'campaigns.status.draft', SCHEDULED_ARMED: 'campaigns.status.scheduledArmed', ACTIVE_RUNNING: 'campaigns.status.activeRunning',
+  PAUSED: 'campaigns.status.paused', CANCELLED: 'campaigns.status.cancelled', COMPLETED: 'campaigns.status.completed',
+  FAILED_INTERVENTION: 'campaigns.status.failedIntervention',
+}
+const publicationModes: Record<string, MessageKey> = {
+  IMMEDIATE: 'campaigns.publicationMode.immediate', ONE_SHOT_DEFERRED: 'campaigns.publicationMode.oneShotDeferred',
+  RECURRING: 'campaigns.publicationMode.recurring', EVENT_TRIGGERED: 'campaigns.publicationMode.eventTriggered',
+}
+const attachmentPolicies: Record<string, MessageKey> = {
+  PRESERVE_EXISTING: 'campaigns.attachmentPolicy.preserveExisting', REPLACE_ALL: 'campaigns.attachmentPolicy.replaceAll', REMOVE_ALL: 'campaigns.attachmentPolicy.removeAll',
+}
+const targetKinds: Record<string, MessageKey> = {
+  CHANNEL: 'campaigns.targets.kind.channel', TRANSLATION_GROUP: 'campaigns.targets.kind.translationGroup', LOGICAL_GROUP: 'campaigns.targets.kind.logicalGroup',
+}
+const translationPublicationModes: Record<string, MessageKey> = {
+  SOURCE_ONLY: 'campaigns.targets.translationMode.sourceOnly',
+  EXISTING_PROVIDER: 'campaigns.targets.translationMode.existingProvider',
+  DID_TRANSLATED_FANOUT: 'campaigns.targets.translationMode.didTranslatedFanout',
+  SELECTED_LANGUAGES: 'campaigns.targets.translationMode.selectedLanguages',
+}
+const deliveryStatuses: Record<string, MessageKey> = {
+  PENDING: 'campaigns.delivery.status.pending', CLAIMED: 'campaigns.delivery.status.claimed', SENDING: 'campaigns.delivery.status.sending',
+  SENT: 'campaigns.delivery.status.sent', FAILED: 'campaigns.delivery.status.failed', UNKNOWN: 'campaigns.delivery.status.unknown',
+  INTERVENTION_REQUIRED: 'campaigns.delivery.status.interventionRequired',
+  DELETED: 'campaigns.delivery.status.deleted',
+}
+const blockedReasons: Record<string, MessageKey> = {
+  GUILD_NOT_AUTHORIZED: 'campaigns.blocked.guildNotAuthorized', BOT_CANNOT_SEND: 'campaigns.blocked.botCannotSend',
+  TRANSLATION_GROUP_NOT_FOUND: 'campaigns.blocked.translationGroupNotFound', NO_MATCHING_LANGUAGE_VARIANTS: 'campaigns.blocked.noMatchingLanguageVariants',
+  LOGICAL_GROUP_NOT_FOUND: 'campaigns.blocked.logicalGroupNotFound', LOGICAL_GROUP_EMPTY: 'campaigns.blocked.logicalGroupEmpty',
+  PROVIDER_SAFETY_MANUAL_CONFIGURATION_REQUIRED: 'campaigns.blocked.providerSafetyManualConfigurationRequired',
+  TRANSLATION_PROVIDER_UNAVAILABLE: 'campaigns.blocked.translationProviderUnavailable',
+}
+const translationStates: Record<string, MessageKey> = {
+  SOURCE: 'campaigns.translationState.source', REUSABLE_APPROVED: 'campaigns.translationState.reusableApproved',
+  STALE_APPROVED_WOULD_RETRANSLATE: 'campaigns.translationState.staleApprovedWouldRetranslate', MISSING_WOULD_TRANSLATE: 'campaigns.translationState.missingWouldTranslate',
+  MISSING_NO_PROVIDER_CONFIGURED: 'campaigns.translationState.missingNoProviderConfigured',
+}
+const variantOutcomes: Record<string, MessageKey> = {
+  REUSABLE: 'campaigns.variants.outcome.reusable', STALE: 'campaigns.variants.outcome.stale', MISSING: 'campaigns.variants.outcome.missing',
+}
+const templateVariableTypes: Record<string, MessageKey> = {
+  TRANSLATABLE_TEXT: 'campaigns.templateVariables.type.translatableText',
+  NON_TRANSLATABLE: 'campaigns.templateVariables.type.nonTranslatable',
+  LOCALIZED_VALUE: 'campaigns.templateVariables.type.localizedValue',
+  PROTECTED: 'campaigns.templateVariables.type.protected',
+}
+const glossaryScopes: Record<string, MessageKey> = {
+  CAMPAIGN: 'campaigns.glossary.scope.campaign', GUILD: 'campaigns.glossary.scope.guild', GLOBAL_USER: 'campaigns.glossary.scope.globalUser',
+}
+const glossaryBehaviors: Record<string, MessageKey> = {
+  DO_NOT_TRANSLATE: 'campaigns.glossary.behavior.doNotTranslate', FORCED_TRANSLATION: 'campaigns.glossary.behavior.forcedTranslation',
+}
+const glossaryMatchModes: Record<string, MessageKey> = {
+  EXACT: 'campaigns.glossary.matchMode.exact', CASE_INSENSITIVE: 'campaigns.glossary.matchMode.caseInsensitive',
+}
+const triggerSourceScopeKinds: Record<string, MessageKey> = {
+  GUILD: 'campaigns.triggers.sourceScope.guild', CHANNEL: 'campaigns.triggers.sourceScope.channel', CATEGORY: 'campaigns.triggers.sourceScope.category',
+}
+const triggerConditionOps: Record<string, MessageKey> = {
+  ALWAYS: 'campaigns.triggers.op.always', EQUALS: 'campaigns.triggers.op.equals', NOT_EQUALS: 'campaigns.triggers.op.notEquals',
+  CONTAINS: 'campaigns.triggers.op.contains', AND: 'campaigns.triggers.op.and', OR: 'campaigns.triggers.op.or', NOT: 'campaigns.triggers.op.not',
+}
+// Every code did.api.main / did.api.stage09 raise for a campaign-scoped
+// request -- an unrecognized code (a future backend addition this UI has
+// not been updated for yet) always falls back to errors.generic rather
+// than ever rendering a raw ApiProblem.code to the user.
+const campaignErrorCodes: Record<string, MessageKey> = {
+  CAMPAIGNS_NOT_CONFIGURED: 'errors.campaigns.notConfigured', CAMPAIGN_INPUT_INVALID: 'errors.campaigns.inputInvalid',
+  CAMPAIGN_UPDATE_CONFLICT: 'errors.campaigns.updateConflict', CAMPAIGN_TARGET_INPUT_INVALID: 'errors.campaigns.targetInputInvalid',
+  CAMPAIGN_SCHEDULE_INPUT_INVALID: 'errors.campaigns.scheduleInputInvalid', CAMPAIGN_LIFECYCLE_CONFLICT: 'errors.campaigns.lifecycleConflict',
+  CAMPAIGN_ACTIVATION_CONFLICT: 'errors.campaigns.activationConflict', CAMPAIGN_VARIANT_INPUT_INVALID: 'errors.campaigns.variantInputInvalid',
+  CAMPAIGN_RESOURCE_NOT_FOUND: 'errors.campaigns.notFound', CAMPAIGN_GUILD_NOT_AUTHORIZED: 'errors.campaigns.guildNotAuthorized',
+  CAMPAIGN_RESOURCE_TYPE_MISMATCH: 'errors.campaigns.resourceTypeMismatch',
+  CAMPAIGN_TRIGGER_MESSAGE_CONTENT_UNAVAILABLE: 'errors.campaigns.triggerMessageContentUnavailable',
+  CAMPAIGN_INTERVENTION_MESSAGE_ID_REQUIRED: 'errors.campaigns.interventionMessageIdRequired',
+  CAMPAIGN_INTERVENTION_MESSAGE_ID_NOT_ALLOWED: 'errors.campaigns.interventionMessageIdNotAllowed',
+  CAMPAIGN_DELIVERY_INTERVENTION_NOT_CLAIMABLE: 'errors.campaigns.interventionNotClaimable',
+  CAMPAIGN_DELIVERY_INTERVENTION_LOST_LEASE: 'errors.campaigns.interventionLostLease',
+  CAMPAIGN_DELIVERY_NOT_REQUEUABLE: 'errors.campaigns.deliveryNotRequeuable',
+  CAMPAIGN_DELIVERY_EDIT_INPUT_INVALID: 'errors.campaigns.deliveryEditInputInvalid',
+  CAMPAIGN_DELIVERY_NOT_EDITABLE: 'errors.campaigns.deliveryNotEditable',
+  CAMPAIGN_DELIVERY_NOT_DELETABLE: 'errors.campaigns.deliveryNotDeletable',
+  CAMPAIGN_TEMPLATE_VARIABLE_INPUT_INVALID: 'errors.campaigns.templateVariableInputInvalid',
+  CAMPAIGN_TEMPLATE_VARIABLE_NAME_CONFLICT: 'errors.campaigns.templateVariableNameConflict',
+  CAMPAIGN_GLOSSARY_INPUT_INVALID: 'errors.campaigns.glossaryInputInvalid',
+  CAMPAIGN_GLOSSARY_TERM_CONFLICT: 'errors.campaigns.glossaryTermConflict',
+  CAMPAIGN_TRIGGER_INPUT_INVALID: 'errors.campaigns.triggerInputInvalid',
+  CAMPAIGN_TRIGGER_CONDITION_INVALID: 'errors.campaigns.triggerConditionInvalid',
+  CAMPAIGN_TRIGGER_SOURCE_INPUT_INVALID: 'errors.campaigns.triggerSourceInputInvalid',
+}
+export const campaignStatusKey = (value: string): MessageKey => campaignStatuses[value] ?? 'common.unknown'
+export const publicationModeKey = (value: string): MessageKey => publicationModes[value] ?? 'common.unknown'
+export const attachmentPolicyKey = (value: string): MessageKey => attachmentPolicies[value] ?? 'common.unknown'
+export const targetKindKey = (value: string): MessageKey => targetKinds[value] ?? 'common.unknown'
+export const translationPublicationModeKey = (value: string): MessageKey =>
+  translationPublicationModes[value] ?? 'common.unknown'
+export const deliveryStatusKey = (value: string): MessageKey => deliveryStatuses[value] ?? 'common.unknown'
+export const blockedReasonKey = (value: string | null): MessageKey => (value ? blockedReasons[value] ?? 'common.unknown' : 'common.unknown')
+export const translationStateKey = (value: string): MessageKey => translationStates[value] ?? 'common.unknown'
+export const variantOutcomeKey = (value: string): MessageKey => variantOutcomes[value] ?? 'common.unknown'
+export const campaignErrorKey = (code: string): MessageKey => campaignErrorCodes[code] ?? 'errors.generic'
+export const templateVariableTypeKey = (value: string): MessageKey => templateVariableTypes[value] ?? 'common.unknown'
+export const glossaryScopeKey = (value: string): MessageKey => glossaryScopes[value] ?? 'common.unknown'
+export const glossaryBehaviorKey = (value: string): MessageKey => glossaryBehaviors[value] ?? 'common.unknown'
+export const glossaryMatchModeKey = (value: string): MessageKey => glossaryMatchModes[value] ?? 'common.unknown'
+export const triggerSourceScopeKindKey = (value: string): MessageKey => triggerSourceScopeKinds[value] ?? 'common.unknown'
+export const triggerConditionOpKey = (value: string): MessageKey => triggerConditionOps[value] ?? 'common.unknown'
+
 export function auditTargetKey(value: string): MessageKey {
   if (value === 'ROLE') return 'resource.role'
   if (value === 'CHANNEL') return 'resource.channel'

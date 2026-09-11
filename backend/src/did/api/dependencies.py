@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.application.auth.service import AuthorizationService, AuthService
 from did.application.installations.service import InstallationService
 from did.application.translation import LanguageProfileService, TranslationTopologyService
 from did.infrastructure.auth_repository import AuthRepository
+from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.runtime_redis import RedisHotCache, TenantPubSub
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
@@ -66,6 +68,17 @@ class ServiceContainer:
     stage08_audit_repository: Stage08AuditRepository | None = None
     stage08_structural_planning: Any = None
     stage08_provider_orchestration: Any = None
+    campaigns_repository: CampaignsRepository | None = None
+    #: RLS-bypassing admin session factory -- used ONLY for the same narrow,
+    #: owner-verified-in-query system-process reads
+    #: ``CampaignsRepository.list_targets_for_campaign``/
+    #: ``list_deliveries_for_campaign`` already document (a campaign's
+    #: targets/deliveries span every Guild it touches, so no single
+    #: ``TenantContext`` can see them all under ordinary RLS) and the
+    #: durable fan-out context loader (``did.campaigns.context
+    #: .load_fan_out_context``) needs for the same reason. Never used to
+    #: bypass owner-scoped RLS for anything else.
+    campaigns_admin_factory: async_sessionmaker[Any] | None = None
 
 
 def services(request: Request) -> ServiceContainer:

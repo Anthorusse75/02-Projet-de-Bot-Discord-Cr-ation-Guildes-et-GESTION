@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from did.api.auth import problem_response
 from did.api.auth import router as auth_router
@@ -23,6 +24,7 @@ from did.api.stage05 import router as stage05_router
 from did.api.stage06 import router as stage06_router
 from did.api.stage07 import router as stage07_router
 from did.api.stage08 import router as stage08_router
+from did.api.stage09 import router as stage09_router
 from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
@@ -34,7 +36,15 @@ from did.application.translation import (
     TranslationTopologyService,
 )
 from did.application.translation.planning import Stage08StructuralPlanningService
+from did.campaigns.authorization import (
+    CampaignNotOwnedByCaller,
+    ForeignOrUnknownResourceError,
+    GuildNotAuthorizedForCampaign,
+    WrongResourceTypeError,
+)
+from did.domain.campaigns import CampaignLifecycleError
 from did.infrastructure.auth_repository import AuthRepository
+from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import (
     create_database_engine,
     create_session_factory,
@@ -106,6 +116,7 @@ def create_app(
         )
         owned_oauth: HttpDiscordOAuthClient | None = None
         owned_member: HttpDiscordMemberClient | None = None
+        campaigns_admin_engine: AsyncEngine | None = None
         auth_config = (
             configured.discord_client_id,
             configured.discord_client_secret,
@@ -207,6 +218,11 @@ def create_app(
                 groups=stage08_group_repository,
                 providers=stage08_provider_repository,
             )
+            campaigns_repository = CampaignsRepository(session_factory)
+            campaigns_admin_engine = create_database_engine(
+                configured.database_admin_url.get_secret_value()
+            )
+            campaigns_admin_factory = create_session_factory(campaigns_admin_engine)
             if configured.artifact_encryption_key is not None:
                 previous_keys: dict[int, str] = {}
                 if configured.artifact_previous_encryption_keys is not None:
@@ -267,6 +283,8 @@ def create_app(
                 stage08_audit_repository=stage08_audit_repository,
                 stage08_structural_planning=stage08_structural_planning,
                 stage08_provider_orchestration=stage08_provider_orchestration,
+                campaigns_repository=campaigns_repository,
+                campaigns_admin_factory=campaigns_admin_factory,
             )
         try:
             yield
@@ -275,6 +293,8 @@ def create_app(
                 await owned_oauth.aclose()
             if owned_member is not None:
                 await owned_member.aclose()
+            if campaigns_admin_engine is not None:
+                await campaigns_admin_engine.dispose()
             await redis_client.aclose()
             await engine.dispose()
 
@@ -308,6 +328,7 @@ def create_app(
     application.include_router(stage06_router)
     application.include_router(stage07_router)
     application.include_router(stage08_router)
+    application.include_router(stage09_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -415,6 +436,57 @@ def create_app(
             status_code=409,
             code="MULTILINGUAL_CONFLICT",
             message_key="errors.translations.conflict",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(CampaignNotOwnedByCaller)
+    @application.exception_handler(ForeignOrUnknownResourceError)
+    async def handle_campaign_not_found(request: Request, exc: Exception) -> JSONResponse:
+        # Deliberately identical, generic not-found shape for "does not
+        # exist" and "belongs to a different owner/Guild" -- see
+        # did.campaigns.authorization's module docstring: never discloses
+        # which of the two is true.
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="CAMPAIGN_RESOURCE_NOT_FOUND",
+            message_key="errors.campaigns.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(GuildNotAuthorizedForCampaign)
+    async def handle_campaign_guild_not_authorized(
+        request: Request, exc: GuildNotAuthorizedForCampaign
+    ) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=403,
+            code="CAMPAIGN_GUILD_NOT_AUTHORIZED",
+            message_key="errors.campaigns.guildNotAuthorized",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(WrongResourceTypeError)
+    async def handle_campaign_wrong_resource_type(
+        request: Request, exc: WrongResourceTypeError
+    ) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=422,
+            code="CAMPAIGN_RESOURCE_TYPE_MISMATCH",
+            message_key="errors.campaigns.resourceTypeMismatch",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(CampaignLifecycleError)
+    async def handle_campaign_lifecycle_conflict(
+        request: Request, exc: CampaignLifecycleError
+    ) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=409,
+            code="CAMPAIGN_LIFECYCLE_CONFLICT",
+            message_key="errors.campaigns.lifecycleConflict",
         )
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 

@@ -4,6 +4,473 @@
  */
 
 export interface paths {
+    "/api/v1/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Campaigns */
+        get: operations["list_campaigns_api_v1_campaigns_get"];
+        put?: never;
+        /** Create Campaign */
+        post: operations["create_campaign_api_v1_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Campaign */
+        get: operations["get_campaign_api_v1_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Campaign */
+        patch: operations["update_campaign_api_v1_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Campaign */
+        post: operations["activate_campaign_api_v1_campaigns__campaign_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Campaign */
+        post: operations["cancel_campaign_api_v1_campaigns__campaign_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deliveries */
+        get: operations["list_deliveries_api_v1_campaigns__campaign_id__deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Owned Delivery
+         * @description REQ-MSG owned delete (mission section 8): same ownership/ledger-only
+         *     sourcing as :func:`edit_owned_delivery`. The delivery's status stays
+         *     SENT until the durable worker
+         *     (``did.campaigns.delivery_worker.execute_owned_delete``) confirms the
+         *     real (or already-happened) Discord deletion and transitions it to
+         *     DELETED -- this handler creates durable work only, never calls Discord.
+         */
+        post: operations["delete_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit Owned Delivery
+         * @description REQ-MSG owned edit (mission section 7): only ever acts on a delivery
+         *     the caller's own campaign produced -- never a client-supplied
+         *     channel/message id (see
+         *     ``CampaignsRepository.prepare_owned_edit_for_owner``'s docstring). Only
+         *     a SENT delivery with a real ``discord_message_id`` is eligible. Creates
+         *     durable work only -- ``did.campaigns.dispatch.enqueue_edit_job`` -- the
+         *     real Discord edit happens exclusively in the durable worker
+         *     (``did.campaigns.delivery_worker.execute_owned_edit``), never from this
+         *     handler.
+         */
+        post: operations["edit_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/intervention/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Intervention
+         * @description REQ-MSG-029 product surface: never a universal "Retry" button -- an
+         *     INTERVENTION_REQUIRED delivery only ever resolves to the caller's own
+         *     attested true outcome (they manually checked their Guild). This
+         *     endpoint never calls Discord and never resends anything; it only
+         *     records a human judgment call. A delivery confirmed FAILED here can
+         *     then be requeued through :func:`requeue_intervention_delivery` for a
+         *     genuinely fresh, unambiguous send attempt.
+         */
+        post: operations["resolve_intervention_api_v1_campaigns__campaign_id__deliveries__delivery_id__intervention_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/deliveries/{delivery_id}/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requeue Intervention Delivery
+         * @description Only valid for a FAILED delivery (confirmed nothing was ever sent --
+         *     see :func:`resolve_intervention` and REQ-MSG-029) -- creates durable
+         *     work only (the delivery becomes PENDING again with a fresh nonce; the
+         *     existing durable dispatch/worker discovers and sends it through the
+         *     ordinary path). Never calls Discord directly from this handler.
+         */
+        post: operations["requeue_intervention_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__requeue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Campaign Glossary */
+        get: operations["list_campaign_glossary_api_v1_campaigns__campaign_id__glossary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause Campaign */
+        post: operations["pause_campaign_api_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Campaign */
+        post: operations["resume_campaign_api_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Schedule */
+        post: operations["create_schedule_api_v1_campaigns__campaign_id__schedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate */
+        post: operations["simulate_api_v1_campaigns__campaign_id__simulate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Targets */
+        get: operations["list_targets_api_v1_campaigns__campaign_id__targets_get"];
+        put?: never;
+        /** Create Target */
+        post: operations["create_target_api_v1_campaigns__campaign_id__targets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/template-variables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Template Variables */
+        get: operations["list_template_variables_api_v1_campaigns__campaign_id__template_variables_get"];
+        put?: never;
+        /**
+         * Create Template Variable
+         * @description REQ-MSG-018 (mission section 10): the shape rule (LOCALIZED_VALUE
+         *     carries values_by_language only, every other type carries a single
+         *     value only) is enforced by did.messaging.template_variables
+         *     .TemplateVariableDefinition itself -- never duplicated here.
+         */
+        post: operations["create_template_variable_api_v1_campaigns__campaign_id__template_variables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/template-variables/{variable_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Template Variable */
+        delete: operations["delete_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Template Variable */
+        patch: operations["update_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Triggers */
+        get: operations["list_triggers_api_v1_campaigns__campaign_id__triggers_get"];
+        put?: never;
+        /** Create Trigger */
+        post: operations["create_trigger_api_v1_campaigns__campaign_id__triggers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/triggers/{trigger_id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Trigger Sources
+         * @description Trigger source bindings are Guild-scoped (RLS), not owner-scoped --
+         *     unlike every other list endpoint in this router there is no single
+         *     context that can see every Guild's bindings for a trigger at once, so
+         *     the caller names one explicit Guild at a time (mirroring how a
+         *     destination Guild is picked for a CHANNEL/LOGICAL_GROUP/
+         *     TRANSLATION_GROUP target in the UI).
+         */
+        get: operations["list_trigger_sources_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_get"];
+        put?: never;
+        /** Create Trigger Source */
+        post: operations["create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Variant */
+        get: operations["preview_variant_api_v1_campaigns__campaign_id__variants__language_code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{campaign_id}/variants/{language_code}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Variant Endpoint */
+        post: operations["approve_variant_endpoint_api_v1_campaigns__campaign_id__variants__language_code__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Global User Glossary */
+        get: operations["list_global_user_glossary_api_v1_glossary_get"];
+        put?: never;
+        /**
+         * Create Glossary Entry Endpoint
+         * @description REQ-MSG-014 (mission section 11): authorized CRUD across all three
+         *     scopes -- CAMPAIGN requires owning the named campaign, GUILD requires
+         *     real Guild authorization (never merely "the caller is logged in"),
+         *     GLOBAL_USER requires nothing beyond authentication (it is scoped to the
+         *     caller's own owner id by construction). The shape/behavior validation
+         *     (CAMPAIGN needs campaign_id xor guild_id, FORCED_TRANSLATION needs
+         *     forced_translation text, ...) is delegated entirely to
+         *     did.domain.campaigns.GlossaryEntry.__post_init__, never duplicated
+         *     here.
+         */
+        post: operations["create_glossary_entry_endpoint_api_v1_glossary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/glossary/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Glossary Entry Endpoint
+         * @description A CAMPAIGN/GLOBAL_USER entry may only be deleted by its own owner. A
+         *     GUILD entry may be deleted by any of the Guild's authorized owners
+         *     (matching CampaignsRepository.list_guild_glossary_entries's own
+         *     rationale for that scope) -- verified by a real Guild-authorization
+         *     check here, never merely inferred from the entry's own stored
+         *     owner_discord_user_id.
+         */
+        delete: operations["delete_glossary_entry_endpoint_api_v1_glossary__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds": {
         parameters: {
             query?: never;
@@ -192,6 +659,23 @@ export interface paths {
         put?: never;
         /** Export Portable */
         post: operations["export_portable_api_v1_guilds__guild_id__exports_portable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Guild Glossary */
+        get: operations["list_guild_glossary_api_v1_guilds__guild_id__glossary_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1318,6 +1802,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/retention-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Retention Policy
+         * @description Delivery-history retention (did.campaigns.retention) is a
+         *     system-level policy, not a per-campaign or per-Guild setting -- there
+         *     is no durable per-owner override anywhere in the schema, and this
+         *     endpoint must never invent one. It truthfully reports the single
+         *     policy every Guild's terminal deliveries are subject to whenever a
+         *     purge is applied, and the bounds any override would have to respect.
+         *     A caller only needs to be authenticated; the policy is not scoped to
+         *     them.
+         */
+        get: operations["get_retention_policy_api_v1_retention_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transfers": {
         parameters: {
             query?: never;
@@ -1520,10 +2031,49 @@ export interface components {
          */
         ArtifactType: "CHANNEL" | "CATEGORY" | "LOGICAL_GROUP" | "GUILD_CONFIG" | "CUSTOM_BUNDLE";
         /**
+         * AttachmentPolicy
+         * @enum {string}
+         */
+        AttachmentPolicy: "PRESERVE_EXISTING" | "REPLACE_ALL" | "REMOVE_ALL";
+        /**
          * BotOperation
          * @enum {string}
          */
         BotOperation: "CREATE_CHANNEL" | "MANAGE_CHANNEL" | "REORDER_CHANNELS" | "MANAGE_OVERWRITES" | "CREATE_ROLE" | "MANAGE_ROLE" | "REORDER_ROLES" | "ASSIGN_ROLE" | "SEND_MESSAGE" | "MANAGE_THREAD";
+        /** CampaignCreateInput */
+        CampaignCreateInput: {
+            /** Allowed Mentions Policy */
+            allowed_mentions_policy?: {
+                [key: string]: unknown;
+            };
+            /** @default PRESERVE_EXISTING */
+            attachment_policy: components["schemas"]["AttachmentPolicy"];
+            /** Message Model */
+            message_model?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            publication_mode: components["schemas"]["PublicationMode"];
+            /** Source Language Code */
+            source_language_code: string;
+        };
+        /** CampaignUpdateInput */
+        CampaignUpdateInput: {
+            /** Allowed Mentions Policy */
+            allowed_mentions_policy?: {
+                [key: string]: unknown;
+            } | null;
+            attachment_policy?: components["schemas"]["AttachmentPolicy"] | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Message Model */
+            message_model?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name?: string | null;
+        };
         /** CapacityInput */
         CapacityInput: {
             /** Current Overwrites */
@@ -1595,6 +2145,13 @@ export interface components {
             /** Plan Hash */
             plan_hash: string;
         };
+        /** DeliveryEditInput */
+        DeliveryEditInput: {
+            /** Message Model */
+            message_model: {
+                [key: string]: unknown;
+            };
+        };
         /** DesiredNodeInput */
         DesiredNodeInput: {
             /** Discord Id */
@@ -1626,6 +2183,18 @@ export interface components {
             /** Variant Type */
             variant_type?: ("CATEGORY" | "CHANNEL") | null;
         };
+        /**
+         * DstAmbiguousPolicy
+         * @description Fall-back: a wall-clock time that occurs twice that day.
+         * @enum {string}
+         */
+        DstAmbiguousPolicy: "EARLIEST" | "LATEST";
+        /**
+         * DstNonexistentPolicy
+         * @description Spring-forward: a wall-clock time that never occurs that day.
+         * @enum {string}
+         */
+        DstNonexistentPolicy: "SHIFT_FORWARD" | "SKIP";
         /** ExportInput */
         ExportInput: {
             /** @default EXPORT_BUNDLE */
@@ -1634,6 +2203,38 @@ export interface components {
             name?: string | null;
             selection: components["schemas"]["SelectionInput"];
         };
+        /**
+         * GlossaryBehavior
+         * @enum {string}
+         */
+        GlossaryBehavior: "DO_NOT_TRANSLATE" | "FORCED_TRANSLATION";
+        /** GlossaryEntryCreateInput */
+        GlossaryEntryCreateInput: {
+            behavior: components["schemas"]["GlossaryBehavior"];
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Forced Translation */
+            forced_translation?: string | null;
+            /** Guild Id */
+            guild_id?: string | null;
+            /** @default CASE_INSENSITIVE */
+            match_mode: components["schemas"]["GlossaryMatchMode"];
+            scope_kind: components["schemas"]["GlossaryScope"];
+            /** Source Term */
+            source_term: string;
+            /** Target Language Code */
+            target_language_code?: string | null;
+        };
+        /**
+         * GlossaryMatchMode
+         * @enum {string}
+         */
+        GlossaryMatchMode: "EXACT" | "CASE_INSENSITIVE";
+        /**
+         * GlossaryScope
+         * @enum {string}
+         */
+        GlossaryScope: "GLOBAL_USER" | "GUILD" | "CAMPAIGN";
         /** GroupLanguageInput */
         GroupLanguageInput: {
             /**
@@ -1660,6 +2261,16 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** InterventionResolutionInput */
+        InterventionResolutionInput: {
+            /** Discord Message Id */
+            discord_message_id?: string | null;
+            /**
+             * Resolution
+             * @enum {string}
+             */
+            resolution: "SENT" | "FAILED";
         };
         /** LanguageCreateInput */
         LanguageCreateInput: {
@@ -1777,6 +2388,11 @@ export interface components {
             /** Idempotency Key */
             idempotency_key: string;
         };
+        /**
+         * MisfirePolicy
+         * @enum {string}
+         */
+        MisfirePolicy: "SKIP_MISSED" | "FIRE_ONCE_IMMEDIATELY";
         /** MultilingualCloneInput */
         MultilingualCloneInput: {
             /** Destination Guild Id */
@@ -1887,6 +2503,11 @@ export interface components {
              */
             confirmed_manual_configuration: true;
         };
+        /**
+         * PublicationMode
+         * @enum {string}
+         */
+        PublicationMode: "IMMEDIATE" | "ONE_SHOT_DEFERRED" | "RECURRING" | "EVENT_TRIGGERED";
         /** PurgeRequest */
         PurgeRequest: {
             /** Channel Ids */
@@ -2002,6 +2623,34 @@ export interface components {
             hub_language_profile_id?: string | null;
             topology: components["schemas"]["TranslationGroupTopology"];
         };
+        /** ScheduleCreateInput */
+        ScheduleCreateInput: {
+            /**
+             * Catch Up Bound
+             * @default 1
+             */
+            catch_up_bound: number;
+            /** @default EARLIEST */
+            dst_ambiguous_policy: components["schemas"]["DstAmbiguousPolicy"];
+            /** @default SHIFT_FORWARD */
+            dst_nonexistent_policy: components["schemas"]["DstNonexistentPolicy"];
+            /** Fire At */
+            fire_at?: string | null;
+            /** @default SKIP_MISSED */
+            misfire_policy: components["schemas"]["MisfirePolicy"];
+            /** Rrule */
+            rrule?: string | null;
+            schedule_kind: components["schemas"]["ScheduleKind"];
+            /** Starts At */
+            starts_at?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
+        /**
+         * ScheduleKind
+         * @enum {string}
+         */
+        ScheduleKind: "IMMEDIATE" | "ONE_SHOT" | "RECURRING";
         /**
          * ScopeKind
          * @enum {string}
@@ -2073,6 +2722,26 @@ export interface components {
             /** Subject Ids */
             subject_ids: string[];
         };
+        /** TargetCreateInput */
+        TargetCreateInput: {
+            /** Discord Channel Id */
+            discord_channel_id?: string | null;
+            /** Guild Id */
+            guild_id: string;
+            /** Logical Group Id */
+            logical_group_id?: string | null;
+            /** Selected Language Profile Ids */
+            selected_language_profile_ids?: string[];
+            target_kind: components["schemas"]["TargetKind"];
+            /** Translation Group Id */
+            translation_group_id?: string | null;
+            translation_publication_mode?: components["schemas"]["TranslationPublicationMode"] | null;
+        };
+        /**
+         * TargetKind
+         * @enum {string}
+         */
+        TargetKind: "CHANNEL" | "TRANSLATION_GROUP" | "LOGICAL_GROUP";
         /** TemplateApplyInput */
         TemplateApplyInput: {
             /** Mappings */
@@ -2089,6 +2758,33 @@ export interface components {
             artifact_id: string;
             /** Name */
             name: string;
+        };
+        /** TemplateVariableCreateInput */
+        TemplateVariableCreateInput: {
+            /** Name */
+            name: string;
+            /** Value */
+            value?: string | null;
+            /** Values By Language */
+            values_by_language?: {
+                [key: string]: string;
+            } | null;
+            variable_type: components["schemas"]["TemplateVariableType"];
+        };
+        /**
+         * TemplateVariableType
+         * @enum {string}
+         */
+        TemplateVariableType: "TRANSLATABLE_TEXT" | "NON_TRANSLATABLE" | "LOCALIZED_VALUE" | "PROTECTED";
+        /** TemplateVariableUpdateInput */
+        TemplateVariableUpdateInput: {
+            /** Value */
+            value?: string | null;
+            /** Values By Language */
+            values_by_language?: {
+                [key: string]: string;
+            } | null;
+            variable_type: components["schemas"]["TemplateVariableType"];
         };
         /** TranslationGroupCreateInput */
         TranslationGroupCreateInput: {
@@ -2114,6 +2810,47 @@ export interface components {
          * @enum {string}
          */
         TranslationGroupTopology: "HUB_AND_SPOKE" | "FULL_MESH" | "CUSTOM";
+        /**
+         * TranslationPublicationMode
+         * @description WP12: how a Translation Group destination is published to.
+         *
+         *     Never inferred -- the campaign author must pick one explicitly whenever
+         *     ``target_kind`` is ``TRANSLATION_GROUP``.
+         * @enum {string}
+         */
+        TranslationPublicationMode: "SOURCE_ONLY" | "EXISTING_PROVIDER" | "DID_TRANSLATED_FANOUT" | "SELECTED_LANGUAGES";
+        /** TriggerCreateInput */
+        TriggerCreateInput: {
+            /** Condition Ast */
+            condition_ast: {
+                [key: string]: unknown;
+            };
+            /** Event Type */
+            event_type: string;
+            /**
+             * Max Causation Depth
+             * @default 8
+             */
+            max_causation_depth: number;
+            /**
+             * Requires Message Content
+             * @default false
+             */
+            requires_message_content: boolean;
+        };
+        /** TriggerSourceCreateInput */
+        TriggerSourceCreateInput: {
+            /** Discord Resource Id */
+            discord_resource_id?: string | null;
+            /** Guild Id */
+            guild_id: string;
+            source_scope_kind: components["schemas"]["TriggerSourceScopeKind"];
+        };
+        /**
+         * TriggerSourceScopeKind
+         * @enum {string}
+         */
+        TriggerSourceScopeKind: "GUILD" | "CHANNEL" | "CATEGORY";
         /** UserAccessUpdate */
         UserAccessUpdate: {
             /** Discord User Id */
@@ -2140,6 +2877,13 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VariantApprovalInput */
+        VariantApprovalInput: {
+            /** Localized Message Model */
+            localized_message_model: {
+                [key: string]: unknown;
+            };
         };
         /** VariantLinkInput */
         VariantLinkInput: {
@@ -2298,6 +3042,1087 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_campaigns_api_v1_campaigns_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    create_campaign_api_v1_campaigns_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campaign_api_v1_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_campaign_api_v1_campaigns__campaign_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_campaign_api_v1_campaigns__campaign_id__activate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_campaign_api_v1_campaigns__campaign_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deliveries_api_v1_campaigns__campaign_id__deliveries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__delete_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_owned_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__edit_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryEditInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_intervention_api_v1_campaigns__campaign_id__deliveries__delivery_id__intervention_resolve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterventionResolutionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requeue_intervention_delivery_api_v1_campaigns__campaign_id__deliveries__delivery_id__requeue_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_campaign_glossary_api_v1_campaigns__campaign_id__glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_campaign_api_v1_campaigns__campaign_id__pause_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_campaign_api_v1_campaigns__campaign_id__resume_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_schedule_api_v1_campaigns__campaign_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_api_v1_campaigns__campaign_id__simulate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_targets_api_v1_campaigns__campaign_id__targets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_target_api_v1_campaigns__campaign_id__targets_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TargetCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_template_variables_api_v1_campaigns__campaign_id__template_variables_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_template_variable_api_v1_campaigns__campaign_id__template_variables_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateVariableCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                variable_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_template_variable_api_v1_campaigns__campaign_id__template_variables__variable_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                variable_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateVariableUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_triggers_api_v1_campaigns__campaign_id__triggers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trigger_api_v1_campaigns__campaign_id__triggers_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trigger_sources_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_get: {
+        parameters: {
+            query: {
+                guild_id: string;
+            };
+            header?: never;
+            path: {
+                campaign_id: string;
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trigger_source_api_v1_campaigns__campaign_id__triggers__trigger_id__sources_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerSourceCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_variant_api_v1_campaigns__campaign_id__variants__language_code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                language_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_variant_endpoint_api_v1_campaigns__campaign_id__variants__language_code__approve_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                campaign_id: string;
+                language_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VariantApprovalInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_global_user_glossary_api_v1_glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    create_glossary_entry_endpoint_api_v1_glossary_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryEntryCreateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_glossary_entry_endpoint_api_v1_glossary__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     guilds_api_v1_guilds_get: {
         parameters: {
             query?: never;
@@ -2655,6 +4480,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_guild_glossary_api_v1_guilds__guild_id__glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5451,6 +7309,28 @@ export interface operations {
         };
     };
     portability_support_matrix_api_v1_portability_support_matrix_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_retention_policy_api_v1_retention_policy_get: {
         parameters: {
             query?: never;
             header?: never;
