@@ -9,7 +9,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from did.messaging.parser import ProtectedNode, parse, render
-from did.messaging.protector import protect, validate_full_pipeline
+from did.messaging.protector import IntegrityViolation, protect, validate_full_pipeline
 from did.messaging.template_variables import (
     MissingLocalizedValue,
     TemplateVariableDefinition,
@@ -91,6 +91,103 @@ class TestResolveTemplateVariables:
         protection = protect(resolved_nodes, restore_overrides=overrides)
         restored = validate_full_pipeline(resolved_nodes, protection.masked_text, protection)
         assert restored == "Product: Acme Widget."
+
+    def test_non_translatable_protected_looking_url_is_a_trusted_restore_value(self) -> None:
+        nodes = parse("Reference: {{ref}}")
+        definitions = {
+            "ref": TemplateVariableDefinition(
+                "ref", TemplateVariableType.NON_TRANSLATABLE, value="http://0"
+            )
+        }
+        resolved_nodes, overrides = resolve_template_variables(
+            nodes, definitions, target_language="en"
+        )
+        protection = protect(resolved_nodes, restore_overrides=overrides)
+
+        restored = validate_full_pipeline(resolved_nodes, protection.masked_text, protection)
+
+        assert restored == "Reference: http://0"
+
+    def test_non_translatable_markdown_is_part_of_the_canonical_restore_source(self) -> None:
+        nodes = parse("{{ref}}")
+        definitions = {
+            "ref": TemplateVariableDefinition(
+                "ref", TemplateVariableType.NON_TRANSLATABLE, value="**Important**"
+            )
+        }
+        resolved_nodes, overrides = resolve_template_variables(
+            nodes, definitions, target_language="en"
+        )
+        protection = protect(resolved_nodes, restore_overrides=overrides)
+
+        restored = validate_full_pipeline(resolved_nodes, protection.masked_text, protection)
+
+        assert restored == "**Important**"
+
+    @pytest.mark.parametrize(
+        "translated_fragment",
+        [
+            "Notice",
+            "__Notice__",
+            "**Notice** **Invented**",
+        ],
+    )
+    def test_translated_markdown_changes_still_fail_against_the_canonical_source(
+        self, translated_fragment: str
+    ) -> None:
+        nodes = parse("{{ref}} and **Notice**")
+        definitions = {
+            "ref": TemplateVariableDefinition(
+                "ref", TemplateVariableType.NON_TRANSLATABLE, value="**Important**"
+            )
+        }
+        resolved_nodes, overrides = resolve_template_variables(
+            nodes, definitions, target_language="en"
+        )
+        protection = protect(resolved_nodes, restore_overrides=overrides)
+        translated = protection.masked_text.replace("**Notice**", translated_fragment)
+
+        with pytest.raises(IntegrityViolation, match="markdown emphasis marker counts changed"):
+            validate_full_pipeline(resolved_nodes, translated, protection)
+
+    @pytest.mark.parametrize(
+        "definition, target_language, expected",
+        [
+            (
+                TemplateVariableDefinition(
+                    "ref", TemplateVariableType.PROTECTED, value="**Protected**"
+                ),
+                "en",
+                "**Protected**",
+            ),
+            (
+                TemplateVariableDefinition(
+                    "ref",
+                    TemplateVariableType.LOCALIZED_VALUE,
+                    values_by_language={"fr": "**Localized**"},
+                ),
+                "fr",
+                "**Localized**",
+            ),
+        ],
+    )
+    def test_declared_protected_and_localized_markdown_use_the_canonical_restore_path(
+        self,
+        definition: TemplateVariableDefinition,
+        target_language: str,
+        expected: str,
+    ) -> None:
+        nodes = parse("{{ref}}")
+        resolved_nodes, overrides = resolve_template_variables(
+            nodes,
+            {"ref": definition},
+            target_language=target_language,
+        )
+        protection = protect(resolved_nodes, restore_overrides=overrides)
+
+        restored = validate_full_pipeline(resolved_nodes, protection.masked_text, protection)
+
+        assert restored == expected
 
     def test_non_translatable_value_is_identical_across_languages(self) -> None:
         nodes = parse("{{product}}")

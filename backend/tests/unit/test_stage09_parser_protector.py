@@ -275,6 +275,63 @@ class TestReparsedStructureValidation:
             validate_reparsed_structure(nodes, restored)
 
 
+class TestCanonicalRestoredSourceBaseline:
+    """Restore overrides are trusted source issued by DID, not translator
+    output. The reparse baseline must include their complete restored source
+    shape without weakening rejection of genuinely invented tokens."""
+
+    @pytest.mark.parametrize(
+        "restore_value, expected_kind",
+        [
+            ("http://0", ProtectedKind.URL),
+            ("<@123456789012345678>", ProtectedKind.USER_MENTION),
+            ("<t:1735689600:F>", ProtectedKind.TIMESTAMP),
+        ],
+    )
+    def test_trusted_protected_looking_restore_values_are_accepted(
+        self, restore_value: str, expected_kind: ProtectedKind
+    ) -> None:
+        nodes = (ProtectedNode(ProtectedKind.TEMPLATE_VARIABLE, "{{trusted}}"),)
+        protection = protect(nodes, restore_overrides={0: restore_value})
+
+        restored = validate_full_pipeline(nodes, protection.masked_text, protection)
+
+        assert restored == restore_value
+        assert [node.kind for node in parse(restored) if isinstance(node, ProtectedNode)] == [
+            expected_kind
+        ]
+
+    def test_restore_value_and_adjacent_source_text_form_one_trusted_url(self) -> None:
+        nodes = (
+            ProtectedNode(ProtectedKind.TEMPLATE_VARIABLE, "{{scheme}}"),
+            TextNode("0"),
+        )
+        protection = protect(nodes, restore_overrides={0: "http://"})
+
+        restored = validate_full_pipeline(nodes, protection.masked_text, protection)
+
+        assert restored == "http://0"
+        assert parse(restored) == (ProtectedNode(ProtectedKind.URL, "http://0"),)
+
+    def test_genuinely_invented_token_is_rejected_alongside_trusted_override(self) -> None:
+        nodes = (
+            ProtectedNode(ProtectedKind.TEMPLATE_VARIABLE, "{{trusted_url}}"),
+            TextNode(" remains trusted."),
+        )
+        protection = protect(nodes, restore_overrides={0: "http://0"})
+        translated = protection.masked_text + " <#999999999999999999>"
+
+        with pytest.raises(IntegrityViolation, match="hallucinated"):
+            validate_full_pipeline(nodes, translated, protection)
+
+    def test_no_override_identity_behavior_is_unchanged(self) -> None:
+        content = "Ping <@123456789012345678> via https://example.com now."
+        nodes = parse(content)
+        protection = protect(nodes)
+
+        assert validate_full_pipeline(nodes, protection.masked_text, protection) == content
+
+
 class TestFullPipelineValidator:
     """validate_full_pipeline() is the single production-grade gate the
     benchmark must also use -- proves it composes all three checks."""

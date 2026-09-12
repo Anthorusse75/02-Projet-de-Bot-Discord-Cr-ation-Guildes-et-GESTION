@@ -194,6 +194,41 @@ class TestRenderFieldText:
             "See https://example.com/x."
         )
 
+    async def test_protected_looking_restore_value_survives_layered_foreign_placeholders(
+        self,
+    ) -> None:
+        """The inner glossary layer must still pass the outer template
+        placeholder through untouched; the outer canonical-source baseline
+        then accepts its trusted URL-shaped restore value."""
+        unit = TranslationUnit(
+            FieldPath(TranslatableFieldKind.CONTENT),
+            "Reference {{ref}} for Acme Corp.",
+        )
+        definitions = {
+            "ref": TemplateVariableDefinition(
+                "ref", TemplateVariableType.NON_TRANSLATABLE, value="http://0"
+            )
+        }
+        entry = GlossaryEntry(
+            id=uuid4(),
+            owner_discord_user_id=OWNER_A,
+            scope_kind=GlossaryScope.GLOBAL_USER,
+            source_term="Acme Corp",
+            behavior=GlossaryBehavior.DO_NOT_TRANSLATE,
+        )
+
+        result = await render_field_text(
+            unit,
+            target_language="en",
+            campaign_id=CAMPAIGN_ID,
+            guild_id=GUILD_ID,
+            template_variable_definitions=definitions,
+            glossary_entries=(entry,),
+            translate_masked_text=_identity_translate,
+        )
+
+        assert result == "Reference http://0 for Acme Corp."
+
     async def test_corrupted_translation_still_fails_closed(self) -> None:
         """A 'translation' that drops a protected placeholder must still
         raise IntegrityViolation through this composed pipeline exactly as

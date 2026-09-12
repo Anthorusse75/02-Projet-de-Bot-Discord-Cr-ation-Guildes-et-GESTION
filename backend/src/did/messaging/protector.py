@@ -353,7 +353,10 @@ def validate_structural_balance(source_text: str, restored_text: str) -> None:
 
 
 def validate_reparsed_structure(
-    original_nodes: tuple[MessageNode, ...], restored_text: str
+    original_nodes: tuple[MessageNode, ...],
+    restored_text: str,
+    *,
+    canonical_restored_source: str | None = None,
 ) -> None:
     """Reparse the fully-restored text and confirm it introduces no
     protected-token-shaped content that was not present in the original
@@ -366,8 +369,24 @@ def validate_reparsed_structure(
     literal ``<@...>``-shaped text it invented). ``AllowedMentionsCompiler``
     already defaults every delivery to zero mentions regardless, so this is
     defense-in-depth, not the primary mention-safety gate.
+
+    ``canonical_restored_source`` is the complete source after replacing
+    every placeholder with the trusted ``restore_value`` DID issued. The
+    full pipeline supplies it whenever restore overrides are in play, so a
+    legitimate override that itself looks like a URL/mention/timestamp -- or
+    forms one together with adjacent literal source text -- is part of the
+    baseline. Reparsing the complete canonical source is important: parsing
+    individual restore values would miss those boundary-composition cases.
+
+    The optional fallback preserves the standalone helper's original API and
+    semantics for callers that have no ``ProtectionResult`` available.
     """
-    original_values = {n.value for n in original_nodes if isinstance(n, ProtectedNode)}
+    baseline_nodes = (
+        original_nodes
+        if canonical_restored_source is None
+        else parse_message(canonical_restored_source)
+    )
+    original_values = {n.value for n in baseline_nodes if isinstance(n, ProtectedNode)}
     reparsed = parse_message(restored_text)
     reparsed_values = {n.value for n in reparsed if isinstance(n, ProtectedNode)}
     invented = sorted(reparsed_values - original_values)
@@ -386,11 +405,11 @@ def validate_full_pipeline(
     foreign_placeholders: frozenset[str] = frozenset(),
 ) -> str:
     """The single production-grade validator: placeholder-set integrity +
-    restoration, reparse-and-compare against the original source, and
-    Markdown structural balance -- all fail-closed. Every caller (the
-    delivery pipeline AND the WP10 benchmark) must use this, not just
-    :func:`validate_and_restore` alone, so the benchmark measures the same
-    guarantee production actually enforces.
+    restoration, reparse-and-compare against the canonical restored source,
+    and Markdown structural balance against that same canonical source -- all
+    fail-closed. Every caller (the delivery pipeline AND the WP10 benchmark)
+    must use this, not just :func:`validate_and_restore` alone, so the
+    benchmark measures the same guarantee production actually enforces.
 
     ``foreign_placeholders`` -- see :func:`validate_and_restore`; used only
     by ``did.campaigns.rendering``'s layered template-variable/glossary
@@ -400,7 +419,15 @@ def validate_full_pipeline(
     restored = validate_and_restore(
         translated_text, protection, foreign_placeholders=foreign_placeholders
     )
-    validate_reparsed_structure(original_nodes, restored)
-    original_text = "".join(n.text if isinstance(n, TextNode) else n.value for n in original_nodes)
-    validate_structural_balance(original_text, restored)
+    canonical_restored_source = validate_and_restore(
+        protection.masked_text,
+        protection,
+        foreign_placeholders=foreign_placeholders,
+    )
+    validate_reparsed_structure(
+        original_nodes,
+        restored,
+        canonical_restored_source=canonical_restored_source,
+    )
+    validate_structural_balance(canonical_restored_source, restored)
     return restored
