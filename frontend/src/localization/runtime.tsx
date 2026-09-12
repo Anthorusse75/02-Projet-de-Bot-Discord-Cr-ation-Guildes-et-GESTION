@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { I18nextProvider } from 'react-i18next'
 import { apiRequest } from '../api/client'
 import { bootstrapPacks, en, type BootstrapLocaleCode, type LocaleCode, type MessageKey, type MessagePack } from './catalog'
+import { phase2Packs } from './phase2Catalog'
 
 export const CATALOG_VERSION = 'did-ui-v2'
 const bootstrap = Object.keys(bootstrapPacks) as BootstrapLocaleCode[]
@@ -27,12 +28,24 @@ export function activationCandidates(override: LocaleChoice, languages: readonly
 }
 function params(value: string): string[] { return [...value.matchAll(interpolationPattern)].map((match) => match[1] ?? '').sort() }
 export function validatePack(payload: unknown): MessagePack { if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('PACK_SCHEMA'); const candidate = payload as Record<string, unknown>; const required = Object.keys(en).sort(); if (Object.keys(candidate).sort().join('\0') !== required.join('\0')) throw new Error('PACK_COVERAGE'); for (const key of required as MessageKey[]) { const value = candidate[key]; if (typeof value !== 'string' || value.length === 0 || value.length > 2_000) throw new Error('PACK_VALUE'); if (htmlPattern.test(value)) throw new Error('PACK_HTML'); if (params(value).join('\0') !== params(en[key]).join('\0')) throw new Error('PACK_PARAMS') } return candidate as MessagePack }
-void i18n.init({ lng: 'en', fallbackLng: false, interpolation: { escapeValue: true }, resources: Object.fromEntries(bootstrap.map((locale) => [locale, { translation: bootstrapPacks[locale] }])), returnNull: false })
+
+function bundledPack(locale: string): Record<string, string> | undefined {
+  if (!bootstrap.includes(locale as BootstrapLocaleCode)) return undefined
+  const code = locale as BootstrapLocaleCode
+  return { ...bootstrapPacks[code], ...(phase2Packs[code] ?? {}) }
+}
+
+void i18n.init({
+  lng: 'en',
+  fallbackLng: false,
+  interpolation: { escapeValue: true },
+  resources: Object.fromEntries(bootstrap.map((locale) => [locale, { translation: bundledPack(locale) }])),
+  returnNull: false,
+})
 
 type LocaleContextValue = { locale: LocaleCode; override: LocaleChoice; setOverride: (value: LocaleChoice) => Promise<void>; hydrateServerPreference: (value: LocaleChoice) => void; activeLocales: readonly ActiveLocale[] }
 const LocaleContext = createContext<LocaleContextValue | null>(null)
 async function runtimePack(locale: LocaleCode): Promise<MessagePack | null> { try { const response = await apiRequest<{ catalog_version: string; payload: unknown }>(`/api/v1/ui/locales/${locale}/catalog/${CATALOG_VERSION}`, { anonymous: true }); if (response.catalog_version !== CATALOG_VERSION) return null; return validatePack(response.payload) } catch { return null } }
-function bundledPack(locale: string): MessagePack | undefined { return bootstrap.includes(locale as BootstrapLocaleCode) ? bootstrapPacks[locale as BootstrapLocaleCode] : undefined }
 
 export function LocalizationProvider({ children }: { children: ReactNode }) {
   const [activeLocales, setActiveLocales] = useState<ActiveLocale[]>(bootstrapMetadata); const activeCodes = activeLocales.map((item) => item.locale_code)
