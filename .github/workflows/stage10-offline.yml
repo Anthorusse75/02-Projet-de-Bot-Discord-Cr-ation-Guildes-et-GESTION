@@ -1,0 +1,116 @@
+name: Stage 10 Offline Acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main, "stage/10-acceptance"]
+
+permissions:
+  contents: read
+
+jobs:
+  stage-10-offline:
+    name: stage-10-offline-${{ matrix.profile }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - security
+          - performance
+          - failure-injection
+          - e2e
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.13.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Start real PostgreSQL and Redis
+        run: docker compose -f compose.test.yaml up -d --wait
+
+      - name: Install Chromium for browser profiles
+        if: matrix.profile == 'performance' || matrix.profile == 'e2e'
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Validate STAGE 10 offline profile
+        env:
+          DID_VALIDATION_ENVIRONMENT: ci-stage10-${{ matrix.profile }}
+          DID_EVIDENCE_RUN_ID: gha-stage10-${{ matrix.profile }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ github.sha }}
+          DID_EVIDENCE_ARTIFACT_ID: stage-10-${{ matrix.profile }}-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+        run: python scripts/validate_stage.py 10 --profile ${{ matrix.profile }}
+
+      - name: Upload Stage 10 offline evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6fb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: stage-10-${{ matrix.profile }}-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: artifacts/test-evidence/
+
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f compose.test.yaml down --volumes
+
+  stage-10-offline-meta:
+    name: stage-10-offline-meta
+    needs: stage-10-offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+
+      - name: Sync locked Python environment
+        run: uv sync --frozen --python 3.13
+
+      - name: Validate Stage 10 orchestration and promotion contracts
+        run: |
+          uv run pytest \
+            backend/tests/unit/test_validate_stage_10.py \
+            backend/tests/unit/test_promote_stage10_live_evidence.py \
+            backend/tests/unit/test_traceability_semantics.py \
+            backend/tests/unit/test_audit_requirements.py \
+            -q
+
+      - name: Regenerate unpromoted traceability baseline
+        run: |
+          python scripts/generate_traceability.py
+          git diff --exit-code -- docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md
+
+      - name: Validate non-live requirement inventory and documentation
+        run: |
+          python scripts/audit_requirements.py
+          python scripts/validate_documentation.py
+          git diff --check
+
+      - name: Explain live gate separation
+        run: |
+          echo "Discord A/B qualification is intentionally not replayed in generic CI."
+          echo "The canonical live-qualified product commit is recorded in STAGE_10_HANDOFF.md."
+          echo "CI validates offline profiles and the fail-closed promotion contracts only."
