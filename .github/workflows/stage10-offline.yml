@@ -57,13 +57,6 @@ jobs:
           DID_EVIDENCE_ARTIFACT_ID: stage-10-${{ matrix.profile }}-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
         run: python scripts/validate_stage.py 10 --profile ${{ matrix.profile }}
 
-      - name: Upload Stage 10 offline evidence
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6fb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: stage-10-${{ matrix.profile }}-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: artifacts/test-evidence/
-
       - name: Stop test infrastructure
         if: always()
         run: docker compose -f compose.test.yaml down --volumes
