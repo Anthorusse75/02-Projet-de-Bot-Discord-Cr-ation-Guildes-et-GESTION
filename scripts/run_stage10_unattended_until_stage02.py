@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-import sys
+import json
+from dataclasses import asdict
 from datetime import UTC, datetime
+from pathlib import Path
 
 import validate_stage as validation
 
 
-def _live_step(*, label: str, script: str, evidence_directory, timeout: int = 3600):
+def _live_step(
+    *,
+    label: str,
+    script: str,
+    evidence_directory: Path,
+    timeout: int = 3600,
+) -> validation.Step:
     uv = validation.executable("uv")
     return validation.Step(
         f"Stage 10 Discord live A/B matrix — Stage {label}",
@@ -24,11 +32,46 @@ def _live_step(*, label: str, script: str, evidence_directory, timeout: int = 36
     )
 
 
+def _write_progress(
+    *,
+    evidence_directory: Path,
+    commit: str,
+    run_id: str,
+    started_at: datetime,
+    status: str,
+    results: list[validation.Result],
+) -> Path:
+    path = evidence_directory / "stage10-unattended-progress.json"
+    payload = {
+        "schema_version": 1,
+        "status": status,
+        "commit": commit,
+        "run_id": run_id,
+        "started_at": started_at.isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "evidence_directory": f"stage-10/{run_id}",
+        "completed_results": [asdict(result) for result in results],
+        "next_action": (
+            "Run interactive Stage 02 later against this exact evidence directory, "
+            "then promote the eight-report live closure."
+        ),
+        "secrets_recorded": False,
+        "discord_identifiers_recorded": False,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def main() -> int:
     started_at = datetime.now(UTC)
     commit = validation.tested_commit()
     dirty = validation.repository_dirty()
+    if dirty:
+        print("Refusing unattended Stage 10 from a dirty working tree.")
+        return 2
+
     environment = validation.evidence_environment()
+    del environment
     run_id = validation.evidence_run_id(commit=commit, started_at=started_at)
     try:
         evidence_directory = validation.create_evidence_directory(stage="10", run_id=run_id)
@@ -36,8 +79,6 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-10/{run_id}")
         return 2
 
-    # Run the canonical Stage 10 non-live work, but deliberately defer strict
-    # closure until the live matrix has been promoted.
     base_steps = tuple(
         step
         for step in validation.stage_10(
@@ -50,114 +91,83 @@ def main() -> int:
         if step.name != "STAGE 10 requirement audit (strict closure)"
     )
 
-    # The live stages that depend on the bot retaining its current sandbox
-    # capabilities run BEFORE destructive Stage 02. Stage 02 is intentionally
-    # deferred until the operator is back, so its uninstall/reinstall cannot
-    # break later live qualification stages.
     automatic_live_steps = (
-        _live_step(label="03", script="scripts/validate_discord_live_stage03.py", evidence_directory=evidence_directory),
-        _live_step(label="04", script="scripts/validate_discord_live_stage04.py", evidence_directory=evidence_directory),
-        _live_step(label="05", script="scripts/validate_discord_live_stage05.py", evidence_directory=evidence_directory),
-        _live_step(label="06", script="scripts/validate_discord_live_stage06.py", evidence_directory=evidence_directory),
-        _live_step(label="08", script="scripts/validate_discord_live_stage08.py", evidence_directory=evidence_directory),
-        _live_step(label="09-primitives", script="scripts/validate_discord_live_stage09.py", evidence_directory=evidence_directory),
-        _live_step(label="09-full-chain", script="scripts/validate_discord_live_stage09_full_chain.py", evidence_directory=evidence_directory),
-    )
-
-    manual_stage02 = _live_step(
-        label="02",
-        script="scripts/validate_discord_live_stage02.py",
-        evidence_directory=evidence_directory,
-        timeout=3600,
-    )
-
-    aggregate = evidence_directory / "stage10-discord-live-closure.json"
-    final_steps = (
-        validation.Step(
-            "Stage 10 Discord live A/B evidence promotion",
-            (
-                sys.executable,
-                "scripts/promote_stage10_live_evidence.py",
-                "--evidence-directory",
-                validation.relative_path(evidence_directory),
-                "--expected-commit",
-                commit,
-                "--expected-run-id",
-                run_id,
-            ),
+        _live_step(
+            label="03",
+            script="scripts/validate_discord_live_stage03.py",
+            evidence_directory=evidence_directory,
         ),
-        validation.Step(
-            "Stage 10 traceability regeneration from validated live evidence",
-            (
-                sys.executable,
-                "scripts/generate_traceability.py",
-                "--stage10-live-closure",
-                validation.relative_path(aggregate),
-                "--expected-commit",
-                commit,
-                "--expected-run-id",
-                run_id,
-            ),
+        _live_step(
+            label="04",
+            script="scripts/validate_discord_live_stage04.py",
+            evidence_directory=evidence_directory,
         ),
-        validation.Step(
-            "Stage 10 promoted traceability documentation validation",
-            (sys.executable, "scripts/validate_documentation.py"),
+        _live_step(
+            label="05",
+            script="scripts/validate_discord_live_stage05.py",
+            evidence_directory=evidence_directory,
         ),
-        validation.Step(
-            "STAGE 10 requirement audit (strict closure)",
-            (sys.executable, "scripts/audit_requirements.py", "--strict-closure"),
+        _live_step(
+            label="06",
+            script="scripts/validate_discord_live_stage06.py",
+            evidence_directory=evidence_directory,
+        ),
+        _live_step(
+            label="08",
+            script="scripts/validate_discord_live_stage08.py",
+            evidence_directory=evidence_directory,
+        ),
+        _live_step(
+            label="09-primitives",
+            script="scripts/validate_discord_live_stage09.py",
+            evidence_directory=evidence_directory,
+        ),
+        _live_step(
+            label="09-full-chain",
+            script="scripts/validate_discord_live_stage09_full_chain.py",
+            evidence_directory=evidence_directory,
         ),
     )
 
-    steps = base_steps + automatic_live_steps + (manual_stage02,) + final_steps
+    steps = (*base_steps, *automatic_live_steps)
     results: list[validation.Result] = []
-
-    for step in base_steps + automatic_live_steps:
+    for step in steps:
         result = validation.run_step(step)
         results.append(result)
         print(f"[{result.status}] {result.name} ({result.duration_seconds:.3f}s)", flush=True)
         if result.status != "PASS":
-            break
+            progress = _write_progress(
+                evidence_directory=evidence_directory,
+                commit=commit,
+                run_id=run_id,
+                started_at=started_at,
+                status="FAILED_BEFORE_STAGE02",
+                results=results,
+            )
+            print(
+                "\nStage 10 unattended phase: FAIL — progress: "
+                f"{validation.relative_path(progress)}"
+            )
+            return 1
 
-    if len(results) == len(base_steps) + len(automatic_live_steps) and all(
-        result.status == "PASS" for result in results
-    ):
-        print("\n" + "=" * 78)
-        print("AUTOMATIC PHASE COMPLETE — YOU CAN BE AWAY AS LONG AS NEEDED")
-        print("All long/non-interactive Stage 10 work and live Stages 03/04/05/06/08/09 are done.")
-        print("When you are back at the computer, press ENTER to start the only interactive Stage 02.")
-        print("The process waits here indefinitely; there is no Stage 02 timeout while you are away.")
-        print("=" * 78, flush=True)
-        try:
-            input()
-        except (EOFError, KeyboardInterrupt):
-            print("Interactive Stage 02 was not started; existing evidence is preserved.")
-            return 130
-
-        for step in (manual_stage02,) + final_steps:
-            result = validation.run_step(step)
-            results.append(result)
-            print(f"[{result.status}] {result.name} ({result.duration_seconds:.3f}s)", flush=True)
-            if result.status != "PASS":
-                break
-
-    summary = validation.write_summary(
-        stage="10",
-        definition=validation.STAGES["10"],
-        steps=steps,
-        results=results,
+    progress = _write_progress(
+        evidence_directory=evidence_directory,
         commit=commit,
-        dirty=dirty,
-        environment=environment,
         run_id=run_id,
         started_at=started_at,
-        evidence_directory=evidence_directory,
-        include_discord_live=True,
-        profile="default",
+        status="AWAITING_STAGE02",
+        results=results,
     )
-    summary_path = validation.relative_path(evidence_directory / "summary.json")
-    print(f"\nStage 10 deferred-interactive run: {summary['result']} — summary: {summary_path}")
-    return 0 if summary["result"] == "PASS" else 1
+    evidence_path = validation.relative_path(evidence_directory)
+    print("\n" + "=" * 78)
+    print("UNATTENDED PHASE COMPLETE")
+    print("All long work and live Stages 03/04/05/06/08/09 completed successfully.")
+    print("Interactive Stage 02 was deliberately NOT started and can be done later.")
+    print(f"Preserved evidence directory: {evidence_path}")
+    print(f"Progress file: {validation.relative_path(progress)}")
+    print("You can safely leave the computer unattended; this process is finished.")
+    print("=" * 78)
+    return 0
 
 
 if __name__ == "__main__":
