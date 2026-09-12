@@ -1050,6 +1050,9 @@ def stage_10(
     evidence_directory: Path,
     include_discord_live: bool = False,
     profile: str = "default",
+    *,
+    expected_commit: str | None = None,
+    expected_run_id: str | None = None,
 ) -> tuple[Step, ...]:
     uv = executable("uv")
     python = sys.executable
@@ -1253,6 +1256,12 @@ def stage_10(
     ]
     base_steps.append(
         Step(
+            "STAGE 10 traceability baseline regeneration (no live promotion)",
+            (python, "scripts/generate_traceability.py"),
+        )
+    )
+    base_steps.append(
+        Step(
             "STAGE 10 requirement audit (normal mode)",
             (python, "scripts/audit_requirements.py"),
         )
@@ -1439,6 +1448,43 @@ def stage_10(
                     environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
                 )
             )
+        qualified_commit = expected_commit or tested_commit()
+        qualified_run_id = expected_run_id or evidence_directory.name
+        aggregate = evidence_directory / "stage10-discord-live-closure.json"
+        base_steps.extend(
+            (
+                Step(
+                    "Stage 10 Discord live A/B evidence promotion",
+                    (
+                        python,
+                        "scripts/promote_stage10_live_evidence.py",
+                        "--evidence-directory",
+                        relative_path(evidence_directory),
+                        "--expected-commit",
+                        qualified_commit,
+                        "--expected-run-id",
+                        qualified_run_id,
+                    ),
+                ),
+                Step(
+                    "Stage 10 traceability regeneration from validated live evidence",
+                    (
+                        python,
+                        "scripts/generate_traceability.py",
+                        "--stage10-live-closure",
+                        relative_path(aggregate),
+                        "--expected-commit",
+                        qualified_commit,
+                        "--expected-run-id",
+                        qualified_run_id,
+                    ),
+                ),
+                Step(
+                    "Stage 10 promoted traceability documentation validation",
+                    (python, "scripts/validate_documentation.py"),
+                ),
+            )
+        )
     base_steps.append(
         Step(
             "STAGE 10 requirement audit (strict closure)",
@@ -1776,7 +1822,18 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
+    if stage == "10":
+        steps = stage_10(
+            evidence_directory,
+            arguments.include_discord_live,
+            arguments.profile,
+            expected_commit=commit,
+            expected_run_id=run_id,
+        )
+    else:
+        steps = definition.steps(
+            evidence_directory, arguments.include_discord_live, arguments.profile
+        )
     results: list[Result] = []
     for step in steps:
         result = run_step(step)

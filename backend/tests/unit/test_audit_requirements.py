@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from backend.tests.unit.stage10_live_evidence_helpers import create_valid_closure
 from scripts import audit_requirements as audit
+from scripts import generate_traceability
 
 SPEC_HEADER = "# Some preamble\n\n# 53. Registre normatif des exigences\n\n"
 
@@ -325,6 +327,23 @@ class TestStrictClosure:
 
         must_not_closed, should_not_closed = audit.strict_failures(report)
 
+        assert must_not_closed == []
+        assert should_not_closed == []
+
+    def test_strict_closure_passes_for_validated_stage10_live_promotion(self, tmp_path) -> None:
+        _, commit, run_id, aggregate = create_valid_closure(tmp_path)
+        traceability = generate_traceability.render(
+            stage10_live_closure=aggregate,
+            expected_commit=commit,
+            expected_run_id=run_id,
+        )
+        source = audit.parse_source_registry(audit.SPEC.read_text(encoding="utf-8-sig"))
+        trace = audit.parse_traceability_table(traceability)
+        report = audit.build_report(source, trace)
+
+        must_not_closed, should_not_closed = audit.strict_failures(report)
+
+        assert report.structural_errors == ()
         assert must_not_closed == []
         assert should_not_closed == []
 

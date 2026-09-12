@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from argparse import ArgumentParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -910,7 +911,7 @@ STAGE10_REQUIREMENT_PROGRESS = {
     ),
     "REQ-TEST-003": (
         "IMPLEMENTED",
-        "BLOCKED_EXTERNAL_LIVE_CREDENTIALS: prior Stage02/08/09 A/B evidence exists, but the current Stage10 two-Guild probe fails PermissionError before any check; docs/20_testing/STAGE_10_DISCORD_LIVE_STATUS.md",
+        "Stage10 requires an explicitly validated current-run aggregate of all eight Discord A/B live reports; no valid aggregate was supplied to this render",
     ),
     "REQ-TEST-004": (
         "IMPLEMENTED",
@@ -941,9 +942,54 @@ def escape_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()
 
 
-def render() -> str:
+def requirement_progress(
+    *,
+    stage10_live_closure: Path | None = None,
+    expected_commit: str | None = None,
+    expected_run_id: str | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Return a per-render mapping, promoting live closure only from valid proof."""
+
+    progress = dict(REQUIREMENT_PROGRESS)
+    if stage10_live_closure is None:
+        if expected_commit is not None or expected_run_id is not None:
+            raise ValueError("commit/run arguments require an explicit Stage 10 live proof")
+        return progress
+    if expected_commit is None or expected_run_id is None:
+        raise ValueError("an explicit Stage 10 live proof requires its commit and run id")
+
+    if __package__:
+        from scripts.promote_stage10_live_evidence import validate_aggregate_proof
+    else:
+        from promote_stage10_live_evidence import validate_aggregate_proof
+
+    closure = validate_aggregate_proof(
+        stage10_live_closure,
+        expected_commit=expected_commit,
+        expected_run_id=expected_run_id,
+    )
+    progress["REQ-TEST-003"] = (
+        "VERIFIED",
+        "Stage10 Discord A/B live closure validated from "
+        f"stage-10/{closure.run_id}/stage10-discord-live-closure.json; "
+        f"eight reports on commit {closure.commit}",
+    )
+    return progress
+
+
+def render(
+    *,
+    stage10_live_closure: Path | None = None,
+    expected_commit: str | None = None,
+    expected_run_id: str | None = None,
+) -> str:
     requirements = extract_requirements()
     adrs = extract_adrs()
+    progress = requirement_progress(
+        stage10_live_closure=stage10_live_closure,
+        expected_commit=expected_commit,
+        expected_run_id=expected_run_id,
+    )
     lines = [
         "# Traçabilité des exigences",
         "",
@@ -961,7 +1007,7 @@ def render() -> str:
             raise ValueError(f"Duplicate requirement in source registry: {req_id}")
         seen.add(req_id)
         primary, secondary = stage_for(req_id)
-        state, proof = REQUIREMENT_PROGRESS.get(req_id, ("PLANNED", "À renseigner lors de l’étape"))
+        state, proof = progress.get(req_id, ("PLANNED", "À renseigner lors de l’étape"))
         lines.append(
             f"| {req_id} | {escape_cell(summary)} | {modality} | {primary} | {secondary} | "
             f"{tests_for(req_id)} | {state} | {proof} |"
@@ -989,8 +1035,25 @@ def render() -> str:
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
-    OUTPUT.write_text(render(), encoding="utf-8", newline="\n")
-    print(
-        f"Wrote {OUTPUT.relative_to(ROOT)} with {len(extract_requirements())} requirements and {len(extract_adrs())} ADRs"
+def main(argv: list[str] | None = None) -> int:
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument("--stage10-live-closure", type=Path)
+    parser.add_argument("--expected-commit")
+    parser.add_argument("--expected-run-id")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    arguments = parser.parse_args(argv)
+    content = render(
+        stage10_live_closure=arguments.stage10_live_closure,
+        expected_commit=arguments.expected_commit,
+        expected_run_id=arguments.expected_run_id,
     )
+    arguments.output.write_text(content, encoding="utf-8", newline="\n")
+    print(
+        f"Wrote {arguments.output} with {len(extract_requirements())} requirements "
+        f"and {len(extract_adrs())} ADRs"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

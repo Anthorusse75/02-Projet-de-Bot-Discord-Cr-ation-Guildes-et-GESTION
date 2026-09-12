@@ -101,10 +101,44 @@ class TestStage10ProfileStepLists:
             Path("evidence"), include_discord_live=True, profile="default"
         )
 
-        assert not any("Discord live" in step.name for step in without_live)
-        live_steps = [step for step in with_live if "Discord live" in step.name]
+        assert not any("evidence promotion" in step.name for step in without_live)
+        assert not any("validated live evidence" in step.name for step in without_live)
+        live_steps = [
+            step for step in with_live if step.name.startswith("Stage 10 Discord live A/B matrix")
+        ]
         assert len(live_steps) == 8
         assert all("_stage10_missing_gate.py" not in " ".join(step.command) for step in live_steps)
+
+    def test_live_promotion_and_traceability_precede_strict_closure(self) -> None:
+        steps = validate_stage.stage_10(
+            Path("evidence/current-run"),
+            include_discord_live=True,
+            profile="default",
+            expected_commit="a" * 40,
+            expected_run_id="current-run",
+        )
+        names = [step.name for step in steps]
+
+        tail = names[names.index("Stage 10 Discord live A/B matrix — Stage 09-full-chain") :]
+        assert tail == [
+            "Stage 10 Discord live A/B matrix — Stage 09-full-chain",
+            "Stage 10 Discord live A/B evidence promotion",
+            "Stage 10 traceability regeneration from validated live evidence",
+            "Stage 10 promoted traceability documentation validation",
+            "STAGE 10 requirement audit (strict closure)",
+        ]
+        assert "--expected-commit" in steps[-4].command
+        assert "--expected-run-id" in steps[-4].command
+
+    def test_offline_stage10_has_no_promotion_or_promoted_regeneration(self) -> None:
+        steps = validate_stage.stage_10(
+            Path("evidence/current-run"), include_discord_live=False, profile="default"
+        )
+        commands = [" ".join(step.command) for step in steps]
+
+        assert commands.count(f"{sys.executable} scripts/generate_traceability.py") == 1
+        assert not any("promote_stage10_live_evidence.py" in command for command in commands)
+        assert not any("--stage10-live-closure" in command for command in commands)
 
     def test_security_profile_runs_real_backend_and_supply_chain_gates(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="security")

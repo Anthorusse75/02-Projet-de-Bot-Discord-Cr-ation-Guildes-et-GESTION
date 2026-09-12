@@ -81,9 +81,22 @@ CLEANUP_STATEMENTS = (
     "DELETE FROM translation_channel_variants WHERE guild_id = ANY(:guilds)",
     "DELETE FROM translation_category_variants WHERE guild_id = ANY(:guilds)",
     "DELETE FROM translation_channel_groups WHERE guild_id = ANY(:guilds)",
+    # Stage 08 standalone qualification persists routes that reference
+    # translation_group_languages through a RESTRICT foreign key.  A
+    # contiguous Stage 08 -> Stage 09 run must therefore remove routes
+    # before their language endpoints.
+    "DELETE FROM translation_routes WHERE guild_id = ANY(:guilds)",
     "DELETE FROM translation_group_languages WHERE guild_id = ANY(:guilds)",
     "DELETE FROM translation_groups WHERE guild_id = ANY(:guilds)",
     "DELETE FROM translation_provider_bindings WHERE guild_id = ANY(:guilds)",
+    # These Stage 08 rows can survive the live topology validator.  In
+    # particular resource_language_policies uses composite SET NULL foreign
+    # keys whose guild_id component is NOT NULL, so deleting its referenced
+    # language/scope first raises instead of cleaning it implicitly.
+    "DELETE FROM resource_language_policies WHERE guild_id = ANY(:guilds)",
+    "DELETE FROM visibility_scope_language_roles WHERE guild_id = ANY(:guilds)",
+    "DELETE FROM member_visible_languages WHERE guild_id = ANY(:guilds)",
+    "DELETE FROM visibility_scopes WHERE guild_id = ANY(:guilds)",
     "DELETE FROM language_profiles WHERE guild_id = ANY(:guilds)",
     "DELETE FROM discord_member_authorization_cache WHERE guild_id = ANY(:guilds)",
     "DELETE FROM discord_channels_cache WHERE guild_id = ANY(:guilds)",
@@ -96,6 +109,12 @@ CLEANUP_STATEMENTS = (
 
 async def _reset(admin_engine: Any, guild_a: int, guild_b: int) -> None:
     async with admin_engine.begin() as connection:
+        # Deleting a disposable sandbox installation is an explicit tenant
+        # purge.  Keep the Stage 05 append-only snapshot guard intact and use
+        # the same transaction-local escape hatch as AuthRepository.delete_tenant().
+        await connection.execute(
+            text("SELECT set_config('app.tenant_purge_in_progress', 'on', true)")
+        )
         for statement in CLEANUP_STATEMENTS:
             await connection.execute(
                 text(statement), {"guilds": [guild_a, guild_b], "owner": OWNER}
