@@ -101,6 +101,77 @@ def test_stage05_and_stage06_keep_pass_status_with_exact_approved_limitations(
     promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
 
 
+def test_clean_sandbox_hygiene_counters_may_be_zero(tmp_path: Path) -> None:
+    directory, commit, run_id = write_valid_reports(tmp_path)
+
+    stage05 = read_report(directory, "discord-live-05.json")
+    stage05_counts = stage05["counts"]
+    assert isinstance(stage05_counts, dict)
+    for field in (
+        "abandoned_fixture_jobs_resumed",
+        "terminal_fixture_jobs_acknowledged",
+        "preexisting_fixtures_cleaned",
+    ):
+        stage05_counts[field] = 0
+    write_report(directory, "discord-live-05.json", stage05)
+
+    stage06 = read_report(directory, "discord-live-06.json")
+    stage06_counts = stage06["counts"]
+    assert isinstance(stage06_counts, dict)
+    stage06_counts["resumed_portability_jobs"] = 0
+    write_report(directory, "discord-live-06.json", stage06)
+
+    promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
+
+
+@pytest.mark.parametrize(
+    ("report_name", "field"),
+    [
+        ("discord-live-05.json", "abandoned_fixture_jobs_resumed"),
+        ("discord-live-05.json", "terminal_fixture_jobs_acknowledged"),
+        ("discord-live-05.json", "preexisting_fixtures_cleaned"),
+        ("discord-live-06.json", "resumed_portability_jobs"),
+    ],
+)
+def test_hygiene_counters_reject_negative_values(
+    tmp_path: Path,
+    report_name: str,
+    field: str,
+) -> None:
+    directory, commit, run_id = write_valid_reports(tmp_path)
+    report = read_report(directory, report_name)
+    counts = report["counts"]
+    assert isinstance(counts, dict)
+    counts[field] = -1
+    write_report(directory, report_name, report)
+
+    with pytest.raises(promotion.PromotionError, match="negative Stage"):
+        promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
+
+
+@pytest.mark.parametrize(
+    ("report_name", "field"),
+    [
+        ("discord-live-05.json", "plans_succeeded"),
+        ("discord-live-06.json", "source_fixture_resources"),
+    ],
+)
+def test_required_stage05_stage06_proof_counters_still_require_positive_values(
+    tmp_path: Path,
+    report_name: str,
+    field: str,
+) -> None:
+    directory, commit, run_id = write_valid_reports(tmp_path)
+    report = read_report(directory, report_name)
+    counts = report["counts"]
+    assert isinstance(counts, dict)
+    counts[field] = 0
+    write_report(directory, report_name, report)
+
+    with pytest.raises(promotion.PromotionError, match="non-positive"):
+        promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
+
+
 def test_recorded_secret_is_rejected(tmp_path: Path) -> None:
     directory, commit, run_id = write_valid_reports(tmp_path)
     report = read_report(directory, "discord-live-03.json")

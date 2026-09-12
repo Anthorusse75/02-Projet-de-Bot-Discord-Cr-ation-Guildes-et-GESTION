@@ -450,9 +450,18 @@ def _validate_counters(stage: str, payload: dict[str, Any], *, name: str) -> Non
             "preexisting_fixtures_cleaned",
         }
         _require(set(counts) == expected, f"incomplete Stage 05 counters in {name}")
+        hygiene = {
+            "abandoned_fixture_jobs_resumed",
+            "terminal_fixture_jobs_acknowledged",
+            "preexisting_fixtures_cleaned",
+        }
         _require(
-            all(counts[key] > 0 for key in expected - {"preexisting_fixtures_cleaned"}),
+            all(counts[key] > 0 for key in expected - hygiene),
             f"non-positive Stage 05 proof counter in {name}",
+        )
+        _require(
+            all(counts[key] >= 0 for key in hygiene),
+            f"negative Stage 05 hygiene counter in {name}",
         )
         _require(
             counts["create_calls_at_crash_recovery"] == 1,
@@ -487,10 +496,19 @@ def _validate_counters(stage: str, payload: dict[str, Any], *, name: str) -> Non
             and counts["source_read_after_export"] == 0,
             f"source isolation failed in {name}",
         )
-        positive = expected - {"source_mutations_during_clone", "source_read_after_export"}
+        zero_allowed = {
+            "source_mutations_during_clone",
+            "source_read_after_export",
+            "resumed_portability_jobs",
+        }
+        positive = expected - zero_allowed
         _require(
             all(counts[key] > 0 for key in positive),
             f"non-positive Stage 06 proof counter in {name}",
+        )
+        _require(
+            counts["resumed_portability_jobs"] >= 0,
+            f"negative Stage 06 resumed-job counter in {name}",
         )
         _require(counts["artifacts_purged"] == 2, f"Stage 06 artifacts were not purged in {name}")
     elif stage == "08":
