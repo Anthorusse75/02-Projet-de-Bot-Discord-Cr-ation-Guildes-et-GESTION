@@ -1,294 +1,350 @@
 # Phase 1 — Audit de conformité et baseline exécutable
 
-Statut : **EN COURS**  
+Statut : **TERMINÉE**  
 Branche : `ui/complete-redesign`  
 Référence visuelle : `SCREENSHOTS_ESQUISSE/Esquisse 1.png`
 
-## 1. Règle d'audit
+## 1. Livrables Phase 1
 
-Les documents suivants sont la source de vérité :
+La Phase 1 produit désormais quatre références de travail :
+
+- `SCREENSHOTS_ESQUISSE/UI_REDESIGN_PHASES.md` — plan des 9 phases et politique de tests use-case ;
+- `SCREENSHOTS_ESQUISSE/PHASE_01_REQUIREMENTS_MATRIX.md` — conformité `docs/00_reference` par famille d'exigences et phase propriétaire ;
+- `SCREENSHOTS_ESQUISSE/PHASE_01_ROUTE_USECASE_MAP.md` — audit de chaque route/écran existant ;
+- `SCREENSHOTS_ESQUISSE/PHASE_01_DEFECT_REGISTER.md` — P0/P1/P2, cause ou investigation, phase et preuve de fermeture.
+
+Les documents normatifs restent exclusivement :
 
 - `docs/00_reference/01_SPECIFICATIONS_FONCTIONNELLES_DISCORD_INFRA_DESIGNER.md`
 - `docs/00_reference/02_ARCHITECTURE_TECHNIQUE_DISCORD_INFRA_DESIGNER.md`
 
-Le fichier `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` est traité comme une **trace historique à ré-auditer**, pas comme une preuve suffisante en soi.
-
-Une exigence UI/use case ne sera considérée conforme que si l'implémentation et un parcours réel ou un E2E pertinent démontrent le comportement attendu.
-
-## 2. Inventaire frontend actuel
-
-Routes actuellement exposées par `frontend/src/app/App.tsx` :
-
-- `/login`
-- `/guilds`
-- `/guild/:guildId/structure`
-- `/guild/:guildId/roles`
-- `/guild/:guildId/permissions`
-- `/guild/:guildId/plans`
-- `/guild/:guildId/diagnostics`
-- `/guild/:guildId/audit`
-- `/guild/:guildId/templates`
-- `/guild/:guildId/library`
-- `/guild/:guildId/clone`
-- `/guild/:guildId/translations`
-- `/guild/:guildId/campaigns`
-
-Les surfaces existent donc, mais leur existence ne vaut pas conformité fonctionnelle.
-
-## 3. Écarts critiques déjà confirmés
-
-### P0-001 — Première découverte des Guilds cassée dans le parcours réel
-
-**Référence** : spécifications §5, notamment assistant de première configuration.  
-**Constat réel** : après OAuth sur une base neuve, les Guilds A/B n'apparaissaient pas. Il a fallu exécuter un script manuel pour créer/activer les `guild_installations`.
-
-**Relecture code importante** : le runtime possède bien un chemin automatique prévu. `DiscordGatewayClient.on_socket_response()` ingère les dispatches Gateway ; `RuntimeRepository.ingest_gateway_event()` traite `GUILD_CREATE`, crée/actualise `guild_installations` en `PENDING_SETUP`, puis `_project_guild_create()` projette catégories/salons/threads/rôles. L'absence d'un appel à `record_detected()` dans `on_ready()` n'est donc **pas** à elle seule la cause du défaut.
-
-**Conclusion actuelle** : le mécanisme existe dans le code mais **n'a pas produit le résultat attendu lors du lancement réel**. La cause exacte doit être reproduite avec les logs du process bot : dispatch `GUILD_CREATE` non reçu, normalisation rejetée, transaction/projection en échec, identité bot non liée, ou autre erreur runtime.
-
-**Impact** : le parcours `installation bot -> découverte -> PENDING_SETUP` n'est pas fiable dans les conditions réellement testées.
-
-**Statut** : NON CONFORME EN PRATIQUE / CAUSE RACINE À ISOLER — Phase 1.
+`docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` reste une trace historique utile, mais **un statut historique VERIFIED n'est plus une preuve produit suffisante**.
 
 ---
 
-### P0-002 — Assistant de première configuration absent de l'UI
+## 2. Conclusion générale
 
-**Référence** : spécifications §5.4. L'assistant doit vérifier bot, configurateur, owner/ADMINISTRATOR, permissions bot, importer la structure, effectuer un audit initial, présenter les limitations, configurer le dashboard puis activer le tenant.
+Le constat Phase 1 n'est pas « le projet ne contient rien ». Au contraire : le backend et certains écrans contiennent beaucoup de logique utile.
 
-**Constat code** : `GuildSelectPage.tsx` affiche un badge `pending` mais ne propose qu'une action de sélection. Il n'existe pas de parcours visuel complet d'onboarding dans cette page.
-
-**Impact** : même lorsqu'une installation existe en `PENDING_SETUP`, le produit n'accompagne pas l'utilisateur dans le bootstrap prévu par la référence.
-
-**Statut** : NON CONFORME — correction obligatoire Phase 2.
-
----
-
-### P0-003 — Structure réelle non disponible dans le parcours testé
-
-**Référence** : REQ-STR-001 et §8 : arborescence fidèle catégories/salons/threads.
-
-**Constat réel** : après création/activation manuelle des installations A/B, l'écran Structure affichait `Aucune catégorie ou salon visible` sur un serveur Discord qui contient pourtant une structure réelle.
-
-**Relecture code** : `_project_guild_create()` sait projeter directement `channels`, `threads` et `roles` du dispatch initial. L'absence de structure est donc probablement liée au même défaut de chaîne Gateway observé pour P0-001, ou à un échec ultérieur de lecture/projection. Le worker n'est pas requis pour cette projection initiale : elle est faite dans `RuntimeRepository.ingest_gateway_event()`.
-
-**Impact** : le cœur du produit n'est pas exploitable dans le parcours réel actuel.
-
-**Statut** : NON CONFORME / cause racine à isoler en Phase 1.
-
----
-
-### P0-004 — Erreurs serveur sur parcours réel
-
-Erreurs observées dans le navigateur :
-
-- `GET /api/v1/guilds` -> HTTP 500 ;
-- `GET /api/v1/guilds/{guild_id}/audit` -> HTTP 500 ;
-- WebSocket `/ws/v1/guilds/{guild_id}` -> échec/reconnexion en boucle.
-
-**Impact** : navigation non fiable et bruit permanent côté navigateur.
-
-**Action Phase 1** : reproduire chaque erreur, capturer le traceback backend, corriger la cause racine avant de considérer les écrans concernés fonctionnels.
-
-**Statut** : NON CONFORME — P0.
-
----
-
-### P0-005 — Lancement local non cohérent avec l'OAuth et l'API
-
-**Référence architecture** : environnement de développement simple Windows 11, frontend React, API/Bot/Worker/Scheduler en processus séparés mais orchestrables proprement.
-
-**Constat code** : `frontend/vite.config.ts` contient seulement le plugin React et aucun proxy `/api`, `/auth`, `/ws`. Le frontend appelle pourtant les API sur des chemins relatifs.
-
-**Constat réel** : il a fallu créer manuellement un `vite.local.config.ts` temporaire pour lancer l'UI sur `localhost:8000` et proxyfier FastAPI sur `127.0.0.1:8001`.
-
-**Impact** : le dépôt n'offre pas actuellement un parcours de développement local reproductible sans bricolage.
-
-**Statut** : NON CONFORME — correction Phase 2.
-
----
-
-### P1-001 — Architecture Drag & Drop non conforme à la pile cible
-
-**Référence architecture §3.4** : `dnd-kit` pour le drag & drop ; Radix UI / shadcn/ui ou primitives accessibles similaires.
-
-**Constat package** : `frontend/package.json` n'inclut ni `dnd-kit`, ni Radix/shadcn.
-
-**Constat code** : `StructureScreen.tsx` repose sur un `PointerGestureManager` maison et des calculs `document.elementFromPoint(...)`.
-
-**Impact** : la sémantique de drag existe partiellement, mais la qualité visuelle, les overlays, les drop zones, les interactions clavier et la maintenabilité ne correspondent pas à la direction produit validée.
-
-**Statut** : PARTIEL / NON CONFORME TECHNIQUEMENT — migration Phase 3.
-
----
-
-### P1-002 — UI actuelle rejetée et non conforme à l'objectif produit
-
-**Référence §1** : plateforme d'administration visuelle destinée à `simplifier radicalement` la création, restructuration et exploitation de serveurs Discord complexes.
-
-**Constat réel** : interface rejetée visuellement ; alignements et chevauchements observés ; hiérarchie pauvre ; faible affordance ; très loin de l'expérience explorateur/desktop souhaitée.
-
-**Décision produit** : l'UI actuelle n'est pas conservée comme direction graphique. `Esquisse 1.png` devient la référence visuelle de la branche.
-
-**Statut** : NON CONFORME VISUELLEMENT — refonte complète Phases 2 à 8.
-
----
-
-### P1-003 — Portabilité exposée alors que le runtime local n'est pas configuré
-
-**Constat réel** :
-
-- `/api/v1/guilds/{guild_id}/templates` -> 503 ;
-- `/api/v1/me/portable-artifacts` -> 503.
-
-**Cause code connue** : la couche portability lève `PORTABILITY_NOT_CONFIGURED` si la clé de chiffrement artifact n'est pas configurée.
-
-**Impact** : l'UI expose des fonctions qui semblent cassées au lieu de guider l'utilisateur ou de garantir la configuration requise au démarrage.
-
-**Statut** : NON CONFORME AU PARCOURS PRODUIT — correction Phase 6, prérequis de configuration Phase 2.
-
----
-
-### P1-004 — Les tests historiques ont court-circuité certains use cases
-
-**Constat** : plusieurs tests d'intégration créent directement les installations ou préparent des états backend avant de tester le reste du parcours.
-
-**Impact** : un test peut prouver qu'une brique fonctionne après initialisation sans prouver que le vrai produit sait atteindre cet état depuis une installation vierge.
-
-**Nouvelle règle** : les tests d'acceptance onboarding ne doivent pas appeler directement `record_installation()` / `record_detected()` pour simuler la découverte qui doit être produite par le runtime Gateway.
-
-**Statut** : stratégie de test à remplacer par les use cases définis dans `UI_REDESIGN_PHASES.md`.
-
----
-
-### P1-005 — États WebSocket trop bruyants / non dégradés proprement
-
-`useGuildSocket.ts` reconnecte automatiquement avec backoff. Le comportement est correct comme primitive, mais l'échec réel actuel produit de nombreuses erreurs console et laisse l'UI en `reconnecting`.
-
-**À déterminer** :
-
-- le proxy WS local est-il correct ?
-- l'autorisation STRUCTURE_READ est-elle correcte après bootstrap manuel ?
-- l'abonnement Redis/pubsub est-il disponible ?
-- l'UI doit-elle désactiver/reporter proprement les fonctions live quand le socket est indisponible ?
-
-**Statut** : investigation Phase 1, correction au plus tard Phase 2/3.
-
-## 4. Conformité initiale par domaine
-
-| Domaine | État initial | Commentaire |
-|---|---|---|
-| OAuth | PARTIELLEMENT CONFORME | Flux réel fonctionne après correction d'hôte localhost/127.0.0.1 ; configuration locale à fiabiliser. |
-| Découverte Guild | PRÉVUE DANS LE CODE MAIS CASSÉE/NON PROUVÉE EN LIVE | `GUILD_CREATE` doit créer `PENDING_SETUP`, mais le lancement testé n'a pas produit A/B. |
-| Onboarding | NON CONFORME | Assistant §5.4 absent. |
-| Structure | NON PROUVÉE / CASSÉE EN LIVE | Projection GUILD_CREATE existe mais la structure réelle n'est pas apparue dans le parcours testé. |
-| Drag & Drop | PARTIEL | Sémantique codée, UX non conforme, pile `dnd-kit` absente, live non validé. |
-| Menus contextuels | PARTIEL | ActionRegistry présent ; à revalider dans la nouvelle UI et en use case réel. |
-| Rôles/permissions | À AUDITER | Routes présentes ; conformité simple/expert et mutations réelles à rejouer. |
-| Plans/apply | À AUDITER | Backend avancé, expérience réelle à rejouer depuis l'UI. |
-| Templates/library/clone | NON FONCTIONNEL EN BASELINE LOCALE | 503 observés sans clé artifact. |
-| Traductions | À AUDITER | Route présente, use cases réels non encore rejoués. |
-| Campagnes | À AUDITER | Route présente, use cases réels non encore rejoués. |
-| Audit | CASSÉ EN LIVE | HTTP 500 observé. |
-| Diagnostics | À AUDITER | Route présente ; utilité et exactitude à vérifier. |
-| i18n | PARTIELLEMENT CONFORME | Catalogue présent, mais anomalie d'affichage/encodage observée et qualité visuelle à reprendre. |
-| Layout / responsive | NON CONFORME | Chevauchements observés dans l'UI actuelle. |
-| Lancement dev | NON CONFORME | Proxy et orchestration manuels nécessaires. |
-
-## 5. Use cases de référence à ne plus contourner
-
-### UC-001 — Première utilisation
+Le vrai problème est le suivant :
 
 ```text
-base vierge
--> démarrage normal
--> OAuth
--> liste des Guilds
--> Guild A/B détectées automatiquement
--> choisir Guild
--> onboarding
--> import structure
--> écran principal fonctionnel
+moteurs/backend importants
+        +
+interfaces frontend fonctionnelles par morceaux
+        +
+beaucoup de tests techniques
+        ≠
+produit réellement utilisable de bout en bout
 ```
 
-### UC-002 — Administration structure
+Les défauts observés dans le navigateur prouvent qu'un parcours réel n'a pas été suffisamment utilisé comme gate d'acceptance.
+
+La stratégie retenue est donc :
+
+1. conserver les moteurs/backend qui passent la requalification ;
+2. réparer d'abord le chemin d'exécution réel ;
+3. reconstruire complètement l'expérience visuelle selon `Esquisse 1.png` ;
+4. tester les **use cases**, pas le nombre de tests ;
+5. utiliser A/B comme preuve réelle pour les parcours Discord critiques.
+
+---
+
+## 3. Baseline frontend auditée
+
+Routes actuelles :
 
 ```text
-ouvrir Guild A
--> structure réelle visible
--> sélectionner un salon
--> modifier une propriété
--> preview
--> confirmer
--> mutation Discord
--> vérification
--> reload
--> état identique
+/login
+/guilds
+/guild/:guildId/structure
+/guild/:guildId/roles
+/guild/:guildId/permissions
+/guild/:guildId/plans
+/guild/:guildId/diagnostics
+/guild/:guildId/audit
+/guild/:guildId/templates
+/guild/:guildId/library
+/guild/:guildId/clone
+/guild/:guildId/translations
+/guild/:guildId/campaigns
 ```
 
-### UC-003 — Drag & Drop
+Aucune route n'est déclarée « finie » sur sa seule existence.
+
+### Logique substantielle à préserver derrière une nouvelle UI
+
+- Plans / progression ;
+- ActionRegistry ;
+- Pointer gesture / right-drag ;
+- une partie de Structure ;
+- TranslationWorkspace ;
+- CampaignCenter ;
+- backend cache, planning, portability, permissions, translations/campaigns.
+
+### Écrans trop partiels pour être conservés comme produit final
+
+- GuildSelect / onboarding ;
+- Roles ;
+- Permissions ;
+- Diagnostics ;
+- Audit ;
+- Templates ;
+- Library ;
+- Clone ;
+- shell général.
+
+---
+
+## 4. Défauts bloquants confirmés
+
+### P0-001 — Découverte automatique A/B non fiable
+
+Le code possède bien le chemin :
 
 ```text
-sélectionner salon
--> drag vers catégorie
--> indication visuelle destination
--> preview plan
--> confirmer
--> Discord modifié
--> audit visible
+Discord READY
+ -> GUILD_CREATE
+ -> normalize_gateway_dispatch
+ -> RuntimeRepository.ingest_gateway_event
+ -> guild_installations = PENDING_SETUP
+ -> projection channels / threads / roles
 ```
 
-### UC-004 — Cross-Guild
+Il est donc incorrect de dire que `did.bot` « ne sait pas enregistrer une installation ».
+
+En revanche, **ce chemin n'a pas produit A/B dans l'essai réel**. Le contournement manuel a été nécessaire.
+
+Deux défauts de diagnostic ont aussi été identifiés statiquement :
+
+- `run_process("bot")` ne fail-fast pas si `DISCORD_BOT_TOKEN` est absent ; il peut démarrer sans client Gateway ;
+- un `GatewayContractError` est compté comme rejet mais n'est pas journalisé avec une cause exploitable.
+
+Ces points ne prouvent pas à eux seuls la cause de l'essai A/B, mais expliquent pourquoi le démarrage est difficile à diagnostiquer.
+
+**Phase propriétaire : 2.**
+
+### P0-002 — Onboarding §5.4 absent
+
+L'API `/api/v1/guilds/{guild_id}/bootstrap` existe, mais le frontend ne fournit pas l'assistant imposé par la référence : bot présent, identité, owner/admin, permissions bot, import structure, audit initial, limites, configuration dashboard, activation.
+
+**Phase propriétaire : 2.**
+
+### P0-003 — Structure réelle vide
+
+`_project_guild_create()` sait projeter les ressources, mais l'écran testé a affiché aucune catégorie/salon après le workaround d'installation.
+
+La baseline doit donc prouver :
 
 ```text
-Guild A + Guild B accessibles
--> sélectionner une ressource A
--> drag/copie vers B
--> autorisations source/destination vérifiées
--> snapshot portable
--> preview destination
--> apply B
--> source A inchangée
+GUILD_CREATE reçu
+-> installation créée
+-> cache structure alimenté
+-> /structure retourne les données
+-> explorer les affiche
 ```
 
-### UC-005 — Permissions
+**Phase propriétaire : 2 puis 3.**
+
+### P0-004 — `/api/v1/guilds` HTTP 500
+
+Le code statique ne permet pas d'attribuer honnêtement ce 500 à une cause unique. Le chemin combine OAuth discovery, authorization et repository installation.
+
+**Investigation explicitement obligatoire Phase 2** : reproduction base propre avec correlation id + traceback, puis mapping de toute erreur attendue en Problem Details localisé.
+
+### P0-005 — `/audit` HTTP 500
+
+L'endpoint et le repository existent. `AuthorizationDenied` est déjà pris en charge globalement ; le 500 observé vient donc d'un autre défaut runtime qui doit être capturé lors du scénario réel.
+
+**Phase propriétaire : 2 pour stabilité, 8 pour l'expérience Audit.**
+
+### P0-006 — WebSocket en échec/reconnexion
+
+Le backend :
+
+- ferme 4401 si session absente ;
+- ferme 4403 si `STRUCTURE_READ` est refusé ;
+- accepte ensuite et dépend du pubsub tenant.
+
+Le frontend, lui, ne traite pas le close code : il repasse en `reconnecting` et recommence avec backoff, ce qui produit le bruit vu dans la console.
+
+Le proxy WebSocket officiel manque aussi dans Vite.
+
+**Phase propriétaire : 2.**
+
+### P0-007 — Lancement local officiel incohérent
+
+Le README demande API sur 8000 puis `npm run dev`, mais `vite.config.ts` ne proxy pas `/api`, `/auth`, `/ws`. Le frontend appelle pourtant ces chemins relativement et l'OAuth dépend d'une origine exacte.
+
+Le `vite.local.config.ts` créé manuellement pendant le diagnostic ne peut pas être la solution produit.
+
+**Phase propriétaire : 2.**
+
+---
+
+## 5. Écarts UI fonctionnels importants
+
+### Rôles
+
+`RolesScreen` est une liste en lecture seule. Il n'administre pas réellement les rôles.
+
+**Phase 4.**
+
+### Permissions
+
+`PermissionsScreen` fournit View As/Explain mais exige des IDs Discord bruts et ne propose pas le vrai workflow de mutation simple/expert demandé.
+
+**Phase 4.**
+
+### Plans
+
+Le pipeline est significatif et doit être conservé, mais le diff avant/après, l'impact et les dépendances ne sont pas assez compréhensibles.
+
+**Phase 5.**
+
+### Templates / Bibliothèque / Clone
+
+Les écrans existent mais ne forment pas un parcours utilisateur complet. Le clone demande un ID source brut. Templates/Bibliothèque ont renvoyé 503 lorsque portability n'était pas configurée.
+
+**Phase 6.**
+
+### Traductions
+
+Le substrat est riche et mérite d'être conservé : groupes, variantes, langues, providers, routes, drift, create/link/clone/preview et gestes contextuels.
+
+La présentation et les parcours live doivent être requalifiés.
+
+**Phase 7.**
+
+### Campagnes
+
+Le substrat est également riche : création/édition, targets multi-Guild, scheduling, simulation, variantes, deliveries/interventions.
+
+L'écran actuel est trop dense et doit être reconstruit sans supprimer ces use cases.
+
+**Phase 7.**
+
+### Diagnostics
+
+L'écran ne montre que couverture/fraîcheur alors que le backend possède davantage d'information capability/remediation.
+
+**Phases 2 et 8.**
+
+### Audit
+
+Vue actuelle minimale + endpoint cassé dans le parcours réel.
+
+**Phases 2 et 8.**
+
+---
+
+## 6. Correction importante sur Drag & Drop
+
+La première version de cet audit avait classé le `PointerGestureManager` maison comme non conforme parce que `dnd-kit` n'est pas installé.
+
+Cette conclusion était trop simpliste.
+
+L'architecture de référence §22 demande explicitement :
+
+- Pointer Events comme source de vérité ;
+- un `PointerGestureManager` ;
+- distinction clic droit / Right Drag par seuil ;
+- possibilité d'utiliser `dnd-kit` pour collision/overlay/tri avec un custom sensor/gesture layer.
+
+Donc :
+
+- le `PointerGestureManager` actuel est **aligné avec l'architecture** ;
+- `dnd-kit` reste absent et pourra être ajouté pour améliorer overlay, tri, collision et accessibilité clavier ;
+- le défaut réel est surtout la qualité visuelle, la richesse des drop targets et l'absence de preuve live du use case complet.
+
+**Phase propriétaire : 3.**
+
+---
+
+## 7. Conformités code intéressantes identifiées
+
+Ces éléments ne sont pas « validés produit », mais ils méritent d'être préservés :
+
+- `GlobalContextMenuBoundary` désactive bien le menu contextuel natif globalement ;
+- `ActionRegistry` utilise des `labelKey`/`descriptionKey`/`tooltipKey` et filtre selon type/capabilities ;
+- left/right drag ont un seuil explicite ;
+- les actions structure produisent une preview/intention avant mutation ;
+- cross-Guild copy/clone possède des contrôles source/destination dans l'ActionRegistry ;
+- Plans possède progression et confirmations ;
+- i18n runtime/catalog existe ;
+- cache structure, obfuscation et `includeHiddenDeleted` existent ;
+- TranslationWorkspace et CampaignCenter possèdent un périmètre fonctionnel conséquent.
+
+Le principe est **ne pas jeter la logique correcte uniquement parce que l'ancienne UI est mauvaise**.
+
+---
+
+## 8. Défauts visuels / i18n exacts
+
+L'anomalie vue à l'écran n'est pas un mystérieux encodage : le catalogue FR contient littéralement :
 
 ```text
-sélectionner rôle/membre
--> mode simple
--> comprendre accès
--> changer permission
--> preview
--> apply
--> vérifier permission Discord effective
+Àucun serveur Discord admissible trouvé.
 ```
 
-### UC-006 — Portabilité
+C'est une faute source à corriger.
+
+Les chevauchements/alignements observés sont enregistrés comme défauts du design/layout actuel. Le shell est remplacé au lieu d'être rafistolé.
+
+---
+
+## 9. Politique de tests décidée
+
+On ne repart pas sur « 1000 tests à chaque modification ».
+
+Pour chaque fonctionnalité UI :
 
 ```text
-sauvegarder dans bibliothèque
--> retrouver artifact
--> prévisualiser
--> importer/cloner
--> vérifier résultat
+Use case utilisateur
+ -> navigateur
+ -> backend réel
+ -> Discord réel si mutation
+ -> résultat vérifié
+ -> reload
+ -> E2E ciblé
 ```
 
-## 6. Prochaines investigations Phase 1
+Les tests backend exhaustifs restent là où ils ont de la valeur : permissions critiques, isolation tenant, sécurité, plan engine. Ils ne sont pas relancés pour chaque changement de couleur, spacing ou icône.
 
-Ordre de travail :
+Les Guilds sandbox A/B deviennent la preuve centrale des parcours Discord réels.
 
-1. reproduire la chaîne Gateway réelle et déterminer pourquoi `GUILD_CREATE` n'a pas créé/projeté A/B lors du lancement testé ;
-2. reproduire et expliquer le HTTP 500 `/api/v1/guilds` ;
-3. reproduire et expliquer le HTTP 500 `/audit` ;
-4. valider la cause du WebSocket ;
-5. inventorier chaque exigence UI/UX de `docs/00_reference` et la mapper à une phase ;
-6. auditer chaque route frontend existante afin de décider : conserver logique / réécrire UI / corriger backend ;
-7. terminer la matrice de conformité avant le démarrage de la Phase 2.
+---
 
-## 7. Politique de défauts
+## 10. Gate de sortie Phase 1
 
-- **P0** : empêche le parcours principal ou rend une fonction critique inutilisable. Correction avant toute progression dépendante.
-- **P1** : fonction importante incomplète, incorrecte ou trompeuse. Correction dans la phase qui la possède.
-- **P2** : défaut de finition, ergonomie secondaire ou amélioration non bloquante.
+| Critère | Résultat |
+|---|---|
+| Sources `docs/00_reference` identifiées comme autorité | ✅ |
+| Exigences à impact UI/use case mappées à une phase | ✅ `PHASE_01_REQUIREMENTS_MATRIX.md` |
+| Routes frontend auditées | ✅ `PHASE_01_ROUTE_USECASE_MAP.md` |
+| P0/P1/P2 recensés | ✅ `PHASE_01_DEFECT_REGISTER.md` |
+| Chaque P0/P1 a une cause ou une investigation précise | ✅ |
+| Use cases critiques définis | ✅ |
+| Tests historiques cessent d'être preuve suffisante | ✅ |
+| Direction visuelle figée | ✅ `Esquisse 1.png` |
+| Corrections runtime implémentées | ❌ **hors Phase 1, début Phase 2** |
 
-Aucun P0/P1 découvert n'est volontairement laissé derrière en avançant les phases sans être affecté à une correction précise.
+# Décision
+
+**PHASE 1 TERMINÉE.**
+
+La Phase 2 peut démarrer immédiatement, avec cet ordre :
+
+```text
+1. lancement local propre
+2. instrumentation/fail-fast du bot
+3. découverte A/B depuis base vierge
+4. structure initiale réelle
+5. onboarding §5.4
+6. correction 500 /guilds et /audit
+7. WebSocket stable et explicable
+8. portability/config prerequisites
+9. design system + shell + accueil conformes à Esquisse 1
+```
+
+Aucun P0/P1 n'est oublié : chacun possède une phase propriétaire et une preuve de fermeture attendue.
