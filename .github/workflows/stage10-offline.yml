@@ -43,6 +43,11 @@ jobs:
       - name: Start real PostgreSQL and Redis
         run: docker compose -f compose.test.yaml up -d --wait
 
+      - name: Prepare migrated test database
+        run: |
+          uv sync --frozen --python 3.13
+          uv run alembic upgrade head
+
       - name: Install Chromium for browser profiles
         if: matrix.profile == 'performance' || matrix.profile == 'e2e'
         working-directory: frontend
