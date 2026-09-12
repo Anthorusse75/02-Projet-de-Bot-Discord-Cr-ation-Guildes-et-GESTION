@@ -30,26 +30,36 @@ Les tests unitaires/composants restent utiles pour la logique complexe, mais **a
 
 # Phase 1 — Audit de conformité et baseline réellement exécutable
 
+**Statut : ✅ TERMINÉE**
+
 ### Objectif
 
 Établir la différence exacte entre `docs/00_reference` et le produit actuel, puis définir une baseline que l'on peut démarrer et tester sans contournement manuel.
 
-### Travail
+### Travail réalisé
 
-- auditer toutes les exigences ayant un impact UI ou parcours utilisateur ;
-- mapper chaque écran/route existant aux exigences correspondantes ;
-- relever les fonctions absentes, partielles, cassées ou seulement simulées par les tests ;
-- auditer le parcours `base vierge -> démarrage -> OAuth -> découverte Guild -> onboarding -> import structure -> dashboard` ;
-- auditer les erreurs actuellement observées : HTTP 500, HTTP 503 et WebSocket ;
-- auditer le lancement local afin d'éliminer les proxy/configurations manuelles improvisées ;
-- produire le registre des défauts P0/P1/P2 et le plan de correction.
+- audit des exigences ayant un impact UI ou parcours utilisateur ;
+- mapping des écrans/routes existants aux exigences ;
+- relevé des fonctions absentes, partielles, cassées ou seulement simulées par les tests ;
+- audit du parcours `base vierge -> démarrage -> OAuth -> découverte Guild -> onboarding -> import structure -> dashboard` ;
+- audit des erreurs actuellement observées : HTTP 500, HTTP 503 et WebSocket ;
+- audit du lancement local ;
+- registre des défauts P0/P1/P2 et phases de correction.
 
-### Done
+### Livrables
 
-- matrice de conformité initiale disponible ;
-- chaque défaut P0/P1 connu possède une cause ou une investigation explicitement planifiée ;
-- aucun statut `VERIFIED` historique n'est accepté comme preuve sans relecture de la preuve réelle ;
-- les use cases critiques à tester pendant les phases suivantes sont listés.
+- `PHASE_01_AUDIT.md` ;
+- `PHASE_01_REQUIREMENTS_MATRIX.md` ;
+- `PHASE_01_ROUTE_USECASE_MAP.md` ;
+- `PHASE_01_DEFECT_REGISTER.md`.
+
+### Gate de sortie
+
+- matrice de conformité initiale disponible : ✅ ;
+- chaque défaut P0/P1 connu possède une cause ou une investigation explicitement planifiée : ✅ ;
+- aucun statut `VERIFIED` historique n'est accepté comme preuve sans relecture : ✅ ;
+- use cases critiques listés : ✅ ;
+- direction visuelle figée sur `Esquisse 1.png` : ✅.
 
 ---
 
@@ -67,6 +77,8 @@ Obtenir une application que l'on peut lancer proprement et une première expéri
 - assistant de première configuration conforme au §5.4 des spécifications ;
 - import initial réel de la structure ;
 - état d'installation et diagnostics de permissions bot ;
+- correction des HTTP 500 et de la boucle WebSocket observés dans la baseline ;
+- préflight des dépendances optionnelles/obligatoires (dont portability) ;
 - nouveau design system dark premium ;
 - nouveau shell : navigation, header, recherche globale, serveurs récents, utilisateur ;
 - accueil / sélection des serveurs / vue d'ensemble serveur ;
@@ -77,7 +89,8 @@ Obtenir une application que l'on peut lancer proprement et une première expéri
 - base vierge -> connexion Discord -> A/B visibles sans script manuel ;
 - onboarding d'une Guild -> import -> activation ;
 - Guild non administrable -> explication claire ;
-- refresh navigateur -> session et contexte conservés correctement.
+- refresh navigateur -> session et contexte conservés correctement ;
+- WebSocket live ou état dégradé expliqué sans boucle console incontrôlée.
 
 ---
 
@@ -99,7 +112,8 @@ Construire le cœur du produit : l'administration de structure la plus simple po
 - right-drag avec Drop Context Menu ;
 - drag inter-Guild avec copie/clonage, jamais suppression implicite de la source ;
 - ghost, indicateur de cible et états de drop explicites ;
-- migration vers `dnd-kit` conformément à l'architecture de référence ;
+- **conserver les Pointer Events/`PointerGestureManager` comme couche de geste conformément à l'architecture §22** ;
+- intégrer `dnd-kit` lorsque pertinent pour collision, overlay, tri et accessibilité clavier, avec custom sensor/gesture layer DID pour le bouton droit ;
 - synchronisation structure réelle et gestion du drift.
 
 ### Use cases obligatoires
