@@ -46,7 +46,17 @@ jobs:
       - name: Prepare migrated test database
         run: |
           uv sync --frozen --python 3.13
-          uv run alembic upgrade head
+          python - <<'PY'
+          import os
+          import subprocess
+          from scripts.validate_stage import TEST_ENV
+
+          subprocess.run(
+              ["uv", "run", "alembic", "upgrade", "head"],
+              env={**os.environ, **TEST_ENV},
+              check=True,
+          )
+          PY
 
       - name: Install Chromium for browser profiles
         if: matrix.profile == 'performance' || matrix.profile == 'e2e'
