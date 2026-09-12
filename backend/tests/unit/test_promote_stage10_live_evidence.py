@@ -36,6 +36,7 @@ def test_eight_green_same_run_reports_produce_redacted_aggregate(tmp_path: Path)
     assert [report.status for report in closure.reports[:3]] == [
         "PASS_WITH_APPROVED_LIMITATION",
     ] * 3
+    assert [report.status for report in closure.reports[3:6]] == ["PASS"] * 3
     assert aggregate["result"] == "PASS"
     assert aggregate["guilds_verified"] == 2
     assert aggregate["secrets_recorded"] is False
@@ -64,16 +65,40 @@ def test_non_terminally_green_status_is_rejected(tmp_path: Path, status: str) ->
         promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
 
 
-def test_approved_stage_02_03_04_limitations_are_exact(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "report_name",
+    [
+        "discord-live-03.json",
+        "discord-live-05.json",
+        "discord-live-06.json",
+    ],
+)
+def test_approved_limitations_are_exact(tmp_path: Path, report_name: str) -> None:
     directory, commit, run_id = write_valid_reports(tmp_path)
-    report = read_report(directory, "discord-live-03.json")
+    report = read_report(directory, report_name)
     skipped = report["skipped_not_verified"]
     assert isinstance(skipped, list)
     skipped.append("new unapproved limitation")
-    write_report(directory, "discord-live-03.json", report)
+    write_report(directory, report_name, report)
 
     with pytest.raises(promotion.PromotionError, match="limitation"):
         promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
+
+
+def test_stage05_and_stage06_keep_pass_status_with_exact_approved_limitations(
+    tmp_path: Path,
+) -> None:
+    directory, commit, run_id = write_valid_reports(tmp_path)
+
+    stage05 = read_report(directory, "discord-live-05.json")
+    stage06 = read_report(directory, "discord-live-06.json")
+
+    assert stage05["status"] == "PASS"
+    assert set(stage05["skipped_not_verified"]) == promotion.APPROVED_LIMITATIONS["05"]
+    assert stage06["status"] == "PASS"
+    assert set(stage06["skipped_not_verified"]) == promotion.APPROVED_LIMITATIONS["06"]
+
+    promotion.promote(directory, expected_commit=commit, expected_run_id=run_id)
 
 
 def test_recorded_secret_is_rejected(tmp_path: Path) -> None:
