@@ -440,3 +440,16 @@ class TestAgainstRepositoryDocuments:
         assert report.structural_errors == ()
         assert report.total_source == report.total_traced
         assert report.total_source > 0
+
+    def test_stage10_closure_state_is_complete_except_current_live_blocker(self) -> None:
+        source = audit.parse_source_registry(audit.SPEC.read_text(encoding="utf-8-sig"))
+        trace = audit.parse_traceability_table(audit.TRACE.read_text(encoding="utf-8-sig"))
+        report = audit.build_report(source, trace)
+
+        must_not_closed, should_not_closed = audit.strict_failures(report)
+        assert [item.req_id for item in must_not_closed] == ["REQ-TEST-003"]
+        assert should_not_closed == []
+        assert report.counts_by_state == {"VERIFIED": 244, "IMPLEMENTED": 2}
+        bot_map = next(item for item in report.audits if item.req_id == "REQ-BOT-005")
+        assert bot_map.closed is True
+        assert "DEVIATION APPROVED" in bot_map.evidence

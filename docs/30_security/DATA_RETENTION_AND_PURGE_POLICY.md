@@ -26,9 +26,9 @@ et `backend/tests/integration/test_redis.py::test_guild_redis_purge_removes_only
 `InstallationService.purge_tenant()`
 (`backend/src/did/application/installations/service.py`) est le seul point
 d'entrée. Il est exposé par
-`DELETE /api/v1/guilds/{guild_id}/installation/purge`
+the versioned API's `DELETE /guilds/{guild_id}/installation/purge` operation
 (`backend/src/did/api/guilds.py`), distinct de
-`DELETE /api/v1/guilds/{guild_id}/installation` (désinstallation logique,
+the versioned API's `DELETE /guilds/{guild_id}/installation` operation (désinstallation logique,
 réversible). La route de purge exige `CsrfSessionDep` et l'autorisation
 `RBAC_WRITE` sensible (`sensitive=True`).
 

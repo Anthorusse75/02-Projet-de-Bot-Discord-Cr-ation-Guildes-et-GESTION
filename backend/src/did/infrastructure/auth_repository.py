@@ -386,10 +386,7 @@ class AuthRepository:
                 text("SELECT set_config('app.tenant_purge_in_progress', 'on', true)")
             )
             result = await session.execute(
-                text(
-                    "DELETE FROM guild_installations WHERE guild_id=:guild_id "
-                    "RETURNING guild_id"
-                ),
+                text("DELETE FROM guild_installations WHERE guild_id=:guild_id RETURNING guild_id"),
                 {"guild_id": guild_id},
             )
         return result.scalar_one_or_none() is not None

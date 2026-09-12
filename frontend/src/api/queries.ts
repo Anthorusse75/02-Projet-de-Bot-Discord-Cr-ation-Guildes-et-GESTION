@@ -27,7 +27,10 @@ export function useGuilds(userId: DiscordSnowflake | undefined) {
 function tenantQuery<T>(userId: DiscordSnowflake, guildId: DiscordSnowflake, feature: string, path: string) {
   return { queryKey: queryKeys.tenant(userId, guildId, feature), queryFn: () => apiRequest<T>(path, { signal: tenantSignal(guildId) }) }
 }
-export const useStructure = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Structure>(u,g,'structure',`/api/v1/guilds/${g}/structure`))
+export const useStructure = (u: DiscordSnowflake, g: DiscordSnowflake, includeHiddenDeleted = false) => useQuery({
+  ...tenantQuery<Structure>(u, g, 'structure', `/api/v1/guilds/${g}/structure${includeHiddenDeleted ? '?include_hidden_deleted=true' : ''}`),
+  queryKey: queryKeys.tenant(u, g, 'structure', includeHiddenDeleted ? 'all' : 'visible'),
+})
 export const useRoles = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Roles>(u,g,'roles',`/api/v1/guilds/${g}/roles`))
 export const useCoverage = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Record<string, unknown>>(u,g,'coverage',`/api/v1/guilds/${g}/coverage`))
 export const usePlans = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{plans:Plan[]}>(u,g,'plans',`/api/v1/guilds/${g}/plans`))

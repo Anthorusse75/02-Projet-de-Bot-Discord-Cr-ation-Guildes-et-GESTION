@@ -1,0 +1,69 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "fullName": "Docker Scout",
+          "informationUri": "https://docker.com/products/docker-scout",
+          "name": "docker scout",
+          "rules": [
+            {
+              "id": "CVE-2026-85091",
+              "name": "OsPackageVulnerability",
+              "shortDescription": {
+                "text": "CVE-2026-85091"
+              },
+              "helpUri": "https://scout.docker.com/v/CVE-2026-85091?s=debian&n=zlib&ns=debian&t=deb&osn=debian&osv=13&vr=%3E0",
+              "help": {
+                "text": "zlib versions 1.3.1.2 through 1.3.2 contain a heap buffer overflow vulnerability in the gz_vacate() function when processing non-blocking gzwrite() operations with stale external buffer pointers. Attackers can trigger the overflow by calling gzprintf() or gzvprintf() after a write stall, causing an unchecked memmove() to write beyond the internal input buffer boundary.\n\n---\n- zlib <unfixed> (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1146895)\nhttps://gist.github.com/thesmartshadow/e0b9481792afb7c31e86fee1ff084490\nhttps://github.com/madler/zlib/issues/1310\n",
+                "markdown": "> zlib versions 1.3.1.2 through 1.3.2 contain a heap buffer overflow vulnerability in the gz_vacate() function when processing non-blocking gzwrite() operations with stale external buffer pointers. Attackers can trigger the overflow by calling gzprintf() or gzvprintf() after a write stall, causing an unchecked memmove() to write beyond the internal input buffer boundary.\n\n---\n- zlib <unfixed> (bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1146895)\nhttps://gist.github.com/thesmartshadow/e0b9481792afb7c31e86fee1ff084490\nhttps://github.com/madler/zlib/issues/1310\n\n|                                                                                                                |\n|Package         pkg:deb/debian/zlib@1%3A1.3.dfsg%2Breally1.3.1-1?os_distro=trixie&os_name=debian&os_version=13  |\n|Affected range  >0                                                                                              |\n|Fixed version   not fixed                                                                                       |\n"
+              },
+              "properties": {
+                "affected_version": ">0",
+                "cvssV3_severity": "HIGH",
+                "fixed_version": "not fixed",
+                "purls": [
+                  "pkg:deb/debian/zlib@1%3A1.3.dfsg%2Breally1.3.1-1?os_distro=trixie&os_name=debian&os_version=13"
+                ],
+                "security-severity": "8.3",
+                "tags": [
+                  "HIGH"
+                ]
+              }
+            }
+          ],
+          "version": "1.23.1"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2026-85091",
+          "ruleIndex": 0,
+          "kind": "fail",
+          "level": "error",
+          "message": {
+            "text": "Vulnerability    :CVE-2026-85091                                                                                  \nSeverity         :HIGH                                                                                            \nPackage          :pkg:deb/debian/zlib@1%3A1.3.dfsg%2Breally1.3.1-1?os_distro=trixie&os_name=debian&os_version=13  \nAffected range   :>0                                                                                              \nFixed version    :not fixed                                                                                       \nEPSS Score       :0.004420                                                                                        \nEPSS Percentile  :0.372760                                                                                        \n"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/usr/share/doc/zlib1g/copyright"
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/var/lib/dpkg/status"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

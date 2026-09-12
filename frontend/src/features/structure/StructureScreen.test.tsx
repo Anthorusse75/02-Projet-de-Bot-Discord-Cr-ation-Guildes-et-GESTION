@@ -9,7 +9,10 @@ const A = discordSnowflake('700000000000000001')
 const category = { guild_id: A, id: discordSnowflake('700000000000000004'), type: 4, name: 'Operations', position: 0, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', channels: [] }
 const channel = { guild_id: A, id: discordSnowflake('700000000000000005'), type: 0, name: 'general', position: 0, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }
 const capability = { outcome: 'CAN' as const, causes: [], remediations: [] }
-const useStructureMock = vi.fn((_userId: unknown, _guildId: unknown, _includeHiddenDeleted?: boolean) => ({ data: { categories: [category], root_channels: [channel] }, isLoading: false, isError: false, refetch: vi.fn() }))
+const useStructureMock = vi.fn((userId: unknown, guildId: unknown, includeHiddenDeleted?: boolean) => {
+  void userId; void guildId; void includeHiddenDeleted
+  return { data: { categories: [category], root_channels: [channel] }, isLoading: false, isError: false, refetch: vi.fn() }
+})
 
 vi.mock('../../api/queries', () => ({
   useStructure: (userId: unknown, guildId: unknown, includeHiddenDeleted?: boolean) => useStructureMock(userId, guildId, includeHiddenDeleted),

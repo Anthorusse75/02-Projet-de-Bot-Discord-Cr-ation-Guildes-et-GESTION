@@ -126,9 +126,7 @@ def audit_guild_bots(
     it only reports what is already cached and observable.
     """
     bot_evaluator = evaluator or PermissionEvaluator()
-    audits = [
-        _audit_one(guild, member, bot_evaluator) for member in members if member.is_bot
-    ]
+    audits = [_audit_one(guild, member, bot_evaluator) for member in members if member.is_bot]
     return tuple(sorted(audits, key=lambda audit: audit.user_id))
 
 

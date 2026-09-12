@@ -29,6 +29,7 @@ def dependencies() -> tuple[
     )
 
 
+@pytest.mark.failure_injection
 async def test_purge_tenant_emits_event_only_after_successful_delete() -> None:
     authorization, repository, redis, wakeup = dependencies()
     order: list[str] = []
@@ -54,9 +55,7 @@ async def test_purge_tenant_emits_event_only_after_successful_delete() -> None:
             side_effect=lambda *_args, **_kwargs: order.append("tenant_purged"),
         ) as tenant_purged,
     ):
-        assert await service.purge_tenant(
-            guild_id=GUILD_ID, actor_user_id=ACTOR_USER_ID
-        ) is True
+        assert await service.purge_tenant(guild_id=GUILD_ID, actor_user_id=ACTOR_USER_ID) is True
 
     assert order == [
         "authorize",
@@ -92,9 +91,7 @@ async def test_purge_tenant_emits_event_only_after_successful_delete() -> None:
             redis=failed_redis,
             runtime_wakeup=failed_wakeup,
         )
-        failed_purge = AsyncMock(
-            side_effect=RuntimeError(message) if failure == "redis" else None
-        )
+        failed_purge = AsyncMock(side_effect=RuntimeError(message) if failure == "redis" else None)
         with (
             patch(
                 "did.application.installations.service.purge_guild_namespace",
@@ -103,12 +100,11 @@ async def test_purge_tenant_emits_event_only_after_successful_delete() -> None:
             patch("did.application.installations.service.emit_event") as failed_event,
             pytest.raises(RuntimeError, match=message),
         ):
-            await failed_service.purge_tenant(
-                guild_id=GUILD_ID, actor_user_id=ACTOR_USER_ID
-            )
+            await failed_service.purge_tenant(guild_id=GUILD_ID, actor_user_id=ACTOR_USER_ID)
         failed_event.assert_not_called()
 
 
+@pytest.mark.failure_injection
 async def test_purge_tenant_redis_error_prevents_final_database_delete() -> None:
     authorization, repository, redis, wakeup = dependencies()
     service = InstallationService(

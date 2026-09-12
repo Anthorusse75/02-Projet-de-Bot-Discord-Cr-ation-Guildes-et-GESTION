@@ -523,9 +523,7 @@ async def test_uninstall_and_purge_routes_dispatch_separately_and_purge_requires
                     container.installations, "purge_tenant", new_callable=AsyncMock
                 ) as purge,
             ):
-                missing_csrf = await client.delete(
-                    f"/api/v1/guilds/{GUILD_A}/installation/purge"
-                )
+                missing_csrf = await client.delete(f"/api/v1/guilds/{GUILD_A}/installation/purge")
                 assert missing_csrf.status_code == 403
                 assert missing_csrf.json()["error"]["code"] == "CSRF_INVALID"
                 purge.assert_not_awaited()

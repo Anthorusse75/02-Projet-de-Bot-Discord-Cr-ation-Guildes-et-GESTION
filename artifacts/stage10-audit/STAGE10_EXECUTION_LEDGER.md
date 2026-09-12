@@ -11,12 +11,12 @@ ad7a2c5b3f4ca33faf4aa51c91b7cefb5c11cc8d
 
 ## GLOBAL STATUS
 
-Current step: S10-05 (REQ-TEST-004 destructive-operation failure-injection coverage)
-Status: IN_PROGRESS
-Last successful command: pytest backend/tests/unit -q (970 passed) + pytest backend/tests/unit/test_validate_stage_10.py -v (22 passed) + full `uv run mypy` bare (159 source files, clean)
-Last failed command: none since S10-01's initial migration-gap discovery (see S10-01 section) — that failure was diagnosed and fixed, not a current blocker
-Current blockers: none
-Next exact action: Read scripts/_stage09_failure profile / backend/tests/*/test_stage05_postgres.py's existing failure-injection tests (test_failure_injection_matrix_recovers_without_duplicate_create, etc.) and backend/tests/integration/test_stage09_*.py's failure-injection profile to understand the established pytest.mark.failure_injection pattern before adding Stage10-specific destructive-operation-with-partial-failure tests (tenant purge DB failure after Redis success; plan/apply partial failure for the new UPSERT_OVERWRITE preset; retry/idempotence). S10-01..S10-04 are ALL DONE with real passing evidence — see their ledger sections for full detail before re-deriving anything.
+Current step: S10-16 (Validation finale)
+Status: BLOCKED_EXTERNAL_LIVE_CREDENTIALS
+Last successful command: `docker compose -f compose.test.yaml down` (PASS after the final documentation validation PASS).
+Last failed command: `python scripts/validate_stage.py 10` reached its final gate and failed only strict closure because MUST `REQ-TEST-003` remains `IMPLEMENTED`, not `VERIFIED`; all preceding regression, Stage10 and RC gates passed.
+Current blockers: external bot credentials/permissions for both configured sandbox Guilds; Stage10 cannot claim strict/live completion or authorize Stage11.
+Next exact action: restore or replace the sandbox bot access, rerun `python scripts/validate_stage.py 10 --include-discord-live`, regenerate/promote traceability only after real PASS, then rerun the complete final matrix on the future clean candidate.
 
 ## MILESTONE CHECKPOINT (after S10-04)
 
@@ -528,70 +528,348 @@ before delete_tenant() may still be worth adding).
 
 ## S10-05 — REQ-TEST-004
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `artifacts/stage10-audit/STAGE10_EXECUTION_LEDGER.md` — checkpoint S10-05 opened.
+- `backend/tests/integration/test_stage06_postgres.py` — real PostgreSQL/Redis A/B failure-injection test: PostgreSQL division-by-zero after a destructive child-row delete, transaction rollback proof, explicit `UNINSTALLED` recoverable state, safe full retry, one success audit, tenant B untouched.
+- `backend/tests/unit/test_installation_service.py` — existing Redis/delete ordering tests explicitly marked `failure_injection`.
+- `scripts/validate_stage.py` — Stage10 failure-injection missing gate replaced with real tenant-purge and reused Stage05 crash/recovery steps; default pending-gate reason narrowed to E2E/live only.
+- `backend/tests/unit/test_validate_stage_10.py` — profile contract now requires the real failure steps and rejects a missing-gate sentinel.
+- `backend/tests/unit/test_stage07_i18n_scanner.py` — removed a stale unused `# noqa: S603` exposed by the profile's repository-wide lint gate.
+
+Commands executed:
+- `git branch --show-current` → `stage/10-acceptance` (PASS).
+- `git rev-parse HEAD` → `ca48bd8ebfbf7561ae3926ee221001d45aa9654e` (PASS, exact required checkpoint).
+- `git status --short` → empty (PASS, clean initial worktree).
+- Initial broad `rg` with Windows wildcard arguments → FAIL (Windows wildcard syntax); rerun with `rg -g` → PASS.
+- Targeted `ruff check` → PASS; initial `ruff format --check` → FAIL on three touched files, then `ruff format` applied and subsequent format check passed.
+- `pytest backend/tests/unit/test_installation_service.py backend/tests/unit/test_validate_stage_10.py -q` → 23 passed.
+- First targeted PostgreSQL/Redis test run → FAIL only because log capture ended before retry; assertions through rollback/recoverable state passed. Capture fixed.
+- Targeted PostgreSQL/Redis test rerun → 1 passed.
+- First full Stage10 failure-injection profile → FAIL on stale unused `# noqa: S603` in Stage07 test; directive removed.
+- `python scripts/validate_stage.py 10 --profile failure-injection` → PASS: 3 purge failure tests + 10 Stage05 failure tests, migration, lint, mypy.
+
+Discovery:
+- The Stage10 failure-injection profile still contains its explicit missing gate.
+- Existing S10-01 evidence already covers Redis failure before PostgreSQL deletion; the missing priority proof is PostgreSQL failure after Redis cleanup and before definitive tenant deletion.
+- A real PostgreSQL error inside the attempted destructive transaction rolls back the already-issued child delete completely; the earlier committed uninstall marker remains explicit and retryable.
+- Repeated Redis namespace/routing cleanup is idempotent, the retry deletes tenant A once, emits exactly one `TENANT_PURGED`, and leaves tenant B's PostgreSQL and Redis state intact.
+- Stage05's established matrix supplies the non-duplicated partial-apply/crash-window/unknown-outcome/Redis-outage/fencing evidence; 10 selected tests pass under the Stage10 profile.
+
+Next exact action:
+S10-05 is complete. Proceed to S10-06 REQ-TEST-005 / global Playwright.
 
 ---
 
 ## S10-06 — REQ-TEST-005 / Global Playwright
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `frontend/e2e/stage10.spec.ts` — new global login→tenant→cache read→permission→plan/apply→clone→languages→campaign Playwright journey, explicit retry-by-keyboard test, EN/FR/DE/ES surface matrix, and final axe serious/critical gate.
+- `frontend/playwright.config.ts` — JUnit output can be routed to the validator's immutable evidence directory.
+- `scripts/validate_stage.py` — Stage10 E2E missing gate replaced with real lock install, lint, typecheck and Stage10 Playwright steps; default pending reason narrowed to live acceptance only.
+- `backend/tests/unit/test_validate_stage_10.py` — E2E profile contract now requires the real Stage10 spec and no missing-gate sentinel.
+- `frontend/src/api/queries.ts` — fixed a real S10-03 regression found by the E2E gate: `useStructure` now accepts the UI's explicit hidden/deleted opt-in, sends the documented query parameter, and isolates visible/all cache keys.
+- `frontend/src/features/structure/StructureScreen.test.tsx` — retained the opt-in call contract while making its mock parameters lint-clean.
+
+Commands executed:
+- Initial `npm run ...` under PowerShell → FAIL because local script execution policy blocks `npm.ps1`; rerun canonically with `npm.cmd`.
+- First `npm.cmd run lint` → FAIL on three unused mock parameters; first `npm.cmd run typecheck` → FAIL because `useStructure` accepted two arguments while S10-03 UI passed three. Both were real checkpoint regressions and were fixed.
+- First `npm.cmd run test:e2e -- stage10.spec.ts` → 5 passed, 1 failed because the controlled transient error cleared before query retries; error injection corrected.
+- `npm.cmd run lint` → PASS.
+- `npm.cmd run typecheck` → PASS.
+- `npm.cmd run test:e2e -- stage10.spec.ts` → 6 passed.
+- `pytest backend/tests/unit/test_validate_stage_10.py -q` → 20 passed.
+- `python scripts/validate_stage.py 10 --profile e2e` → PASS, 6 Playwright tests and JUnit evidence generated.
+
+Discovery:
+- Prior Stage07/08/09 specs were strong but independently scoped; the new Stage10 spec is the missing cross-product journey.
+- The hidden/deleted opt-in added in S10-03 had not been propagated into the API query hook, causing both a TypeScript failure and ineffective UI opt-in; the targeted fix restores the intended contract without reopening other S10-01..04 work.
+- `npm ci` still reports the known Stage09→10 debt: 4 vulnerabilities (2 moderate, 2 high), to disposition in S10-07/S10-11/S10-14.
+- The host currently exposes `NODE_TLS_REJECT_UNAUTHORIZED=0` to npm, which emits an insecure-TLS warning; S10-07 must treat this as a security configuration finding and ensure validation does not rely on disabled TLS verification.
+
+Next exact action:
+S10-06 is complete. Proceed to S10-07 security profile.
 
 ---
 
 ## S10-07 — Security profile
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `backend/src/did/settings/config.py` — strict CORS/OAuth URL validation, with HTTPS required in production.
+- `backend/tests/unit/test_stage10_security_acceptance.py` — route-wide auth/CSRF traversal, headers/CORS requests, and configuration rejection tests.
+- `backend/tests/integration/test_stage10_rls_inventory.py` — live PostgreSQL catalog/RLS/runtime-role inventory.
+- `backend/tests/unit/test_stage02_api_contract.py` — legacy production fixture updated to an explicit HTTPS CORS origin.
+- `frontend/package.json`, `frontend/package-lock.json` — vulnerable Vitest/Redocly/js-yaml dependency chain updated; locked audit now reports zero vulnerabilities.
+- `scripts/validate_stage.py` — real security profile and forced removal of inherited `NODE_TLS_REJECT_UNAUTHORIZED` for every subprocess.
+- `backend/tests/unit/test_validate_stage_10.py` — security-profile and secure-environment contracts.
+- `docs/30_security/STAGE_10_SECURITY_ACCEPTANCE.md` — concise scope and verdict report.
+
+Commands/results:
+- `pytest -m "security and not discord_live" --collect-only` — 853 selected.
+- Direct PostgreSQL catalog/role inspection — every scoped table has ENABLE+FORCE RLS and a policy; `did_app` is neither superuser nor BYPASSRLS.
+- Initial `npm audit --json` — 4 inherited findings (2 moderate, 2 high); lock updates followed by `npm audit fix --package-lock-only --ignore-scripts` — zero.
+- Targeted lint/mypy/security/RLS tests — PASS after removing `import_preview` from the read-only POST allow-list (it correctly already requires CSRF).
+- First full security profile — backend 853 PASS, then one legacy HTTP-production fixture failure; fixture corrected.
+- `python scripts/validate_stage.py 10 --profile security` — PASS: 853 backend security tests, 21 OAuth/session/logging/settings contracts, 7 frontend safety tests, secret scan of 487 files, migration, Ruff, mypy, npm audit zero.
+
+Evidence:
+- `artifacts/test-evidence/stage-10/20260911T202543813419Z-ca48bd8ebfbf-local-docker/summary.json`.
+- `docs/30_security/STAGE_10_SECURITY_ACCEPTANCE.md`.
+
+Blockers: none.
+
+Next exact action:
+S10-07 is complete. Proceed to S10-08 performance profile.
 
 ---
 
 ## S10-08 — Performance profile
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `backend/tests/load/test_stage10_acceptance_load.py` — exact 500-channel/250-role fixture, one channel at the 1,000-overwrite boundary, capacity + permission latency assertions and JSON evidence.
+- `frontend/e2e/stage10.spec.ts` — real-browser 500-treeitem render budget.
+- `scripts/validate_stage.py` — performance sentinel replaced by the new fixture plus reused Stage03/05/06/09 plan/clone/campaign/reconcile/fairness suites and Playwright budget.
+- `backend/tests/unit/test_validate_stage_10.py` — requires real performance steps and forbids the missing-gate sentinel.
+- `docs/20_testing/STAGE_10_PERFORMANCE_ACCEPTANCE.md` — budgets and measured values.
+
+Commands/results:
+- Targeted Ruff + load/validator tests — 20 PASS.
+- Frontend lint/typecheck — PASS.
+- Direct Playwright budget — PASS, 493 ms.
+- `python scripts/validate_stage.py 10 --profile performance` — PASS: 11 backend load tests in 16.77 s and browser fixture in 555 ms.
+
+Evidence:
+- `artifacts/test-evidence/stage-10/20260911T203208291576Z-ca48bd8ebfbf-local-docker/summary.json` and its five JSON/JUnit child artifacts.
+- Representative Guild 0.962308 s (<5 s), plan compile 0.015975 s (<3 s), clone slowest phase 0.004848 s (<10 s), durable A/B fairness first quiet slot 1 with 330/330 jobs succeeded and no starvation.
+
+Blockers: none.
+
+Next exact action:
+S10-08 is complete. Proceed to S10-09 failure/chaos profile.
 
 ---
 
 ## S10-09 — Failure / Chaos profile
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `scripts/validate_stage.py` — replaced two narrow Stage05/purge selections with one unfiltered repository-wide `failure_injection` matrix.
+- `backend/tests/unit/test_validate_stage_10.py` — asserts the global marker expression has no `-k` narrowing and no sentinel.
+- `docs/20_testing/STAGE_10_FAILURE_ACCEPTANCE.md` — scope and evidence report.
+
+Commands/results:
+- `pytest -m failure_injection --collect-only -q` — 191 selected across Stage02–09 plus Stage10 purge recovery.
+- Ruff and Stage10 validator tests — PASS (19 tests).
+- `python scripts/validate_stage.py 10 --profile failure-injection` — PASS: 191 passed, 1,085 deselected in 46.60 s.
+
+Evidence:
+- `artifacts/test-evidence/stage-10/20260911T203345229287Z-ca48bd8ebfbf-local-docker/summary.json`.
+- `docs/20_testing/STAGE_10_FAILURE_ACCEPTANCE.md`.
+
+Blockers: none.
+
+Next exact action:
+S10-09 is complete. Proceed to S10-10 global E2E profile.
 
 ---
 
 ## S10-10 — Global E2E profile
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `scripts/validate_stage.py` — E2E step now runs the complete Playwright suite rather than only `stage10.spec.ts`.
+- `backend/tests/unit/test_validate_stage_10.py` — asserts the complete-suite command and no sentinel.
+
+Commands/results:
+- First validator unit run — 1 assertion failure due only to the step-name wording; corrected.
+- `python scripts/validate_stage.py 10 --profile e2e` — PASS: npm ci, lint, typecheck, 60/60 Playwright tests across Stage07, Stage08, Stage09 and Stage10.
+- Post-correction validator tests — 19 PASS; Ruff PASS.
+
+Evidence:
+- `artifacts/test-evidence/stage-10/20260911T203523292026Z-ca48bd8ebfbf-local-docker/summary.json` and `stage10-global-e2e.xml`.
+
+Blockers: none.
+
+Next exact action:
+S10-10 is complete. Proceed to S10-11 technical-debt closure.
 
 ---
 
 ## S10-11 — Dettes techniques connues Stage09→10
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `frontend/src/app/App.tsx` — route-level React lazy loading for all Guild feature planes.
+- `frontend/package.json`, `frontend/package-lock.json` — dependency vulnerability closure already completed under S10-07.
+- `scripts/validate_stage.py` — inherited disabled Node TLS verification already stripped under S10-07.
+- `docs/20_testing/STAGE_10_TECHNICAL_DEBT_DISPOSITION.md` — explicit disposition of all three Stage09 observations.
+
+Commands/results:
+- Initial production build — PASS but 572.12 kB main chunk and warning.
+- First two-screen lazy split — PASS but 515.35 kB main chunk and warning.
+- Full Guild-route lazy split — PASS; largest chunk 485.50 kB, no chunk warning.
+- Frontend lint/typecheck — PASS.
+- Full Playwright suite after code splitting — 60 PASS.
+- `npm audit --audit-level=moderate` — zero vulnerabilities (direct shell invocation warned because the host exports disabled TLS; every validator subprocess removes that variable and the canonical security profile emitted no such warning).
+- Requirement audit normal JSON — structural inventory complete, 246/246 exact IDs; state promotion intentionally belongs to S10-13.
+
+Residual disposition:
+- `logging.unstructured_rejected` is deliberate fail-closed redaction of unregistered third-party log messages, with no free-form message rendering; retained and documented rather than relabeled or suppressed.
+- No code TODO/FIXME found. Test skips are only explicit integration/network environment guards.
+
+Blockers: none.
+
+Next exact action:
+S10-11 is complete. Proceed to S10-12 Discord-live credential check and acceptance.
 
 ---
 
 ## S10-12 — Two-Guild Discord live acceptance
 
-Status: TODO
+Status: BLOCKED_EXTERNAL_LIVE_CREDENTIALS
+
+Credential discovery (values never printed):
+- `.env.local` exists and contains syntactically valid non-placeholder names for client ID/secret, bot token and two Guild IDs.
+- Both Guild IDs have Snowflake shape and are distinct.
+
+Command/result:
+- `uv run python scripts/validate_discord_live_stage02.py --include --report artifacts/test-evidence/stage-10/s10-12-credential-probe-stage02.json` — FAIL immediately with sanitized `PermissionError: live validation did not complete`; zero checks, zero missing names, `secrets_recorded=false`.
+
+Decision:
+- Credentials/configuration are present but not authorized sufficiently for the smallest real A/B probe; they are invalid for acceptance purposes.
+- The broader live mutation/campaign matrix was not started, avoiding resource churn with an unauthorized bot.
+- No PASS claimed. Evidence and exact external remediation are recorded in `docs/20_testing/STAGE_10_DISCORD_LIVE_STATUS.md`.
+
+Blocker:
+- External bot access/permissions to both sandbox Guilds must be restored or replaced. Production credentials remain out of scope.
+
+Next exact action:
+Continue independent work at S10-13; do not include Discord live in final S10-16 validation unless a valid sandbox is provided.
 
 ---
 
 ## S10-13 — Traceability closure
 
-Status: TODO
+Status: DONE_WITH_EXTERNAL_BLOCKER
+
+Files modified:
+- `scripts/generate_traceability.py` — removed the known second Stage08 assignment that silently downgraded its evidence, added reproducible Stage09/10 mappings, and promoted only presently reverified requirements.
+- `docs/10_implementation/00_REQUIREMENTS_TRACEABILITY.md` — regenerated from source.
+- `backend/tests/unit/test_audit_requirements.py` — repository closure-state contract.
+- `scripts/validate_stage.py`, `backend/tests/unit/test_validate_stage_10.py` — removed obsolete BOT/live sentinels and wired eight existing Stage02–09 live validators as the real Stage10 A/B matrix when explicitly included.
+
+Commands/results:
+- `python scripts/generate_traceability.py` — 246 requirements and 35 ADRs generated.
+- Repeat generation SHA-256 comparison — idempotent (`TRACEABILITY_IDEMPOTENT=True`).
+- Normal audit — PASS structural integrity, 246/246 exact unique IDs, zero PLANNED.
+- Audit tests — 33 PASS; combined Stage10 validator/audit tests — 52 PASS.
+- Global Ruff — PASS.
+- Strict audit — expected honest FAIL only on `REQ-TEST-003`; all SHOULD are closed because REQ-BOT-005 carries an explicit evidence-backed `DEVIATION APPROVED` rationale.
+
+Closure state:
+- 244 VERIFIED.
+- 1 SHOULD (`REQ-BOT-005`) IMPLEMENTED with approved documented deviation.
+- 1 MUST (`REQ-TEST-003`) IMPLEMENTED but not VERIFIED: `BLOCKED_EXTERNAL_LIVE_CREDENTIALS`.
+- zero structural errors, duplicates, modality mismatches, unknown IDs or PLANNED rows.
+
+Blocker:
+- Same external S10-12 bot authorization/permissions blocker; no false strict PASS.
+
+Next exact action:
+S10-13 independent traceability work is complete. Proceed to S10-14 RC packaging/scans without tag creation.
 
 ---
 
 ## S10-14 — Release candidate / SBOM / scans
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `backend/Dockerfile` — security-upgrade Debian packages at build time and remove build-only global uv after the locked environment is installed.
+- `scripts/package_stage10_rc.py` — deterministic manifest/checksum packaging, frontend CycloneDX SBOM, image/scan validation, explicit no-tag/no-deploy metadata.
+- `backend/tests/unit/test_package_stage10_rc.py` — checksum and SARIF severity parser tests.
+- `scripts/validate_stage.py` — RC sentinel replaced with eight real image/build/SBOM/scan/frontend/package gates.
+- `backend/tests/unit/test_validate_stage_10.py` — requires real RC steps and no missing-gate sentinel.
+- `docs/20_testing/STAGE_10_RELEASE_CANDIDATE.md` — candidate inventory and risk disposition.
+
+Commands/results:
+- First image build/scan — build PASS; scan found 1 critical + 4 high in old Debian packages.
+- Hardened image rebuild — PASS; installed Debian security updates (including OpenSSL 3.5.7) and removed global uv.
+- Rescan — zero critical; one high (`CVE-2026-85091`, Debian zlib) with `Fixed version: not fixed`, explicitly retained and documented.
+- Image import smoke — PASS.
+- Docker Scout backend CycloneDX SBOM — 180 packages; frontend npm CycloneDX SBOM generated.
+- `python scripts/package_stage10_rc.py --output-dir artifacts/stage10-audit --image did-stage10-backend:rc-candidate` — PASS, 61 checksums, no Git tag, no deployment.
+- Ruff/mypy — PASS; RC/validator unit tests — 21 PASS.
+
+Evidence:
+- `artifacts/stage10-audit/release-manifest.json`, `SHA256SUMS`, both `*.cdx.json`, and `backend-image-cves.sarif`.
+- Backend image digest `sha256:bb98143c40be629f5ff4f790a595ef0b28c54dd3c8285e74b7844df4a34b863c`.
+
+Blockers: none for offline RC packaging. Live release acceptance remains externally blocked in S10-12.
+
+Next exact action:
+S10-14 is complete. Proceed to S10-15 documentation/handoff/current-state closure.
 
 ---
 
 ## S10-15 — Documentation / handoff
 
-Status: TODO
+Status: DONE
+
+Files modified:
+- `docs/90_handoffs/STAGE_10_HANDOFF.md` — exhaustive factual handoff: source/dirty RC state, process topology, containers, migrations, env-name inventory, CI gap, profiles/evidence, SBOM/scans, A/B state, cleanup, risks and exact Stage11 prerequisites.
+- `docs/10_implementation/00_CURRENT_STATE.md` — new leading Stage10 source-of-truth section; historical Stage09 state retained and explicitly marked historical.
+- `docs/30_security/DATA_RETENTION_AND_PURGE_POLICY.md` and `docs/30_security/STAGE_10_SECURITY_ACCEPTANCE.md` — wording-only correction for the documentation validator's forbidden product-version-token rule; route meaning unchanged.
+
+Commands/results:
+- First `python scripts/validate_documentation.py` — FAIL: two literal API-path `v1` occurrences matched the repository-wide forbidden product-version regex.
+- Wording corrected to describe the versioned API prefix without the forbidden product-version token; no code or route changed.
+- Second `python scripts/validate_documentation.py` — PASS: 11 stages, 246 source requirements, 246 traced requirements.
+- `git diff --check` — PASS during the first combined diagnostic run.
+
+Blockers:
+- No documentation blocker. Stage10 remains honestly blocked only by S10-12 live credentials/permissions.
+
+Next exact action:
+S10-15 is complete. Proceed to the exact final S10-16 command sequence; omit live because the sandbox is invalid.
 
 ---
 
 ## S10-16 — Validation finale
 
-Status: TODO
+Status: BLOCKED_EXTERNAL_LIVE_CREDENTIALS
+
+Exact requested sequence and results:
+- `git diff --check` — PASS.
+- `docker compose -f compose.test.yaml up -d --wait` — PASS; PostgreSQL and Redis healthy.
+- First `python scripts/validate_stage.py 10` — FAIL at Stage01 format check; three checkpoint files required mechanical Ruff formatting. Corrected and targeted Ruff/diff checks passed.
+- Second `python scripts/validate_stage.py 10` — FAIL at the Stage07 OpenAPI drift gate. Regenerated `frontend/openapi.json` and `frontend/src/api/openapi.d.ts`; diff contained exactly the three expected Stage10 operations and `npm.cmd run openapi:check` passed.
+- Final `python scripts/validate_stage.py 10` — all Stage01–09 regressions, Stage10 product/data/bot gates, builds, migrations, SBOM/scan/package gates PASS; final strict audit FAIL only on `REQ-TEST-003`. Evidence: `artifacts/test-evidence/stage-10/20260911T211214731649Z-ca48bd8ebfbf-local-docker/summary.json`.
+- `python scripts/validate_stage.py 10 --profile security` — PASS: 853 backend security tests, 21 security contracts, 7 frontend tests, zero npm vulnerabilities and secret scan PASS. Evidence: `20260911T213206165968Z-ca48bd8ebfbf-local-docker`.
+- `python scripts/validate_stage.py 10 --profile performance` — PASS: 11 load tests and 1 browser budget test. Evidence: `20260911T213336039045Z-ca48bd8ebfbf-local-docker`.
+- `python scripts/validate_stage.py 10 --profile failure-injection` — PASS: 191 passed, 1,088 deselected. Evidence: `20260911T213410648077Z-ca48bd8ebfbf-local-docker`.
+- `python scripts/validate_stage.py 10 --profile e2e` — PASS: 60/60 Playwright. Evidence: `20260911T213504767592Z-ca48bd8ebfbf-local-docker`.
+- `python scripts/validate_stage.py 10 --include-discord-live` — NOT RUN, correctly omitted because S10-12 proved the configured sandbox identity invalid before any check.
+- `python scripts/validate_documentation.py` — PASS: 11 stages, 246 source requirements, 246 traced requirements.
+- `docker compose -f compose.test.yaml down` — PASS; both containers and the test network removed.
+- Final `git diff --check` — next and last command after this ledger update.
+
+Additional closing state:
+- Formatting defect fixed in `auth_repository.py`, `capabilities.py` and `test_stage02_api.py`; behavior unchanged.
+- OpenAPI snapshot and generated TypeScript now include the bot audit, bot access-map and tenant-purge operations and pass the drift gate.
+- Repackaged local RC digest: `sha256:98ac0b0437421dcb8ec506718f6b738ebefd53fb56f221121075d3bf5d6929c1`; zero critical, one high zlib without a published fix, 61 checksums, dirty source worktree, no tag/deploy.
+- No Discord resource was created by Stage10; no live cleanup remains.
+- No commit, push, PR, tag or production deployment was performed.
+
+Terminal decision:
+S10-05–S10-11 and S10-13–S10-15 are complete. S10-12 and therefore S10-16/Stage10 closure remain externally blocked. Do not start Stage11.

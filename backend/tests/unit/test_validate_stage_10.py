@@ -58,7 +58,7 @@ class TestStage10ProfileStepLists:
     """Pure inspection of the Step tuples stage_10() returns -- no subprocess
     is ever executed here, only the declarative Step objects are checked."""
 
-    def test_default_profile_includes_requirement_audit_and_pending_gates(self) -> None:
+    def test_default_profile_includes_requirement_audit_and_only_rc_pending_gate(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="default")
         names = [step.name for step in steps]
 
@@ -66,8 +66,9 @@ class TestStage10ProfileStepLists:
         assert "STAGE 10 requirement audit (strict closure)" in names
         assert any("S10-BOT" in name for name in names)
         assert any("S10-DATA" in name for name in names)
-        assert any("S10-TEST" in name for name in names)
-        assert any("S10-RC" in name for name in names)
+        assert any("S10-RC backend image build" in name for name in names)
+        assert not any("S10-TEST" in name for name in names)
+        assert not any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
         # the strict-closure audit is the final honest gate, run last
         assert names[-1] == "STAGE 10 requirement audit (strict closure)"
 
@@ -88,18 +89,9 @@ class TestStage10ProfileStepLists:
         ]
 
         assert prior_stage_commands == [
-            (sys.executable, "scripts/validate_stage.py", f"{stage:02d}")
-            for stage in range(1, 10)
+            (sys.executable, "scripts/validate_stage.py", f"{stage:02d}") for stage in range(1, 10)
         ]
-        assert prior_stage_live_commands == [
-            (
-                sys.executable,
-                "scripts/validate_stage.py",
-                f"{stage:02d}",
-                "--include-discord-live",
-            )
-            for stage in range(1, 10)
-        ]
+        assert prior_stage_live_commands == prior_stage_commands
 
     def test_default_profile_adds_discord_live_gate_only_when_requested(self) -> None:
         without_live = validate_stage.stage_10(
@@ -110,35 +102,44 @@ class TestStage10ProfileStepLists:
         )
 
         assert not any("Discord live" in step.name for step in without_live)
-        assert any("Discord live" in step.name for step in with_live)
+        live_steps = [step for step in with_live if "Discord live" in step.name]
+        assert len(live_steps) == 8
+        assert all("_stage10_missing_gate.py" not in " ".join(step.command) for step in live_steps)
 
-    def test_security_profile_has_a_pending_gate_and_no_fabricated_pass(self) -> None:
+    def test_security_profile_runs_real_backend_and_supply_chain_gates(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="security")
+        names = [step.name for step in steps]
 
-        assert any("S10-SEC" in step.name for step in steps)
-        assert any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
+        assert any("backend security" in name for name in names)
+        assert any("dependency vulnerability audit" in name for name in names)
+        assert not any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
 
-    def test_performance_profile_has_a_pending_gate(self) -> None:
+    def test_performance_profile_runs_real_scale_and_browser_gates(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="performance")
 
-        assert any("performance" in step.name.lower() for step in steps)
-        assert any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
+        assert any("representative Guild" in step.name for step in steps)
+        assert any("large-tree" in step.name for step in steps)
+        assert not any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
 
-    def test_failure_injection_profile_has_a_pending_gate(self) -> None:
+    def test_failure_injection_profile_runs_real_destructive_and_recovery_gates(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="failure-injection")
+        names = [step.name for step in steps]
 
-        assert any("failure" in step.name.lower() for step in steps)
-        assert any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
+        assert any("global failure-injection" in name for name in names)
+        failure_step = next(step for step in steps if "global failure-injection" in step.name)
+        assert failure_step.command[failure_step.command.index("-m") + 1] == "failure_injection"
+        assert "-k" not in failure_step.command
+        assert not any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
 
-    def test_e2e_profile_has_a_pending_gate(self) -> None:
+    def test_e2e_profile_runs_the_complete_playwright_suite(self) -> None:
         steps = validate_stage.stage_10(Path("evidence"), profile="e2e")
 
-        assert any("E2E" in step.name for step in steps)
-        assert any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
+        assert any("global Playwright" in step.name for step in steps)
+        e2e_step = next(step for step in steps if "Playwright" in step.name)
+        assert e2e_step.command[-1] == "test:e2e"
+        assert not any("_stage10_missing_gate.py" in " ".join(step.command) for step in steps)
 
-    @pytest.mark.parametrize(
-        "profile", ["default", "security", "performance", "failure-injection", "e2e"]
-    )
+    @pytest.mark.parametrize("profile", ["default"])
     def test_no_profile_silently_claims_full_stage10_pass(self, profile: str) -> None:
         """Every Stage 10 profile must contain at least one step that is either
         the strict requirement-closure audit or an explicit pending-gate marker
@@ -151,6 +152,23 @@ class TestStage10ProfileStepLists:
             for step in steps
         )
         assert has_honesty_gate
+
+    def test_run_step_never_inherits_disabled_node_tls_verification(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, str] = {}
+
+        def completed(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured.update(kwargs["env"])  # type: ignore[arg-type]
+            return subprocess.CompletedProcess([], 0)
+
+        monkeypatch.setenv("NODE_TLS_REJECT_UNAUTHORIZED", "0")
+        monkeypatch.setattr(validate_stage.subprocess, "run", completed)
+
+        result = validate_stage.run_step(validate_stage.Step("safe", ("safe-command",)))
+
+        assert result.status == "PASS"
+        assert "NODE_TLS_REJECT_UNAUTHORIZED" not in captured
 
 
 class TestMissingGateStep:

@@ -1,20 +1,49 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppProviders } from './providers/AppProviders'
 import { AppShell } from './AppShell'
 import { AuthGate, LoginPage } from '../features/auth/AuthGate'
 import { GuildSelectPage } from '../features/guilds/GuildSelectPage'
-import { StructureScreen } from '../features/structure/StructureScreen'
-import { RolesScreen } from '../features/roles/RolesScreen'
-import { PermissionsScreen } from '../features/permissions/PermissionsScreen'
-import { PlansScreen } from '../features/plans/PlansScreen'
-import { DiagnosticsScreen } from '../features/diagnostics/DiagnosticsScreen'
-import { AuditScreen } from '../features/audit/AuditScreen'
-import { TemplatesScreen } from '../features/templates/TemplatesScreen'
-import { LibraryScreen } from '../features/library/LibraryScreen'
-import { CloneScreen } from '../features/cloning/CloneScreen'
 import { useInteractionStore } from '../shared/state/interaction'
-import { TranslationWorkspace } from '../features/translations/TranslationWorkspace'
-import { CampaignCenter } from '../features/campaigns/CampaignCenter'
+import { Skeleton } from '../shared/components/ui'
+
+const StructureScreen = lazy(async () => ({
+  default: (await import('../features/structure/StructureScreen')).StructureScreen,
+}))
+const RolesScreen = lazy(async () => ({
+  default: (await import('../features/roles/RolesScreen')).RolesScreen,
+}))
+const PermissionsScreen = lazy(async () => ({
+  default: (await import('../features/permissions/PermissionsScreen')).PermissionsScreen,
+}))
+const PlansScreen = lazy(async () => ({
+  default: (await import('../features/plans/PlansScreen')).PlansScreen,
+}))
+const DiagnosticsScreen = lazy(async () => ({
+  default: (await import('../features/diagnostics/DiagnosticsScreen')).DiagnosticsScreen,
+}))
+const AuditScreen = lazy(async () => ({
+  default: (await import('../features/audit/AuditScreen')).AuditScreen,
+}))
+const TemplatesScreen = lazy(async () => ({
+  default: (await import('../features/templates/TemplatesScreen')).TemplatesScreen,
+}))
+const LibraryScreen = lazy(async () => ({
+  default: (await import('../features/library/LibraryScreen')).LibraryScreen,
+}))
+const CloneScreen = lazy(async () => ({
+  default: (await import('../features/cloning/CloneScreen')).CloneScreen,
+}))
+const TranslationWorkspace = lazy(async () => ({
+  default: (await import('../features/translations/TranslationWorkspace')).TranslationWorkspace,
+}))
+const CampaignCenter = lazy(async () => ({
+  default: (await import('../features/campaigns/CampaignCenter')).CampaignCenter,
+}))
+
+function deferred(element: ReactNode) {
+  return <Suspense fallback={<Skeleton />}>{element}</Suspense>
+}
 
 export function App() {
   const announcement = useInteractionStore((state) => state.announcement)
@@ -26,17 +55,17 @@ export function App() {
           <Route path="/guilds" element={<GuildSelectPage />} />
           <Route path="/guild/:guildId" element={<AppShell />}>
             <Route index element={<Navigate to="structure" replace />} />
-            <Route path="structure" element={<StructureScreen />} />
-            <Route path="roles" element={<RolesScreen />} />
-            <Route path="permissions" element={<PermissionsScreen />} />
-            <Route path="plans" element={<PlansScreen />} />
-            <Route path="diagnostics" element={<DiagnosticsScreen />} />
-            <Route path="audit" element={<AuditScreen />} />
-            <Route path="templates" element={<TemplatesScreen />} />
-            <Route path="library" element={<LibraryScreen />} />
-            <Route path="clone" element={<CloneScreen />} />
-            <Route path="translations" element={<TranslationWorkspace />} />
-            <Route path="campaigns" element={<CampaignCenter />} />
+            <Route path="structure" element={deferred(<StructureScreen />)} />
+            <Route path="roles" element={deferred(<RolesScreen />)} />
+            <Route path="permissions" element={deferred(<PermissionsScreen />)} />
+            <Route path="plans" element={deferred(<PlansScreen />)} />
+            <Route path="diagnostics" element={deferred(<DiagnosticsScreen />)} />
+            <Route path="audit" element={deferred(<AuditScreen />)} />
+            <Route path="templates" element={deferred(<TemplatesScreen />)} />
+            <Route path="library" element={deferred(<LibraryScreen />)} />
+            <Route path="clone" element={deferred(<CloneScreen />)} />
+            <Route path="translations" element={deferred(<TranslationWorkspace />)} />
+            <Route path="campaigns" element={deferred(<CampaignCenter />)} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />

@@ -1,5 +1,27 @@
 # État courant
 
+## Vérité courante — STAGE 10
+
+| Champ | Valeur |
+|---|---|
+| Current stage | `STAGE_10_BLOCKED_EXTERNAL_LIVE_CREDENTIALS` |
+| Base intégrée | `main` / `stage-09-complete` à `ad7a2c5b3f4ca33faf4aa51c91b7cefb5c11cc8d` |
+| Branche / HEAD | `stage/10-acceptance` / `ca48bd8ebfbf7561ae3926ee221001d45aa9654e` ; changements S10-05–S10-16 non committés sur instruction explicite |
+| Migration head | `0034_stage_10` ; chaîne Stage 10 `0032_stage_09 → 0033_stage_10 → 0034_stage_10` |
+| Périmètre offline | Implémentation, sécurité, performance, panne/chaos, E2E global, dette Stage09, traçabilité et paquet RC local terminés |
+| Traçabilité | 246/246 IDs exacts ; 244 `VERIFIED` ; `REQ-BOT-005` `IMPLEMENTED` avec `DEVIATION APPROVED` ; `REQ-TEST-003` `IMPLEMENTED` mais bloqué par la preuve live |
+| Live Discord | `BLOCKED_EXTERNAL_LIVE_CREDENTIALS` : variables présentes et deux Guild IDs valides/distincts, mais la sonde minimale échoue avant tout check avec une erreur d'autorisation expurgée ; aucune ressource créée, aucun nettoyage requis |
+| RC local | image `did-stage10-backend:rc-candidate`, digest `sha256:98ac0b0437421dcb8ec506718f6b738ebefd53fb56f221121075d3bf5d6929c1`, 0 critique, 1 high zlib sans correctif ; SBOMs/SARIF/manifeste/61 checksums ; worktree dirty, aucun tag, aucun déploiement |
+| CI | `.github/workflows/ci.yml` couvre Stage 01–09 ; aucun job Stage 10 tant que son gate strict ne peut pas devenir vert. Il devra être ajouté et passer avant merge |
+| Publication | aucune PR/push/tag Stage 10 et aucun déploiement production effectué |
+| Next exact action | restaurer/remplacer l'accès du bot aux deux Guilds sandbox, exécuter `python scripts/validate_stage.py 10 --include-discord-live`, promouvoir `REQ-TEST-003`, obtenir l'audit strict PASS, puis seulement sur autorisation explicite committer/pousser/revoir/merger et reconstruire un RC immuable |
+| Stage suivante | `STAGE_11` reste `SKELETON_ONLY` et interdite tant que Stage 10 n'est pas strictement close et intégrée |
+
+Le handoff faisant foi est
+[`STAGE_10_HANDOFF.md`](../90_handoffs/STAGE_10_HANDOFF.md). Le tableau Stage 09
+ci-dessous est conservé comme historique de l'état antérieur ; ses champs
+`Current stage` et `Next stage` ne décrivent plus la branche courante.
+
 | Champ | Valeur |
 |---|---|
 | Current stage | `STAGE_09_COMPLETE_DRAFT_PR_OPEN` -- **restauré** depuis la régression temporaire `STAGE_09_BLOCKED_TRANSLATION_PROVIDER_UNAVAILABLE` (passe précédente) ; voir « Historique des trois remédiations » ci-dessous |

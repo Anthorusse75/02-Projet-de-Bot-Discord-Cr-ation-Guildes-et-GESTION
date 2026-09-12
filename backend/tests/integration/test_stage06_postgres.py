@@ -1177,9 +1177,7 @@ async def test_deleting_destination_plan_retains_transfer_and_owned_artifact() -
             cast(
                 Any,
                 SimpleNamespace(
-                    guild_snapshot=AsyncMock(
-                        return_value=(translation_source_snapshot(), None)
-                    ),
+                    guild_snapshot=AsyncMock(return_value=(translation_source_snapshot(), None)),
                     cached_member_snapshots=AsyncMock(return_value=[]),
                 ),
             ),
@@ -1278,6 +1276,137 @@ async def test_deleting_destination_plan_retains_transfer_and_owned_artifact() -
         assert int(transfer["destination_guild_id"]) == GUILD_A
         assert retained_artifact_id == artifact["id"]
     finally:
+        await engine.dispose()
+        await admin.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.failure_injection
+async def test_purge_tenant_db_failure_after_redis_cleanup_is_safely_retryable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed()
+    engine = create_database_engine(APP_URL, pool_size=4)
+    admin = create_database_engine(ADMIN_URL, pool_size=1)
+    factory = create_session_factory(engine)
+    auth_repository = AuthRepository(factory)
+    redis_client = create_redis_client(os.environ.get("DID_REDIS_URL", "redis://localhost:56379/0"))
+    wakeup = RedisRuntimeWakeup(redis_client)
+    guild_a_key = guild_namespace(GUILD_A).key("cache", "channels")
+    guild_b_key = guild_namespace(GUILD_B).key("cache", "channels")
+    role_a = 660606060606060631
+    role_b = 660606060606060632
+    authorization = create_autospec(AuthorizationService, instance=True)
+    original_delete_tenant = auth_repository.delete_tenant
+    delete_attempts = 0
+
+    async def fail_once_after_partial_database_delete(guild_id: int) -> bool:
+        nonlocal delete_attempts
+        delete_attempts += 1
+        if delete_attempts == 1:
+            async with tenant_transaction(
+                factory, TenantContext(guild_id=guild_id, user_id=USER_U)
+            ) as session:
+                await session.execute(
+                    text("DELETE FROM guild_role_bindings WHERE guild_id=:guild_id"),
+                    {"guild_id": guild_id},
+                )
+                # A real PostgreSQL error after a destructive statement proves that
+                # tenant_transaction rolls the whole attempted delete back.
+                await session.execute(text("SELECT 1 / 0"))
+        return await original_delete_tenant(guild_id)
+
+    auth_repository.delete_tenant = fail_once_after_partial_database_delete  # type: ignore[method-assign]
+    service = InstallationService(
+        authorization=authorization,
+        repository=auth_repository,
+        redis=redis_client,
+        runtime_wakeup=wakeup,
+    )
+    try:
+        async with admin.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO guild_role_bindings "
+                    "(guild_id, discord_role_id, dashboard_role, scope_kind, scope_id, created_by) "
+                    "VALUES (:a, :role_a, 'READ_ONLY', 'GUILD', '*', :actor), "
+                    "(:b, :role_b, 'READ_ONLY', 'GUILD', '*', :actor)"
+                ),
+                {
+                    "a": GUILD_A,
+                    "b": GUILD_B,
+                    "role_a": role_a,
+                    "role_b": role_b,
+                    "actor": USER_U,
+                },
+            )
+        await redis_client.mset({guild_a_key: "a", guild_b_key: "b"})
+        await wakeup.signal_job(GUILD_A)
+        await wakeup.signal_job(GUILD_B)
+
+        caplog.set_level(logging.INFO, logger="did.application.installations.service")
+        with pytest.raises(DBAPIError):
+            await service.purge_tenant(guild_id=GUILD_A, actor_user_id=USER_U)
+
+        async with admin.connect() as connection:
+            failed_state = (
+                await connection.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT installation_status FROM guild_installations WHERE guild_id=:a), "
+                        "(SELECT installation_status FROM guild_installations WHERE guild_id=:b), "
+                        "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:a), "
+                        "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:b)"
+                    ),
+                    {"a": GUILD_A, "b": GUILD_B},
+                )
+            ).one()
+
+        # PostgreSQL remains explicit and recoverable: only the earlier committed
+        # UNINSTALLED marker survives; the interrupted destructive transaction does not.
+        assert failed_state == ("UNINSTALLED", "ACTIVE", 1, 1)
+        assert await redis_client.exists(guild_a_key) == 0
+        assert await redis_client.zscore("did:runtime:routing:jobs", str(GUILD_A)) is None
+        assert await redis_client.get(guild_b_key) == "b"
+        assert await redis_client.zscore("did:runtime:routing:jobs", str(GUILD_B)) is not None
+        assert not any(
+            record.__dict__.get("event_id") == EventId.TENANT_PURGED for record in caplog.records
+        )
+
+        # Repeating the full operation is safe: Redis cleanup is idempotent, the
+        # tenant is deleted once, and the success audit is emitted once.
+        assert await service.purge_tenant(guild_id=GUILD_A, actor_user_id=USER_U) is True
+        assert delete_attempts == 2
+        authorization.authorize.assert_awaited()
+        purge_records = [
+            record
+            for record in caplog.records
+            if record.__dict__.get("event_id") == EventId.TENANT_PURGED
+        ]
+        assert len(purge_records) == 1
+
+        async with admin.connect() as connection:
+            recovered_state = (
+                await connection.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT count(*) FROM guild_installations WHERE guild_id=:a), "
+                        "(SELECT installation_status FROM guild_installations WHERE guild_id=:b), "
+                        "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:a), "
+                        "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:b)"
+                    ),
+                    {"a": GUILD_A, "b": GUILD_B},
+                )
+            ).one()
+        assert recovered_state == (0, "ACTIVE", 0, 1)
+        assert await redis_client.get(guild_b_key) == "b"
+        assert await redis_client.zscore("did:runtime:routing:jobs", str(GUILD_B)) is not None
+    finally:
+        await purge_guild_namespace(redis_client, GUILD_A)
+        await purge_guild_namespace(redis_client, GUILD_B)
+        await wakeup.remove_job_guild(GUILD_A)
+        await wakeup.remove_job_guild(GUILD_B)
+        await redis_client.aclose()
         await engine.dispose()
         await admin.dispose()
 

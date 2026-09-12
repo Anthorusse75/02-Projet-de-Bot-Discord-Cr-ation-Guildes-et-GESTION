@@ -1060,13 +1060,67 @@ def stage_10(
             Step("backend lint", (uv, "run", "ruff", "check", ".")),
             Step("backend typecheck", (uv, "run", "mypy")),
             Step("secret scan", (python, "scripts/check_secrets.py")),
-            missing_gate_step(
-                "S10-SEC global tenant/security acceptance",
-                "endpoint-by-endpoint A/B authorization audit, RLS role audit, "
-                "Redis/WS isolation and the OAuth/session/CSRF/SSRF/CSP/CORS/IDOR/"
-                "supply-chain security review across the full route inventory are "
-                "Stage 10 product/security work not implemented by this "
-                "acceptance-tooling-only pass",
+            Step(
+                "migration STAGE 10 security head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "S10 global backend security and tenant-isolation suite",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "security and not discord_live",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-backend-security.xml"),
+                ),
+                1800,
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+            Step(
+                "S10 OAuth session logging and settings security contracts",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/unit/test_stage02_api_contract.py",
+                    "backend/tests/unit/test_discord_oauth_contract.py",
+                    "backend/tests/unit/test_oauth_crypto.py",
+                    "backend/tests/unit/test_logging.py",
+                    "backend/tests/unit/test_settings.py",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-security-contracts.xml"),
+                ),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "frontend dependency vulnerability audit",
+                (executable("npm"), "audit", "--audit-level=moderate"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "frontend session isolation and locale safety tests",
+                (
+                    executable("npm"),
+                    "run",
+                    "test",
+                    "--",
+                    "src/api/client.test.ts",
+                    "src/localization/catalog.test.ts",
+                ),
+                600,
+                ROOT / "frontend",
             ),
         )
 
@@ -1075,14 +1129,64 @@ def stage_10(
             Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
             Step("backend lint", (uv, "run", "ruff", "check", ".")),
             Step("backend typecheck", (uv, "run", "mypy")),
-            missing_gate_step(
-                "S10 performance acceptance",
-                "the representative 500-channel/250-role/overwrite-boundary fixture, "
-                "large-tree UI budget and the plan/clone/campaign load, reconcile-"
-                "pressure and multi-Guild fairness suite do not exist yet; this task "
-                "only added the Stage 10 acceptance-tooling foundation, not the "
-                "Stage 10 performance fixtures. The existing 'load' profile on "
-                "STAGE 03/05/09 remains available for those stages' own budgets",
+            Step(
+                "S10 representative Guild, plan, clone, campaign and fairness load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/load/test_stage10_acceptance_load.py",
+                    "backend/tests/load/test_stage05_plan_load.py",
+                    "backend/tests/load/test_stage06_portability_load.py",
+                    "backend/tests/load/test_stage09_campaign_fairness_load.py",
+                    "backend/tests/load/test_stage03_fairness_load.py",
+                    "-m",
+                    "load",
+                    "-q",
+                    "--junitxml=" + relative_path(evidence_directory / "stage10-performance.xml"),
+                ),
+                1800,
+                environment={
+                    **TEST_ENV,
+                    "DID_RUN_INTEGRATION": "1",
+                    "DID_STAGE10_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-representative-guild.json"
+                    ),
+                    "DID_STAGE05_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-plan-load.json"
+                    ),
+                    "DID_STAGE06_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-clone-load.json"
+                    ),
+                    "DID_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-governor-fairness.json"
+                    ),
+                },
+            ),
+            Step(
+                "frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10 large-tree browser rendering budget",
+                (
+                    executable("npm"),
+                    "run",
+                    "test:e2e",
+                    "--",
+                    "stage10.spec.ts",
+                    "--grep",
+                    "@performance",
+                ),
+                600,
+                ROOT / "frontend",
+                environment={
+                    "DID_PLAYWRIGHT_JUNIT_OUTPUT": str(
+                        (evidence_directory / "stage10-large-tree.xml").resolve()
+                    )
+                },
             ),
         )
 
@@ -1091,22 +1195,47 @@ def stage_10(
             Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
             Step("backend lint", (uv, "run", "ruff", "check", ".")),
             Step("backend typecheck", (uv, "run", "mypy")),
-            missing_gate_step(
-                "S10 failure/chaos acceptance",
-                "the Stage 10 product-level DB/Redis/provider/Discord timeout, 429, "
-                "reconnect, worker-crash-window and duplicate/out-of-order-event "
-                "failure matrix is not implemented; only STAGE 05 and STAGE 09 have "
-                "their own scoped failure-injection suites today",
+            Step(
+                "migration STAGE 10 failure-injection head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "S10 global failure-injection and recovery matrix",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "failure_injection",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-failure-matrix.xml"),
+                ),
+                1800,
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
             ),
         )
 
     if profile == "e2e":
         return (
-            missing_gate_step(
-                "S10 global E2E acceptance",
-                "the login->tenant->read->permission->plan/apply->clone->languages->"
-                "campaign Playwright journey across EN/FR/DE/ES does not exist yet; "
-                "STAGE 07/08/09's own e2e profiles cover only their local scope",
+            Step("frontend lock install", (executable("npm"), "ci"), 600, ROOT / "frontend"),
+            Step("frontend lint", (executable("npm"), "run", "lint"), cwd=ROOT / "frontend"),
+            Step(
+                "frontend typecheck",
+                (executable("npm"), "run", "typecheck"),
+                cwd=ROOT / "frontend",
+            ),
+            Step(
+                "S10 global Playwright complete suite and login-to-campaign acceptance",
+                (executable("npm"), "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+                {
+                    "DID_PLAYWRIGHT_JUNIT_OUTPUT": str(
+                        (evidence_directory / "stage10-global-e2e.xml").resolve()
+                    )
+                },
             ),
         )
 
@@ -1117,7 +1246,6 @@ def stage_10(
                 python,
                 "scripts/validate_stage.py",
                 stage,
-                *(("--include-discord-live",) if include_discord_live else ()),
             ),
             timeout_seconds=7200,
         )
@@ -1177,20 +1305,6 @@ def stage_10(
         )
     )
     base_steps.append(
-        missing_gate_step(
-            "S10-BOT-005 dashboard UI",
-            "REQ-BOT-005's backend (`bot_channel_access_map`, the "
-            "`/bots/{bot_user_id}/access-map` endpoint) and REQ-BOT-006's "
-            "backend (`bot_writes_humans_read_overwrite_nodes` compiling real "
-            "UPSERT_OVERWRITE operations through the existing Stage05 plan "
-            "engine, apply/tenant-isolation/stale-semantics already covered by "
-            "that engine's own general overwrite integration suite) are real "
-            "and tested, see the two steps above; only REQ-BOT-005's SHOULD "
-            "dashboard visualization surface is a documented deviation, not "
-            "implemented by this pass",
-        )
-    )
-    base_steps.append(
         Step(
             "S10-DATA tenant purge and minimization evidence",
             (
@@ -1208,31 +1322,123 @@ def stage_10(
             environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
         )
     )
-    base_steps.append(
-        missing_gate_step(
-            "S10-TEST global E2E and two-Guild live acceptance",
-            "REQ-TEST-004/005 destructive-operation coverage and the global "
-            "Playwright E2E flows, plus the mandatory two-Guild Discord live "
-            "acceptance matrix, do not exist yet",
-        )
-    )
-    base_steps.append(
-        missing_gate_step(
-            "S10-RC release candidate packaging",
-            "SBOM/checksum/image-scan and immutable RC tag packaging is not "
-            "implemented by this acceptance-tooling-only pass",
+    rc_image = "did-stage10-backend:rc-candidate"
+    base_steps.extend(
+        (
+            Step(
+                "S10-RC backend image build",
+                (
+                    "docker",
+                    "build",
+                    "--file",
+                    "backend/Dockerfile",
+                    "--tag",
+                    rc_image,
+                    ".",
+                ),
+                1200,
+            ),
+            Step(
+                "S10-RC backend image import smoke",
+                ("docker", "run", "--rm", rc_image, "python", "-c", "import did"),
+            ),
+            Step(
+                "S10-RC backend image CycloneDX SBOM",
+                (
+                    "docker",
+                    "scout",
+                    "sbom",
+                    rc_image,
+                    "--format",
+                    "cyclonedx",
+                    "--output",
+                    relative_path(evidence_directory / "backend-image.cdx.json"),
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC backend image critical/high scan report",
+                (
+                    "docker",
+                    "scout",
+                    "cves",
+                    rc_image,
+                    "--only-severity",
+                    "critical,high",
+                    "--format",
+                    "sarif",
+                    "--output",
+                    relative_path(evidence_directory / "backend-image-cves.sarif"),
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC zero critical image vulnerabilities",
+                (
+                    "docker",
+                    "scout",
+                    "cves",
+                    rc_image,
+                    "--only-severity",
+                    "critical",
+                    "--exit-code",
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10-RC frontend production build",
+                (executable("npm"), "run", "build"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10-RC manifest, frontend SBOM and checksums",
+                (
+                    python,
+                    "scripts/package_stage10_rc.py",
+                    "--output-dir",
+                    relative_path(evidence_directory),
+                    "--image",
+                    rc_image,
+                ),
+                600,
+            ),
         )
     )
     if include_discord_live:
-        base_steps.append(
-            missing_gate_step(
-                "Stage 10 Discord live two-Guild acceptance",
-                "--include-discord-live was requested but no Stage 10 live "
-                "acceptance script exists yet; section J's two-Guild sandbox "
-                "matrix is Stage 10 product/live work not implemented by this "
-                "acceptance-tooling-only pass",
-            )
+        live_scripts = (
+            ("02", "scripts/validate_discord_live_stage02.py"),
+            ("03", "scripts/validate_discord_live_stage03.py"),
+            ("04", "scripts/validate_discord_live_stage04.py"),
+            ("05", "scripts/validate_discord_live_stage05.py"),
+            ("06", "scripts/validate_discord_live_stage06.py"),
+            ("08", "scripts/validate_discord_live_stage08.py"),
+            ("09-primitives", "scripts/validate_discord_live_stage09.py"),
+            ("09-full-chain", "scripts/validate_discord_live_stage09_full_chain.py"),
         )
+        for label, script in live_scripts:
+            base_steps.append(
+                Step(
+                    f"Stage 10 Discord live A/B matrix — Stage {label}",
+                    (
+                        uv,
+                        "run",
+                        "python",
+                        script,
+                        "--include",
+                        "--report",
+                        relative_path(evidence_directory / f"discord-live-{label}.json"),
+                    ),
+                    3600,
+                    environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+                )
+            )
     base_steps.append(
         Step(
             "STAGE 10 requirement audit (strict closure)",
@@ -1410,6 +1616,9 @@ def run_step(step: Step) -> Result:
     printable = command_text(step.command)
     print(f"\n[{step.name}] {printable}", flush=True)
     environment = os.environ.copy()
+    # Validation must never inherit the Node escape hatch that disables TLS
+    # certificate verification, even if a developer shell exported it.
+    environment.pop("NODE_TLS_REJECT_UNAUTHORIZED", None)
     if step.environment:
         environment.update(step.environment)
     started = time.monotonic()

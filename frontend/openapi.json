@@ -4744,6 +4744,105 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/bots/audit": {
+      "get": {
+        "description": "REQ-BOT-004: flag every cached bot member of the Guild that holds\nADMINISTRATOR. Cache-first, tenant-safe; never requests Discord to grant\nADMINISTRATOR and never mutates anything.",
+        "operationId": "bots_audit_api_v1_guilds__guild_id__bots_audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bots Audit Api V1 Guilds  Guild Id  Bots Audit Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bots Audit",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/bots/{bot_user_id}/access-map": {
+      "get": {
+        "description": "REQ-BOT-005: real per-channel read/write posture for one bot, computed\nfrom cached roles/overwrites with the same evaluator Stage04 already uses\nelsewhere. Never simulates a permission that was not actually observed;\na channel this Guild's cache has never seen simply has no entry.",
+        "operationId": "bot_access_map_api_v1_guilds__guild_id__bots__bot_user_id__access_map_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bot_user_id",
+            "required": true,
+            "schema": {
+              "title": "Bot User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Bot Access Map Api V1 Guilds  Guild Id  Bots  Bot User Id  Access Map Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bot Access Map",
+        "tags": [
+          "stage-04-read-permissions"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/cache/channels/purge": {
       "post": {
         "operationId": "purge_channels_api_v1_guilds__guild_id__cache_channels_purge_post",
@@ -5458,6 +5557,41 @@
           }
         },
         "summary": "Installation",
+        "tags": [
+          "guilds"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/installation/purge": {
+      "delete": {
+        "operationId": "purge_installation_api_v1_guilds__guild_id__installation_purge_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Purge Installation",
         "tags": [
           "guilds"
         ]

@@ -10,7 +10,7 @@ def test_i18n_scanner_rejects_new_visible_literal(tmp_path: Path) -> None:
     fixture.write_text(
         "export const DeleteButton = () => <button>Delete now</button>\n", encoding="utf-8"
     )
-    completed = subprocess.run(  # noqa: S603
+    completed = subprocess.run(
         [sys.executable, "scripts/check_frontend_i18n.py", "--scan-root", str(tmp_path)],
         check=False,
         capture_output=True,
