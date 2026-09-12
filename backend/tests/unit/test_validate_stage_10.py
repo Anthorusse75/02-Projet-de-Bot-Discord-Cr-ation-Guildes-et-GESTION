@@ -194,6 +194,39 @@ class TestCliProfileValidation:
         assert "10" in result.stdout
         assert "performance" in result.stdout
 
+    @pytest.mark.parametrize(
+        ("args", "expected_message"),
+        [
+            (("10", "--profile", "load"), "STAGE 03, STAGE 05 and STAGE 09"),
+            (
+                ("03", "--profile", "failure-injection"),
+                "STAGE 05, STAGE 09 and STAGE 10",
+            ),
+            (("06", "--profile", "e2e"), "STAGE 07, STAGE 08, STAGE 09 and STAGE 10"),
+            (("05", "--profile", "performance"), "STAGE 10"),
+            (("10", "--profile", "translation-benchmark"), "STAGE 09"),
+            (
+                ("09", "--profile", "translation-benchmark"),
+                "requires --allow-network",
+            ),
+        ],
+    )
+    def test_invalid_profiles_create_no_evidence(
+        self,
+        args: tuple[str, ...],
+        expected_message: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        evidence_root = tmp_path / "evidence"
+        monkeypatch.setattr(validate_stage, "EVIDENCE_ROOT", evidence_root)
+        monkeypatch.setattr(sys, "argv", ["validate_stage.py", *args])
+
+        assert validate_stage.main() == 2
+        assert expected_message in capsys.readouterr().out
+        assert not evidence_root.exists()
+
     def test_performance_profile_rejected_for_other_stages(self) -> None:
         result = run_cli("05", "--profile", "performance")
 

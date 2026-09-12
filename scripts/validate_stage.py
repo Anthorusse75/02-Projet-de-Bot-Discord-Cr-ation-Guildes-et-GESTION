@@ -1746,17 +1746,6 @@ def main() -> int:
 
     stage = arguments.stage
     definition = STAGES[stage]
-    started_at = datetime.now(UTC)
-    commit = tested_commit()
-    dirty = repository_dirty()
-    environment = evidence_environment()
-    run_id = evidence_run_id(commit=commit, started_at=started_at)
-    try:
-        evidence_directory = create_evidence_directory(stage=stage, run_id=run_id)
-    except FileExistsError:
-        print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
-        return 2
-
     if arguments.profile == "load" and stage not in {"03", "05", "09"}:
         print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
         return 2
@@ -1775,6 +1764,18 @@ def main() -> int:
     if arguments.profile == "translation-benchmark" and not arguments.allow_network:
         print("The translation-benchmark profile requires --allow-network to make real calls")
         return 2
+
+    started_at = datetime.now(UTC)
+    commit = tested_commit()
+    dirty = repository_dirty()
+    environment = evidence_environment()
+    run_id = evidence_run_id(commit=commit, started_at=started_at)
+    try:
+        evidence_directory = create_evidence_directory(stage=stage, run_id=run_id)
+    except FileExistsError:
+        print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
+        return 2
+
     steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
     results: list[Result] = []
     for step in steps:

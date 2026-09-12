@@ -873,3 +873,43 @@ Additional closing state:
 
 Terminal decision:
 S10-05–S10-11 and S10-13–S10-15 are complete. S10-12 and therefore S10-16/Stage10 closure remain externally blocked. Do not start Stage11.
+
+---
+
+## Remédiation post-checkpoint — validation CLI avant evidence
+
+Date: 2026-09-12
+
+Status: DONE
+
+Finding CI:
+- Le push du checkpoint `453c1c048cadaa736e066dffd3709c85554251fb` a
+  révélé un échec limité au job Stage05 dans
+  `TestCliProfileValidation.test_performance_profile_rejected_for_other_stages`.
+- Le job fournit un `DID_EVIDENCE_RUN_ID` qui existe déjà. L'invocation
+  volontairement invalide `python scripts/validate_stage.py 05 --profile
+  performance` tentait de créer ce répertoire avant de rejeter le profil et
+  retournait donc le message de collision d'evidence à la place du message de
+  compatibilité attendu.
+
+Cause racine:
+- Dans `scripts/validate_stage.py::main()`, `evidence_environment()`,
+  `evidence_run_id()` et `create_evidence_directory()` étaient appelés avant
+  les validations de compatibilité des profils `load`, `failure-injection`,
+  `e2e`, `performance`, `translation-benchmark` et du consentement réseau
+  `--allow-network`.
+
+Correction:
+- Le bloc de validation existant est déplacé intact immédiatement après la
+  résolution stage/définition et avant toute résolution ou création d'evidence.
+- Conditions, textes d'erreur et return code `2` sont inchangés.
+- Le chemin des invocations valides est inchangé.
+- Un test paramétré appelle `main()` pour les six rejets et prouve que la racine
+  d'evidence temporaire n'est pas créée.
+
+Commandes/résultats:
+- `uv run pytest backend/tests/unit/test_validate_stage_10.py -q` — PASS, 25 tests.
+- `uv run ruff check scripts/validate_stage.py backend/tests/unit/test_validate_stage_10.py` — PASS.
+
+Publication:
+- Aucun commit ni push effectué.
