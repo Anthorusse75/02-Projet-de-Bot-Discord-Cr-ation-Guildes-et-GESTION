@@ -1,5 +1,7 @@
 import logging
 
+from redis.asyncio import Redis
+
 from did.application.auth.service import AuthorizationDenied, AuthorizationService
 from did.domain.auth import (
     AccessStatus,
@@ -10,6 +12,8 @@ from did.domain.auth import (
 )
 from did.infrastructure.auth_repository import AuthRepository, InstallationRecord
 from did.infrastructure.logging import EventId, emit_event
+from did.infrastructure.redis import purge_guild_namespace
+from did.infrastructure.runtime_redis import RedisRuntimeWakeup
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +23,18 @@ class TargetIdentityRequired(RuntimeError):
 
 
 class InstallationService:
-    def __init__(self, *, authorization: AuthorizationService, repository: AuthRepository) -> None:
+    def __init__(
+        self,
+        *,
+        authorization: AuthorizationService,
+        repository: AuthRepository,
+        redis: Redis | None = None,
+        runtime_wakeup: RedisRuntimeWakeup | None = None,
+    ) -> None:
         self.authorization = authorization
         self.repository = repository
+        self._redis = redis
+        self._runtime_wakeup = runtime_wakeup
 
     async def record_detected(
         self,
@@ -90,6 +103,29 @@ class InstallationService:
             EventId.INSTALLATION_UNINSTALLED,
             fields={"guild_id": guild_id, "user_id": actor_user_id},
         )
+
+    async def purge_tenant(self, *, guild_id: int, actor_user_id: int) -> bool:
+        if self._redis is None or self._runtime_wakeup is None:
+            raise RuntimeError("tenant purge Redis dependencies are not configured")
+        await self.authorization.authorize(
+            discord_user_id=actor_user_id,
+            guild_id=guild_id,
+            capability=Capability.RBAC_WRITE,
+            scope=AuthorizationScope.guild(),
+            sensitive=True,
+        )
+        await self.repository.mark_uninstalled(guild_id, actor_user_id)
+        await self._runtime_wakeup.remove_job_guild(guild_id)
+        await purge_guild_namespace(self._redis, guild_id)
+        deleted = await self.repository.delete_tenant(guild_id)
+        if deleted:
+            emit_event(
+                logger,
+                logging.INFO,
+                EventId.TENANT_PURGED,
+                fields={"guild_id": guild_id, "user_id": actor_user_id},
+            )
+        return deleted
 
     async def delegate_user(
         self,

@@ -34,6 +34,23 @@ def create_redis_client(redis_url: str) -> Redis:
     return Redis.from_url(redis_url, decode_responses=True)
 
 
+async def purge_guild_namespace(client: Redis, guild_id: int) -> int:
+    namespace = guild_namespace(guild_id)
+    deleted = 0
+    batch: list[str | bytes] = []
+    async for key in client.scan_iter(
+        match=f"did:guild:{namespace.guild_id}:*",
+        count=256,
+    ):
+        batch.append(key)
+        if len(batch) == 256:
+            deleted += int(await client.unlink(*batch))
+            batch.clear()
+    if batch:
+        deleted += int(await client.unlink(*batch))
+    return deleted
+
+
 async def redis_is_ready(client: Redis) -> bool:
     try:
         return bool(await client.ping())

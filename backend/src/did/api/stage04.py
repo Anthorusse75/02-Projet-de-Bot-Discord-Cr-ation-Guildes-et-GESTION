@@ -15,7 +15,13 @@ from did.domain.auth import AuthorizationScope, Capability
 from did.domain.read_model import ChannelSnapshot, MemberSnapshot, OverwriteSnapshot
 from did.domain.scopes import ScopeMembershipResolver, ScopeType
 from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
-from did.permissions.capabilities import BotCapabilityChecker, BotOperation, CapabilityOutcome
+from did.permissions.capabilities import (
+    BotCapabilityChecker,
+    BotOperation,
+    CapabilityOutcome,
+    audit_guild_bots,
+    bot_channel_access_map,
+)
 from did.permissions.views import (
     SimplePermissionConcept,
     category_sync_state,
@@ -637,6 +643,83 @@ async def capabilities(
             else None,
         }
     return result
+
+
+@router.get("/{guild_id}/bots/audit")
+async def bots_audit(
+    guild_id: str,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-BOT-004: flag every cached bot member of the Guild that holds
+    ADMINISTRATOR. Cache-first, tenant-safe; never requests Discord to grant
+    ADMINISTRATOR and never mutates anything."""
+    parsed = parse_snowflake(guild_id)
+    await container.authorization.authorize(
+        discord_user_id=session.discord_user_id,
+        guild_id=parsed,
+        capability=Capability.BOTS_AUDIT,
+        scope=AuthorizationScope.guild(),
+        sensitive=True,
+    )
+    bot_id, _ = await container.stage04_repository.bot_identity(parsed)
+    if bot_id is None:
+        return {"guild_id": str(parsed), "bots": []}
+    guild, _ = await container.stage04_repository.guild_snapshot(parsed, bot_id)
+    members = await container.stage04_repository.cached_member_snapshots(parsed)
+    audits = audit_guild_bots(guild, members)
+    return {
+        "guild_id": str(parsed),
+        "bots": [
+            {
+                "user_id": str(audit.user_id),
+                "role_ids": [str(role_id) for role_id in audit.role_ids],
+                "is_administrator": audit.is_administrator,
+                "status": audit.status.value,
+                "incomplete_reasons": list(audit.incomplete_reasons),
+            }
+            for audit in audits
+        ],
+    }
+
+
+@router.get("/{guild_id}/bots/{bot_user_id}/access-map")
+async def bot_access_map(
+    guild_id: str,
+    bot_user_id: str,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-BOT-005: real per-channel read/write posture for one bot, computed
+    from cached roles/overwrites with the same evaluator Stage04 already uses
+    elsewhere. Never simulates a permission that was not actually observed;
+    a channel this Guild's cache has never seen simply has no entry."""
+    parsed_guild = parse_snowflake(guild_id)
+    parsed_bot = parse_snowflake(bot_user_id)
+    await container.authorization.authorize(
+        discord_user_id=session.discord_user_id,
+        guild_id=parsed_guild,
+        capability=Capability.BOTS_AUDIT,
+        scope=AuthorizationScope.guild(),
+        sensitive=True,
+    )
+    guild, bot = await container.stage04_repository.guild_snapshot(parsed_guild, parsed_bot)
+    if not bot.is_bot:
+        raise ApiProblem(status_code=404, code="BOT_NOT_FOUND", message_key="errors.bot.notFound")
+    channels = bot_channel_access_map(guild, bot)
+    return {
+        "guild_id": str(parsed_guild),
+        "user_id": str(parsed_bot),
+        "channels": [
+            {
+                "channel_id": str(item.channel_id),
+                "can_read": item.can_read,
+                "can_write": item.can_write,
+                "status": item.status.value,
+            }
+            for item in channels
+        ],
+    }
 
 
 @router.get("/{guild_id}/logical-groups")

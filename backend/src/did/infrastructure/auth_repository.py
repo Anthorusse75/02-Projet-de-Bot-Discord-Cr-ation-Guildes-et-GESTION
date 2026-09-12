@@ -380,6 +380,17 @@ class AuthRepository:
                 {"guild_id": guild_id},
             )
 
+    async def delete_tenant(self, guild_id: int) -> bool:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            await session.execute(
+                text("SELECT set_config('app.tenant_purge_in_progress', 'on', true)")
+            )
+            result = await session.execute(
+                text("DELETE FROM guild_installations WHERE guild_id=:guild_id RETURNING guild_id"),
+                {"guild_id": guild_id},
+            )
+        return result.scalar_one_or_none() is not None
+
     async def get_accesses(self, guild_id: int, user_id: int) -> tuple[AccessRecord, ...]:
         async with tenant_transaction(
             self._factory, TenantContext(guild_id=guild_id, user_id=user_id)

@@ -18,6 +18,7 @@ from did.infrastructure.database import (
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04NotFound, Stage04Repository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
+from did.permissions.capabilities import audit_guild_bots
 from did.permissions.models import DecisionStatus, PermissionOutcome
 from did.tenancy import TenantContext
 
@@ -427,3 +428,61 @@ async def test_cross_guild_resources_duplicate_targets_and_rls_writes_are_reject
                 )
     finally:
         await engine.dispose()
+
+
+async def test_bot_administrator_audit_is_cache_first_and_tenant_isolated() -> None:
+    """REQ-BOT-004: every cached bot member is flagged for ADMINISTRATOR, from
+    the cache alone, scoped strictly to its own Guild."""
+    await seed_stage04()
+    admin_bot = BOT
+    scoped_bot = BOT + 1
+    other_guild_bot = BOT + 2
+    admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+    try:
+        async with admin_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE discord_roles_cache SET permissions_bits=:bits "
+                    "WHERE guild_id=:guild AND role_id=:role"
+                ),
+                {
+                    "bits": DEFAULT_PERMISSION_REGISTRY.value("ADMINISTRATOR"),
+                    "guild": GUILD_A,
+                    "role": ROLE_A,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO discord_member_authorization_cache "
+                    "(guild_id,discord_user_id,role_ids,source,validity,observed_at,is_bot) VALUES "
+                    "(:guild,:user,:roles,'TARGETED_REST','FRESH',:now,true)"
+                ),
+                [
+                    {"guild": GUILD_A, "user": admin_bot, "roles": [ROLE_A], "now": NOW},
+                    {"guild": GUILD_A, "user": scoped_bot, "roles": [], "now": NOW},
+                    {"guild": GUILD_B, "user": other_guild_bot, "roles": [ROLE_B], "now": NOW},
+                ],
+            )
+    finally:
+        await admin_engine.dispose()
+
+    engine = create_database_engine(APP_URL, pool_size=2)
+    try:
+        repository = Stage04Repository(create_session_factory(engine))
+        guild_a, _ = await repository.guild_snapshot(GUILD_A, ACTOR)
+        audits_a = audit_guild_bots(guild_a, await repository.cached_member_snapshots(GUILD_A))
+        guild_b, _ = await repository.guild_snapshot(GUILD_B, ACTOR)
+        audits_b = audit_guild_bots(guild_b, await repository.cached_member_snapshots(GUILD_B))
+    finally:
+        await engine.dispose()
+
+    by_id_a = {audit.user_id: audit for audit in audits_a}
+    assert set(by_id_a) == {admin_bot, scoped_bot}
+    assert by_id_a[admin_bot].is_administrator is True
+    assert by_id_a[scoped_bot].is_administrator is False
+
+    by_id_b = {audit.user_id: audit for audit in audits_b}
+    assert set(by_id_b) == {other_guild_bot}
+    assert by_id_b[other_guild_bot].is_administrator is False
+    assert other_guild_bot not in by_id_a
+    assert admin_bot not in by_id_b and scoped_bot not in by_id_b

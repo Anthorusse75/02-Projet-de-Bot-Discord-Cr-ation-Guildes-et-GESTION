@@ -1,12 +1,13 @@
 import os
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.api.main import create_app
 from did.application.auth.service import AuthorizationDenied
@@ -17,7 +18,7 @@ from did.domain.auth import (
     PlatformRole,
     ScopeKind,
 )
-from did.infrastructure.auth_repository import InstallationIdentityMismatch
+from did.infrastructure.auth_repository import AuthRepository, InstallationIdentityMismatch
 from did.infrastructure.database import create_database_engine
 from did.oauth.discord import DiscordOAuthError
 from did.oauth.models import DiscordGuild, DiscordUser, OAuthTokenSet
@@ -501,6 +502,47 @@ async def test_oauth_state_is_bound_to_the_exact_browser_without_consuming_on_mi
             assert recovered.status_code == 303
 
 
+async def test_uninstall_and_purge_routes_dispatch_separately_and_purge_requires_csrf() -> None:
+    await reset_stage02()
+    application = create_app(
+        stage02_settings(), oauth_client=FakeOAuthClient(), member_client=FakeMemberClient()
+    )
+    async with application.router.lifespan_context(application):
+        container = application.state.services
+        async with AsyncClient(
+            transport=ASGITransport(app=application, raise_app_exceptions=False),
+            base_url="http://test",
+            follow_redirects=False,
+        ) as client:
+            _, csrf = await login(client)
+            with (
+                patch.object(
+                    container.installations, "uninstall", new_callable=AsyncMock
+                ) as uninstall,
+                patch.object(
+                    container.installations, "purge_tenant", new_callable=AsyncMock
+                ) as purge,
+            ):
+                missing_csrf = await client.delete(f"/api/v1/guilds/{GUILD_A}/installation/purge")
+                assert missing_csrf.status_code == 403
+                assert missing_csrf.json()["error"]["code"] == "CSRF_INVALID"
+                purge.assert_not_awaited()
+
+                uninstall_response = await client.delete(
+                    f"/api/v1/guilds/{GUILD_A}/installation",
+                    headers={"X-CSRF-Token": csrf},
+                )
+                purge_response = await client.delete(
+                    f"/api/v1/guilds/{GUILD_A}/installation/purge",
+                    headers={"X-CSRF-Token": csrf},
+                )
+
+            assert uninstall_response.status_code == 204
+            assert purge_response.status_code == 204
+            uninstall.assert_awaited_once_with(guild_id=GUILD_A, actor_user_id=USER)
+            purge.assert_awaited_once_with(guild_id=GUILD_A, actor_user_id=USER)
+
+
 async def test_scoped_rbac_owner_protection_revoke_and_sensitive_freshness() -> None:
     await reset_stage02()
     oauth = FakeOAuthClient()
@@ -787,6 +829,58 @@ async def test_installation_reobservation_state_machine_and_identity_are_fail_cl
                 bot_user_id=999,
             )
         assert await status() == "REVOKED"
+
+
+async def test_delete_tenant_cascades_only_the_target_guild() -> None:
+    await reset_stage02()
+    await seed_did_identities(USER)
+    settings = stage02_settings()
+    engine = create_database_engine(settings.database_url.get_secret_value(), pool_size=1)
+    repository = AuthRepository(async_sessionmaker(engine, expire_on_commit=False))
+    try:
+        for guild_id, name in ((GUILD_A, "Guild A"), (GUILD_B, "Guild B")):
+            await repository.record_installation(
+                guild_id=guild_id,
+                name=name,
+                icon_hash=None,
+                owner_id=USER,
+                application_id=123,
+                bot_user_id=999,
+            )
+            await repository.activate_and_create_owner(guild_id, USER)
+            await repository.save_role_binding(
+                guild_id=guild_id,
+                discord_role_id=9001,
+                dashboard_role=PlatformRole.READ_ONLY,
+                actor_user_id=USER,
+                scope=AuthorizationScope.guild(),
+            )
+
+        assert await repository.delete_tenant(GUILD_A) is True
+
+        admin_engine = create_database_engine(ADMIN_URL, pool_size=1)
+        try:
+            async with admin_engine.connect() as connection:
+                counts = (
+                    await connection.execute(
+                        text(
+                            "SELECT "
+                            "(SELECT count(*) FROM guild_installations WHERE guild_id=:guild_a), "
+                            "(SELECT count(*) FROM guild_user_access WHERE guild_id=:guild_a), "
+                            "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:guild_a), "
+                            "(SELECT count(*) FROM guild_installations WHERE guild_id=:guild_b), "
+                            "(SELECT count(*) FROM guild_user_access WHERE guild_id=:guild_b), "
+                            "(SELECT count(*) FROM guild_role_bindings WHERE guild_id=:guild_b)"
+                        ),
+                        {"guild_a": GUILD_A, "guild_b": GUILD_B},
+                    )
+                ).one()
+            assert tuple(counts) == (0, 0, 0, 1, 1, 1)
+        finally:
+            await admin_engine.dispose()
+    finally:
+        await engine.dispose()
+        await reset_stage02()
 
 
 @pytest.mark.failure_injection

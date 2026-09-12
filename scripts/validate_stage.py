@@ -1033,6 +1033,467 @@ def stage_09(
     return tuple(base_steps)
 
 
+def missing_gate_step(gate: str, reason: str) -> Step:
+    """A Step that always fails, naming exactly which Stage 10 acceptance
+    gate has no real implementation/proof yet. Used so the Stage 10 default
+    and per-profile step lists can never silently report a false PASS for an
+    acceptance area this task did not implement (see
+    scripts/_stage10_missing_gate.py)."""
+    python = sys.executable
+    return Step(
+        f"STAGE 10 gate pending: {gate}",
+        (python, "scripts/_stage10_missing_gate.py", "--gate", gate, "--reason", reason),
+    )
+
+
+def stage_10(
+    evidence_directory: Path,
+    include_discord_live: bool = False,
+    profile: str = "default",
+    *,
+    expected_commit: str | None = None,
+    expected_run_id: str | None = None,
+) -> tuple[Step, ...]:
+    uv = executable("uv")
+    python = sys.executable
+
+    if profile == "security":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step("secret scan", (python, "scripts/check_secrets.py")),
+            Step(
+                "migration STAGE 10 security head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "S10 global backend security and tenant-isolation suite",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "security and not discord_live",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-backend-security.xml"),
+                ),
+                1800,
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+            Step(
+                "S10 OAuth session logging and settings security contracts",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/unit/test_stage02_api_contract.py",
+                    "backend/tests/unit/test_discord_oauth_contract.py",
+                    "backend/tests/unit/test_oauth_crypto.py",
+                    "backend/tests/unit/test_logging.py",
+                    "backend/tests/unit/test_settings.py",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-security-contracts.xml"),
+                ),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "frontend dependency vulnerability audit",
+                (executable("npm"), "audit", "--audit-level=moderate"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "frontend session isolation and locale safety tests",
+                (
+                    executable("npm"),
+                    "run",
+                    "test",
+                    "--",
+                    "src/api/client.test.ts",
+                    "src/localization/catalog.test.ts",
+                ),
+                600,
+                ROOT / "frontend",
+            ),
+        )
+
+    if profile == "performance":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "S10 representative Guild, plan, clone, campaign and fairness load",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "backend/tests/load/test_stage10_acceptance_load.py",
+                    "backend/tests/load/test_stage05_plan_load.py",
+                    "backend/tests/load/test_stage06_portability_load.py",
+                    "backend/tests/load/test_stage09_campaign_fairness_load.py",
+                    "backend/tests/load/test_stage03_fairness_load.py",
+                    "-m",
+                    "load",
+                    "-q",
+                    "--junitxml=" + relative_path(evidence_directory / "stage10-performance.xml"),
+                ),
+                1800,
+                environment={
+                    **TEST_ENV,
+                    "DID_RUN_INTEGRATION": "1",
+                    "DID_STAGE10_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-representative-guild.json"
+                    ),
+                    "DID_STAGE05_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-plan-load.json"
+                    ),
+                    "DID_STAGE06_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-clone-load.json"
+                    ),
+                    "DID_LOAD_REPORT": relative_path(
+                        evidence_directory / "stage10-governor-fairness.json"
+                    ),
+                },
+            ),
+            Step(
+                "frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10 large-tree browser rendering budget",
+                (
+                    executable("npm"),
+                    "run",
+                    "test:e2e",
+                    "--",
+                    "stage10.spec.ts",
+                    "--grep",
+                    "@performance",
+                ),
+                600,
+                ROOT / "frontend",
+                environment={
+                    "DID_PLAYWRIGHT_JUNIT_OUTPUT": str(
+                        (evidence_directory / "stage10-large-tree.xml").resolve()
+                    )
+                },
+            ),
+        )
+
+    if profile == "failure-injection":
+        return (
+            Step("python lock sync", (uv, "sync", "--frozen", "--python", "3.13"), 600),
+            Step("backend lint", (uv, "run", "ruff", "check", ".")),
+            Step("backend typecheck", (uv, "run", "mypy")),
+            Step(
+                "migration STAGE 10 failure-injection head",
+                (uv, "run", "alembic", "upgrade", "head"),
+                environment=TEST_ENV,
+            ),
+            Step(
+                "S10 global failure-injection and recovery matrix",
+                (
+                    uv,
+                    "run",
+                    "pytest",
+                    "-m",
+                    "failure_injection",
+                    "-q",
+                    "--junitxml="
+                    + relative_path(evidence_directory / "stage10-failure-matrix.xml"),
+                ),
+                1800,
+                environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+            ),
+        )
+
+    if profile == "e2e":
+        return (
+            Step("frontend lock install", (executable("npm"), "ci"), 600, ROOT / "frontend"),
+            Step("frontend lint", (executable("npm"), "run", "lint"), cwd=ROOT / "frontend"),
+            Step(
+                "frontend typecheck",
+                (executable("npm"), "run", "typecheck"),
+                cwd=ROOT / "frontend",
+            ),
+            Step(
+                "S10 global Playwright complete suite and login-to-campaign acceptance",
+                (executable("npm"), "run", "test:e2e"),
+                600,
+                ROOT / "frontend",
+                {
+                    "DID_PLAYWRIGHT_JUNIT_OUTPUT": str(
+                        (evidence_directory / "stage10-global-e2e.xml").resolve()
+                    )
+                },
+            ),
+        )
+
+    base_steps = [
+        Step(
+            f"STAGE {stage} validator",
+            (
+                python,
+                "scripts/validate_stage.py",
+                stage,
+            ),
+            timeout_seconds=7200,
+        )
+        for stage in ("01", "02", "03", "04", "05", "06", "07", "08", "09")
+    ]
+    base_steps.append(
+        Step(
+            "STAGE 10 traceability baseline regeneration (no live promotion)",
+            (python, "scripts/generate_traceability.py"),
+        )
+    )
+    base_steps.append(
+        Step(
+            "STAGE 10 requirement audit (normal mode)",
+            (python, "scripts/audit_requirements.py"),
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-004 guild bot ADMINISTRATOR audit evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage04_permissions.py",
+                "backend/tests/integration/test_stage04_postgres.py",
+                "-k",
+                "audit_guild_bots or bot_administrator_audit",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-004.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-005 bot read/write channel map evidence (backend)",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage04_permissions.py",
+                "backend/tests/unit/test_stage04_api_contract.py",
+                "-k",
+                "access_map",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-005.xml')}",
+            ),
+            environment=TEST_ENV,
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-BOT-006 bot-writes/humans-read overwrite compiler evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/unit/test_stage05_planning.py",
+                "-k",
+                "bot_writes_humans_read",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-bot-006.xml')}",
+            ),
+            environment=TEST_ENV,
+        )
+    )
+    base_steps.append(
+        Step(
+            "S10-DATA tenant purge and minimization evidence",
+            (
+                uv,
+                "run",
+                "pytest",
+                "backend/tests/integration/test_stage06_postgres.py",
+                "backend/tests/integration/test_stage02_api.py",
+                "backend/tests/integration/test_redis.py",
+                "backend/tests/unit/test_installation_service.py",
+                "-k",
+                "purge_tenant or delete_tenant_cascades or guild_redis_purge",
+                f"--junitxml={relative_path(evidence_directory / 'backend-s10-data.xml')}",
+            ),
+            environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+        )
+    )
+    rc_image = "did-stage10-backend:rc-candidate"
+    base_steps.extend(
+        (
+            Step(
+                "S10-RC backend image build",
+                (
+                    "docker",
+                    "build",
+                    "--file",
+                    "backend/Dockerfile",
+                    "--tag",
+                    rc_image,
+                    ".",
+                ),
+                1200,
+            ),
+            Step(
+                "S10-RC backend image import smoke",
+                ("docker", "run", "--rm", rc_image, "python", "-c", "import did"),
+            ),
+            Step(
+                "S10-RC backend image CycloneDX SBOM",
+                (
+                    "docker",
+                    "scout",
+                    "sbom",
+                    rc_image,
+                    "--format",
+                    "cyclonedx",
+                    "--output",
+                    relative_path(evidence_directory / "backend-image.cdx.json"),
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC backend image critical/high scan report",
+                (
+                    "docker",
+                    "scout",
+                    "cves",
+                    rc_image,
+                    "--only-severity",
+                    "critical,high",
+                    "--format",
+                    "sarif",
+                    "--output",
+                    relative_path(evidence_directory / "backend-image-cves.sarif"),
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC zero critical image vulnerabilities",
+                (
+                    "docker",
+                    "scout",
+                    "cves",
+                    rc_image,
+                    "--only-severity",
+                    "critical",
+                    "--exit-code",
+                ),
+                600,
+            ),
+            Step(
+                "S10-RC frontend lock install",
+                (executable("npm"), "ci"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10-RC frontend production build",
+                (executable("npm"), "run", "build"),
+                600,
+                ROOT / "frontend",
+            ),
+            Step(
+                "S10-RC manifest, frontend SBOM and checksums",
+                (
+                    python,
+                    "scripts/package_stage10_rc.py",
+                    "--output-dir",
+                    relative_path(evidence_directory),
+                    "--image",
+                    rc_image,
+                ),
+                600,
+            ),
+        )
+    )
+    if include_discord_live:
+        live_scripts = (
+            ("02", "scripts/validate_discord_live_stage02.py"),
+            ("03", "scripts/validate_discord_live_stage03.py"),
+            ("04", "scripts/validate_discord_live_stage04.py"),
+            ("05", "scripts/validate_discord_live_stage05.py"),
+            ("06", "scripts/validate_discord_live_stage06.py"),
+            ("08", "scripts/validate_discord_live_stage08.py"),
+            ("09-primitives", "scripts/validate_discord_live_stage09.py"),
+            ("09-full-chain", "scripts/validate_discord_live_stage09_full_chain.py"),
+        )
+        for label, script in live_scripts:
+            base_steps.append(
+                Step(
+                    f"Stage 10 Discord live A/B matrix — Stage {label}",
+                    (
+                        uv,
+                        "run",
+                        "python",
+                        script,
+                        "--include",
+                        "--report",
+                        relative_path(evidence_directory / f"discord-live-{label}.json"),
+                    ),
+                    3600,
+                    environment={**TEST_ENV, "DID_RUN_INTEGRATION": "1"},
+                )
+            )
+        qualified_commit = expected_commit or tested_commit()
+        qualified_run_id = expected_run_id or evidence_directory.name
+        aggregate = evidence_directory / "stage10-discord-live-closure.json"
+        base_steps.extend(
+            (
+                Step(
+                    "Stage 10 Discord live A/B evidence promotion",
+                    (
+                        python,
+                        "scripts/promote_stage10_live_evidence.py",
+                        "--evidence-directory",
+                        relative_path(evidence_directory),
+                        "--expected-commit",
+                        qualified_commit,
+                        "--expected-run-id",
+                        qualified_run_id,
+                    ),
+                ),
+                Step(
+                    "Stage 10 traceability regeneration from validated live evidence",
+                    (
+                        python,
+                        "scripts/generate_traceability.py",
+                        "--stage10-live-closure",
+                        relative_path(aggregate),
+                        "--expected-commit",
+                        qualified_commit,
+                        "--expected-run-id",
+                        qualified_run_id,
+                    ),
+                ),
+                Step(
+                    "Stage 10 promoted traceability documentation validation",
+                    (python, "scripts/validate_documentation.py"),
+                ),
+            )
+        )
+    base_steps.append(
+        Step(
+            "STAGE 10 requirement audit (strict closure)",
+            (python, "scripts/audit_requirements.py", "--strict-closure"),
+        )
+    )
+    return tuple(base_steps)
+
+
 STAGES: dict[str, StageDefinition] = {
     "01": StageDefinition(
         steps=stage_01,
@@ -1121,6 +1582,21 @@ STAGES: dict[str, StageDefinition] = {
         steps=stage_09,
         requirements=tuple(f"REQ-MSG-{index:03d}" for index in range(1, 32)),
     ),
+    "10": StageDefinition(
+        steps=stage_10,
+        requirements=(
+            "REQ-BOT-004",
+            "REQ-BOT-005",
+            "REQ-BOT-006",
+            "REQ-DATA-001",
+            "REQ-DATA-002",
+            "REQ-TEST-001",
+            "REQ-TEST-002",
+            "REQ-TEST-003",
+            "REQ-TEST-004",
+            "REQ-TEST-005",
+        ),
+    ),
 }
 
 
@@ -1186,6 +1662,9 @@ def run_step(step: Step) -> Result:
     printable = command_text(step.command)
     print(f"\n[{step.name}] {printable}", flush=True)
     environment = os.environ.copy()
+    # Validation must never inherit the Node escape hatch that disables TLS
+    # certificate verification, even if a developer shell exported it.
+    environment.pop("NODE_TLS_REJECT_UNAUTHORIZED", None)
     if step.environment:
         environment.update(step.environment)
     started = time.monotonic()
@@ -1299,6 +1778,7 @@ def main() -> int:
             "load",
             "failure-injection",
             "security",
+            "performance",
             "e2e",
             "translation-benchmark",
         ),
@@ -1312,6 +1792,25 @@ def main() -> int:
 
     stage = arguments.stage
     definition = STAGES[stage]
+    if arguments.profile == "load" and stage not in {"03", "05", "09"}:
+        print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
+        return 2
+    if arguments.profile == "failure-injection" and stage not in {"05", "09", "10"}:
+        print("The failure-injection profile is defined only for STAGE 05, STAGE 09 and STAGE 10")
+        return 2
+    if arguments.profile == "e2e" and stage not in {"07", "08", "09", "10"}:
+        print("The e2e profile is defined only for STAGE 07, STAGE 08, STAGE 09 and STAGE 10")
+        return 2
+    if arguments.profile == "performance" and stage != "10":
+        print("The performance profile is defined only for STAGE 10")
+        return 2
+    if arguments.profile == "translation-benchmark" and stage != "09":
+        print("The translation-benchmark profile is defined only for STAGE 09")
+        return 2
+    if arguments.profile == "translation-benchmark" and not arguments.allow_network:
+        print("The translation-benchmark profile requires --allow-network to make real calls")
+        return 2
+
     started_at = datetime.now(UTC)
     commit = tested_commit()
     dirty = repository_dirty()
@@ -1323,22 +1822,18 @@ def main() -> int:
         print(f"Evidence run already exists and will not be overwritten: stage-{stage}/{run_id}")
         return 2
 
-    if arguments.profile == "load" and stage not in {"03", "05", "09"}:
-        print("The load profile is defined only for STAGE 03, STAGE 05 and STAGE 09")
-        return 2
-    if arguments.profile == "failure-injection" and stage not in {"05", "09"}:
-        print("The failure-injection profile is defined only for STAGE 05 and STAGE 09")
-        return 2
-    if arguments.profile == "e2e" and stage not in {"07", "08", "09"}:
-        print("The e2e profile is defined only for STAGE 07, STAGE 08 and STAGE 09")
-        return 2
-    if arguments.profile == "translation-benchmark" and stage != "09":
-        print("The translation-benchmark profile is defined only for STAGE 09")
-        return 2
-    if arguments.profile == "translation-benchmark" and not arguments.allow_network:
-        print("The translation-benchmark profile requires --allow-network to make real calls")
-        return 2
-    steps = definition.steps(evidence_directory, arguments.include_discord_live, arguments.profile)
+    if stage == "10":
+        steps = stage_10(
+            evidence_directory,
+            arguments.include_discord_live,
+            arguments.profile,
+            expected_commit=commit,
+            expected_run_id=run_id,
+        )
+    else:
+        steps = definition.steps(
+            evidence_directory, arguments.include_discord_live, arguments.profile
+        )
     results: list[Result] = []
     for step in steps:
         result = run_step(step)

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "stage": 10,
+  "candidate": "stage10-local-rc",
+  "generated_at": "2026-09-11T21:36:07.781739+00:00",
+  "source_commit": "ca48bd8ebfbf7561ae3926ee221001d45aa9654e",
+  "source_worktree_dirty": true,
+  "git_tag_created": false,
+  "production_deployed": false,
+  "backend_image": {
+    "reference": "did-stage10-backend:rc-candidate",
+    "id": "sha256:98ac0b0437421dcb8ec506718f6b738ebefd53fb56f221121075d3bf5d6929c1",
+    "repo_digests": [
+      "did-stage10-backend@sha256:98ac0b0437421dcb8ec506718f6b738ebefd53fb56f221121075d3bf5d6929c1"
+    ]
+  },
+  "frontend": {
+    "build_directory": "frontend/dist",
+    "sbom": "frontend.cdx.json"
+  },
+  "scan": {
+    "scanner": "docker scout",
+    "critical": 0,
+    "high": 1,
+    "other_in_critical_high_report": 0,
+    "report": "backend-image-cves.sarif"
+  },
+  "backend_sbom": "backend-image.cdx.json"
+}

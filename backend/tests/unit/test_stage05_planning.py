@@ -40,6 +40,7 @@ from did.infrastructure.discord.mutations import (
 from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
+from did.permissions.views import bot_writes_humans_read_overwrite_nodes
 from did.planning.canonical import canonical_hash, canonical_json
 from did.planning.compiler import PlanCompiler
 from did.planning.dag import DagValidationError, topological_order
@@ -179,6 +180,49 @@ def test_operation_ids_are_deterministic_within_and_distinct_across_plans() -> N
     assert first[0].operation_id != second[0].operation_id
 
 
+def test_bot_writes_humans_read_overwrite_nodes_compile_to_real_upsert_overwrites() -> None:
+    """REQ-BOT-006: the bot-writes/humans-read preset targets a real existing
+    channel/roles and compiles through the same Stage05 plan engine as any
+    other overwrite -- never a parallel mutation path."""
+    guild = current_guild()
+    channel_id = guild.channels[0].channel_id
+    bot_role_id = 900
+    human_role_id = 901
+    guild = replace(
+        guild,
+        roles=(
+            *guild.roles,
+            RoleSnapshot(GUILD, bot_role_id, "bot", 5, 0, False, guild.freshness),
+            RoleSnapshot(GUILD, human_role_id, "humans", 4, 0, False, guild.freshness),
+        ),
+    )
+    bot_node, humans_node = bot_writes_humans_read_overwrite_nodes(
+        channel_id=channel_id, bot_subject_id=bot_role_id, human_role_id=human_role_id
+    )
+    graph = DesiredStateGraph(GUILD, (bot_node, humans_node))
+
+    operations = PlanCompiler().compile(guild, graph, plan_id=uuid4())
+
+    assert {op.operation_type for op in operations} == {OperationType.UPSERT_OVERWRITE}
+    by_subject = {
+        thaw_json_object(op.desired_payload)["subject_id"]: thaw_json_object(op.desired_payload)
+        for op in operations
+    }
+    view = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
+    write = DEFAULT_PERMISSION_REGISTRY.value("SEND_MESSAGES") | DEFAULT_PERMISSION_REGISTRY.value(
+        "SEND_MESSAGES_IN_THREADS"
+    )
+    bot_payload = by_subject[bot_role_id]
+    assert bot_payload["channel_id"] == channel_id
+    assert bot_payload["target_type"] == 0
+    assert int(bot_payload["allow"]) == view | write
+    assert int(bot_payload["deny"]) == 0
+    humans_payload = by_subject[human_role_id]
+    assert humans_payload["channel_id"] == channel_id
+    assert int(humans_payload["allow"]) == view
+    assert int(humans_payload["deny"]) == write
+
+
 def test_diff_classifies_update_delete_and_no_change_without_side_effects() -> None:
     guild = current_guild()
     existing = guild.channels[0]
@@ -299,6 +343,344 @@ def test_role_reorder_separates_rest_targets_from_expected_position_segment() ->
         {"id": 300, "position": 2, "resource_ref": "discord.role.300"},
         {"id": 100, "position": 3, "resource_ref": "role.target"},
     ]
+
+
+def test_role_reorder_models_duplicate_positions_with_snowflake_tiebreak() -> None:
+    base = current_guild()
+    tied_above = RoleSnapshot(GUILD, 100, "tied-above", 1, 0, False, base.freshness)
+    moved = RoleSnapshot(GUILD, 200, "moved", 1, 0, False, base.freshness)
+    tied_below = RoleSnapshot(GUILD, 300, "tied-below", 1, 0, False, base.freshness)
+    middle = RoleSnapshot(GUILD, 400, "middle", 2, 0, False, base.freshness)
+    destination = RoleSnapshot(GUILD, 500, "destination", 3, 0, False, base.freshness)
+    observed = replace(
+        base,
+        roles=(*base.roles, tied_above, moved, tied_below, middle, destination),
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.moved",
+                resource_type=ResourceType.ROLE,
+                discord_id=moved.role_id,
+                properties={"name": moved.name, "permissions": "0", "position": 3},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+    before = thaw_json_object(reorder.before_payload)
+    preconditions = thaw_json_object(reorder.preconditions)
+
+    # Discord orders the position=1 tie by descending snowflake in the
+    # bottom-to-top hierarchy: 300, 200, 100. Moving 200 above raw position 3
+    # therefore normalizes it to hierarchy position 5, not raw position 3.
+    assert payload["items"] == [
+        {"id": 200, "position": 4, "resource_ref": "role.moved"},
+    ]
+    expected_segment = [
+        {"id": 100, "position": 2, "resource_ref": "discord.role.100"},
+        {"id": 400, "position": 3, "resource_ref": "discord.role.400"},
+        {"id": 500, "position": 4, "resource_ref": "discord.role.500"},
+        {"id": 200, "position": 5, "resource_ref": "role.moved"},
+    ]
+    expected_before = [
+        {"id": 100, "position": 1},
+        {"id": 400, "position": 2},
+        {"id": 500, "position": 3},
+        {"id": 200, "position": 1},
+    ]
+    assert payload["expected_position_segment"] == expected_segment
+    assert before["expected_position_segment"] == expected_before
+    assert preconditions["before"]["items"] == expected_before
+
+
+def test_role_reorder_projects_effective_rest_coordinate_before_snowflake_tiebreak() -> None:
+    base = current_guild()
+    moved_id = 1548224498807865354
+    target_id = 1340817492943306762
+    tied_below = RoleSnapshot(GUILD, 1549000000000000000, "tied-below", 1, 0, False, base.freshness)
+    moved = RoleSnapshot(GUILD, moved_id, "moved", 1, 0, False, base.freshness)
+    tied_above = RoleSnapshot(GUILD, 700000000000000000, "tied-above", 1, 0, False, base.freshness)
+    intermediate = tuple(
+        RoleSnapshot(
+            GUILD,
+            1200000000000000000 + position,
+            f"intermediate-{position}",
+            position,
+            0,
+            False,
+            base.freshness,
+        )
+        for position in range(2, 12)
+    )
+    target = RoleSnapshot(GUILD, target_id, "target", 12, 0, False, base.freshness)
+    observed = replace(
+        base,
+        roles=(*base.roles, tied_below, moved, tied_above, *intermediate, target),
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.moved",
+                resource_type=ResourceType.ROLE,
+                discord_id=moved.role_id,
+                properties={"name": moved.name, "permissions": "0", "position": 12},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+    expected_positions = {
+        int(item["id"]): int(item["position"]) for item in payload["expected_position_segment"]
+    }
+
+    assert payload["items"] == [
+        {"id": moved_id, "position": 13, "resource_ref": "role.moved"},
+    ]
+    assert expected_positions[target_id] == 13
+    assert expected_positions[moved_id] == 14
+
+
+def test_role_reorder_closes_over_upper_position_spillover() -> None:
+    base = current_guild()
+    moved_id = 1548224498807865354
+    target_area_id = 1340817492943306762
+    position_13_id = 1300000000000000013
+    position_14_id = 1400000000000000014
+    tied_below = RoleSnapshot(GUILD, 1550000000000000000, "tied-below", 1, 0, False, base.freshness)
+    moved = RoleSnapshot(GUILD, moved_id, "moved", 1, 0, False, base.freshness)
+    tied_above = RoleSnapshot(GUILD, 700000000000000000, "tied-above", 1, 0, False, base.freshness)
+    intermediate = tuple(
+        RoleSnapshot(
+            GUILD,
+            target_area_id if position == 12 else 1200000000000000000 + position,
+            f"position-{position}",
+            position,
+            0,
+            False,
+            base.freshness,
+        )
+        for position in range(2, 13)
+    )
+    position_13 = RoleSnapshot(GUILD, position_13_id, "position-13", 13, 0, False, base.freshness)
+    position_14 = RoleSnapshot(GUILD, position_14_id, "position-14", 14, 0, False, base.freshness)
+    observed = replace(
+        base,
+        roles=(
+            *base.roles,
+            tied_below,
+            moved,
+            tied_above,
+            *intermediate,
+            position_13,
+            position_14,
+        ),
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.moved",
+                resource_type=ResourceType.ROLE,
+                discord_id=moved.role_id,
+                properties={"name": moved.name, "permissions": "0", "position": 12},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+    before = thaw_json_object(reorder.before_payload)
+    preconditions = thaw_json_object(reorder.preconditions)
+    expected_positions = {
+        int(item["id"]): int(item["position"]) for item in payload["expected_position_segment"]
+    }
+    expected_before_positions = {
+        int(item["id"]): int(item["position"]) for item in before["expected_position_segment"]
+    }
+
+    assert payload["items"] == [
+        {"id": moved_id, "position": 13, "resource_ref": "role.moved"},
+    ]
+    assert expected_positions[target_area_id] == 13
+    assert expected_positions[moved_id] == 14
+    assert expected_positions[position_13_id] == 15
+    assert expected_positions.get(position_14_id) == 16
+    assert expected_before_positions[position_14_id] == 14
+    assert preconditions["before"]["items"] == before["expected_position_segment"]
+
+
+def test_role_reorder_spillover_merges_reached_pending_interval() -> None:
+    base = current_guild()
+    tied_below = RoleSnapshot(GUILD, 300, "tied-below", 1, 0, False, base.freshness)
+    lower_move = RoleSnapshot(GUILD, 200, "lower-move", 1, 0, False, base.freshness)
+    tied_above = RoleSnapshot(GUILD, 100, "tied-above", 1, 0, False, base.freshness)
+    position_2 = RoleSnapshot(GUILD, 400, "position-2", 2, 0, False, base.freshness)
+    upper_move = RoleSnapshot(GUILD, 500, "upper-move", 4, 0, False, base.freshness)
+    position_5 = RoleSnapshot(GUILD, 600, "position-5", 5, 0, False, base.freshness)
+    observed = replace(
+        base,
+        roles=(
+            *base.roles,
+            tied_below,
+            lower_move,
+            tied_above,
+            position_2,
+            upper_move,
+            position_5,
+        ),
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.lower-move",
+                resource_type=ResourceType.ROLE,
+                discord_id=lower_move.role_id,
+                properties={"name": lower_move.name, "permissions": "0", "position": 2},
+            ),
+            DesiredNode.build(
+                logical_key="role.upper-move",
+                resource_type=ResourceType.ROLE,
+                discord_id=upper_move.role_id,
+                properties={"name": upper_move.name, "permissions": "0", "position": 5},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+    expected_positions = {
+        int(item["id"]): int(item["position"]) for item in payload["expected_position_segment"]
+    }
+
+    assert expected_positions == {
+        tied_above.role_id: 2,
+        position_2.role_id: 3,
+        lower_move.role_id: 4,
+        upper_move.role_id: 6,
+    }
+    assert position_5.role_id not in expected_positions
+
+
+def test_role_reorder_preserves_distant_positions_outside_tied_move_segment() -> None:
+    base = current_guild()
+    moved = RoleSnapshot(GUILD, 200, "moved", 1, 0, False, base.freshness)
+    tied_below = RoleSnapshot(GUILD, 300, "tied-below", 1, 0, False, base.freshness)
+    local_destination = RoleSnapshot(GUILD, 400, "local-destination", 2, 0, False, base.freshness)
+    distant_five = RoleSnapshot(GUILD, 500, "distant-five", 5, 0, False, base.freshness)
+    distant_six = RoleSnapshot(GUILD, 600, "distant-six", 6, 0, False, base.freshness)
+    observed = replace(
+        base,
+        roles=(
+            *base.roles,
+            moved,
+            tied_below,
+            local_destination,
+            distant_five,
+            distant_six,
+        ),
+    )
+    graph = DesiredStateGraph(
+        GUILD,
+        (
+            DesiredNode.build(
+                logical_key="role.moved",
+                resource_type=ResourceType.ROLE,
+                discord_id=moved.role_id,
+                properties={"name": moved.name, "permissions": "0", "position": 2},
+            ),
+        ),
+    )
+
+    operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+    reorder = next(
+        item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+    )
+    payload = thaw_json_object(reorder.desired_payload)
+
+    assert payload["expected_position_segment"] == [
+        {"id": 200, "position": 3, "resource_ref": "role.moved"},
+    ]
+    expected_ids = {item["id"] for item in payload["expected_position_segment"]}
+    assert distant_five.role_id not in expected_ids
+    assert distant_six.role_id not in expected_ids
+
+
+def test_bulk_role_reorder_result_does_not_depend_on_logical_key_order() -> None:
+    base = current_guild()
+    low = RoleSnapshot(GUILD, 100, "low", 1, 0, False, base.freshness)
+    tied_low = RoleSnapshot(GUILD, 200, "tied-low", 1, 0, False, base.freshness)
+    middle = RoleSnapshot(GUILD, 300, "middle", 2, 0, False, base.freshness)
+    high = RoleSnapshot(GUILD, 400, "high", 3, 0, False, base.freshness)
+    observed = replace(base, roles=(*base.roles, low, tied_low, middle, high))
+
+    def compile_positions(
+        low_key: str, high_key: str
+    ) -> tuple[tuple[tuple[int, int], ...], tuple[tuple[int, int], ...]]:
+        graph = DesiredStateGraph(
+            GUILD,
+            (
+                DesiredNode.build(
+                    logical_key=low_key,
+                    resource_type=ResourceType.ROLE,
+                    discord_id=low.role_id,
+                    properties={"name": low.name, "permissions": "0", "position": 3},
+                ),
+                DesiredNode.build(
+                    logical_key=high_key,
+                    resource_type=ResourceType.ROLE,
+                    discord_id=high.role_id,
+                    properties={"name": high.name, "permissions": "0", "position": 1},
+                ),
+            ),
+        )
+        operations = PlanCompiler().compile(observed, graph, plan_id=uuid4())
+        reorder = next(
+            item for item in operations if item.operation_type is OperationType.REORDER_ROLES
+        )
+        payload = thaw_json_object(reorder.desired_payload)
+        expected = tuple(
+            sorted(
+                (int(item["id"]), int(item["position"]))
+                for item in payload["expected_position_segment"]
+            )
+        )
+        requested = tuple(
+            sorted((int(item["id"]), int(item["position"])) for item in payload["items"])
+        )
+        return expected, requested
+
+    low_first_expected, low_first_requested = compile_positions("role.a-low", "role.z-high")
+    high_first_expected, high_first_requested = compile_positions("role.z-low", "role.a-high")
+
+    assert (
+        low_first_expected
+        == high_first_expected
+        == (
+            (100, 4),
+            (200, 2),
+            (300, 3),
+            (400, 1),
+        )
+    )
+    assert low_first_requested == high_first_requested == ((100, 4), (400, 1))
 
 
 def test_delete_everyone_is_rejected_by_preflight() -> None:

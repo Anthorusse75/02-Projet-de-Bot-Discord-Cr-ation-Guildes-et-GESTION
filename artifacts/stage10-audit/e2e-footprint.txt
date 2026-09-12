@@ -1,0 +1,4 @@
+frontend/e2e/stage07.spec.ts
+frontend/e2e/stage08.spec.ts
+frontend/e2e/stage09.spec.ts
+frontend/playwright.config.ts

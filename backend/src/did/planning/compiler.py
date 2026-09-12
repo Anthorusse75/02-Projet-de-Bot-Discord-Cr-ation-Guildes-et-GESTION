@@ -282,6 +282,8 @@ class PlanCompiler:
         """Separate explicit REST targets from the predicted shifted segment."""
         original = {role.role_id: role.position for role in observed.roles}
         positions = dict(original)
+        effective_rest_targets: dict[int, int] = {}
+        affected_intervals: list[tuple[int, int]] = []
         requested_refs = {
             entry.node.discord_id: entry.node.logical_key
             for entry in entries
@@ -290,47 +292,109 @@ class PlanCompiler:
         for entry in sorted(entries, key=lambda item: item.node.logical_key):
             role_id = entry.node.discord_id
             target = thaw_json_object(entry.node.properties).get("position")
-            if role_id is None or target is None or role_id not in positions:
+            if role_id is None or target is None or role_id not in original:
                 continue
-            current = positions[role_id]
             target_position = int(target)
-            for shifted_id, shifted_position in tuple(positions.items()):
-                if shifted_id == role_id:
-                    continue
-                if current < target_position and current < shifted_position <= target_position:
-                    positions[shifted_id] = shifted_position - 1
-                elif target_position < current and target_position <= shifted_position < current:
-                    positions[shifted_id] = shifted_position + 1
-            positions[role_id] = target_position
+            effective_rest_target = (
+                target_position + 1 if original[role_id] < target_position else target_position
+            )
+            effective_rest_targets[role_id] = effective_rest_target
+            affected_intervals.append(
+                (
+                    min(original[role_id], effective_rest_target),
+                    max(original[role_id], effective_rest_target),
+                )
+            )
+
+        # A Discord role position is not a unique hierarchy coordinate. Roles
+        # at the same raw position are ordered by descending snowflake when
+        # viewed bottom-to-top, while @everyone is always the lowest role. Use
+        # that total order inside only the raw ranges touched by explicit
+        # moves; positions and gaps outside those ranges remain unchanged.
+        original_hierarchy = sorted(
+            observed.roles,
+            key=lambda role: (
+                role.role_id != observed.guild_id,
+                original[role.role_id],
+                -role.role_id,
+            ),
+        )
+        merged_intervals: list[tuple[int, int]] = []
+        for lower, upper in sorted(affected_intervals):
+            if merged_intervals and lower <= merged_intervals[-1][1]:
+                previous_lower, previous_upper = merged_intervals[-1]
+                merged_intervals[-1] = (previous_lower, max(previous_upper, upper))
+            else:
+                merged_intervals.append((lower, upper))
+
+        # Duplicate raw positions can make a projected segment longer than
+        # its initial coordinate range. Close each interval over every
+        # original role position reached by that spillover, and merge a
+        # pending move interval when the spill reaches it. A genuine gap that
+        # is wider than the spill naturally terminates the closure.
+        pending_intervals = list(merged_intervals)
+        closed_intervals: list[tuple[int, int]] = []
+        while pending_intervals:
+            lower, upper = pending_intervals.pop(0)
+            while True:
+                segment_size = sum(
+                    lower <= original[role.role_id] <= upper for role in original_hierarchy
+                )
+                projected_upper = lower + segment_size - 1
+                extended_upper = max(
+                    (
+                        original[role.role_id]
+                        for role in original_hierarchy
+                        if upper < original[role.role_id] <= projected_upper
+                    ),
+                    default=upper,
+                )
+                merge_limit = max(projected_upper, extended_upper)
+                while pending_intervals and pending_intervals[0][0] <= merge_limit:
+                    _, pending_upper = pending_intervals.pop(0)
+                    extended_upper = max(extended_upper, pending_upper)
+                    merge_limit = max(merge_limit, extended_upper)
+                if extended_upper == upper:
+                    break
+                upper = extended_upper
+            closed_intervals.append((lower, upper))
+
+        for lower, upper in closed_intervals:
+            segment = [
+                role for role in original_hierarchy if lower <= original[role.role_id] <= upper
+            ]
+            segment.sort(
+                key=lambda role: (
+                    role.role_id != observed.guild_id,
+                    effective_rest_targets.get(role.role_id, original[role.role_id]),
+                    -role.role_id,
+                )
+            )
+            for offset, role in enumerate(segment):
+                positions[role.role_id] = lower + offset
 
         requested_items: list[dict[str, object]] = []
         requested_before: list[dict[str, object]] = []
         for entry in sorted(entries, key=lambda item: item.node.logical_key):
             role_id = entry.node.discord_id
-            target = thaw_json_object(entry.node.properties).get("position")
-            if role_id is None or target is None or role_id not in original:
+            if role_id is None or role_id not in effective_rest_targets:
                 continue
-            target_position = int(target)
-            # With a single explicit role in Discord's bulk endpoint, removing
-            # a role below its destination shifts the original coordinate down
-            # by one before insertion. Keep implicit roles out of the REST
-            # payload and compensate that coordinate here; verification still
-            # uses the desired final position segment below.
-            rest_position = (
-                target_position + 1 if original[role_id] < target_position else target_position
-            )
             requested_items.append(
                 {
                     "resource_ref": entry.node.logical_key,
                     "id": role_id,
-                    "position": rest_position,
+                    "position": effective_rest_targets[role_id],
                 }
             )
             requested_before.append({"id": role_id, "position": original[role_id]})
 
         changed = sorted(
             (role_id for role_id, position in positions.items() if position != original[role_id]),
-            key=lambda role_id: (positions[role_id], role_id),
+            key=lambda role_id: (
+                role_id != observed.guild_id,
+                positions[role_id],
+                -role_id,
+            ),
         )
         expected_items: list[dict[str, object]] = [
             {

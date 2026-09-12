@@ -22,6 +22,7 @@ def test_cookie_contract_is_host_only_secure_in_production() -> None:
         discord_client_id="1",
         discord_client_secret=SecretStr("configured-outside-source"),
         discord_oauth_redirect_uri="https://example.test/auth/discord/callback",
+        cors_allowed_origins=("https://example.test",),
         session_secret=SecretStr("x" * 32),
         oauth_token_encryption_key=SecretStr("a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s"),
         artifact_encryption_key=SecretStr(base64.urlsafe_b64encode(b"a" * 32).decode("ascii")),

@@ -199,6 +199,18 @@ async def uninstall(
     )
 
 
+@router.delete("/{guild_id}/installation/purge", status_code=204)
+async def purge_installation(
+    guild_id: str,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> None:
+    await container.installations.purge_tenant(
+        guild_id=parse_snowflake(guild_id),
+        actor_user_id=session.discord_user_id,
+    )
+
+
 @router.put("/{guild_id}/rbac/users")
 async def set_user_access(
     guild_id: str,

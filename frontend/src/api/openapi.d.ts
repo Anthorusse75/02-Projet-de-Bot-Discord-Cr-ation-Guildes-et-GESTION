@@ -522,6 +522,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/bots/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bots Audit
+         * @description REQ-BOT-004: flag every cached bot member of the Guild that holds
+         *     ADMINISTRATOR. Cache-first, tenant-safe; never requests Discord to grant
+         *     ADMINISTRATOR and never mutates anything.
+         */
+        get: operations["bots_audit_api_v1_guilds__guild_id__bots_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/bots/{bot_user_id}/access-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bot Access Map
+         * @description REQ-BOT-005: real per-channel read/write posture for one bot, computed
+         *     from cached roles/overwrites with the same evaluator Stage04 already uses
+         *     elsewhere. Never simulates a permission that was not actually observed;
+         *     a channel this Guild's cache has never seen simply has no entry.
+         */
+        get: operations["bot_access_map_api_v1_guilds__guild_id__bots__bot_user_id__access_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/cache/channels/purge": {
         parameters: {
             query?: never;
@@ -729,6 +774,23 @@ export interface paths {
         post?: never;
         /** Uninstall */
         delete: operations["uninstall_api_v1_guilds__guild_id__installation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/installation/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Purge Installation */
+        delete: operations["purge_installation_api_v1_guilds__guild_id__installation_purge_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4213,6 +4275,73 @@ export interface operations {
             };
         };
     };
+    bots_audit_api_v1_guilds__guild_id__bots_audit_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bot_access_map_api_v1_guilds__guild_id__bots__bot_user_id__access_map_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                bot_user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     purge_channels_api_v1_guilds__guild_id__cache_channels_purge_post: {
         parameters: {
             query?: never;
@@ -4643,6 +4772,35 @@ export interface operations {
         };
     };
     uninstall_api_v1_guilds__guild_id__installation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    purge_installation_api_v1_guilds__guild_id__installation_purge_delete: {
         parameters: {
             query?: never;
             header?: never;

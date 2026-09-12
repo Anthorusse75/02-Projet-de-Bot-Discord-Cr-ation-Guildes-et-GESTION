@@ -1,5 +1,6 @@
 from enum import StrEnum
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -158,6 +159,33 @@ class Settings(BaseSettings):
             "/"
         ) or self.frontend_post_auth_path.startswith("//"):
             raise ValueError("frontend_post_auth_path must be a local absolute path")
+        for origin in self.cors_allowed_origins:
+            parsed_origin = urlsplit(origin)
+            if (
+                origin == "*"
+                or parsed_origin.scheme not in {"http", "https"}
+                or not parsed_origin.netloc
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
+                or parsed_origin.path
+                or parsed_origin.query
+                or parsed_origin.fragment
+            ):
+                raise ValueError("CORS origins must be exact HTTP(S) origins without credentials")
+            if self.app_env is AppEnvironment.PRODUCTION and parsed_origin.scheme != "https":
+                raise ValueError("production CORS origins must use HTTPS")
+        if self.discord_oauth_redirect_uri is not None:
+            redirect = urlsplit(self.discord_oauth_redirect_uri)
+            if (
+                redirect.scheme not in {"http", "https"}
+                or not redirect.netloc
+                or redirect.username is not None
+                or redirect.password is not None
+                or redirect.fragment
+            ):
+                raise ValueError("Discord OAuth redirect URI must be an absolute HTTP(S) URL")
+            if self.app_env is AppEnvironment.PRODUCTION and redirect.scheme != "https":
+                raise ValueError("production Discord OAuth redirect URI must use HTTPS")
         return self
 
     def safe_summary(self) -> dict[str, str | float]:

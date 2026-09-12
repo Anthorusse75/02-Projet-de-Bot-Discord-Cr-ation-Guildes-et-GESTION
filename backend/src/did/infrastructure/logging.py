@@ -33,6 +33,7 @@ class EventId(StrEnum):
     INSTALLATION_DETECTED = "installation.detected"
     INSTALLATION_BOOTSTRAPPED = "installation.bootstrapped"
     INSTALLATION_UNINSTALLED = "installation.uninstalled"
+    TENANT_PURGED = "tenant.purged"
     RBAC_CHANGED = "rbac.changed"
     GATEWAY_DISPATCH_REJECTED = "gateway.dispatch.rejected"
     GATEWAY_GAP_DETECTED = "gateway.gap.detected"

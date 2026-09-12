@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from did.domain.read_model import ChannelSnapshot, GuildSnapshot, MemberSnapshot, RoleSnapshot
+from did.domain.read_model.models import ChannelType
 from did.permissions.calculator import PermissionEvaluator
 from did.permissions.models import DecisionStatus
 from did.permissions.registry import DEFAULT_PERMISSION_REGISTRY, PermissionRegistry
@@ -97,6 +99,98 @@ def hierarchy_diagnostic(
         target.position,
         () if can_manage else ("capability.hierarchy.bot_role_not_above_target",),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class BotPermissionAudit:
+    """Guild-wide ADMINISTRATOR posture for one cached bot member (REQ-BOT-004)."""
+
+    user_id: int
+    role_ids: tuple[int, ...]
+    is_administrator: bool
+    status: DecisionStatus
+    incomplete_reasons: tuple[str, ...]
+
+
+def audit_guild_bots(
+    guild: GuildSnapshot,
+    members: Iterable[MemberSnapshot],
+    evaluator: PermissionEvaluator | None = None,
+) -> tuple[BotPermissionAudit, ...]:
+    """Flag every locally cached bot member of a Guild that holds ADMINISTRATOR.
+
+    Reuses the same guild-level permission evaluation Stage04 already performs
+    for the installed DID bot (`BotCapabilityChecker`) against every bot member
+    the cache already knows about -- it never queries Discord itself, never
+    requests a new intent/scope, and never asks a tenant to grant ADMINISTRATOR;
+    it only reports what is already cached and observable.
+    """
+    bot_evaluator = evaluator or PermissionEvaluator()
+    audits = [_audit_one(guild, member, bot_evaluator) for member in members if member.is_bot]
+    return tuple(sorted(audits, key=lambda audit: audit.user_id))
+
+
+def _audit_one(
+    guild: GuildSnapshot, bot: MemberSnapshot, evaluator: PermissionEvaluator
+) -> BotPermissionAudit:
+    decision = evaluator.evaluate(guild=guild, member=bot, resource=None)
+    is_administrator = (
+        bot.user_id == guild.owner_id
+        or "permissions.warning.administratorBypassesOverwrites" in decision.warnings
+    )
+    return BotPermissionAudit(
+        user_id=bot.user_id,
+        role_ids=bot.role_ids,
+        is_administrator=is_administrator,
+        status=decision.status,
+        incomplete_reasons=decision.incomplete_reasons,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BotChannelAccess:
+    """One channel's real read/write posture for one bot (REQ-BOT-005)."""
+
+    channel_id: int
+    can_read: bool
+    can_write: bool
+    status: DecisionStatus
+
+
+def _write_permission_name(channel: ChannelSnapshot) -> str:
+    if channel.is_thread:
+        return "SEND_MESSAGES_IN_THREADS"
+    if channel.channel_type in {ChannelType.GUILD_VOICE, ChannelType.GUILD_STAGE_VOICE}:
+        return "CONNECT"
+    return "SEND_MESSAGES"
+
+
+def bot_channel_access_map(
+    guild: GuildSnapshot,
+    bot: MemberSnapshot,
+    evaluator: PermissionEvaluator | None = None,
+    registry: PermissionRegistry = DEFAULT_PERMISSION_REGISTRY,
+) -> tuple[BotChannelAccess, ...]:
+    """REQ-BOT-005: where a single bot can read and write, from real cached
+    roles/overwrites -- never a simulated or hypothetical permission set. One
+    entry per channel already known to this Guild's cache; a channel absent
+    from `guild.channels` (never observed) simply has no entry, it is never
+    guessed."""
+    access_evaluator = evaluator or PermissionEvaluator(registry)
+    view_bit = registry.value("VIEW_CHANNEL")
+    results = []
+    for channel in guild.channels:
+        decision = access_evaluator.evaluate(guild=guild, member=bot, resource=channel)
+        write_bit = registry.value(_write_permission_name(channel))
+        results.append(
+            BotChannelAccess(
+                channel_id=channel.channel_id,
+                can_read=bool(decision.effective_bits & view_bit),
+                can_write=bool(decision.effective_bits & write_bit),
+                status=decision.status,
+            )
+        )
+    return tuple(results)
 
 
 class BotCapabilityChecker:

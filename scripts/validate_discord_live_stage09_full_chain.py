@@ -134,6 +134,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -155,6 +156,12 @@ ALL_GROUPS = (
     "translation_group_provider_boundary",
 )
 
+_UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
+_DISCORD_SNOWFLAKE_PATTERN = re.compile(r"(?<!\d)\d{15,22}(?!\d)")
+
 
 def load_local_environment(path: Path) -> None:
     if not path.exists():
@@ -167,6 +174,17 @@ def load_local_environment(path: Path) -> None:
         key = key.strip()
         if key in REQUIRED_VARIABLES and key not in os.environ:
             os.environ[key] = value.strip().strip('"').strip("'")
+
+
+def sanitized_failure_reason(exc: BaseException) -> str:
+    """Return a useful failure diagnostic without live identifiers or secrets."""
+
+    reason = f"{type(exc).__name__}: {exc}"
+    token = os.environ.get("DISCORD_BOT_TOKEN")
+    if token:
+        reason = reason.replace(token, "[REDACTED]")
+    reason = _UUID_PATTERN.sub("[REDACTED_UUID]", reason)
+    return _DISCORD_SNOWFLAKE_PATTERN.sub("[REDACTED_DISCORD_ID]", reason)
 
 
 def main() -> int:
@@ -228,20 +246,26 @@ def main() -> int:
         # never silently omits cleanup evidence just because the run itself
         # failed partway through.
         report_cleanup = getattr(exc, "cleanup_summary", None)
+        failure_reason = sanitized_failure_reason(exc)
         args.report.write_text(
             json.dumps(
                 {
                     "status": "BLOCKED",
-                    "reason": str(exc),
+                    "reason": failure_reason,
                     "generated_at": datetime.now(UTC).isoformat(),
                     "cleanup": report_cleanup,
+                    "secrets_recorded": False,
+                    "discord_identifiers_recorded": False,
                 },
                 indent=2,
             ),
             encoding="utf-8",
         )
         cleanup_note = f", cleanup={report_cleanup}" if report_cleanup is not None else ""
-        print(f"Discord live STAGE 09 full-chain qualification: BLOCKED ({exc}){cleanup_note}")
+        print(
+            "Discord live STAGE 09 full-chain qualification: "
+            f"BLOCKED ({failure_reason}){cleanup_note}"
+        )
         return 1
 
     # A canonical run must never report PASS while resources it created
@@ -264,6 +288,8 @@ def main() -> int:
         "scenarios": scenarios,
         "notes": observations,
         "cleanup": cleanup_summary,
+        "secrets_recorded": False,
+        "discord_identifiers_recorded": False,
     }
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Discord live STAGE 09 full-chain qualification: {report['status']} -- {args.report}")

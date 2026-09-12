@@ -9,9 +9,13 @@ const A = discordSnowflake('700000000000000001')
 const category = { guild_id: A, id: discordSnowflake('700000000000000004'), type: 4, name: 'Operations', position: 0, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', channels: [] }
 const channel = { guild_id: A, id: discordSnowflake('700000000000000005'), type: 0, name: 'general', position: 0, parent_id: null, resource_kind: 'DISCORD_RESOURCE', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }
 const capability = { outcome: 'CAN' as const, causes: [], remediations: [] }
+const useStructureMock = vi.fn((userId: unknown, guildId: unknown, includeHiddenDeleted?: boolean) => {
+  void userId; void guildId; void includeHiddenDeleted
+  return { data: { categories: [category], root_channels: [channel] }, isLoading: false, isError: false, refetch: vi.fn() }
+})
 
 vi.mock('../../api/queries', () => ({
-  useStructure: () => ({ data: { categories: [category], root_channels: [channel] }, isLoading: false, isError: false, refetch: vi.fn() }),
+  useStructure: (userId: unknown, guildId: unknown, includeHiddenDeleted?: boolean) => useStructureMock(userId, guildId, includeHiddenDeleted),
   useDashboardCapabilities: () => ({ data: { guild_id: A, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0, user_capabilities: { 'structure.read': capability, 'structure.write': capability, 'plans.create': capability, 'permissions.read': capability }, scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: {} }, bot_operations: { REORDER_CHANNELS: capability, CREATE_CHANNEL: capability }, coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH' } }),
   useGuildDashboardCapabilities: () => [],
 }))
@@ -22,7 +26,13 @@ function Harness() {
 }
 
 describe('mounted STAGE 07 drag lifecycle', () => {
-  beforeEach(() => useInteractionStore.getState().clearTenantState())
+  beforeEach(() => { useInteractionStore.getState().clearTenantState(); useStructureMock.mockClear() })
+  it('requests hidden and deleted resources only after explicit opt-in', () => {
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, false)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'structure.includeHiddenDeleted' }))
+    expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, true)
+  })
   it('opens a real move intent only after a valid mounted left drop', () => {
     render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
     const source = document.querySelector<HTMLElement>('[data-drop-name="general"]'); const target = document.querySelector<HTMLElement>('[data-drop-name="Operations"]'); if (!source || !target) throw new Error('mounted drag fixtures missing')
