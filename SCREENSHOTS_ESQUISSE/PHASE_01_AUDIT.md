@@ -37,16 +37,18 @@ Les surfaces existent donc, mais leur existence ne vaut pas conformité fonction
 
 ## 3. Écarts critiques déjà confirmés
 
-### P0-001 — Première découverte des Guilds cassée sur base vierge
+### P0-001 — Première découverte des Guilds cassée dans le parcours réel
 
 **Référence** : spécifications §5, notamment assistant de première configuration.  
-**Constat réel** : après OAuth sur une base neuve, les Guilds A/B n'apparaissaient pas. Il a fallu exécuter un script manuel pour créer les `guild_installations`.
+**Constat réel** : après OAuth sur une base neuve, les Guilds A/B n'apparaissaient pas. Il a fallu exécuter un script manuel pour créer/activer les `guild_installations`.
 
-**Cause code confirmée** : `DiscordGatewayClient.on_ready()` parcourt `self.guilds` mais n'enregistre pas les installations via `InstallationService.record_detected()` / `AuthRepository.record_installation()` ; il ne fait qu'enregistrer une discontinuité Gateway.
+**Relecture code importante** : le runtime possède bien un chemin automatique prévu. `DiscordGatewayClient.on_socket_response()` ingère les dispatches Gateway ; `RuntimeRepository.ingest_gateway_event()` traite `GUILD_CREATE`, crée/actualise `guild_installations` en `PENDING_SETUP`, puis `_project_guild_create()` projette catégories/salons/threads/rôles. L'absence d'un appel à `record_detected()` dans `on_ready()` n'est donc **pas** à elle seule la cause du défaut.
 
-**Impact** : le parcours `installation bot -> découverte -> PENDING_SETUP` n'existe pas réellement de bout en bout.
+**Conclusion actuelle** : le mécanisme existe dans le code mais **n'a pas produit le résultat attendu lors du lancement réel**. La cause exacte doit être reproduite avec les logs du process bot : dispatch `GUILD_CREATE` non reçu, normalisation rejetée, transaction/projection en échec, identité bot non liée, ou autre erreur runtime.
 
-**Statut** : NON CONFORME — correction obligatoire Phase 2.
+**Impact** : le parcours `installation bot -> découverte -> PENDING_SETUP` n'est pas fiable dans les conditions réellement testées.
+
+**Statut** : NON CONFORME EN PRATIQUE / CAUSE RACINE À ISOLER — Phase 1.
 
 ---
 
@@ -62,15 +64,15 @@ Les surfaces existent donc, mais leur existence ne vaut pas conformité fonction
 
 ---
 
-### P0-003 — Structure réelle non disponible après bootstrap manuel
+### P0-003 — Structure réelle non disponible dans le parcours testé
 
 **Référence** : REQ-STR-001 et §8 : arborescence fidèle catégories/salons/threads.
 
-**Constat réel** : après création manuelle des installations A/B, l'écran Structure affichait `Aucune catégorie ou salon visible` sur un serveur Discord qui contient pourtant une structure réelle.
+**Constat réel** : après création/activation manuelle des installations A/B, l'écran Structure affichait `Aucune catégorie ou salon visible` sur un serveur Discord qui contient pourtant une structure réelle.
+
+**Relecture code** : `_project_guild_create()` sait projeter directement `channels`, `threads` et `roles` du dispatch initial. L'absence de structure est donc probablement liée au même défaut de chaîne Gateway observé pour P0-001, ou à un échec ultérieur de lecture/projection. Le worker n'est pas requis pour cette projection initiale : elle est faite dans `RuntimeRepository.ingest_gateway_event()`.
 
 **Impact** : le cœur du produit n'est pas exploitable dans le parcours réel actuel.
-
-**Investigation à terminer** : chaîne Gateway/cache/projection/import initial.
 
 **Statut** : NON CONFORME / cause racine à isoler en Phase 1.
 
@@ -153,7 +155,7 @@ Erreurs observées dans le navigateur :
 
 **Impact** : un test peut prouver qu'une brique fonctionne après initialisation sans prouver que le vrai produit sait atteindre cet état depuis une installation vierge.
 
-**Nouvelle règle** : les tests d'acceptance onboarding ne doivent pas appeler directement `record_installation()` / `record_detected()` pour simuler la découverte qui doit être produite par le runtime.
+**Nouvelle règle** : les tests d'acceptance onboarding ne doivent pas appeler directement `record_installation()` / `record_detected()` pour simuler la découverte qui doit être produite par le runtime Gateway.
 
 **Statut** : stratégie de test à remplacer par les use cases définis dans `UI_REDESIGN_PHASES.md`.
 
@@ -177,9 +179,9 @@ Erreurs observées dans le navigateur :
 | Domaine | État initial | Commentaire |
 |---|---|---|
 | OAuth | PARTIELLEMENT CONFORME | Flux réel fonctionne après correction d'hôte localhost/127.0.0.1 ; configuration locale à fiabiliser. |
-| Découverte Guild | NON CONFORME | N'est pas produite par le bot au démarrage. |
+| Découverte Guild | PRÉVUE DANS LE CODE MAIS CASSÉE/NON PROUVÉE EN LIVE | `GUILD_CREATE` doit créer `PENDING_SETUP`, mais le lancement testé n'a pas produit A/B. |
 | Onboarding | NON CONFORME | Assistant §5.4 absent. |
-| Structure | NON PROUVÉE / CASSÉE EN LIVE | API/UI existent mais structure réelle non chargée dans le parcours testé. |
+| Structure | NON PROUVÉE / CASSÉE EN LIVE | Projection GUILD_CREATE existe mais la structure réelle n'est pas apparue dans le parcours testé. |
 | Drag & Drop | PARTIEL | Sémantique codée, UX non conforme, pile `dnd-kit` absente, live non validé. |
 | Menus contextuels | PARTIEL | ActionRegistry présent ; à revalider dans la nouvelle UI et en use case réel. |
 | Rôles/permissions | À AUDITER | Routes présentes ; conformité simple/expert et mutations réelles à rejouer. |
@@ -275,9 +277,9 @@ sauvegarder dans bibliothèque
 
 Ordre de travail :
 
-1. reproduire et expliquer le HTTP 500 `/api/v1/guilds` ;
-2. reproduire et expliquer le HTTP 500 `/audit` ;
-3. expliquer l'absence d'import initial de structure ;
+1. reproduire la chaîne Gateway réelle et déterminer pourquoi `GUILD_CREATE` n'a pas créé/projeté A/B lors du lancement testé ;
+2. reproduire et expliquer le HTTP 500 `/api/v1/guilds` ;
+3. reproduire et expliquer le HTTP 500 `/audit` ;
 4. valider la cause du WebSocket ;
 5. inventorier chaque exigence UI/UX de `docs/00_reference` et la mapper à une phase ;
 6. auditer chaque route frontend existante afin de décider : conserver logique / réécrire UI / corriger backend ;
