@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import uuid4
 
 import discord
@@ -12,24 +13,15 @@ from did.application.discord_runtime import (
 from did.domain.discord_runtime import GatewayContinuity, MemberDataCapability
 from did.infrastructure.runtime_repository import RuntimeRepository
 
+logger = logging.getLogger(__name__)
+
 
 def minimal_gateway_intents(
     *,
     enable_member_events: bool = False,
     enable_campaign_message_events: bool = False,
 ) -> discord.Intents:
-    """ADR-008 ("never request a privileged intent before a documented
-    feature needs it") governs the PRIVILEGED ``message_content`` intent
-    specifically -- it does not forbid the non-privileged ``guild_messages``
-    intent for a documented feature (REQ-MSG-030's campaign-message-ancestry
-    producing side: detecting the bot's own MESSAGE_CREATE re-entering
-    ingestion). The privileged ``message_content`` intent is never
-    requested at all: Stage09 has no content-capture capability (Option B,
-    see ``did.campaigns.message_content_policy``'s module docstring) --
-    there is no parameter here that could turn it on, deliberately, so a
-    future caller cannot silently reintroduce the ADR-008 risk this
-    function previously only guarded against by construction.
-    """
+    """Return the least-privileged Gateway intents required by enabled features."""
     intents = discord.Intents.none()
     intents.guilds = True
     intents.members = enable_member_events
@@ -83,14 +75,21 @@ class DiscordGatewayClient(discord.Client):
                     bot_user_id = int(user["id"])
                 except (KeyError, TypeError, ValueError):
                     self.rejected_packets += 1
+                    logger.warning("Discord READY did not contain usable application/bot identities")
                 else:
                     self.repository.bind_bot_identity(
                         application_id=application_id, bot_user_id=bot_user_id
+                    )
+                    logger.info(
+                        "Discord Gateway READY: application_id=%s bot_user_id=%s",
+                        application_id,
+                        bot_user_id,
                     )
             return
         if event_type == "RESUMED":
             if self.session_tracker.session_id is not None:
                 self.session_tracker.resumed(self.session_tracker.session_id)
+            logger.info("Discord Gateway session resumed")
             return
         session_id = self.session_tracker.session_id
         if session_id is None:
@@ -104,9 +103,14 @@ class DiscordGatewayClient(discord.Client):
             continuity = self.session_tracker.continuity
         try:
             envelope = normalize_gateway_dispatch(packet, discord_session_id=session_id)
-        except GatewayContractError:
+        except GatewayContractError as exc:
             self.rejected_packets += 1
             self.repository.metrics.gateway_signal("rejected")
+            logger.warning(
+                "Rejected Discord Gateway dispatch event_type=%s reason=%s",
+                event_type,
+                str(exc),
+            )
             return
         if envelope is None:
             return
@@ -120,9 +124,27 @@ class DiscordGatewayClient(discord.Client):
                 continuity=continuity.value,
                 correlation_id=uuid4(),
             )
-        await self.repository.ingest_gateway_event(envelope)
+        try:
+            inserted = await self.repository.ingest_gateway_event(envelope)
+        except Exception:
+            logger.exception(
+                "Discord Gateway projection failed event_type=%s guild_id=%s sequence=%s",
+                envelope.event_type,
+                envelope.guild_id,
+                envelope.discord_sequence,
+            )
+            raise
+        if envelope.event_type == "GUILD_CREATE":
+            logger.info(
+                "Discord Guild discovered/projected guild_id=%s inserted=%s channels=%s roles=%s",
+                envelope.guild_id,
+                inserted,
+                len(envelope.payload.get("channels", [])),
+                len(envelope.payload.get("roles", [])),
+            )
 
     async def on_ready(self) -> None:
+        logger.info("Discord Gateway client ready guild_count=%s", len(self.guilds))
         if self.session_tracker.continuity is not GatewayContinuity.NON_RESUMED:
             return
         self.repository.metrics.gateway_signal("non_resumed")
@@ -136,3 +158,4 @@ class DiscordGatewayClient(discord.Client):
     async def on_disconnect(self) -> None:
         self.session_tracker.disconnected()
         self.repository.metrics.gateway_signal("disconnected")
+        logger.warning("Discord Gateway disconnected")
