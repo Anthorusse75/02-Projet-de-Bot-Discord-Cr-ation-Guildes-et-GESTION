@@ -7,8 +7,12 @@
 - **Sources de vérité fonctionnelles et techniques** :
   - `docs/00_reference/01_SPECIFICATIONS_FONCTIONNELLES_DISCORD_INFRA_DESIGNER.md`
   - `docs/00_reference/02_ARCHITECTURE_TECHNIQUE_DISCORD_INFRA_DESIGNER.md`
+- **Clarification produit validée pendant la refonte** :
+  - `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
 
 Le screenshot fixe la **direction visuelle**. Les documents `docs/00_reference` fixent le **comportement produit**. En cas de conflit, le comportement fonctionnel de `docs/00_reference` prime ; l'UI est adaptée sans dénaturer la direction visuelle validée.
+
+Le document `ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md` formalise la simplification de la gestion des accès validée avec l'utilisateur : intentions humaines d'abord, politiques prêtes à l'emploi/personnalisées, conflits multi-rôles explicites, héritage, verrouillage et matrice d'accès. Il ne modifie pas silencieusement les sources de vérité ; toute intégration finale dans `docs/00_reference` suivra le processus du manifeste de référence.
 
 ## Principe de validation
 
@@ -132,12 +136,13 @@ Construire le cœur du produit : l'administration de structure la plus simple po
 
 # Phase 4 — Rôles et permissions
 
-**Statut : ✅ TERMINÉE**  
-**Rapport de clôture :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`
+**Statut : ⚠️ RÉOUVERTE — validation réelle et simplification produit en cours**  
+**Rapport initial :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`  
+**Exigences de simplification ajoutées :** `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
 
 ### Objectif
 
-Permettre d'administrer les accès sans exiger de connaître les bitfields Discord.
+Permettre d'administrer les accès sans exiger de connaître les bitfields Discord et apporter une plus-value nette par rapport à l'administration native de Discord.
 
 ### Travail
 
@@ -148,15 +153,28 @@ Permettre d'administrer les accès sans exiger de connaître les bitfields Disco
 - aperçu des permissions effectives ;
 - explication `pourquoi cet utilisateur/rôle peut ou ne peut pas` ;
 - gestion des overwrites et conflits ;
-- panneau d'impact avant mutation.
+- panneau d'impact avant mutation ;
+- politiques d'accès natives et personnalisées orientées intention ;
+- détection explicite des conflits multi-rôles par membre ;
+- matrice d'accès simplifiée et opérations massives ;
+- héritage et verrouillage de politiques ;
+- détails Discord relégués au niveau expert/contextuel.
+
+### Défaut réel actuellement ouvert
+
+Le test utilisateur du 2026-09-13 a révélé un état `Capacité du bot inconnue` permanent sur la page Rôles, avec actions désactivées sans cause suffisamment précise. La Phase 4 ne peut pas être refermée tant que la source de cet `UNKNOWN` n'est pas diagnostiquée/corrigée et que l'UI n'expose pas la cause/remédiation réelle.
 
 ### Use cases obligatoires
 
 - modifier une permission en mode simple ;
 - vérifier le résultat réel Discord ;
 - passer en mode expert ;
-- diagnostiquer un refus ;
-- permissions bot insuffisantes -> mutation bloquée avant l'appel Discord.
+- diagnostiquer un refus ou un `UNKNOWN` avec cause précise ;
+- permissions bot insuffisantes -> mutation bloquée avant l'appel Discord ;
+- appliquer au moins une politique whitelist et une politique blacklist avec conflit multi-rôles ;
+- conflit -> membre précis + source de l'exception + remédiation prévisualisée ;
+- politique de catégorie héritée -> exception visible ;
+- politique verrouillée -> mutation Discord externe -> remise en conformité automatique ou état d'intervention explicite.
 
 ### Frontière de phase
 
