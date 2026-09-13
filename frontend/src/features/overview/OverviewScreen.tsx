@@ -61,7 +61,7 @@ export function OverviewScreen() {
 
       <div className="overview-lower-grid">
         <article className="overview-panel">
-          <div className="panel-heading"><div><p className="eyebrow">Discord</p><h2>{t('diagnostics.capabilities')}</h2></div><Badge tone={coverage === 'FULL' ? 'ok' : 'warning'}>{coverage}</Badge></div>
+          <div className="panel-heading"><div><p className="eyebrow">{t('diagnostics.source')}</p><h2>{t('diagnostics.capabilities')}</h2></div><Badge tone={coverage === 'FULL' ? 'ok' : 'warning'}>{coverage}</Badge></div>
           <div className="capability-summary">
             {Object.entries(capabilities?.bot_operations ?? {}).slice(0, 8).map(([name, decision]) => (
               <div className="capability-row" key={name}>
