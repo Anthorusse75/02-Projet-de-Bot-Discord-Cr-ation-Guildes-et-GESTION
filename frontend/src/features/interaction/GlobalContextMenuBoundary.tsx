@@ -30,19 +30,20 @@ export function GlobalContextMenuBoundary({ children }: { children: ReactNode })
 
     const pointerDown = (event: PointerEvent) => {
       if (!event.isTrusted || event.button !== 2) return
-      // Suppress the browser's native secondary-button gesture from the first
-      // event. Chromium can otherwise interrupt pointer capture before DID has
-      // completed a right-drag.
       event.preventDefault()
       rightPointerId = event.pointerId
       rightSource = (event.target as Element | null)?.closest<HTMLElement>('[role="treeitem"][data-drop-id]') ?? null
     }
 
+    const lostPointerCapture = (event: PointerEvent) => {
+      // Losing native capture must not cancel an active DID right-drag. The
+      // document-level bridge below keeps delivering the physical pointer
+      // stream until pointerup/pointercancel.
+      if (event.isTrusted && rightPointerId === event.pointerId && rightSource) event.stopPropagation()
+    }
+
     const pointerMove = (event: PointerEvent) => {
       if (!event.isTrusted || rightPointerId !== event.pointerId || !rightSource) return
-      // Route the physical secondary-button stream back through the resource
-      // that started the gesture. This keeps right-drag deterministic even on
-      // platforms where native context-menu handling drops pointer capture.
       event.stopPropagation()
       clonePointerToSource('pointermove', event)
     }
@@ -66,12 +67,14 @@ export function GlobalContextMenuBoundary({ children }: { children: ReactNode })
     }
 
     document.addEventListener('pointerdown', pointerDown, { capture: true })
+    document.addEventListener('lostpointercapture', lostPointerCapture, { capture: true })
     document.addEventListener('pointermove', pointerMove, { capture: true })
     document.addEventListener('pointerup', pointerUp, { capture: true })
     document.addEventListener('pointercancel', pointerCancel, { capture: true })
     document.addEventListener('contextmenu', preventContextMenu, { capture: true })
     return () => {
       document.removeEventListener('pointerdown', pointerDown, { capture: true })
+      document.removeEventListener('lostpointercapture', lostPointerCapture, { capture: true })
       document.removeEventListener('pointermove', pointerMove, { capture: true })
       document.removeEventListener('pointerup', pointerUp, { capture: true })
       document.removeEventListener('pointercancel', pointerCancel, { capture: true })
