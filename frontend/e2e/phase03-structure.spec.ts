@@ -185,8 +185,6 @@ test('right drag to another server exposes only safe cross-server actions', asyn
   const destinationCapabilitiesReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities` && response.ok())
   await page.goto(`/guild/${GUILD_A}/structure`)
   await destinationCapabilitiesReady
-  // The response resolves before TanStack Query commits the capability data used
-  // by the drop resolver. One short render turn avoids racing authorization state.
   await page.waitForTimeout(150)
 
   const source = resourceRow(page, 'welcome')
@@ -198,6 +196,7 @@ test('right drag to another server exposes only safe cross-server actions', asyn
   await page.mouse.down({ button: 'right' })
   await page.mouse.move(sourceBox.x + Math.min(105, sourceBox.width * .7), sourceBox.y + sourceBox.height / 2, { steps: 3 })
   await page.mouse.move(targetBox.x + Math.min(70, targetBox.width * .45), targetBox.y + targetBox.height / 2, { steps: 8 })
+  await expect(target).toHaveClass(/drop-hover/)
   await page.mouse.up({ button: 'right' })
 
   const menu = page.getByRole('menu', { name: 'Choose a drop action' })
