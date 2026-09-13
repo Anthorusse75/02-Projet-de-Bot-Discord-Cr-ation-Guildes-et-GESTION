@@ -9,26 +9,35 @@
   - `docs/00_reference/02_ARCHITECTURE_TECHNIQUE_DISCORD_INFRA_DESIGNER.md`
 - **Clarification produit validée pendant la refonte** :
   - `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
+- **Audit d'implémentation étendu** :
+  - `docs/10_implementation/11_REQUIREMENTS_IMPLEMENTATION_AUDIT.md`
+- **Affectation des écarts d'audit aux phases UI existantes** :
+  - `SCREENSHOTS_ESQUISSE/UI_REQUIREMENTS_REMEDIATION_MAP.md`
 
 Le screenshot fixe la **direction visuelle**. Les documents `docs/00_reference` fixent le **comportement produit**. En cas de conflit, le comportement fonctionnel de `docs/00_reference` prime ; l'UI est adaptée sans dénaturer la direction visuelle validée.
 
-Le document `ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md` formalise la simplification de la gestion des accès validée avec l'utilisateur : intentions humaines d'abord, politiques prêtes à l'emploi/personnalisées, conflits multi-rôles explicites, héritage, verrouillage et matrice d'accès. Il ne modifie pas silencieusement les sources de vérité ; toute intégration finale dans `docs/00_reference` suivra le processus du manifeste de référence.
+Le document `ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md` formalise la simplification de la gestion des accès validée avec l'utilisateur : intentions humaines d'abord, politiques prêtes à l'emploi/personnalisées, conflits multi-rôles explicites, héritage, verrouillage et matrice d'accès.
 
-## Principe de validation
+L'audit étendu porte le périmètre à **389 exigences**. Il ne crée **aucune phase UI supplémentaire** : les écarts `PARTIEL`, `ABSENT` et `NON DÉMONTRÉ` sont absorbés par les **Phases 4 à 9 existantes**. Les Phases 1 à 3 ne sont pas rouvertes sauf régression démontrée.
 
-L'objectif n'est plus de maximiser le nombre de tests. L'objectif est de prouver que les **use cases utilisateur fonctionnent réellement**.
+---
 
-Pour chaque fonctionnalité livrée :
+## Principe de validation — tests utiles, pas de tests pour les tests
 
-1. le parcours utilisateur principal doit fonctionner dans le navigateur ;
-2. les erreurs et refus d'autorisation doivent être compréhensibles dans l'UI ;
-3. toute mutation Discord doit être vérifiée jusqu'à son résultat réel ;
-4. l'état doit rester correct après rechargement de la page ;
-5. un test E2E ciblé couvre le use case ;
-6. les use cases Discord critiques sont rejoués sur les Guilds sandbox A/B ;
-7. aucun test ne peut déclarer un onboarding ou une découverte conforme en injectant directement l'état que le produit est censé créer lui-même.
+L'objectif est de prouver les **use cases utilisateur et les frontières de sécurité réellement affectés**, sans relancer des suites massives sans rapport avec le changement.
 
-Les tests unitaires/composants restent utiles pour la logique complexe, mais **aucune régression backend complète n'est lancée pour une simple modification visuelle**. Une régression large n'est exécutée qu'à un checkpoint de phase pertinent, lorsqu'un socle backend partagé est modifié, et avant la validation finale.
+### Règles obligatoires
+
+1. **Modification purement visuelle / CSS / wording** : contrôle TypeScript/lint/i18n pertinent + vérification visuelle ciblée ; aucune régression backend complète.
+2. **Logique métier pure** : tests unitaires ciblés sur les règles modifiées, seulement lorsqu'ils apportent une preuve utile.
+3. **Persistance, RLS, RBAC, sécurité ou isolation tenant** : test d'intégration ciblé obligatoire sur la frontière touchée.
+4. **Mutation Discord ou pipeline de planification** : test ciblé du chemin réel `intention -> plan -> apply/verification` concerné ; pas de mutation parallèle créée uniquement pour tester.
+5. **Parcours utilisateur critique** : un E2E ciblé couvre le parcours de bout en bout ; on évite de dupliquer le même scénario à plusieurs niveaux sans raison.
+6. **Discord sandbox A/B** : uniquement lorsque la fonctionnalité nécessite une preuve réelle Discord, aux checkpoints de phase pertinents et en Phase 9 ; pas à chaque retouche UI.
+7. **Régression large** : uniquement lorsqu'un socle partagé est modifié, à un checkpoint de phase, et lors de l'acceptance finale Phase 9.
+8. Aucun test ne peut déclarer conforme un onboarding, une découverte, une mutation ou une réconciliation en injectant directement l'état que le produit est censé créer lui-même.
+
+La qualité est mesurée par la pertinence des preuves, pas par le nombre de tests exécutés.
 
 ---
 
@@ -38,7 +47,7 @@ Les tests unitaires/composants restent utiles pour la logique complexe, mais **a
 
 ### Objectif
 
-Établir la différence exacte entre `docs/00_reference` et le produit actuel, puis définir une baseline que l'on peut démarrer et tester sans contournement manuel.
+Établir la différence exacte entre les références et le produit actuel, puis définir une baseline que l'on peut démarrer et tester sans contournement manuel.
 
 ### Travail réalisé
 
@@ -46,45 +55,34 @@ Les tests unitaires/composants restent utiles pour la logique complexe, mais **a
 - mapping des écrans/routes existants aux exigences ;
 - relevé des fonctions absentes, partielles, cassées ou seulement simulées par les tests ;
 - audit du parcours `base vierge -> démarrage -> OAuth -> découverte Guild -> onboarding -> import structure -> dashboard` ;
-- audit des erreurs actuellement observées : HTTP 500, HTTP 503 et WebSocket ;
-- audit du lancement local ;
-- registre des défauts P0/P1/P2 et phases de correction.
+- audit des erreurs HTTP/WebSocket et du lancement local ;
+- registre des défauts P0/P1/P2 ;
+- direction visuelle figée sur `Esquisse 1.png`.
 
-### Livrables
-
-- `PHASE_01_AUDIT.md` ;
-- `PHASE_01_REQUIREMENTS_MATRIX.md` ;
-- `PHASE_01_ROUTE_USECASE_MAP.md` ;
-- `PHASE_01_DEFECT_REGISTER.md`.
-
-### Gate de sortie
-
-- matrice de conformité initiale disponible : ✅ ;
-- chaque défaut P0/P1 connu possède une cause ou une investigation explicitement planifiée : ✅ ;
-- aucun statut `VERIFIED` historique n'est accepté comme preuve sans relecture : ✅ ;
-- use cases critiques listés : ✅ ;
-- direction visuelle figée sur `Esquisse 1.png` : ✅.
+L'audit 389 exigences réalisé ensuite complète cette baseline mais **ne crée pas une nouvelle Phase 1**.
 
 ---
 
 # Phase 2 — Runtime, onboarding et fondations visuelles
 
+**Statut : 🟡 IMPLÉMENTÉE — validation produit réelle consolidée en Phase 9**
+
 ### Objectif
 
-Obtenir une application que l'on peut lancer proprement et une première expérience cohérente avec l'esquisse validée.
+Obtenir une application lançable proprement et une première expérience cohérente avec l'esquisse validée.
 
 ### Travail
 
-- démarrage local reproductible des composants nécessaires ;
+- démarrage local reproductible ;
 - OAuth Discord ;
 - découverte automatique des Guilds où le bot est présent ;
-- assistant de première configuration conforme au §5.4 des spécifications ;
+- assistant de première configuration ;
 - import initial réel de la structure ;
 - état d'installation et diagnostics de permissions bot ;
-- correction des HTTP 500 et de la boucle WebSocket observés dans la baseline ;
-- préflight des dépendances optionnelles/obligatoires (dont portability) ;
-- nouveau design system dark premium ;
-- nouveau shell : navigation, header, recherche globale, serveurs récents, utilisateur ;
+- correction des erreurs runtime/WebSocket ;
+- préflight des dépendances optionnelles/obligatoires ;
+- design system dark premium ;
+- shell, navigation, header, recherche globale, serveurs récents, utilisateur ;
 - accueil / sélection des serveurs / vue d'ensemble serveur ;
 - états loading / empty / error propres.
 
@@ -93,8 +91,8 @@ Obtenir une application que l'on peut lancer proprement et une première expéri
 - base vierge -> connexion Discord -> A/B visibles sans script manuel ;
 - onboarding d'une Guild -> import -> activation ;
 - Guild non administrable -> explication claire ;
-- refresh navigateur -> session et contexte conservés correctement ;
-- WebSocket live ou état dégradé expliqué sans boucle console incontrôlée.
+- refresh navigateur -> session et contexte conservés ;
+- WebSocket live ou état dégradé expliqué.
 
 ---
 
@@ -105,12 +103,12 @@ Obtenir une application que l'on peut lancer proprement et une première expéri
 
 ### Objectif
 
-Construire le cœur du produit : l'administration de structure la plus simple possible.
+Construire le cœur de l'administration de structure.
 
 ### Travail
 
 - arborescence fidèle catégories / salons / threads ;
-- distinction claire entre objets Discord et groupes logiques DID ;
+- distinction objets Discord / groupes logiques ;
 - expand/collapse, sélection simple et multiple ;
 - panneau de propriétés contextuel ;
 - recherche et filtres ;
@@ -118,10 +116,10 @@ Construire le cœur du produit : l'administration de structure la plus simple po
 - drag gauche avec preview ;
 - right-drag avec Drop Context Menu ;
 - drag inter-Guild avec copie/clonage, jamais suppression implicite de la source ;
-- ghost, indicateur de cible et états de drop explicites ;
-- **conserver les Pointer Events/`PointerGestureManager` comme couche de geste conformément à l'architecture §22** ;
-- intégrer `dnd-kit` lorsque pertinent pour collision, overlay, tri et accessibilité clavier, avec custom sensor/gesture layer DID pour le bouton droit ;
-- synchronisation structure réelle et gestion du drift.
+- ghost, cible et états de drop explicites ;
+- `PointerGestureManager` conservé comme couche de geste ;
+- `dnd-kit` utilisé lorsque pertinent ;
+- synchronisation structure réelle et drift.
 
 ### Use cases obligatoires
 
@@ -132,118 +130,159 @@ Construire le cœur du produit : l'administration de structure la plus simple po
 - Discord modifié directement -> changement visible/reconcilié ;
 - reload -> structure identique.
 
+Les raffinements UX transverses découverts plus tard (rename second clic/F2, emoji/naming, polish) sont traités en Phase 8 afin de ne pas rouvrir artificiellement la Phase 3.
+
 ---
 
-# Phase 4 — Rôles et permissions
+# Phase 4 — Rôles, permissions et politiques d'accès
 
-**Statut : ⚠️ RÉOUVERTE — validation réelle et simplification produit en cours**  
+**Statut : 🚧 EN COURS — réouverte après validation initiale et audit étendu**  
 **Rapport initial :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`  
-**Exigences de simplification ajoutées :** `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
+**Exigences produit :** `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
 
 ### Objectif
 
-Permettre d'administrer les accès sans exiger de connaître les bitfields Discord et apporter une plus-value nette par rapport à l'administration native de Discord.
+Permettre d'administrer les accès en exprimant une intention humaine plutôt que des bitfields/overwrites, tout en gardant la réalité Discord inspectable et explicable.
 
-### Travail
+### Socle déjà implémenté
 
 - hiérarchie des rôles ;
-- création, modification, suppression et réordonnancement ;
-- mode simple avec vocabulaire humain ;
-- mode expert exposant la réalité Discord ;
+- création/modification/suppression/réordonnancement par plans ;
+- mode simple et mode expert ;
 - aperçu des permissions effectives ;
-- explication `pourquoi cet utilisateur/rôle peut ou ne peut pas` ;
-- gestion des overwrites et conflits ;
-- panneau d'impact avant mutation ;
-- politiques d'accès natives et personnalisées orientées intention ;
-- détection explicite des conflits multi-rôles par membre ;
-- matrice d'accès simplifiée et opérations massives ;
-- héritage et verrouillage de politiques ;
-- détails Discord relégués au niveau expert/contextuel.
+- `View As` / « Pourquoi cet accès ? » ;
+- simulation d'impact ;
+- diagnostic capacité du bot ;
+- séparation autorisation DID / capacité Discord.
 
-### Défaut réel actuellement ouvert
+### Travail restant intégré à cette même Phase 4
 
-Le test utilisateur du 2026-09-13 a révélé un état `Capacité du bot inconnue` permanent sur la page Rôles, avec actions désactivées sans cause suffisamment précise. La Phase 4 ne peut pas être refermée tant que la source de cet `UNKNOWN` n'est pas diagnostiquée/corrigée et que l'UI n'expose pas la cause/remédiation réelle.
+- corriger toute cause persistante de `UNKNOWN` et rendre la remédiation compréhensible ;
+- construire le **Policy Engine générique** : modèle, scopes, lifecycle/version, stockage tenant-scopé, RLS/RBAC ;
+- resolver déterministe : priorité, héritage, exception locale, conflits, verrouillage ;
+- politiques natives DID et politiques personnalisées ;
+- whitelist/blacklist visibilité et écriture, zones/audiences, vocal, threads/mentions/réactions, bots, temporaire ;
+- détection explicite des conflits multi-rôles et membres concernés ;
+- `explain`, `preview`, impact et remédiations avant plan ;
+- matrice d'accès et édition massive lorsque prévue ;
+- **socle Wizard réutilisable** avec sélecteurs, rôle manquant, `+ Créer un rôle`, validation et résumé ;
+- reléguer les détails Discord au niveau expert/contextuel ;
+- aucune mutation directe hors pipeline Plan.
 
-### Use cases obligatoires
+### Use cases obligatoires de sortie
 
-- modifier une permission en mode simple ;
-- vérifier le résultat réel Discord ;
-- passer en mode expert ;
-- diagnostiquer un refus ou un `UNKNOWN` avec cause précise ;
-- permissions bot insuffisantes -> mutation bloquée avant l'appel Discord ;
-- appliquer au moins une politique whitelist et une politique blacklist avec conflit multi-rôles ;
-- conflit -> membre précis + source de l'exception + remédiation prévisualisée ;
-- politique de catégorie héritée -> exception visible ;
-- politique verrouillée -> mutation Discord externe -> remise en conformité automatique ou état d'intervention explicite.
+- modifier une permission en mode simple et inspecter sa traduction Discord ;
+- diagnostiquer `CAN / CANNOT / UNKNOWN` avec cause exploitable ;
+- appliquer/préparer une policy whitelist ;
+- appliquer/préparer une policy blacklist avec conflit multi-rôles détecté ;
+- conflit -> membre précis + source + remédiation prévisualisée ;
+- policy de catégorie héritée -> exception locale visible ;
+- policy verrouillée -> drift explicite et stratégie de remise en conformité/intervention ;
+- Wizard : rôle absent -> création proposée sans quitter le parcours ;
+- résultat final de la Phase 4 = intention validée + plan prêt, **pas apply Discord direct**.
 
-### Frontière de phase
+### Tests Phase 4
 
-La Phase 4 couvre l'administration, le diagnostic, la simulation d'impact et la préparation sûre de plans validés. La confirmation, l'apply Discord, la progression, la vérification post-apply et l'audit lié à l'opération sont traités par la Phase 5 afin qu'une seule chaîne de mutation soit utilisée par le produit. La preuve A/B de mutation réelle est donc attachée au pipeline Phase 5 puis rejouée en Phase 9 ; la Phase 4 n'introduit aucune mutation directe parallèle pour satisfaire artificiellement son gate.
+- tests unitaires ciblés sur resolver/conflits/lifecycle ;
+- intégration ciblée RLS/RBAC/persistance du Policy Engine ;
+- quelques E2E sur les parcours whitelist, blacklist/conflit et Wizard ;
+- pas de régression backend complète à chaque écran ; checkpoint ciblé en fermeture de phase.
+
+### Frontière avec Phase 5
+
+La Phase 4 définit, diagnostique, explique, prévisualise et prépare. La confirmation, l'apply, la progression, la reprise d'opérations et la vérification post-apply restent en Phase 5.
 
 ---
 
-# Phase 5 — Plans, preview, apply, progression et sécurité des mutations
+# Phase 5 — Plans, preview, apply, progression et opérations persistantes
+
+**Statut : ⏳ À FAIRE**
 
 ### Objectif
 
-Rendre le pipeline `INTENTION -> VALIDATION -> PLAN -> IMPACT -> CONFIRMATION -> APPLY -> VERIFICATION -> AUDIT` totalement visible et compréhensible.
+Rendre le pipeline `INTENTION -> VALIDATION -> PLAN -> IMPACT -> CONFIRMATION -> APPLY -> VERIFICATION -> AUDIT` visible, persistant et compréhensible.
 
 ### Travail
 
-- preview claire ;
-- diff avant/après ;
+- preview claire et diff avant/après ;
 - risques et impact ;
 - confirmation normale / renforcée ;
+- apply Discord par le pipeline canonique ;
 - progression étape par étape ;
-- annulation lorsqu'elle est encore possible ;
-- succès uniquement après état réellement accepté/vérifié ;
-- états partiels, retry et intervention manuelle ;
-- audit lié à l'opération.
+- annulation lorsque possible ;
+- succès uniquement après état accepté/vérifié ;
+- états partiels, retry, `UNKNOWN_OUTCOME`, intervention manuelle ;
+- audit lié à l'opération ;
+- **Operations Center** : opérations en cours/terminées/échouées ;
+- reprise après refresh, logout/login et nouvelle session ;
+- brouillons persistants ;
+- actions **Apply / Discard** avec suppression du payload de brouillon lorsque requis et conservation minimale d'audit ;
+- lien entre opération, plan, ressources et erreurs.
 
 ### Use cases obligatoires
 
 - mutation simple ;
 - mutation à risque ;
 - échec Discord ;
-- retry ;
+- retry/réconciliation ;
 - résultat partiel ;
+- refresh/logout/login pendant une opération -> état retrouvé ;
+- draft -> Apply ; draft -> Discard ;
 - vérification post-apply.
+
+### Tests Phase 5
+
+Tests d'intégration obligatoires sur les états persistants/worker/crash/retry concernés, plus E2E ciblés sur reprise d'opération et draft. Les campagnes de failure injection larges sont réservées au checkpoint de phase et à la Phase 9.
 
 ---
 
 # Phase 6 — Modèles, bibliothèque, portabilité et clonage inter-serveurs
 
+**Statut : ⏳ À FAIRE**
+
 ### Objectif
 
-Rendre utilisables les fonctions de portabilité prévues par les spécifications.
+Transformer le moteur de portabilité déjà présent en expérience produit réellement utilisable.
 
 ### Travail
 
-- templates ;
-- bibliothèque personnelle ;
+- templates privés existants et bibliothèque personnelle ;
+- **catalogue de templates d'infrastructure prêts à l'emploi** ;
+- version métier/révision sélectionnable des templates ;
 - export/import ;
 - copie et clonage A -> B ;
 - mappings de dépendances ;
 - modes COPY_AS_NEW / MERGE / RECONCILE lorsque pertinents ;
-- configuration de chiffrement requise au démarrage ;
-- UI de prévisualisation et de résolution des conflits.
+- adaptation à la Guild cible ;
+- suggestions de rôles/mappings manquants ;
+- réutilisation du socle Wizard de Phase 4 ;
+- UI de preview : créé / remappé / ignoré / impossible ;
+- configuration de chiffrement requise clairement diagnostiquée.
 
 ### Use cases obligatoires
 
 - sauvegarder une sélection ;
 - la réutiliser ;
+- appliquer un template préconstruit et voir son adaptation avant plan ;
 - cloner A -> B ;
 - source et destination autorisées séparément ;
 - source inchangée après copie ;
-- erreur de configuration jamais exposée comme écran cassé/503 incompréhensible.
+- conflit de mapping résolu explicitement ;
+- erreur de configuration expliquée, jamais écran cassé/503 opaque.
+
+### Tests Phase 6
+
+Tests ciblés sur mapping/portabilité/RLS et E2E sur template + clone A->B. Pas de réexécution systématique de tout le backend.
 
 ---
 
 # Phase 7 — Traductions et campagnes
 
+**Statut : ⏳ À FAIRE**
+
 ### Objectif
 
-Décliner la même qualité d'UX sur les fonctions multilingues et de messaging.
+Décliner la qualité de la refonte sur les fonctions multilingues et messaging, en réutilisant le backend historique déjà largement conforme.
 
 ### Travail
 
@@ -255,7 +294,8 @@ Décliner la même qualité d'UX sur les fonctions multilingues et de messaging.
 - campagnes ;
 - ciblage, planification et statuts ;
 - preview Discord-safe ;
-- progression et erreurs explicites.
+- progression et erreurs explicites ;
+- réutilisation des Wizards/primitives UX lorsque nécessaire, sans recréer une seconde logique.
 
 ### Use cases obligatoires
 
@@ -263,44 +303,63 @@ Décliner la même qualité d'UX sur les fonctions multilingues et de messaging.
 - lier une variante existante ;
 - cloner une variante ;
 - créer et prévisualiser une campagne ;
-- envoyer/planifier dans la sandbox sans casser mentions, liens ou éléments Discord protégés.
+- envoyer/planifier sans casser mentions, liens ou tokens protégés.
+
+### Tests Phase 7
+
+E2E ciblés sur les parcours réellement modifiés et tests métier uniquement si la logique backend est touchée.
 
 ---
 
-# Phase 8 — Audit, diagnostics, paramètres, i18n et finition produit
+# Phase 8 — Audit, diagnostics, paramètres et finition produit
+
+**Statut : ⏳ À FAIRE**
 
 ### Objectif
 
-Finir toutes les surfaces qui rendent le produit exploitable et agréable au quotidien.
+Finir les surfaces transverses et les écarts UX qui ne justifient pas la réouverture des phases précédentes.
 
 ### Travail
 
 - audit lisible ;
 - diagnostics actionnables ;
+- visualisation dashboard bot lecture/écriture (`REQ-BOT-005`) ;
 - paramètres ;
 - recherche globale / palette de commandes ;
-- états de connexion/reconnexion ;
+- états connexion/reconnexion ;
 - EN / FR / DE / ES ;
-- suppression de toute chaîne mal encodée ou non localisée ;
 - accessibilité clavier ;
-- responsive desktop raisonnable et aucune superposition ;
-- cohérence exacte avec la direction visuelle `Esquisse 1.png`.
+- responsive desktop raisonnable et absence de superposition ;
+- second clic lent type Windows pour rename, F2 et action contextuelle cohérente ;
+- labels de groupes logiques compréhensibles et configurables ;
+- emoji picker / aide au naming lorsque prévu ;
+- consolidation des exigences `REQ-UXN-*` restantes ;
+- doctrine `REQ-REUSE-*` : réutiliser bibliothèques/primitives existantes avant de coder un équivalent maison ;
+- cohérence finale avec `Esquisse 1.png`.
 
 ### Use cases obligatoires
 
 - retrouver l'origine d'un changement ;
 - comprendre une capability manquante ;
-- changer de langue sans mélange de locales ;
+- visualiser où un bot peut lire/écrire ;
+- renommer rapidement sans dialogue inutile ;
+- changer de langue sans mélange ;
 - utiliser les parcours importants au clavier ;
-- redimensionner la fenêtre sans chevauchement.
+- redimensionner sans chevauchement.
+
+### Tests Phase 8
+
+Contrôles visuels, i18n/a11y et E2E ciblés uniquement sur les interactions critiques ajoutées. Pas de campagne backend lourde pour le polish.
 
 ---
 
 # Phase 9 — Acceptance produit réelle
 
+**Statut : ⏳ À FAIRE**
+
 ### Objectif
 
-Prouver que le produit fonctionne de bout en bout, pas que les mocks fonctionnent.
+Prouver le produit final de bout en bout et fermer l'audit étendu, sans gonfler artificiellement le nombre de tests.
 
 ### Parcours d'acceptance
 
@@ -317,9 +376,9 @@ onboarding d'une Guild
         ↓
 import de la structure réelle
         ↓
-administration structure + rôles + permissions
+structure + rôles + permissions + policies
         ↓
-plan / apply / vérification
+plan / apply / reprise / vérification
         ↓
 clone A -> B
         ↓
@@ -327,16 +386,27 @@ templates / bibliothèque
         ↓
 traduction / campagne
         ↓
-audit / diagnostics
+audit / diagnostics / finition UX
 ```
 
-### Done final
+### Preuves obligatoires finales
 
 - aucun défaut P0/P1 connu ;
-- tous les use cases critiques passent réellement ;
+- les use cases critiques passent réellement ;
 - aucune étape ne nécessite un script manuel caché ;
-- screenshots de référence conformes ;
+- Discord sandbox A/B qualifiée sur le commit final (`REQ-TEST-003`) ;
+- sécurité/RLS/RBAC sur les nouvelles surfaces ;
+- E2E des parcours critiques ;
+- régression backend/frontend **raisonnable et ciblée par risque**, puis suite finale globale une fois ;
+- aucune exigence critique sautée/ignorée sans justification ;
+- audit 389 exigences mis à jour : objectif `PARTIEL=0`, `ABSENT=0`, `NON DÉMONTRÉ=0` ;
 - validation visuelle utilisateur ;
-- tests ciblés E2E verts ;
-- une régression finale raisonnable du socle affecté ;
-- `main` n'est proposé au merge qu'après cette validation.
+- `main` proposé au merge uniquement après cette validation.
+
+---
+
+## Règle de pilotage
+
+Il reste **9 phases UI, pas davantage**. Les sous-tâches internes servent uniquement à ordonner le travail dans une phase et ne deviennent pas des phases officielles.
+
+Lorsqu'une exigence de l'audit est corrigée, son statut est mis à jour dans le registre d'audit et sa phase de rattachement dans `UI_REQUIREMENTS_REMEDIATION_MAP.md`. Aucune nouvelle phase n'est créée pour une famille d'exigences.
