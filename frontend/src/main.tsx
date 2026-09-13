@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { App } from './app/App'
 import './shared/styles.css'
 import './shared/redesign.css'
+import './shared/login-redesign.css'
 
 const root = document.getElementById('root')
 
