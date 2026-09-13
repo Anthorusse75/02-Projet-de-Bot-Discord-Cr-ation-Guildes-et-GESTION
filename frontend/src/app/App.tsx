@@ -4,9 +4,13 @@ import { AppProviders } from './providers/AppProviders'
 import { AppShell } from './AppShell'
 import { AuthGate, LoginPage } from '../features/auth/AuthGate'
 import { GuildSelectPage } from '../features/guilds/GuildSelectPage'
+import { OnboardingPage } from '../features/guilds/OnboardingPage'
 import { useInteractionStore } from '../shared/state/interaction'
 import { Skeleton } from '../shared/components/ui'
 
+const OverviewScreen = lazy(async () => ({
+  default: (await import('../features/overview/OverviewScreen')).OverviewScreen,
+}))
 const StructureScreen = lazy(async () => ({
   default: (await import('../features/structure/StructureScreen')).StructureScreen,
 }))
@@ -53,8 +57,10 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route element={<AuthGate />}>
           <Route path="/guilds" element={<GuildSelectPage />} />
+          <Route path="/guild/:guildId/setup" element={<OnboardingPage />} />
           <Route path="/guild/:guildId" element={<AppShell />}>
-            <Route index element={<Navigate to="structure" replace />} />
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={deferred(<OverviewScreen />)} />
             <Route path="structure" element={deferred(<StructureScreen />)} />
             <Route path="roles" element={deferred(<RolesScreen />)} />
             <Route path="permissions" element={deferred(<PermissionsScreen />)} />
