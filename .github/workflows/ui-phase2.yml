@@ -34,3 +34,30 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Phase 2 use cases only
         run: npx playwright test e2e/phase02-redesign.spec.ts --project=chromium
+
+  phase2-runtime-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DID_DATABASE_URL: postgresql+asyncpg://did_app:local_app_password@localhost:55432/did_test
+      DID_DATABASE_ADMIN_URL: postgresql+asyncpg://did_admin:local_admin_password@localhost:55432/did_test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Start PostgreSQL and Redis
+        run: docker compose -f compose.test.yaml up -d --wait
+      - name: Apply schema through Phase 2 head
+        run: uv run alembic upgrade head
+      - name: WebSocket runtime is resolvable
+        run: uv run --with websockets==15.0.1 python -c "import websockets; print(websockets.__version__)"
+      - name: Audit endpoint storage regression only
+        run: uv run pytest -q backend/tests/integration/test_phase02_audit_runtime.py
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f compose.test.yaml down --volumes
