@@ -4,7 +4,7 @@
 
 **Implémentation : TERMINÉE**  
 **Gate ciblé automatisé : VERT**  
-**Validation produit réelle sur Guilds A/B : À FAIRE**
+**Validation produit réelle sur Guilds A/B : EN COURS**
 
 La Phase 2 ne doit pas être déclarée « acceptée produit » tant que le parcours réel sur Discord n'a pas été rejoué depuis l'environnement local avec les vraies Guilds sandbox. Les anciens statuts Stage 10 ne constituent pas cette preuve.
 
@@ -18,7 +18,8 @@ La Phase 2 ne doit pas être déclarée « acceptée produit » tant que le parc
 - démarrage API, bot Gateway, worker, scheduler et frontend ;
 - arrêt coordonné des processus ;
 - Vite proxifie officiellement `/api`, `/auth`, `/health` et `/ws` vers le backend local ;
-- absence de `ARTIFACT_ENCRYPTION_KEY` signalée comme fonctionnalité optionnelle indisponible et non comme panne opaque.
+- absence de `ARTIFACT_ENCRYPTION_KEY` signalée comme fonctionnalité optionnelle indisponible et non comme panne opaque ;
+- le process API local est lancé avec un runtime WebSocket explicite (`websockets==15.0.1`) afin que les upgrades `/ws` soient réellement supportés par Uvicorn sans modifier `uv.lock` au démarrage.
 
 ### 2. Découverte Gateway et diagnostic
 
@@ -70,7 +71,8 @@ Cette phase pose la direction visuelle commune. La reconstruction profonde de l'
 - arrêt des retries lorsque le navigateur est hors ligne ;
 - reprise à l'événement `online` ;
 - backoff borné pour les vraies coupures temporaires ;
-- événement invalide : invalidation sûre du cache plutôt qu'un crash du client.
+- événement invalide : invalidation sûre du cache plutôt qu'un crash du client ;
+- correction live du 13/09/2026 : Uvicorn était lancé sans moteur WebSocket, ce qui produisait `Unsupported upgrade request`, un faux `GET /ws/...` en HTTP, des `404` et des `ECONNABORTED` dans Vite. `scripts/dev.sh` fournit maintenant explicitement `websockets==15.0.1` au process API.
 
 ### 6. Portability / fonctionnalités optionnelles
 
@@ -85,13 +87,33 @@ Cette phase pose la direction visuelle commune. La reconstruction profonde de l'
 - la chaîne française `Aucun serveur Discord admissible trouvé.` est correctement rendue par le pack Phase 2 ;
 - contrôle des littéraux visibles conservé ; seuls le logo `D` / `DID` et les glyphes de raccourci non linguistiques sont autorisés hors catalogue.
 
+### 8. Audit — correction du défaut de schéma découvert en live
+
+Le test réel du 13/09/2026 a reproduit le P0 `/audit` avec :
+
+`UndefinedColumnError: column "plan_id" does not exist`
+
+La cause était structurelle : `RuntimeRepository.audit_events()` lisait `plan_id`, mais `internal_audit_events` avait été créé en Stage 03 sans les colonnes structurées prévues par l'architecture (`plan_id`, `operation_id`, `request_id`). Le Plan Engine avait ensuite conservé `plan_id` et `operation_id` uniquement dans `data_json`.
+
+Correction :
+
+- migration `0035_ui_phase2` ;
+- ajout de `plan_id`, `operation_id`, `request_id` en UUID nullable ;
+- backfill des identifiants UUID historiques déjà présents dans `data_json` ;
+- index tenant + plan et tenant + opération ;
+- trigger de compatibilité qui projette automatiquement les anciens writers `data_json` vers les colonnes structurées ;
+- aucune suppression des payloads historiques ;
+- test PostgreSQL ciblé qui reproduit l'ancien shape d'écriture et appelle réellement `RuntimeRepository.audit_events()`.
+
 ## Gate ciblé — pas de « 50 000 tests »
 
-Un workflow dédié `.github/workflows/ui-phase2.yml` ne lance que :
+Le workflow dédié `.github/workflows/ui-phase2.yml` lance uniquement les contrôles utiles à cette phase.
+
+### UI
 
 1. `npm ci` ;
 2. `npm run typecheck` ;
-3. le contrôle i18n des chaînes visibles ;
+3. contrôle i18n des chaînes visibles ;
 4. Chromium ;
 5. **2 use cases Playwright Phase 2 seulement**.
 
@@ -100,7 +122,14 @@ Les deux use cases sont :
 - `PENDING_SETUP -> Configure -> import -> activation -> overview` ;
 - utilisateur non owner/admin -> setup bloqué et aucune action exécutable.
 
-Dernier gate exécuté sur le code Phase 2 : **SUCCESS** (`aae56c0c72ea5e0c18fcd3d12138c0d08154a874`). TypeScript : PASS. i18n : PASS. Playwright Phase 2 : 2/2 PASS.
+### Régressions runtime ajoutées après le test live
+
+1. PostgreSQL + Redis réels ;
+2. `alembic upgrade head` jusqu'à `0035_ui_phase2` ;
+3. résolution réelle du runtime `websockets==15.0.1` ;
+4. **un seul test PostgreSQL ciblé** : `test_phase02_audit_runtime.py`.
+
+Le job `phase2-runtime-regressions` du run GitHub Actions `34747098419` est **SUCCESS** : migration PASS, runtime WebSocket PASS, régression audit PASS.
 
 ## Relecture des défauts Phase 1
 
@@ -110,29 +139,29 @@ Dernier gate exécuté sur le code Phase 2 : **SUCCESS** (`aae56c0c72ea5e0c18fcd
 | P0-002 onboarding absent | **corrigé** | code + E2E ciblé |
 | P0-003 structure réelle vide | onboarding programme le vrai `INITIAL_SYNC` | code + live à confirmer |
 | P0-004 `/api/v1/guilds` 500 | route de découverte/état remaniée, sans bootstrap manuel côté UI | code + live à confirmer |
-| P0-005 `/audit` 500 | endpoint et dépôt restent cohérents statiquement ; cause baseline non reproduite | **reste à confirmer/reproduire en live** |
-| P0-006 boucle WebSocket | **corrigée côté client** pour 4401/4403/offline + backoff | code + typecheck + comportement live à confirmer |
+| P0-005 `/audit` 500 | **corrigé après reproduction live** par migration 0035 + compatibilité audit | PostgreSQL ciblé PASS + live à revalider |
+| P0-006 boucle WebSocket | **corrigée côté client et runtime local** : 4401/4403/offline + backoff + moteur WS Uvicorn | runtime gate PASS + live à revalider |
 | P0-007 lancement local incohérent | **corrigé** | script + proxy versionnés |
 | P1-010 portability non configurée | **corrigé côté UX** par préflight + désactivation explicite | code + E2E shell |
 | P2-001 `Àucun serveur` | **corrigé à l'affichage** par le catalogue Phase 2 | i18n gate |
 
 ## Ce qu'il manque réellement
 
-Il ne manque plus de chantier d'implémentation prévu dans la Phase 2. Il manque la **preuve sur l'environnement Discord réel** :
+Il ne manque plus de chantier d'implémentation prévu dans la Phase 2. Il manque la fin de la **preuve sur l'environnement Discord réel** :
 
-1. partir de l'état local voulu et démarrer avec `scripts/dev.sh` ;
+1. redémarrer avec la branche à jour pour appliquer `0035_ui_phase2` et le runtime WebSocket ;
 2. OAuth réel ;
 3. vérifier que Guild A et Guild B apparaissent sans script manuel ;
-4. prendre une Guild `PENDING_SETUP` et faire tout l'assistant ;
+4. prendre une Guild `PENDING_SETUP` et faire tout l'assistant si nécessaire ;
 5. vérifier que le vrai import restitue les salons/rôles ;
 6. vérifier l'activation ;
 7. recharger la page et vérifier session/contexte ;
 8. vérifier `/api/v1/guilds` et `/audit` sans HTTP 500 ;
-9. vérifier la connexion WebSocket ou son état dégradé propre ;
+9. vérifier que le WebSocket passe réellement en `live` sans `Unsupported upgrade request` / `404` / `ECONNABORTED` ;
 10. valider visuellement le nouveau shell contre `Esquisse 1.png`.
 
-Si `/audit` ou `/guilds` reproduit encore un 500, il devra rester P0 et être corrigé à partir du traceback réel avant de fermer définitivement la Phase 2.
+Tout nouveau défaut trouvé pendant ce parcours reste bloquant pour la fermeture de Phase 2 et doit être corrigé sur cette branche avant Phase 3.
 
 ## Décision de sortie
 
-La branche peut passer en **validation utilisateur Phase 2**, mais pas encore en Phase 3 comme si la preuve live était déjà acquise. Une fois le parcours A/B validé ou les derniers P0 live corrigés, la Phase 2 pourra être marquée complètement close.
+La branche reste en **validation utilisateur Phase 2**. Les deux défauts concrets découverts lors du premier passage live ont été corrigés et couverts par un gate ciblé. La Phase 2 ne sera marquée complètement close qu'après le prochain passage A/B réel sans P0 restant.
