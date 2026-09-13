@@ -9,7 +9,8 @@ VISIBLE_TEXT = re.compile(r"<([A-Za-z][\w.]*)\b[^>]*>\s*([^<>{}\n]*[A-Za-z][^<>{
 VISIBLE_ATTRIBUTE = re.compile(
     r"\b(?:aria-label|alt|placeholder|title)\s*=\s*[\"']([A-Za-z][^\"']*)[\"']"
 )
-ALLOWLIST = {"DID", "Ctrl K"}
+# Product marks and keyboard glyphs are not language-bearing UI copy.
+ALLOWLIST = {"DID", "D", "Ctrl K", "⌘K"}
 
 
 def violations(scan_root: Path) -> list[str]:
