@@ -5,7 +5,7 @@ import { queryKeys } from './queryKeys'
 
 export type GuildConnection = 'live' | 'reconnecting' | 'offline' | 'unauthorized'
 export type GuildEvent = { guild_id?: string; sequence?: number; version?: number; type?: string }
-export type GuildEventDecision = { kind: 'ignore' | 'full' | 'feature'; feature?: 'plans' | 'audit' | 'structure'; nextSequence: number }
+export type GuildEventDecision = { kind: 'ignore' | 'full' | 'feature'; feature?: 'plans' | 'audit' | 'structure' | 'roles'; nextSequence: number }
 
 export function reconnectDelay(attempt: number): number {
   return Math.min(30_000, 500 * 2 ** Math.min(Math.max(attempt, 0), 6))
@@ -15,7 +15,14 @@ export function resolveGuildEvent(event: GuildEvent, guildId: string, lastSequen
   if (event.guild_id !== guildId || (event.version !== undefined && event.version !== 1)) return { kind: 'ignore', nextSequence: lastSequence }
   const nextSequence = event.sequence ?? lastSequence
   if (event.sequence !== undefined && lastSequence > 0 && event.sequence !== lastSequence + 1) return { kind: 'full', nextSequence }
-  const feature = event.type?.startsWith('plan.') ? 'plans' : event.type?.startsWith('audit.') ? 'audit' : 'structure'
+  const eventType = event.type ?? ''
+  const feature = eventType.startsWith('plan.')
+    ? 'plans'
+    : eventType.startsWith('audit.')
+      ? 'audit'
+      : eventType.startsWith('role.') || eventType.includes('ROLE')
+        ? 'roles'
+        : 'structure'
   return { kind: 'feature', feature, nextSequence }
 }
 
@@ -68,8 +75,6 @@ export function useGuildSocket(queryClient: QueryClient, userId: DiscordSnowflak
       socket.onclose = (event) => {
         socket = null
         if (!current || event.code === 1000) return
-        // 4401/4403 are deliberate server-side authorization decisions. Retrying
-        // those every few hundred milliseconds only floods the console and Redis.
         if (event.code === 4401 || event.code === 4403) {
           clearRetry()
           setConnection('unauthorized')
