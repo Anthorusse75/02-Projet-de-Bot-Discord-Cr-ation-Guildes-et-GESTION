@@ -7,6 +7,7 @@ import './shared/styles.css'
 import './shared/redesign.css'
 import './shared/login-redesign.css'
 import './shared/phase3-structure.css'
+import './shared/phase4-access.css'
 
 const root = document.getElementById('root')
 
