@@ -1,216 +1,174 @@
-# Phase 4 — Rapport de clôture
+# Phase 4 — Rapport initial et réouverture post-audit
 
 **Branche :** `ui/complete-redesign`  
-**Statut :** ✅ TERMINÉE  
-**Référence visuelle :** `SCREENSHOTS_ESQUISSE/Esquisse 1.png`
+**Statut actuel :** 🚧 **RÉOUVERTE — socle initial livré, complétion Policy/Wizard requise**  
+**Référence visuelle :** `SCREENSHOTS_ESQUISSE/Esquisse 1.png`  
+**Plan maître :** `SCREENSHOTS_ESQUISSE/UI_REDESIGN_PHASES.md`
 
-## 1. Objectif livré
+## 1. Historique
 
-La Phase 4 remplace les anciennes surfaces de lecture par un vrai poste de travail **Rôles & Permissions**. L'objectif est de permettre à un administrateur de raisonner avec des concepts humains (`voir`, `écrire`, `gérer`, `parler`, etc.) tout en conservant l'accès à la réalité Discord lorsque le mode expert est activé.
+La première implémentation de la Phase 4 a livré un vrai poste de travail **Rôles & Permissions** : hiérarchie, CRUD de rôles, mode simple, mode expert, permissions effectives, `View As`, explication des décisions, simulation d'impact et préparation de plans.
 
-Aucune action d'édition ne contourne le pipeline de planification : l'UI prépare un Desired State Graph, crée un plan, le valide, puis bascule vers l'écran Plans. La confirmation, l'apply, la progression, les échecs partiels et la vérification post-apply restent la responsabilité explicite de la Phase 5.
+Le gate automatisé initial était vert sur le commit `7589d05f4a75cb31613077cf0333ec620e8d49a2`, run `34754635374`.
 
-## 2. Ce qui est livré
+Cette clôture initiale reste une preuve valable du **socle livré**, mais elle n'est plus une clôture de la Phase 4 complète. Les clarifications produit sur les politiques d'accès puis l'audit étendu des 389 exigences ont montré que plusieurs fonctions nécessaires à l'expérience finale n'existent pas encore, principalement le **Policy Engine générique** et le **socle Wizard**.
 
-### Hiérarchie des rôles
+## 2. Socle déjà livré et conservé
+
+### Hiérarchie et administration des rôles
 
 - hiérarchie Discord réelle triée par position ;
-- sélection et inspecteur d'un rôle ;
-- affichage du Snowflake, de la position, de la fraîcheur et du bitfield réel ;
-- affichage des permissions connues et des bits inconnus ;
-- identification des rôles gérés par Discord/intégrations ;
-- diagnostic de la capacité du bot à gérer la cible ;
-- prise en compte de la hiérarchie Discord (`bot role > target role`) ;
-- `@everyone` et rôles gérés non éditables depuis les actions incompatibles.
+- création, renommage, suppression et réordonnancement ;
+- gestion des rôles gérés et de `@everyone` ;
+- diagnostic de hiérarchie bot/cible ;
+- toutes les modifications passent par des propositions/plans, jamais par une mutation Discord directe depuis l'écran.
 
-### Administration des rôles
+### Permissions simples et expertes
 
-Les opérations suivantes sont disponibles :
-
-- création ;
-- renommage ;
-- suppression ;
-- réordonnancement.
-
-Chaque opération produit une **proposition**, puis un **plan validé**. Aucune mutation Discord directe n'est déclenchée depuis l'écran Rôles.
-
-La création d'un rôle ne force volontairement aucune position artificielle : Discord choisit d'abord sa position initiale sûre, puis un réordonnancement peut être proposé séparément. Cela évite de demander une création au-dessus du rôle du bot, cas que Discord refuserait.
-
-### Mode simple permissions
-
-Le mode simple expose des intentions humaines :
-
-- voir la ressource ;
-- écrire / envoyer des messages ;
-- gérer la ressource ;
-- rejoindre un vocal ;
-- parler en vocal ;
-- diffuser en vocal.
-
-Chaque intention possède trois états :
-
-- Autoriser ;
-- Hériter ;
-- Refuser.
-
-Ces intentions sont compilées par le moteur backend existant (`compile_simple_permissions`) vers de vrais bits Discord. Le frontend n'invente pas de bitmask local.
-
-### Mode expert
+Le mode simple expose des intentions humaines (`voir`, `écrire`, `gérer`, `rejoindre`, `parler`, etc.) compilées par le moteur backend vers de vrais bits Discord.
 
 Le mode expert expose :
 
-- bitfields réels ;
-- flags Discord reconnus ;
+- bitfields et flags réels ;
 - bits inconnus conservés ;
 - permissions effectives ;
-- couverture et fraîcheur du read model ;
+- couverture/fraîcheur du read model ;
 - trace détaillée de résolution ;
-- sources rôle/overwrite utilisées par le moteur ;
-- valeurs `allow` / `deny` et transitions avant/après.
+- overwrites et transitions avant/après.
 
-### « Pourquoi cet accès ? » / View As
+### `View As` / « Pourquoi cet accès ? »
 
-L'écran sait diagnostiquer :
+Le diagnostic peut cibler un rôle, un membre/bot ou un nouvel arrivant. Le résultat provient du moteur de permissions backend et non d'une approximation frontend.
 
-- un rôle ;
-- un membre ou bot ;
-- un nouvel arrivant en mode diagnostic.
+### Simulation et impact
 
-Le résultat vient du moteur de permissions backend. L'UI affiche la trace explicable et ne déduit pas une permission uniquement à partir d'une apparence visuelle.
+Avant proposition d'overwrite, l'UI peut afficher l'allow/deny compilé et, pour un membre connu, simuler les permissions effectives avant/après.
 
-### ADMINISTRATOR
+### Séparation DID / Discord
 
-Lorsqu'`ADMINISTRATOR` rend un overwrite inopérant, un avertissement explicite est affiché. L'UI ne laisse pas entendre qu'un deny de salon pourrait réellement restreindre ce sujet.
+L'autorisation dashboard de l'utilisateur et la capacité réelle du bot Discord restent deux décisions distinctes.
 
-### Impact avant mutation
+## 3. Pourquoi la Phase 4 est rouverte
 
-Avant de créer une proposition d'overwrite :
+Deux constats imposent la réouverture :
 
-- les intentions humaines sont compilées ;
-- l'allow/deny réel proposé est affiché ;
-- les flags correspondants sont visibles ;
-- le diagnostic courant est conservé ;
-- pour un membre connu, le moteur de simulation calcule les permissions effectives avant/après et les bits ajoutés/retirés ;
-- pour un rôle, l'UI n'invente pas un impact membre par membre non calculé : la vérification complète reste celle du plan/apply.
+1. un état réel `Capacité du bot inconnue` a été observé avec des actions désactivées sans cause/remédiation suffisamment précise ;
+2. l'audit étendu conclut que le moteur de permissions historique est solide, mais qu'un **Policy Engine générique**, les politiques natives/personnalisées et les Wizards associés ne sont pas encore implémentés comme produit complet.
 
-### Autorisation dashboard ≠ capacité Discord du bot
+La Phase 4 doit donc être terminée sur son intention réelle : **administrer les accès en langage humain, avec conflits, héritage, explication et préparation sûre d'un plan**.
 
-Deux couches distinctes sont conservées :
+## 4. Travail restant dans la Phase 4 — sans créer de nouvelles phases
 
-1. **délégation DID de l'utilisateur** (`permissions.write`, `roles.write`, `plans.create`) ;
-2. **capacité réelle du bot Discord** (`MANAGE_ROLE`, `REORDER_ROLES`, `MANAGE_OVERWRITES`, etc.).
+Tout le travail ci-dessous appartient à la **Phase 4 existante** :
 
-Une délégation dashboard n'est jamais présentée comme une restriction native Discord. Une action peut donc être refusée parce que l'utilisateur n'a pas la délégation DID nécessaire, ou parce que Discord interdit réellement l'opération au bot.
+- diagnostiquer/corriger les causes persistantes de `UNKNOWN` ;
+- modèle Policy générique tenant-scopé ;
+- scopes et compatibilité par type de ressource ;
+- lifecycle/versionnement ;
+- stockage, RLS et RBAC ;
+- resolver déterministe : priorité, héritage, exception locale, conflits ;
+- verrouillage et comportement face au drift ;
+- politiques natives DID ;
+- politiques personnalisées : créer, renommer, dupliquer, modifier, supprimer avec stratégie explicite ;
+- whitelist/blacklist de visibilité et d'écriture ;
+- zones/audiences, vocal, threads/réactions/mentions, bots et accès temporaires selon les exigences produit ;
+- détection de conflits multi-rôles jusqu'au membre concerné ;
+- explication de la source réelle du conflit ;
+- remédiations prévisualisées avant plan ;
+- matrice d'accès / opérations massives prévues ;
+- socle Wizard réutilisable ;
+- gestion du rôle manquant avec `+ Créer un rôle` dans le parcours ;
+- détails Discord maintenus dans le niveau expert/contextuel ;
+- aucun chemin de mutation parallèle au Plan Engine.
 
-### Mutation impossible bloquée avant Discord
+## 5. Use cases de sortie désormais obligatoires
 
-Les cas suivants sont bloqués avant création d'un plan applicable :
+La Phase 4 ne pourra être refermée que lorsque les parcours suivants fonctionneront réellement :
 
-- délégation DID insuffisante ;
-- permission bot manquante ;
-- rôle géré ;
-- rôle cible au-dessus/au même niveau que le rôle du bot ;
-- capacité d'overwrite inconnue ou refusée.
+1. modifier une permission en mode simple et inspecter le résultat Discord calculé ;
+2. passer en mode expert et comprendre la résolution ;
+3. `CAN / CANNOT / UNKNOWN` affiche une cause utile et, lorsqu'elle existe, une remédiation ;
+4. préparer une policy whitelist ;
+5. préparer une policy blacklist qui détecte un membre en conflit à cause d'un autre rôle ;
+6. afficher la source exacte du conflit et prévisualiser une résolution ;
+7. policy de catégorie héritée -> exception locale clairement visible ;
+8. policy verrouillée -> drift externe détecté avec stratégie explicite de remise en conformité/intervention ;
+9. rôle requis absent -> le Wizard permet de proposer sa création sans quitter le parcours ;
+10. sortie du parcours = intention validée + plan prêt, jamais mutation Discord directe.
 
-Le refus affiche une raison utilisateur, pas uniquement un code backend.
+## 6. Exigences permissions historiques déjà couvertes
 
-## 3. Réconciliation live
-
-Le routeur WebSocket frontend distingue désormais les événements de rôles des événements de structure. Les événements `role.*` ou les événements Gateway de type `GUILD_ROLE_*` invalident le read model `roles` afin que la hiérarchie se resynchronise sans rechargement complet.
-
-Les gaps de séquence conservent le comportement de sécurité existant : invalidation globale du tenant concerné.
-
-## 4. Localisation et design
-
-Les nouvelles surfaces Phase 4 sont intégrées au design dark premium de la refonte et disposent des chaînes EN / FR / DE / ES pour les nouveaux parcours.
-
-Les écrans utilisent les mêmes conventions visuelles que les Phases 2/3 : panneaux denses, hiérarchie lisible, inspecteur contextuel, appels à l'action explicites, états bloqués visibles et dialogues d'impact.
-
-## 5. Exigences permissions couvertes
-
-| Exigence | État Phase 4 | Preuve principale |
+| Exigence | État du socle | Preuve principale |
 |---|---|---|
-| REQ-PERM-001 | ✅ | bitfields transportés comme chaînes décimales, aucune conversion JS en entier flottant |
-| REQ-PERM-002 | ✅ | moteur existant + warning visible ADMINISTRATOR |
-| REQ-PERM-003 | ✅ | mode simple -> compilateur backend -> bits Discord réels |
-| REQ-PERM-004 | ✅ | mode expert : flags, bitfields, trace et overwrites réels issus du moteur |
-| REQ-PERM-005 | ✅ | View As rôle/membre/nouvel arrivant s'appuie sur le moteur backend |
-| REQ-PERM-006 | ✅ | trace explicable « Pourquoi ? » |
-| REQ-PERM-007 | ✅ | avertissement visible lorsque ADMINISTRATOR contourne les overwrites |
-| REQ-PERM-008 | ✅ pour un membre connu ; plan/apply pour impact étendu | simulation avant/après via `/permissions/simulate` |
-| REQ-PERM-009 | ✅ | délégation DID et capacité Discord du bot restent des décisions séparées |
+| REQ-PERM-001 | ✅ | bitfields sans perte de précision |
+| REQ-PERM-002 | ✅ | ADMINISTRATOR correctement pris en compte |
+| REQ-PERM-003 | ✅ | mode simple -> compilateur backend |
+| REQ-PERM-004 | ✅ | mode expert expose la réalité Discord |
+| REQ-PERM-005 | ✅ | View As rôle/membre/nouvel arrivant |
+| REQ-PERM-006 | ✅ | trace explicable |
+| REQ-PERM-007 | ✅ | état incomplet/unknown traité fail-closed |
+| REQ-PERM-008 | ✅ | explication visible |
+| REQ-PERM-009 | ✅ | View As complet |
 
-## 6. Défauts Phase 1 traités
+Les nouvelles familles `REQ-POL-*`, `REQ-WIZ-*` et `REQ-PERMX-010` constituent l'essentiel de la complétion restante de cette Phase 4.
 
-### P1-002 — Roles lecture seule
+## 7. Stratégie de tests Phase 4
 
-**Corrigé côté Phase 4 :** CRUD et reorder sont maintenant préparés depuis l'UI sous forme de plans validés, avec préflight de capacités.
+La Phase 4 ne doit pas devenir une campagne de tests permanente.
 
-La vérification de leur application réelle Discord appartient au pipeline de Phase 5 et à l'acceptance A/B de Phase 9 ; la Phase 4 ne contourne pas ce pipeline pour fabriquer une preuve artificielle.
+### Obligatoire
 
-### P1-003 — Permissions non administrables
+- tests unitaires **ciblés** du resolver Policy : priorité, héritage, conflits, lifecycle ;
+- intégration **ciblée** pour RLS/RBAC/persistance des policies ;
+- test du pipeline Policy -> preview/preflight -> plan ;
+- E2E ciblé sur quelques parcours critiques : whitelist, blacklist avec conflit, Wizard avec rôle absent ;
+- checkpoint de fin de phase sur le socle permissions/policies affecté.
 
-**Corrigé côté Phase 4 :** mode simple humain, mode expert, View As, trace, compilation des intentions, simulation d'impact et proposition d'overwrite sont disponibles sans saisie de Snowflake pour le parcours rôle principal.
+### Inutile et donc à éviter
 
-La saisie d'un Snowflake reste volontairement possible pour le diagnostic direct d'un membre/bot lorsque le read model utilisateur ne fournit pas encore de sélecteur complet de membres. Ce cas n'empêche pas le parcours rôle, qui est le parcours principal Phase 4.
+- relancer tout le backend pour une retouche CSS ou un wording ;
+- dupliquer le même parcours dans cinq couches de tests ;
+- rejouer Discord A/B après chaque changement local ;
+- écrire des tests uniquement pour augmenter un compteur.
 
-## 7. Gate ciblé de sortie
-
-Workflow : `.github/workflows/ui-phase4.yml`
-
-Le gate couvre :
-
-- TypeScript ;
-- garde i18n des chaînes visibles ;
-- routage live des événements de rôles ;
-- scénarios navigateur ciblés Phase 4.
-
-Scénarios de clôture :
-
-1. création, renommage, réordonnancement et suppression de rôle compilés en plans validés, sans mutation directe ;
-2. mode simple compilant des intentions humaines en overwrite Discord réel avant proposition ;
-3. mode expert exposant la trace de résolution et l'avertissement ADMINISTRATOR ;
-4. permission bot insuffisante bloquant la mutation avant création du plan.
-
-Gate Phase 4 : **✅ VERT** sur le commit `7589d05f4a75cb31613077cf0333ec620e8d49a2`, run `34754635374`.
-
-Les gates Phase 2 et Phase 3 ont également été rejoués sur ce même HEAD et restent verts, y compris le gate runtime Phase 2.
+La preuve Discord réelle de l'apply reste attachée à la Phase 5 puis à l'acceptance finale Phase 9.
 
 ## 8. Frontière avec la Phase 5
 
-La Phase 4 est terminée sur son périmètre : **définir, diagnostiquer, prévisualiser et préparer une modification de rôles/permissions de manière sûre**.
-
-Elle ne duplique pas la Phase 5. Les éléments suivants restent volontairement au chantier suivant :
+La Phase 4 couvre :
 
 ```text
-plan validé
+intention humaine
    ↓
-confirmation normale / renforcée
+policy / permission
+   ↓
+diagnostic / conflit / remédiation
+   ↓
+preview / impact
+   ↓
+plan prêt et validable
+```
+
+La Phase 5 couvre ensuite :
+
+```text
+confirmation
    ↓
 apply Discord
    ↓
-progression
+progression persistante
+   ↓
+retry / intervention / UNKNOWN_OUTCOME
    ↓
 verification post-apply
    ↓
-audit lié à l'opération
+audit de l'opération
 ```
 
-La preuve de mutation Discord réelle A/B sera donc obtenue en Phase 5 à travers le même pipeline que celui utilisé en production, puis rejouée dans l'acceptance produit Phase 9.
+La Phase 4 n'implémente donc pas un second moteur d'apply.
 
-## 9. Conclusion
+## 9. Statut actuel
 
-La Phase 4 est fermée :
+Le **socle Rôles & Permissions initial est livré et reste valide**. La Phase 4 elle-même reste **ouverte** jusqu'à complétion du Policy Engine générique, du Wizard de base, des conflits/héritages/remédiations et des use cases ci-dessus.
 
-- les rôles sont administrables par propositions sûres ;
-- le mode simple ne demande pas de connaître les bitfields Discord ;
-- le mode expert montre la réalité Discord ;
-- View As / Pourquoi expliquent les permissions effectives ;
-- l'impact est visible avant proposition ;
-- les restrictions DID et Discord restent distinguées ;
-- les capacités insuffisantes bloquent avant mutation ;
-- la réconciliation live des rôles est câblée ;
-- le gate ciblé est vert ;
-- aucune mutation Discord n'est exécutée silencieusement hors du pipeline Plans/Apply.
-
-Le prochain chantier prévu est la **Phase 5 — Plans, preview, apply, progression et sécurité des mutations**. Aucune Phase 5 n'est démarrée par cette clôture.
+Une fois cette complétion faite et le checkpoint ciblé vert, on passera à la **Phase 5 existante**. Aucune nouvelle phase UI n'est créée.
