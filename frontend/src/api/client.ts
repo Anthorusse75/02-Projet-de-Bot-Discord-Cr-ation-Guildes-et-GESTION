@@ -5,6 +5,10 @@ export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: ApiErrorEnvelope['error']) {
     super(problem.code)
   }
+
+  get requestId(): string {
+    return this.problem.request_id
+  }
 }
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown; anonymous?: boolean }
