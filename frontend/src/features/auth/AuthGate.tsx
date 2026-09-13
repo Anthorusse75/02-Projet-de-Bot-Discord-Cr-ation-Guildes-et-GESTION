@@ -8,16 +8,37 @@ import { ErrorState, Skeleton } from '../../shared/components/ui'
 import { useLocale } from '../../localization/runtime'
 
 export function LoginPage() {
-  const { t } = useTranslation(); const me = useMe()
+  const { t } = useTranslation()
+  const me = useMe()
   if (me.isLoading) return <main className="login shell"><Skeleton /></main>
-  if (me.data) return <Navigate to={me.data.active_guild_id ? `/guild/${me.data.active_guild_id}/structure` : '/guilds'} replace />
+  if (me.data) return <Navigate to={me.data.active_guild_id ? `/guild/${me.data.active_guild_id}/overview` : '/guilds'} replace />
   if (me.error && (!(me.error instanceof ApiError) || me.error.status !== 401)) return <main className="login shell"><ErrorState retry={() => void me.refetch()} /></main>
-  return <main id="main" className="login shell"><LanguageSelector /><div className="login-card"><span className="brand-mark">DID</span><h1>{t('app.title')}</h1><p>{t('auth.welcome')}</p><a className="primary-action" href="/auth/discord/login">{t('auth.login')}</a></div></main>
+  return (
+    <main id="main" className="login shell premium-login">
+      <div className="login-language"><LanguageSelector /></div>
+      <div className="login-card premium-login-card">
+        <span className="brand-mark">D</span>
+        <div className="login-product"><strong>DID</strong><small>Discord Infrastructure Designer</small></div>
+        <h1>{t('app.title')}</h1>
+        <p>{t('auth.welcome')}</p>
+        <a className="primary-action" href="/auth/discord/login">{t('auth.login')}</a>
+        <small className="login-footnote">OAuth Discord · permissions minimales · aucun mot de passe Discord stocké</small>
+      </div>
+    </main>
+  )
 }
 
 export function AuthGate() {
-  const me = useMe(); const locale = useLocale()
-  useEffect(() => { if (!me.data) return; let current = true; void apiRequest<{ui_locale_override_code:string|null}>('/api/v1/me/preferences').then((preference) => { if (current) locale.hydrateServerPreference(preference.ui_locale_override_code) }).catch(() => undefined); return () => { current = false } }, [me.data?.user.discord_user_id])
+  const me = useMe()
+  const locale = useLocale()
+  useEffect(() => {
+    if (!me.data) return
+    let current = true
+    void apiRequest<{ui_locale_override_code:string|null}>('/api/v1/me/preferences')
+      .then((preference) => { if (current) locale.hydrateServerPreference(preference.ui_locale_override_code) })
+      .catch(() => undefined)
+    return () => { current = false }
+  }, [me.data?.user.discord_user_id])
   if (me.isLoading) return <main className="shell"><Skeleton /></main>
   if (!me.data) return <Navigate to="/login" replace />
   return <Outlet context={me.data} />
