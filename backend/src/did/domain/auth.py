@@ -71,6 +71,11 @@ class Capability(StrEnum):
     BOTS_AUDIT = "bots.audit"
     PERMISSIONS_READ = "permissions.read"
     PERMISSIONS_WRITE = "permissions.write"
+    POLICIES_READ = "policies.read"
+    POLICIES_CREATE = "policies.create"
+    POLICIES_UPDATE = "policies.update"
+    POLICIES_ACTIVATE = "policies.activate"
+    POLICIES_RETIRE = "policies.retire"
     PLANS_CREATE = "plans.create"
     PLANS_APPLY = "plans.apply"
     AUDIT_READ = "audit.read"
@@ -89,6 +94,7 @@ READ_ONLY_CAPABILITIES = frozenset(
         Capability.MEMBERS_READ,
         Capability.BOTS_READ,
         Capability.PERMISSIONS_READ,
+        Capability.POLICIES_READ,
         Capability.AUDIT_READ,
         Capability.TEMPLATES_READ,
     }

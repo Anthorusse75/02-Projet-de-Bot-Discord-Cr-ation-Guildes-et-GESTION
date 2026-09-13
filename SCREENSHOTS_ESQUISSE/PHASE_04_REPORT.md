@@ -172,3 +172,29 @@ La Phase 4 n'implémente donc pas un second moteur d'apply.
 Le **socle Rôles & Permissions initial est livré et reste valide**. La Phase 4 elle-même reste **ouverte** jusqu'à complétion du Policy Engine générique, du Wizard de base, des conflits/héritages/remédiations et des use cases ci-dessus.
 
 Une fois cette complétion faite et le checkpoint ciblé vert, on passera à la **Phase 5 existante**. Aucune nouvelle phase UI n'est créée.
+
+## 10. Lot backend « fondations Policy » — 2026-09-14
+
+Le socle générique backend est désormais présent :
+
+- agrégat `Policy` tenant-scopé, UUID stable, type/contrat versionné, cible,
+  conditions, effets et métadonnées humaines ;
+- registre fermé `ACCESS_CONTROL` v1, revalidation avant activation et refus de
+  tout champ/opérateur/code arbitraire ;
+- lifecycle strict `DRAFT → ACTIVE → DISABLED → RETIRED` ;
+- tables `policies` et `policy_versions`, RLS activée/forcée, historique
+  append-only et audit atomique ;
+- idempotence create/activate/disable, CAS sur révision/état et validation des
+  cibles/rôles contre le cache du tenant ;
+- API CRUD/lifecycle minimale protégée par cinq capabilities Policies ;
+- ADR `POLICY_ENGINE_RULE_VALIDATION_ADR.md` : Pydantic fermé retenu pour la
+  validation ; aucun DSL ou moteur d'expressions ajouté prématurément.
+
+Preuves ciblées : 16 tests unitaires et 6 tests PostgreSQL réels passent ; le
+round-trip Alembic `0036 → 0035 → 0036` passe. Aucun test Playwright, apply
+Discord ou suite backend complète n'a été exécuté, conformément au périmètre.
+
+Cette livraison ne referme pas la Phase 4. Elle ne contient ni resolver,
+priorité/héritage/conflits, preview/impact, préflight/Plan, UI/Wizard, ni
+enforcement Discord. Les helpers `message_content_policy.py` et
+`translation_policy.py` restent spécialisés et séparés du moteur générique.

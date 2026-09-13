@@ -13,10 +13,10 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 276 |
-| PARTIEL | 36 |
-| ABSENT | 64 |
-| NON DÉMONTRÉ | 13 |
+| CONFORME | 296 |
+| PARTIEL | 39 |
+| ABSENT | 42 |
+| NON DÉMONTRÉ | 12 |
 | **Total** | **389** |
 
 Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TEST-003`). Les écarts nouveaux portent surtout sur Policies, Wizards, UX nouvelle, reprise inter-session et templates produit.
@@ -39,15 +39,53 @@ L'audit initial portait sur un autre snapshot. La réinspection du code courant,
 | REQ-UXN-014 | Suggestions optionnelles validées, aperçu et reset; test unitaire de non-mutation. |
 | REQ-UXN-015 | Vide et plus de 100 points de code bloqués avant tout POST de plan; test unitaire et E2E. |
 
+### Complément ciblé `ui/complete-redesign` — Phase 4, fondations Policy backend
+
+Ce lot ne ferme pas la Phase 4 : resolver, conflits/héritage, preview/impact,
+préflight/Plan, UI/Wizard et enforcement Discord restent explicitement hors
+périmètre. Les statuts sont relevés uniquement lorsque les critères backend du
+lot sont entièrement prouvés.
+
+| ID | Avant | Preuve complémentaire | Après |
+|---|---|---|---|
+| REQ-POL-001 | ABSENT | Agrégat `Policy` explicite, sérialisable et référencé par UUID ; aucun resolver livré dans ce lot. | PARTIEL |
+| REQ-POL-002 | ABSENT | `policy_id` stable ; une édition modifie la révision, jamais l'identité. | CONFORME |
+| REQ-POL-003 | ABSENT | `PolicyTypeRegistry` fermé et versionné ; type/version inconnus refusés. | CONFORME |
+| REQ-POL-004 | ABSENT | Révision CAS et snapshot immuable à chaque création, édition ou transition. | CONFORME |
+| REQ-POL-005 | ABSENT | Machine d'état stricte `DRAFT → ACTIVE → DISABLED → RETIRED`, transitions invalides testées. | CONFORME |
+| REQ-POL-006 | ABSENT | Nom, description et métadonnées humaines persistés ; aucune UI livrée. | PARTIEL |
+| REQ-POL-007 | ABSENT | `guild_id` obligatoire, FK tenant, requêtes tenant-scopées et RLS forcée. | CONFORME |
+| REQ-POL-008 | ABSENT | Scope explicite et compatibilité validée par contrat de type. | CONFORME |
+| REQ-POL-009 | ABSENT | Enum générique des neuf scopes ; le contrat `ACCESS_CONTROL` n'autorise que ses sept scopes pertinents. | CONFORME |
+| REQ-POL-010 | ABSENT | Conditions discriminées/fermées, bornées et revalidées avant activation. | CONFORME |
+| REQ-POL-011 | ABSENT | Effets fermés/typés ; effet inconnu impossible à persister ou activer. | CONFORME |
+| REQ-POL-012 | NON DÉMONTRÉ | Champs libres/code/SQL/callback refusés et absence d'`eval` testée ; resolver borné non livré. | PARTIEL |
+| REQ-POL-027 | ABSENT | Création/édition en DRAFT uniquement, sans resolver, plan ni mutation Discord. | CONFORME |
+| REQ-POL-029 | ABSENT | Route d'activation protégée par `policies.activate`, test API ciblé. | CONFORME |
+| REQ-POL-030 | ABSENT | Désactivation protégée, transactionnelle, auditée et idempotente. | CONFORME |
+| REQ-POL-031 | ABSENT | `policy_versions` append-only : auteur, date, snapshots, motif de changement et corrélation ; UPDATE/DELETE refusés au rôle applicatif. | CONFORME |
+| REQ-POL-035 | ABSENT | Capabilities séparées read/create/update/activate/retire ; lecture seule limitée à read. | CONFORME |
+| REQ-POL-036 | ABSENT | Validation applicative cache-first et test réel d'une cible du tenant B refusée depuis A. | CONFORME |
+| REQ-POL-037 | ABSENT | RLS activée et forcée sur les deux tables ; test PostgreSQL A/B sans filtre applicatif. | CONFORME |
+| REQ-POL-038 | ABSENT | Clés et empreintes d'idempotence ; retries create/activate/disable sans doublon de version. | CONFORME |
+| REQ-POL-039 | ABSENT | Verrou optimiste par révision/état ; une seule de deux éditions concurrentes gagne. | CONFORME |
+| REQ-POL-040 | PARTIEL | Invariant fail-closed conservé ; aucun resolver générique n'est encore livré. | PARTIEL |
+| REQ-POL-050 | ABSENT | Routes, capabilities et isolation 404/non-divulgation au dépôt testées ; pas encore de test HTTP 403 complet ni d'enforcement. | PARTIEL |
+| REQ-POL-052 | ABSENT | ADR comparative Pydantic/rule-engine/json-rules-engine/DSL maison ; registre Pydantic fermé retenu sans nouveau moteur d'expressions. | CONFORME |
+| REQ-POL-053 | PARTIEL | ADR et modules distinguent explicitement le moteur générique des helpers message/translation existants. | CONFORME |
+
 ## PARTIEL — ce qui est fait / ce qui manque
 
 | ID | Implémenté | Manque |
 |---|---|---|
 | REQ-BOT-005 | API backend réelle par bot/salon (lecture/écriture), cache-derived, testée. | La visualisation dashboard demandée reste différée. |
 | REQ-TEST-003 | Harness et rapports live A/B prévus/intégrés dans Stage10. | Pas d’agrégat live A/B valide du run courant: credentials sandbox externes indisponibles. |
+| REQ-POL-001 | Agrégat générique explicite, sérialisable, tenant-scopé et identifié. | Le resolver de domaine est réservé au lot suivant. |
+| REQ-POL-006 | Nom, description et métadonnées humaines sont persistés. | L'UI Policies n'est pas livrée dans ce lot backend. |
+| REQ-POL-012 | Contrats fermés et tests de refus code/SQL/callback ; aucune exécution d'expression. | Le futur resolver borné reste à implémenter et tester. |
 | REQ-POL-013 | Les policies spécialisées inspectées sont déterministes | pas de moteur générique. |
 | REQ-POL-040 | Permission engine actuel sait représenter incomplete/unknown | pas de policy engine générique. |
-| REQ-POL-053 | message_content_policy.py et translation_policy.py inspectés | absence de moteur générique confirmée. |
+| REQ-POL-050 | Contrats API, capabilities et tests PostgreSQL cross-tenant ciblés. | Test HTTP 403 complet et chaîne enforcement hors de ce lot. |
 | REQ-UXN-009 | Moteur multi-rôles conforme | audit de toutes les UIs non réalisé. |
 | REQ-OPS-003 | Persistance backend démontrée | UX de reprise après nouvelle session non démontrée. |
 | REQ-OPS-004 | OutboxScreen/PlanDrawer existent | sémantique “centre d’opérations” et reprise session non totalement prouvées. |
@@ -98,23 +136,24 @@ L'audit initial portait sur un autre snapshot. La réinspection du code courant,
 - `REQ-MSG-012`, `REQ-MSG-013`, `REQ-MSG-014`, `REQ-MSG-015`, `REQ-MSG-016`, `REQ-MSG-017`, `REQ-MSG-018`, `REQ-MSG-019`, `REQ-MSG-020`, `REQ-MSG-021`, `REQ-MSG-022`, `REQ-MSG-023`, `REQ-MSG-024`, `REQ-MSG-025`, `REQ-MSG-026`, `REQ-MSG-027`, `REQ-MSG-028`, `REQ-MSG-029`, `REQ-MSG-030`, `REQ-MSG-031`
 - `REQ-TEST-001`, `REQ-TEST-002`, `REQ-TEST-004`, `REQ-TEST-005`, `REQ-UXN-001`, `REQ-UXN-002`, `REQ-UXN-008`, `REQ-UXN-018`, `REQ-OPS-001`, `REQ-OPS-002`, `REQ-OPS-013`, `REQ-TPL-005`, `REQ-TPL-006`, `REQ-TPL-008`, `REQ-REUSE-008`, `REQ-PERMX-001`, `REQ-PERMX-002`, `REQ-PERMX-003`, `REQ-PERMX-004`, `REQ-PERMX-005`
 - `REQ-PERMX-006`, `REQ-PERMX-007`, `REQ-PERMX-008`, `REQ-PERMX-009`, `REQ-QA-002`
+- `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-027`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-052`, `REQ-POL-053`
 - `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
 
 ### PARTIEL
 
-- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-013`, `REQ-POL-040`, `REQ-POL-053`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
+- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-001`, `REQ-POL-006`, `REQ-POL-012`, `REQ-POL-013`, `REQ-POL-040`, `REQ-POL-050`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
 - `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
 
-- `REQ-POL-001`, `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-006`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-021`, `REQ-POL-022`
-- `REQ-POL-023`, `REQ-POL-024`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-027`, `REQ-POL-028`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-032`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
-- `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-POL-050`, `REQ-POL-051`, `REQ-POL-052`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
+- `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-021`, `REQ-POL-022`
+- `REQ-POL-023`, `REQ-POL-024`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
+- `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-POL-051`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
 - `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
 ### NON DÉMONTRÉ
 
-- `REQ-POL-012`, `REQ-UXN-010`, `REQ-UXN-011`, `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
+- `REQ-UXN-010`, `REQ-UXN-011`, `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
 
 ## Preuves principales réinspectées
 
@@ -123,7 +162,7 @@ L'audit initial portait sur un autre snapshot. La réinspection du code courant,
 - Planning : service planning, modèles, persistance/DAG/preflight/impact/UNKNOWN_OUTCOME, failure-injection.
 - Portabilité/templates : service/repository/API Stage06, tests PostgreSQL/E2E; template privé RLS démontré.
 - Stage10 : large couverture backend/Playwright; `REQ-TEST-003` reste partiel car l’agrégat live A/B du run courant manque.
-- Policies/Wizards : les policies spécialisées message/traduction existent, mais aucun Policy Engine générique ni module Wizard complet n’est démontré.
+- Policies/Wizards : fondations génériques Policy backend (agrégat, registre, lifecycle, API/RBAC, RLS, historique) démontrées ; resolver, preview/Plan, enforcement, UI et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
 
 ## Priorités
 

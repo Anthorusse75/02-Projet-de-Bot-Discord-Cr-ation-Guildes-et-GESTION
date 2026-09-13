@@ -104,6 +104,22 @@ Quelques tests interaction/UI ciblés sur second clic, F2, menu contextuel et va
 - Wizard avec rôle manquant et `+ Créer un rôle` ;
 - sortie vers le Plan Engine, sans mutation Discord directe.
 
+### Lot backend fondations Policy — livré le 2026-09-14
+
+Le premier lot backend est livré sans anticiper les lots resolver/UI : agrégat
+tenant-scopé à identifiant stable, registre fermé/versionné, conditions et effets
+typés, lifecycle `DRAFT → ACTIVE → DISABLED → RETIRED`, versions append-only,
+idempotence, CAS, API minimale et capabilities distinctes. La migration
+`0036_ui_phase4` force la RLS sur `policies` et `policy_versions`; les tests
+PostgreSQL réels prouvent isolation A/B, refus d'une cible cross-tenant,
+historique immuable et concurrence.
+
+Couverture acquise : `REQ-POL-002` à `005`, `007` à `011`, `027`, `029` à
+`031`, `035` à `039`, `052` et `053` sont conformes. `REQ-POL-001`, `006`,
+`012`, `040` et `050` progressent mais restent partiels selon leurs critères
+complets. Tous les autres `REQ-POL-*`, le resolver, la preview, le raccord Plan,
+l'UI et les Wizards gardent leur statut antérieur.
+
 ### Preuve minimale utile
 
 Tests unitaires ciblés resolver/lifecycle, intégration RLS/RBAC/persistance, E2E whitelist + blacklist/conflit + Wizard. Pas de régression générale à chaque changement UI.

@@ -16,6 +16,7 @@ from did.api.health import ReadinessProbes
 from did.api.health import router as health_router
 from did.api.me import router as me_router
 from did.api.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
+from did.api.policies import router as policies_router
 from did.api.runtime_cache import guild_events_socket
 from did.api.runtime_cache import router as runtime_cache_router
 from did.api.stage04 import router as stage04_router
@@ -29,6 +30,7 @@ from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
 from did.application.planning import PlanningService
+from did.application.policies.service import PolicyService
 from did.application.portability import PortabilityService
 from did.application.translation import (
     LanguageProfileService,
@@ -43,6 +45,7 @@ from did.campaigns.authorization import (
     WrongResourceTypeError,
 )
 from did.domain.campaigns import CampaignLifecycleError
+from did.domain.policies import PolicyLifecycleError
 from did.infrastructure.auth_repository import AuthRepository
 from did.infrastructure.campaigns_repository import CampaignsRepository
 from did.infrastructure.database import (
@@ -57,6 +60,12 @@ from did.infrastructure.planning_repository import (
     PlanConflict,
     PlanningRepository,
     PlanNotFound,
+)
+from did.infrastructure.policies_repository import (
+    PoliciesRepository,
+    PolicyConflict,
+    PolicyNotFound,
+    PolicyTargetNotFound,
 )
 from did.infrastructure.portability_repository import (
     PortabilityRepository,
@@ -98,6 +107,7 @@ from did.oauth.stores import (
     RedisOAuthStateStore,
     RedisSessionStore,
 )
+from did.policies.registry import PolicyDefinitionValidationError
 from did.portability import ArtifactCipher, InMemoryKeyProvider, KeyUnavailable
 from did.settings import Settings
 
@@ -229,6 +239,8 @@ def create_app(
                 providers=stage08_provider_repository,
             )
             campaigns_repository = CampaignsRepository(session_factory)
+            policies_repository = PoliciesRepository(session_factory)
+            policies = PolicyService(policies_repository)
             campaigns_admin_engine = create_database_engine(
                 configured.database_admin_url.get_secret_value()
             )
@@ -294,6 +306,8 @@ def create_app(
                 stage08_structural_planning=stage08_structural_planning,
                 stage08_provider_orchestration=stage08_provider_orchestration,
                 campaigns_repository=campaigns_repository,
+                policies_repository=policies_repository,
+                policies=policies,
                 campaigns_admin_factory=campaigns_admin_factory,
             )
         try:
@@ -339,6 +353,7 @@ def create_app(
     application.include_router(stage07_router)
     application.include_router(stage08_router)
     application.include_router(stage09_router)
+    application.include_router(policies_router)
     application.add_api_websocket_route("/ws/v1/guilds/{guild_id}", guild_events_socket)
 
     @application.exception_handler(ApiProblem)
@@ -359,6 +374,38 @@ def create_app(
             status_code=404,
             code="RESOURCE_NOT_FOUND",
             message_key="errors.resource.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PolicyNotFound)
+    @application.exception_handler(PolicyTargetNotFound)
+    async def handle_policy_not_found(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=404,
+            code="POLICY_RESOURCE_NOT_FOUND",
+            message_key="errors.policies.notFound",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PolicyConflict)
+    @application.exception_handler(PolicyLifecycleError)
+    async def handle_policy_conflict(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=409,
+            code="POLICY_CONFLICT",
+            message_key="errors.policies.conflict",
+        )
+        return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
+
+    @application.exception_handler(PolicyDefinitionValidationError)
+    async def handle_policy_validation(request: Request, exc: Exception) -> JSONResponse:
+        del exc
+        problem = ApiProblem(
+            status_code=422,
+            code="POLICY_DEFINITION_INVALID",
+            message_key="errors.policies.invalidDefinition",
         )
         return problem_response(problem, getattr(request.state, "correlation_id", "unknown"))
 
