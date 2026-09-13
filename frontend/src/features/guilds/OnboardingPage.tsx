@@ -63,8 +63,37 @@ function onboardingBlockedMessage(snapshot: OnboardingSnapshot, t: (key: string)
   return null
 }
 
+function operationLabel(operation: string, t: (key: string, values?: Record<string, string>) => string): string {
+  const known: Record<string, string> = {
+    CREATE_CHANNEL: 'onboarding.operation.createChannel', MANAGE_CHANNEL: 'onboarding.operation.manageChannel', REORDER_CHANNELS: 'onboarding.operation.reorderChannels',
+    MANAGE_OVERWRITES: 'onboarding.operation.manageOverwrites', CREATE_ROLE: 'onboarding.operation.createRole', MANAGE_ROLE: 'onboarding.operation.manageRole',
+    REORDER_ROLES: 'onboarding.operation.reorderRoles', ASSIGN_ROLE: 'onboarding.operation.assignRole', SEND_MESSAGE: 'onboarding.operation.sendMessage', MANAGE_THREAD: 'onboarding.operation.manageThread',
+  }
+  return known[operation] ? t(known[operation]) : operation.replaceAll('_', ' ')
+}
+
+function permissionExplanation(permission: string, t: (key: string, values?: Record<string, string>) => string): string {
+  const known: Record<string, string> = {
+    MANAGE_CHANNELS: 'onboarding.permission.manageChannels', MANAGE_ROLES: 'onboarding.permission.manageRoles', VIEW_AUDIT_LOG: 'onboarding.permission.viewAuditLog',
+    MANAGE_WEBHOOKS: 'onboarding.permission.manageWebhooks', VIEW_CHANNEL: 'onboarding.permission.viewChannel', SEND_MESSAGES: 'onboarding.permission.sendMessages',
+    SEND_MESSAGES_IN_THREADS: 'onboarding.permission.sendThreads', MANAGE_THREADS: 'onboarding.permission.manageThreads',
+  }
+  return known[permission] ? t(known[permission]) : t('onboarding.permission.generic', { permission })
+}
+
+function decisionCause(cause: string, t: (key: string, values?: Record<string, string>) => string): string {
+  const missing = cause.match(/^capability\.permission_missing\.(.+)$/)
+  if (missing?.[1]) return t('onboarding.cause.missingPermission', { permission: missing[1].toUpperCase() })
+  if (cause === 'capability.channel_required') return t('onboarding.cause.channelContext')
+  if (cause === 'capability.target_role_required') return t('onboarding.cause.roleContext')
+  if (cause === 'capability.required_intent_missing') return t('onboarding.cause.intentMissing')
+  if (cause === 'capability.installation_not_active') return t('onboarding.cause.inactive')
+  return t('onboarding.cause.incomplete')
+}
+
 export function OnboardingPage() {
   const { t } = useTranslation()
+  const translate = (key: string, values?: Record<string, string>) => values ? t(key, values) : t(key)
   const me = useOutletContext<Me>()
   const { guildId } = useParams()
   const navigate = useNavigate()
@@ -118,6 +147,12 @@ export function OnboardingPage() {
     },
     {
       key: 'configurator',
+      label: t('onboarding.identity'),
+      state: 'done',
+      detail: `${me.user.global_name ?? me.user.username} · ${me.user.discord_user_id}`,
+    },
+    {
+      key: 'bootstrap',
       label: t('onboarding.configurator'),
       state: snapshot.configurator_verified ? 'done' : 'blocked',
     },
@@ -136,6 +171,12 @@ export function OnboardingPage() {
       key: 'audit',
       label: t('onboarding.audit'),
       state: snapshot.initial_audit_complete ? 'done' : 'waiting',
+    },
+    {
+      key: 'constraints',
+      label: t('onboarding.constraints'),
+      state: snapshot.permissions_checked ? 'done' : 'waiting',
+      detail: snapshot.permissions_checked ? t('onboarding.constraintsCount', { count: unavailableOperations.length }) : undefined,
     },
     {
       key: 'configuration',
@@ -240,17 +281,27 @@ export function OnboardingPage() {
 
         {blockedMessage && <div className="onboarding-callout danger" role="alert">{blockedMessage}</div>}
         {importQueued && !snapshot.structure_imported && <div className="onboarding-callout">{t('onboarding.importing')}</div>}
-        {unavailableOperations.length > 0 && snapshot.permissions_checked && (
-          <div className="onboarding-callout warning">
-            <strong>{t('onboarding.limited')}</strong>
-            <div className="permission-chip-row">
-              {unavailableOperations.slice(0, 6).map(([operation, decision]) => (
-                <span className="permission-chip" key={operation} title={decision.causes.join(', ')}>
-                  {operation.replaceAll('_', ' ')} · {decision.outcome}
-                </span>
+        {snapshot.permissions_checked && (
+          <section className="onboarding-permissions" aria-label={t('onboarding.permissionDetails')}>
+            <div className="onboarding-permissions-heading">
+              <div><strong>{t('onboarding.permissionDetails')}</strong><p>{t('onboarding.leastPrivilege')}</p></div>
+              <Badge tone={unavailableOperations.length > 0 ? 'warning' : 'ok'}>{t('onboarding.constraintsCount', { count: unavailableOperations.length })}</Badge>
+            </div>
+            <div className="onboarding-permission-list">
+              {Object.entries(snapshot.bot_operations).map(([operation, decision]) => (
+                <details key={operation} className={`onboarding-permission ${decision.outcome.toLowerCase()}`} open={decision.outcome !== 'CAN'}>
+                  <summary><span>{operationLabel(operation, translate)}</span><Badge tone={decision.outcome === 'CAN' ? 'ok' : decision.outcome === 'CANNOT' ? 'danger' : 'warning'}>{decision.outcome}</Badge></summary>
+                  <div className="onboarding-permission-body">
+                    <strong>{t('onboarding.requiredPermissions')}</strong>
+                    {decision.required_permissions.length > 0 ? <ul>{decision.required_permissions.map((permission) => <li key={permission}><code>{permission}</code><span>{permissionExplanation(permission, translate)}</span></li>)}</ul> : <p>{t('onboarding.permission.none')}</p>}
+                    <p>{t(`onboarding.outcome.${decision.outcome.toLowerCase()}`)}</p>
+                    {decision.causes.length > 0 && <ul>{decision.causes.map((cause) => <li key={cause}>{decisionCause(cause, translate)}</li>)}</ul>}
+                    {decision.remediations.length > 0 && <p>{t('onboarding.remediation')}</p>}
+                  </div>
+                </details>
               ))}
             </div>
-          </div>
+          </section>
         )}
         {actionError && <div className="onboarding-callout danger" role="alert">{actionError}</div>}
 

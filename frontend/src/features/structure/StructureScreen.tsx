@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -14,6 +14,9 @@ import { actions, resolveActions, type ActionContext, type ResourceRef } from '.
 import { createActionIntent, dispatchAction } from '../interaction/dispatcher'
 import { resolveDropTarget } from '../interaction/dropTarget'
 import { PointerGestureManager } from '../interaction/gestures'
+import { LogicalGroupsPanel } from './LogicalGroupsPanel'
+import { NameEditor } from './NameEditor'
+import { validateDiscordResourceName } from './naming'
 
 function resourceRef(channel: Channel): ResourceRef {
   return {
@@ -40,6 +43,7 @@ const emptyCapabilities: DashboardCapabilities = {
 }
 
 type DragVisual = { source: ResourceRef; x: number; y: number; rightButton: boolean }
+type RenameDraft = { source: ResourceRef; originalName: string; value: string; busy: boolean }
 type DropDataset = HTMLElement & { dataset: DOMStringMap & { dropId?: string; dropGuild?: string; dropName?: string; dropType?: string; dropPosition?: string; dropParent?: string } }
 
 function dropKey(destination: ResourceRef | undefined): string | null {
@@ -88,8 +92,10 @@ export function StructureScreen() {
   const expansionInitialized = useRef(false)
   const manager = useRef(new PointerGestureManager())
   const gestureSource = useRef<{ source: ResourceRef; rightButton: boolean } | null>(null)
+  const lastLabelClick = useRef<{ resourceId: string; at: number } | null>(null)
   const [dragVisual, setDragVisual] = useState<DragVisual | null>(null)
   const [dragHoverKey, setDragHoverKey] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null)
   const navigate = useNavigate()
   const client = useQueryClient()
   const query = useStructure(me.user.discord_user_id, guild.guild_id, includeHiddenDeleted)
@@ -209,10 +215,58 @@ export function StructureScreen() {
 
   function choose(actionId: string) {
     if (!context) return
+    if (actionId === 'rename') {
+      const source = context.source[0]
+      setContext(null)
+      if (source) beginRename(source)
+      return
+    }
     const intent = createActionIntent(actionId, context.source, context.destination)
     setContext(null)
     if (actionId === 'open' || actionId === 'explain') void execute(intent)
     else setPreview(intent)
+  }
+
+  function beginRename(source: ResourceRef) {
+    const availability = resolveActions(actionContext([source])).find((item) => item.action.id === 'rename')
+    if (!availability?.enabled) { setProblemKey('errors.authorization.denied'); return }
+    setSelection([source])
+    setProblemKey(null)
+    setRenameDraft({ source, originalName: source.name, value: source.name, busy: false })
+  }
+
+  function selectFromLabel(source: ResourceRef, event: ReactMouseEvent) {
+    event.stopPropagation()
+    const current = useInteractionStore.getState().selection
+    const selected = current.some((item) => item.id === source.id)
+    const now = performance.now()
+    const previous = lastLabelClick.current
+    const elapsed = previous?.resourceId === source.id ? now - previous.at : null
+
+    if (!selected || event.ctrlKey || event.metaKey) {
+      setSelection(event.ctrlKey || event.metaKey
+        ? selected ? current.filter((item) => item.id !== source.id) : [...current, source]
+        : [source])
+    } else if (elapsed !== null && elapsed >= 350 && elapsed <= 1_400 && source.type !== 'THREAD') {
+      beginRename(source)
+    }
+    lastLabelClick.current = { resourceId: source.id, at: now }
+  }
+
+  async function submitRename() {
+    if (!renameDraft || !validateDiscordResourceName(renameDraft.value).valid || renameDraft.value === renameDraft.originalName) return
+    const source = { ...renameDraft.source, name: renameDraft.value }
+    const intent = createActionIntent('rename', [source])
+    setRenameDraft((current) => current ? { ...current, busy: true } : null)
+    try {
+      const result = await dispatchAction(intent, guild.guild_id, 'PREVIEW')
+      setRenameDraft(null)
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id] })
+      navigate(result.path)
+    } catch (error) {
+      setRenameDraft((current) => current ? { ...current, busy: false } : null)
+      setProblemKey(error instanceof ApiError && error.status === 403 ? 'errors.authorization.denied' : 'errors.generic')
+    }
   }
 
   async function execute(intent = previewIntent) {
@@ -288,24 +342,25 @@ export function StructureScreen() {
         <div className="structure-workbench">
           <section className="structure-tree-panel" aria-label={t('a11y.tree')}>
             <div className="structure-panel-title"><div><span className="structure-panel-icon" aria-hidden="true">⌘</span><div><strong>{guild.name}</strong><small>{t('structure.current')}</small></div></div><Badge tone={capabilities.freshness === 'FRESH' ? 'ok' : 'warning'}>{capabilities.freshness === 'FRESH' ? t('structure.current') : t('structure.stale')}</Badge></div>
+            <LogicalGroupsPanel guildId={guild.guild_id} userId={me.user.discord_user_id} canWrite={(capabilities.user_capabilities['structure.write']?.outcome ?? 'UNKNOWN') === 'CAN'} />
             {!hasFilteredResults && <div className="structure-no-match">{t('structure.noMatch')}</div>}
             {hasFilteredResults && (
               <Tree>
                 {filteredCategories.map((category) => (
-                  <ResourceItem key={category.id} item={category} selected={selection.some((item) => item.id === category.id)} expanded={expanded.has(String(category.id))} dropHoverKey={dragHoverKey}
-                    onToggle={() => toggleExpanded(setExpanded, String(category.id))} onSelect={setSelection} onMenu={openMenu} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
+                  <ResourceItem key={category.id} item={category} selected={selection.some((item) => item.id === category.id)} expanded={expanded.has(String(category.id))} dropHoverKey={dragHoverKey} renameDraft={renameDraft}
+                    onToggle={() => toggleExpanded(setExpanded, String(category.id))} onSelect={setSelection} onLabelClick={selectFromLabel} onMenu={openMenu} onRename={beginRename} onRenameChange={(value) => setRenameDraft((current) => current ? { ...current, value } : null)} onRenameSubmit={() => void submitRename()} onRenameCancel={() => setRenameDraft(null)} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
                     {category.channels.filter((channel) => matches(channel) || channel.threads?.some(matches)).map((channel) => (
-                      <ResourceItem key={channel.id} item={channel} level={2} selected={selection.some((item) => item.id === channel.id)} expanded={expanded.has(String(channel.id))} dropHoverKey={dragHoverKey}
-                        onToggle={() => toggleExpanded(setExpanded, String(channel.id))} onSelect={setSelection} onMenu={openMenu} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
-                        {channel.threads?.filter(matches).map((thread) => <ResourceItem key={thread.id} item={thread} level={3} selected={selection.some((item) => item.id === thread.id)} expanded={false} dropHoverKey={dragHoverKey} onToggle={() => undefined} onSelect={setSelection} onMenu={openMenu} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}
+                      <ResourceItem key={channel.id} item={channel} level={2} selected={selection.some((item) => item.id === channel.id)} expanded={expanded.has(String(channel.id))} dropHoverKey={dragHoverKey} renameDraft={renameDraft}
+                        onToggle={() => toggleExpanded(setExpanded, String(channel.id))} onSelect={setSelection} onLabelClick={selectFromLabel} onMenu={openMenu} onRename={beginRename} onRenameChange={(value) => setRenameDraft((current) => current ? { ...current, value } : null)} onRenameSubmit={() => void submitRename()} onRenameCancel={() => setRenameDraft(null)} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
+                        {channel.threads?.filter(matches).map((thread) => <ResourceItem key={thread.id} item={thread} level={3} selected={selection.some((item) => item.id === thread.id)} expanded={false} dropHoverKey={dragHoverKey} renameDraft={renameDraft} onToggle={() => undefined} onSelect={setSelection} onLabelClick={selectFromLabel} onMenu={openMenu} onRename={beginRename} onRenameChange={(value) => setRenameDraft((current) => current ? { ...current, value } : null)} onRenameSubmit={() => void submitRename()} onRenameCancel={() => setRenameDraft(null)} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}
                       </ResourceItem>
                     ))}
                   </ResourceItem>
                 ))}
                 {filteredRoots.length > 0 && <div className="structure-root-group"><div className="structure-root-heading"><span aria-hidden="true">⌂</span><span>{t('structure.rootLabel')}</span></div>{filteredRoots.map((channel) => (
-                  <ResourceItem key={channel.id} item={channel} selected={selection.some((item) => item.id === channel.id)} expanded={expanded.has(String(channel.id))} dropHoverKey={dragHoverKey}
-                    onToggle={() => toggleExpanded(setExpanded, String(channel.id))} onSelect={setSelection} onMenu={openMenu} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
-                    {channel.threads?.filter(matches).map((thread) => <ResourceItem key={thread.id} item={thread} level={2} selected={selection.some((item) => item.id === thread.id)} expanded={false} dropHoverKey={dragHoverKey} onToggle={() => undefined} onSelect={setSelection} onMenu={openMenu} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}
+                  <ResourceItem key={channel.id} item={channel} selected={selection.some((item) => item.id === channel.id)} expanded={expanded.has(String(channel.id))} dropHoverKey={dragHoverKey} renameDraft={renameDraft}
+                    onToggle={() => toggleExpanded(setExpanded, String(channel.id))} onSelect={setSelection} onLabelClick={selectFromLabel} onMenu={openMenu} onRename={beginRename} onRenameChange={(value) => setRenameDraft((current) => current ? { ...current, value } : null)} onRenameSubmit={() => void submitRename()} onRenameCancel={() => setRenameDraft(null)} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture}>
+                    {channel.threads?.filter(matches).map((thread) => <ResourceItem key={thread.id} item={thread} level={2} selected={selection.some((item) => item.id === thread.id)} expanded={false} dropHoverKey={dragHoverKey} renameDraft={renameDraft} onToggle={() => undefined} onSelect={setSelection} onLabelClick={selectFromLabel} onMenu={openMenu} onRename={beginRename} onRenameChange={(value) => setRenameDraft((current) => current ? { ...current, value } : null)} onRenameSubmit={() => void submitRename()} onRenameCancel={() => setRenameDraft(null)} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelGesture} />)}
                   </ResourceItem>
                 ))}</div>}
               </Tree>
@@ -349,33 +404,49 @@ type ResourceItemProps = {
   selected: boolean
   expanded: boolean
   dropHoverKey: string | null
+  renameDraft: RenameDraft | null
   children?: ReactNode
   onToggle: () => void
   onSelect: (value: ResourceRef[]) => void
+  onLabelClick: (source: ResourceRef, event: ReactMouseEvent) => void
   onMenu: (source: ResourceRef[], x: number, y: number, kind: 'object'|'drop', destination?: ResourceRef) => void
+  onRename: (source: ResourceRef) => void
+  onRenameChange: (value: string) => void
+  onRenameSubmit: () => void
+  onRenameCancel: () => void
   onPointerDown: (event: ReactPointerEvent, source: ResourceRef) => void
   onPointerMove: (event: ReactPointerEvent) => void
   onPointerUp: (event: ReactPointerEvent) => void
   onPointerCancel: () => void
 }
 
-function ResourceItem({ item, level = 1, selected, expanded, dropHoverKey, children, onToggle, onSelect, onMenu, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }: ResourceItemProps) {
+function ResourceItem({ item, level = 1, selected, expanded, dropHoverKey, renameDraft, children, onToggle, onSelect, onLabelClick, onMenu, onRename, onRenameChange, onRenameSubmit, onRenameCancel, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }: ResourceItemProps) {
   const { t } = useTranslation()
   const source = resourceRef(item)
   const hasChildren = Boolean(children)
   const key = dropKey(source)
   const typeKey = source.type === 'CATEGORY' ? 'resource.category' : source.type === 'THREAD' ? 'resource.thread' : 'resource.channel'
   const icon = source.type === 'CATEGORY' ? '▰' : source.type === 'THREAD' ? '↳' : [2,13].includes(item.type) ? '◖' : item.type === 15 ? '▤' : '#'
+  const editing = renameDraft?.source.id === source.id
   function select(event: { ctrlKey?: boolean; metaKey?: boolean }) { const current = useInteractionStore.getState().selection; onSelect(event.ctrlKey || event.metaKey ? selected ? current.filter((entry) => entry.id !== source.id) : [...current, source] : [source]) }
-  function keyboard(event: ReactKeyboardEvent<HTMLDivElement>) { if (!hasChildren) return; if (event.key === 'ArrowRight' && !expanded) { event.preventDefault(); event.stopPropagation(); onToggle() } else if (event.key === 'ArrowLeft' && expanded) { event.preventDefault(); event.stopPropagation(); onToggle() } }
+  function keyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'F2' && selected && source.type !== 'THREAD') { event.preventDefault(); event.stopPropagation(); onRename(source); return }
+    if (!hasChildren) return
+    if (event.key === 'ArrowRight' && !expanded) { event.preventDefault(); event.stopPropagation(); onToggle() } else if (event.key === 'ArrowLeft' && expanded) { event.preventDefault(); event.stopPropagation(); onToggle() }
+  }
   return (
     <TreeItem level={level} selected={selected} expandable={hasChildren} aria-expanded={hasChildren ? expanded : undefined} className={`structure-resource ${selected ? 'selected' : ''} ${dropHoverKey === key ? 'drop-hover' : ''} resource-${source.type.toLowerCase()}`}
       data-drop-id={item.id} data-drop-guild={item.guild_id} data-drop-name={item.name} data-drop-type={source.type} data-drop-position={item.position} data-drop-parent={item.parent_id ?? ''}
-      onClick={(event) => { event.stopPropagation(); select(event) }} onKeyDown={keyboard} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation() }}
+      onClick={(event) => {
+        event.stopPropagation()
+        const label = document.elementFromPoint(event.clientX, event.clientY)?.closest('.resource-copy')
+        if (label && event.currentTarget.contains(label)) onLabelClick(source, event)
+        else select(event)
+      }} onKeyDown={keyboard} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation() }}
       onPointerDown={(event) => { event.stopPropagation(); onPointerDown(event, source) }} onPointerMove={(event) => { event.stopPropagation(); onPointerMove(event) }} onPointerUp={(event) => { event.stopPropagation(); onPointerUp(event) }} onPointerCancel={(event) => { event.stopPropagation(); onPointerCancel() }} onLostPointerCapture={(event) => { event.stopPropagation(); onPointerCancel() }}>
       <div className="structure-resource-row">
         <button type="button" className={`resource-expander ${hasChildren ? '' : 'placeholder'}`} tabIndex={-1} aria-label={hasChildren ? t(expanded ? 'structure.tree.collapse' : 'structure.tree.expand', { name: item.name }) : undefined} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); if (hasChildren) onToggle() }}>{hasChildren ? (expanded ? '⌄' : '›') : ''}</button>
-        <span className="resource-kind-icon" aria-hidden="true">{icon}</span><span className="resource-copy"><strong>{item.name}</strong><small>{t(typeKey)} · {item.id}</small></span>
+        <span className="resource-kind-icon" aria-hidden="true">{icon}</span>{editing && renameDraft ? <NameEditor originalName={renameDraft.originalName} resourceType={source.type} value={renameDraft.value} busy={renameDraft.busy} onChange={onRenameChange} onSubmit={onRenameSubmit} onCancel={onRenameCancel} /> : <span className="resource-copy"><strong>{item.name}</strong><small>{t(typeKey)} · {item.id}</small></span>}
         {source.type === 'CATEGORY' && <span className="resource-count">{(item as Channel & { channels?: Channel[] }).channels?.length ?? 0}</span>}
         {item.freshness !== 'FRESH' && <span className="resource-freshness-dot" title={t('common.stale')} />}
         <button type="button" className="resource-more" aria-label={t('structure.tree.actions')} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onMenu([source], rect.left, rect.bottom + 5, 'object') }}>•••</button>

@@ -13,13 +13,31 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 265 |
-| PARTIEL | 40 |
-| ABSENT | 69 |
-| NON DÉMONTRÉ | 15 |
+| CONFORME | 276 |
+| PARTIEL | 36 |
+| ABSENT | 64 |
+| NON DÉMONTRÉ | 13 |
 | **Total** | **389** |
 
 Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TEST-003`). Les écarts nouveaux portent surtout sur Policies, Wizards, UX nouvelle, reprise inter-session et templates produit.
+
+### Complément ciblé `ui/complete-redesign` — Phases 2 et 3
+
+L'audit initial portait sur un autre snapshot. La réinspection du code courant, les corrections ciblées et leurs preuves font passer uniquement les IDs suivants à **CONFORME** :
+
+| ID | Preuve complémentaire |
+|---|---|
+| REQ-WIZ-011 | Snapshot backend réel mappé sur neuf lignes distinctes du premier setup; E2E onboarding vérifie les neuf contrôles jusqu'à l'activation. |
+| REQ-WIZ-012 | Mapping par opération au moindre privilège, sans `ADMINISTRATOR`; permissions, `CAN/CANNOT/UNKNOWN`, causes et remédiations visibles; E2E autorisé et bloqué. |
+| REQ-UXN-003 | Édition du `name` d'un groupe logique via la route tenant-safe existante, sans changement d'UUID, de slug ni de ressources. |
+| REQ-UXN-004 | Panneau explicitement typé abstraction DID/dashboard, séparé de la Guild et de l'arbre Discord. |
+| REQ-UXN-005 | E2E premier clic de sélection puis second clic lent vers le rename inline. |
+| REQ-UXN-006 | E2E `F2` vers le même éditeur et le même payload plan. |
+| REQ-UXN-007 | Action `rename` de l'Action Registry exposée par le menu contextuel; E2E vers le même payload plan. |
+| REQ-UXN-012 | Validation par points de code et E2E `📣 annonces-été` inchangé jusqu'au DSG envoyé pour validation. |
+| REQ-UXN-013 | `emoji-picker-react` chargé à la demande uniquement dans l'éditeur de nom pertinent; parcours E2E représentatif. |
+| REQ-UXN-014 | Suggestions optionnelles validées, aperçu et reset; test unitaire de non-mutation. |
+| REQ-UXN-015 | Vide et plus de 100 points de code bloqués avant tout POST de plan; test unitaire et E2E. |
 
 ## PARTIEL — ce qui est fait / ce qui manque
 
@@ -30,11 +48,7 @@ Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TES
 | REQ-POL-013 | Les policies spécialisées inspectées sont déterministes | pas de moteur générique. |
 | REQ-POL-040 | Permission engine actuel sait représenter incomplete/unknown | pas de policy engine générique. |
 | REQ-POL-053 | message_content_policy.py et translation_policy.py inspectés | absence de moteur générique confirmée. |
-| REQ-WIZ-012 | Principe présent dans le référentiel et capability checks existants | flux Wizard non démontré. |
-| REQ-UXN-004 | Référentiel distingue les concepts | conformité de chaque écran non auditée. |
 | REQ-UXN-009 | Moteur multi-rôles conforme | audit de toutes les UIs non réalisé. |
-| REQ-UXN-012 | Pile UI i18n/Unicode existe | workflow de nommage dédié non démontré. |
-| REQ-UXN-015 | Validation structurelle existe globalement | suggestions de naming non implémentées. |
 | REQ-OPS-003 | Persistance backend démontrée | UX de reprise après nouvelle session non démontrée. |
 | REQ-OPS-004 | OutboxScreen/PlanDrawer existent | sémantique “centre d’opérations” et reprise session non totalement prouvées. |
 | REQ-OPS-005 | PlanState/OperationState riches existent | équivalence UX complète non auditée. |
@@ -84,10 +98,11 @@ Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TES
 - `REQ-MSG-012`, `REQ-MSG-013`, `REQ-MSG-014`, `REQ-MSG-015`, `REQ-MSG-016`, `REQ-MSG-017`, `REQ-MSG-018`, `REQ-MSG-019`, `REQ-MSG-020`, `REQ-MSG-021`, `REQ-MSG-022`, `REQ-MSG-023`, `REQ-MSG-024`, `REQ-MSG-025`, `REQ-MSG-026`, `REQ-MSG-027`, `REQ-MSG-028`, `REQ-MSG-029`, `REQ-MSG-030`, `REQ-MSG-031`
 - `REQ-TEST-001`, `REQ-TEST-002`, `REQ-TEST-004`, `REQ-TEST-005`, `REQ-UXN-001`, `REQ-UXN-002`, `REQ-UXN-008`, `REQ-UXN-018`, `REQ-OPS-001`, `REQ-OPS-002`, `REQ-OPS-013`, `REQ-TPL-005`, `REQ-TPL-006`, `REQ-TPL-008`, `REQ-REUSE-008`, `REQ-PERMX-001`, `REQ-PERMX-002`, `REQ-PERMX-003`, `REQ-PERMX-004`, `REQ-PERMX-005`
 - `REQ-PERMX-006`, `REQ-PERMX-007`, `REQ-PERMX-008`, `REQ-PERMX-009`, `REQ-QA-002`
+- `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
 
 ### PARTIEL
 
-- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-013`, `REQ-POL-040`, `REQ-POL-053`, `REQ-WIZ-012`, `REQ-UXN-004`, `REQ-UXN-009`, `REQ-UXN-012`, `REQ-UXN-015`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
+- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-013`, `REQ-POL-040`, `REQ-POL-053`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
 - `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
@@ -95,11 +110,11 @@ Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TES
 - `REQ-POL-001`, `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-006`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-021`, `REQ-POL-022`
 - `REQ-POL-023`, `REQ-POL-024`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-027`, `REQ-POL-028`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-032`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
 - `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-POL-050`, `REQ-POL-051`, `REQ-POL-052`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
-- `REQ-WIZ-014`, `REQ-UXN-003`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
+- `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
 ### NON DÉMONTRÉ
 
-- `REQ-POL-012`, `REQ-WIZ-011`, `REQ-UXN-007`, `REQ-UXN-010`, `REQ-UXN-011`, `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
+- `REQ-POL-012`, `REQ-UXN-010`, `REQ-UXN-011`, `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
 
 ## Preuves principales réinspectées
 

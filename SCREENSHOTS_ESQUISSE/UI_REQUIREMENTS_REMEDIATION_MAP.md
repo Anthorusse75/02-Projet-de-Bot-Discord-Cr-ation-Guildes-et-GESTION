@@ -29,14 +29,14 @@ Aucun chantier produit à rejouer. Le nouvel audit remplace seulement les ancien
 
 ## Phase 2 — Runtime, onboarding et fondations visuelles
 
-**État : socle implémenté ; complément post-audit ciblé à vérifier/corriger, sans rejouer toute la phase.**
+**État : socle implémenté ; complément post-audit ciblé terminé.**
 
 ### Exigences affectées
 
 - `REQ-WIZ-011` — le **premier setup 9 étapes** appartient directement à l'onboarding de Phase 2.
 - `REQ-WIZ-012` — le **moindre privilège** et l'explication des permissions bot demandées appartiennent également à l'onboarding de Phase 2.
 
-Le rapport Phase 2 démontre déjà un assistant de première configuration, l'import réel, les diagnostics de permissions bot et l'activation. L'audit ayant porté sur un autre snapshot, ces deux exigences doivent être **réinspectées sur `ui/complete-redesign`** avant de conclure qu'un développement supplémentaire est nécessaire.
+La réinspection de `ui/complete-redesign` a confirmé le backend d'onboarding et de capabilities. L'écart UI a été fermé : neuf contrôles distincts et explication du moindre privilège, des permissions, des résultats `CAN/CANNOT/UNKNOWN`, des causes et remédiations. `REQ-WIZ-011` et `REQ-WIZ-012` sont désormais **CONFORME** avec preuve E2E ciblée.
 
 ### Résultat attendu
 
@@ -54,7 +54,7 @@ Un E2E onboarding ciblé et, uniquement si le backend est modifié, les tests AP
 
 ## Phase 3 — Explorateur / structure / DnD
 
-**État : socle explorateur/DnD terminé ; complément UX post-audit ciblé à réaliser.**
+**État : socle explorateur/DnD terminé ; complément UX post-audit ciblé terminé.**
 
 ### Exigences affectées
 
@@ -69,6 +69,8 @@ Un E2E onboarding ciblé et, uniquement si le backend est modifié, les tests AP
 - `REQ-UXN-015` — validation des contraintes Discord avant plan.
 
 `REQ-UXN-001` et `REQ-UXN-002` sont déjà conformes et constituent le socle des groupes logiques. Les exigences Structure historiques restent fermées : on ne rejoue pas le DnD ni la synchronisation déjà prouvés si ces composants ne changent pas.
+
+La réinspection et les corrections ciblées ferment les neuf IDs : libellé de groupe logique sans changement d'identité, distinction explicite avec une Guild Discord, trois entrées vers un unique rename planifié, Unicode/emoji, picker réutilisable, suggestions sobres avec aperçu et validation Discord avant plan. `REQ-UXN-003/004/005/006/007/012/013/014/015` sont désormais **CONFORME**; le détail des preuves se trouve dans `PHASE_03_REPORT.md`.
 
 ### Résultat attendu
 

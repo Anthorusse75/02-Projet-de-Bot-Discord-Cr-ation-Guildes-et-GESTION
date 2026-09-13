@@ -81,7 +81,11 @@ function onboarding(state: { active: boolean; imported: boolean; canBootstrap: b
     coverage: state.imported ? 'FULL' : 'PARTIAL',
     freshness: 'FRESH',
     permissions_checked: state.imported,
-    bot_operations: state.imported ? { CREATE_CHANNEL: { outcome: 'CAN', required_permissions: [], causes: [], remediations: [], warnings: [] } } : {},
+    bot_operations: state.imported ? {
+      CREATE_CHANNEL: { outcome: 'CAN', required_permissions: ['MANAGE_CHANNELS'], causes: [], remediations: [], warnings: [] },
+      MANAGE_CHANNEL: { outcome: 'CANNOT', required_permissions: ['MANAGE_CHANNELS'], causes: ['capability.permission_missing.manage_channels'], remediations: ['capability.remediation.grant.manage_channels'], warnings: [] },
+      MANAGE_ROLE: { outcome: 'UNKNOWN', required_permissions: ['MANAGE_ROLES'], causes: ['capability.target_role_required'], remediations: [], warnings: [] },
+    } : {},
     initial_audit_complete: state.imported,
     dashboard_configuration_ready: true,
     ready_to_activate: !state.active && state.imported && state.canBootstrap,
@@ -118,9 +122,14 @@ test('pending Guild follows setup -> import -> activate -> overview', async ({ p
   await page.getByRole('button', { name: 'Configure' }).click()
   await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/setup$`))
   await expect(page.getByRole('heading', { name: 'First server setup' })).toBeVisible()
+  await expect(page.locator('.onboarding-step')).toHaveCount(9)
 
   await page.getByRole('button', { name: 'Import and verify structure' }).click()
   await expect(page.getByText('12 channels / threads · 5 roles')).toBeVisible()
+  await expect(page.getByText('DID requests only the permissions needed by each function. ADMINISTRATOR is never required for convenience.')).toBeVisible()
+  await expect(page.getByText('Missing Discord permission: MANAGE_CHANNELS.')).toBeVisible()
+  await expect(page.getByText('A target role is required to check the role hierarchy.')).toBeVisible()
+  await expect(page.locator('.onboarding-permission.cannot').getByText('Create, rename, move and configure Discord channels and categories.')).toBeVisible()
   await page.getByRole('button', { name: 'Activate this server' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/overview$`))

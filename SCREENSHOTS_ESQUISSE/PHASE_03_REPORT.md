@@ -121,3 +121,32 @@ Aucune fusion vers `main` et aucun démarrage de Phase 4 ne font partie de cette
 ## 8. Conclusion
 
 La Phase 3 est fermée : l'explorateur de structure, les gestes gauche/droit, la sécurité inter-Guild, les refus d'autorisation et la réconciliation live disposent chacun d'une preuve ciblée. Le prochain chantier prévu par le plan est la Phase 4 — rôles et permissions — uniquement sur instruction explicite.
+
+## 9. Complément post-audit ciblé — exigences UX Structure
+
+Ce complément ferme uniquement les écarts `REQ-UXN-003/004/005/006/007/012/013/014/015` constatés sur l'ancien snapshot. L'explorateur, `PointerGestureManager`, le right-drag, l'inter-Guild, la synchronisation live et la compilation existante n'ont pas été réécrits.
+
+| Exigence | Statut avant | Existant réinspecté | Écart réel et correction | Statut après |
+|---|---|---|---|---|
+| REQ-UXN-003 | ABSENT | CRUD tenant-safe, RLS et audité des `logical_groups`; `name` séparé de `id`/`slug`. | Ajout du panneau Structure et édition du seul libellé `name`; le `logical_group`, son UUID, son slug et ses ressources restent inchangés. | **CONFORME** |
+| REQ-UXN-004 | PARTIEL | Modèle backend distinct et `resource_kind=DID_LOGICAL_RESOURCE`. | Présentation dédiée « groupes logiques DID », badge « abstraction DID », aide « dashboard uniquement, pas serveur/catégorie Discord » et identité interne visible. | **CONFORME** |
+| REQ-UXN-005 | ABSENT | Sélection et couche Pointer Events existaient. | Premier clic sur le libellé = sélection; second clic lent entre 350 et 1 400 ms = éditeur inline. La détection tient compte de la capture de pointeur sans modifier le moteur DnD. | **CONFORME** |
+| REQ-UXN-006 | ABSENT | Navigation clavier de l'arbre existante. | `F2` sur catégorie/salon sélectionné ouvre le même éditeur inline. | **CONFORME** |
+| REQ-UXN-007 | NON DÉMONTRÉ | Menu contextuel et Action Registry existaient. | Action canonique `rename`, filtrée par type et capabilities, proposée dans le menu. | **CONFORME** |
+| REQ-UXN-012 | PARTIEL | React/i18n, JSON HTTP, modèles plan JSONB/PostgreSQL n'imposaient aucune normalisation destructrice. | Éditeur et validation comptent les points de code Unicode; le test navigateur prouve `📣 annonces-été` inchangé de l'UI au payload DSG validé. | **CONFORME** |
+| REQ-UXN-013 | ABSENT | Aucun picker. | `emoji-picker-react` 4.20.9, bibliothèque MIT mature, chargée paresseusement dans le composant de nom uniquement, style emoji natif. | **CONFORME** |
+| REQ-UXN-014 | ABSENT | Aucun style de nom. | Suggestions sobres et optionnelles (emoji, séparateur, symbole), aperçu et restauration du nom original; aucune transformation automatique. | **CONFORME** |
+| REQ-UXN-015 | PARTIEL | Stage 5 validait déjà les noms DSG à 1–100 caractères. | Validation réutilisable côté UI avant dispatch; vide et >100 points de code bloquent le bouton et tout POST de plan; les suggestions sont filtrées par le même validateur. | **CONFORME** |
+
+### Mécanisme métier unique de renommage
+
+Le clic lent, `F2` et « Renommer » appellent tous `beginRename`, puis `submitRename`. Celui-ci crée l'intention `rename` de l'Action Registry, compile un DSG portant le même `discord_id`, POSTe le plan et demande sa validation. Il n'existe aucune mutation Discord directe ni endpoint parallèle de renommage.
+
+### Preuves ciblées
+
+- 3 tests unitaires de nommage : Unicode/emoji, bornes vide/100, suggestions non destructives ;
+- 11 tests de contrat d'interaction existants + nouvelle action `rename` : PASS dans la sélection ciblée (14 tests Vitest au total avec le nommage) ;
+- 11 scénarios Structure Playwright : PASS, dont clic lent, `F2`, menu contextuel, emoji/Unicode, invalidation avant plan, groupe logique et non-régression des gestes touchés par le routage du clic ;
+- 2 scénarios onboarding Playwright exécutés dans le même gate ciblé : PASS ;
+- TypeScript, i18n et ESLint ciblé : PASS ;
+- aucune migration, modification backend ni mutation Discord live.

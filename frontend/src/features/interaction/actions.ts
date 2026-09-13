@@ -14,7 +14,7 @@ export type ActionContext = {
   destinationInstallationStatus?: string | null
   providerCapabilities?: Readonly<Record<string, CapabilityDecision | undefined>>
 }
-export type ActionId = 'open' | 'move' | 'copy' | 'clone' | 'export' | 'explain' | 'bulk' | 'CREATE_VARIANT' | 'LINK_EXISTING_VARIANT' | 'CLONE_UNLINKED' | 'PREVIEW'
+export type ActionId = 'open' | 'rename' | 'move' | 'copy' | 'clone' | 'export' | 'explain' | 'bulk' | 'CREATE_VARIANT' | 'LINK_EXISTING_VARIANT' | 'CLONE_UNLINKED' | 'PREVIEW'
 export type AppAction = {
   id: ActionId
   sourceTypes: readonly ResourceType[]
@@ -37,6 +37,7 @@ export type AppAction = {
 
 export const actions: readonly AppAction[] = [
   { id: 'open', sourceTypes: ['GUILD','CATEGORY','CHANNEL','THREAD','ROLE','ARTIFACT','TEMPLATE'], min: 1, max: 1, guildMode: 'ANY', risk: 'LOW', labelKey: 'actions.open', descriptionKey: 'actions.open.description', tooltipKey: 'actions.open.tooltip', intention: 'READ' },
+  { id: 'rename', sourceTypes: ['CATEGORY','CHANNEL'], min: 1, max: 1, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['MANAGE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.rename', descriptionKey: 'actions.rename.description', tooltipKey: 'actions.rename.tooltip', intention: 'PLAN' },
   { id: 'move', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY','CHANNEL'], requiresTarget: true, min: 1, max: 100, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['REORDER_CHANNELS'], risk: 'MEDIUM', labelKey: 'actions.move', descriptionKey: 'actions.move.description', tooltipKey: 'actions.move.tooltip', intention: 'PLAN' },
   { id: 'copy', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY'], requiresTarget: true, min: 1, max: 100, guildMode: 'CROSS', sourceUserCapabilities: ['structure.read'], destinationUserCapabilities: ['plans.create','structure.write'], destinationBotCapabilities: ['CREATE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.copy', descriptionKey: 'actions.copy.description', tooltipKey: 'actions.copy.tooltip', intention: 'PORTABLE_CLONE' },
   { id: 'clone', sourceTypes: ['CATEGORY','CHANNEL','ARTIFACT','TEMPLATE'], targetTypes: ['GUILD','CATEGORY'], requiresTarget: true, min: 1, max: 1, guildMode: 'ANY', sourceUserCapabilities: ['structure.read'], destinationUserCapabilities: ['plans.create','structure.write'], destinationBotCapabilities: ['CREATE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.clone', descriptionKey: 'actions.clone.description', tooltipKey: 'actions.clone.tooltip', intention: 'PORTABLE_CLONE' },

@@ -25,7 +25,7 @@ export type DispatchResult =
   | { kind: 'LINK'; variantId: string; path: string }
   | { kind: 'PREVIEW'; group: Record<string, unknown>; path: string }
 
-export const handledActionIds = new Set<ActionId>(['open','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
+export const handledActionIds = new Set<ActionId>(['open','rename','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
 
 export function createActionIntent(actionId: string, source: ResourceRef[], destination?: ResourceRef, translation?: ActionIntent['translation']): ActionIntent {
   if (!actions.some((action) => action.id === actionId)) throw new Error('ACTION_UNKNOWN')
@@ -61,6 +61,22 @@ function moveGraph(intent: ActionIntent) {
   }
 }
 
+function renameGraph(intent: ActionIntent) {
+  return {
+    schema_version: 'did-dsg-v1',
+    nodes: intent.source.map((source, index) => ({
+      logical_key: `dashboard.rename.${source.type.toLowerCase()}.${source.id}.${index}`,
+      resource_type: source.type,
+      discord_id: source.id,
+      presence: 'PRESENT',
+      properties: source.type === 'CATEGORY'
+        ? { name: source.name, position: source.position ?? 0 }
+        : { type: source.channelType ?? 0, name: source.name, position: source.position ?? 0, parent_id: source.parentId ?? null },
+      relations: [],
+    })),
+  }
+}
+
 function selection(source: ResourceRef[]) {
   const categories = source.filter((item) => item.type === 'CATEGORY')
   const channels = source.filter((item) => item.type === 'CHANNEL')
@@ -89,7 +105,7 @@ export function exportBody(intent: ActionIntent) {
 
 async function createAndValidatePlan(intent: ActionIntent, guildId: DiscordSnowflake): Promise<DispatchResult> {
   const response = await apiRequest<{plan: {id: string; state_version: number}}>(`/api/v1/guilds/${guildId}/plans`, {
-    method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: moveGraph(intent),
+    method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: intent.actionId === 'rename' ? renameGraph(intent) : moveGraph(intent),
   })
   await apiRequest(`/api/v1/guilds/${guildId}/plans/${response.plan.id}/validate`, { method: 'POST', body: { expected_version: response.plan.state_version } })
   return { kind: 'PLAN', planId: response.plan.id, path: `/guild/${guildId}/plans` }
@@ -151,6 +167,7 @@ export async function dispatchAction(intent: ActionIntent, activeGuildId: Discor
     }
     case 'explain': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/permissions` }
     case 'open': return { kind: 'ROUTE', path: `/guild/${activeGuildId}/structure` }
+    case 'rename':
     case 'move':
     case 'bulk':
       return createAndValidatePlan(intent, activeGuildId)

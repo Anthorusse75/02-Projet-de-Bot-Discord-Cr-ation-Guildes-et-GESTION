@@ -11,6 +11,8 @@ const THREAD_RELEASE = '700000000000000301'
 const B_CAT = '700000000000000401'
 
 type CapturedPlan = { schema_version?: string; nodes?: Array<{ discord_id?: string; resource_type?: string; properties?: Record<string, unknown> }> }
+type LogicalGroupPatch = { name: string; description: string | null; metadata: Record<string, unknown>; slug?: string; resources?: unknown[] }
+type Captured = { plans: CapturedPlan[]; logicalGroupPatches?: LogicalGroupPatch[] }
 type RouteOptions = {
   denyMove?: boolean
   structureAProvider?: () => ReturnType<typeof structureA>
@@ -59,12 +61,13 @@ function capabilities(guildId: string, denyMove = false) {
     bot_operations: {
       REORDER_CHANNELS: { ...can, operation: 'REORDER_CHANNELS', required_permissions: [] },
       CREATE_CHANNEL: { ...can, operation: 'CREATE_CHANNEL', required_permissions: [] },
+      MANAGE_CHANNEL: { ...can, operation: 'MANAGE_CHANNEL', required_permissions: ['MANAGE_CHANNELS'] },
     },
     coverage: 'FULL', completeness: 'FULL', freshness: 'FRESH',
   }
 }
 
-async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }, options: RouteOptions = {}) {
+async function installRoutes(page: Page, captured: Captured, options: RouteOptions = {}) {
   await page.route('**/health/features', (route) => route.fulfill({ json: { features: { oauth: true, live_events: true, portability: true } } }))
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
@@ -84,6 +87,8 @@ async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }, op
     if (path === `/api/v1/guilds/${GUILD_B}/structure`) return route.fulfill({ json: structureB() })
     if (path === `/api/v1/guilds/${GUILD_A}/dashboard-capabilities`) return route.fulfill({ json: capabilities(GUILD_A, options.denyMove) })
     if (path === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities`) return route.fulfill({ json: capabilities(GUILD_B) })
+    if (path === `/api/v1/guilds/${GUILD_A}/logical-groups` && method === 'GET') return route.fulfill({ json: { guild_id: GUILD_A, resource_kind: 'DID_LOGICAL_RESOURCE', groups: [{ id: '11111111-2222-4333-8444-555555555555', guild_id: GUILD_A, name: 'Raid teams', slug: 'raid-teams', description: null, metadata_json: {}, resources: [] }] } })
+    if (path === `/api/v1/guilds/${GUILD_A}/logical-groups/11111111-2222-4333-8444-555555555555` && method === 'PATCH') { captured.logicalGroupPatches?.push(request.postDataJSON() as LogicalGroupPatch); return route.fulfill({ status: 204 }) }
     if (path === `/api/v1/guilds/${GUILD_A}/plans` && method === 'POST') {
       captured.plans.push(request.postDataJSON() as CapturedPlan)
       return route.fulfill({ json: { plan: { id: '11111111-1111-4111-8111-111111111111', state_version: 1 } } })
@@ -157,7 +162,7 @@ async function installSocketHarness(page: Page) {
 }
 
 test('explorer renders faithful hierarchy, selection inspector, compact language control and survives reload', async ({ page }) => {
-  const captured = { plans: [] as CapturedPlan[] }
+  const captured = { plans: [] as CapturedPlan[], logicalGroupPatches: [] as LogicalGroupPatch[] }
   await installRoutes(page, captured)
   await page.goto(`/guild/${GUILD_A}/structure`)
 
@@ -168,6 +173,14 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await expect(resourceRow(page, 'General')).toBeVisible()
   await expect(resourceRow(page, 'welcome')).toBeVisible()
   await expect(resourceRow(page, 'roadmap')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'DID logical groups' })).toContainText('Dashboard-only groupings; these are not Discord servers or categories.')
+  await expect(page.getByText('Internal logical_group · raid-teams')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit label' }).click()
+  await page.getByLabel('Logical group display label').fill('Raid squads')
+  await page.getByLabel('Logical group display label').press('Enter')
+  await expect.poll(() => captured.logicalGroupPatches).toEqual([{ name: 'Raid squads', description: null, metadata: {} }])
+  expect(captured.logicalGroupPatches[0]).not.toHaveProperty('slug')
+  expect(captured.logicalGroupPatches[0]).not.toHaveProperty('resources')
   await expandResource(page, 'roadmap')
   await expect(resourceRow(page, 'release-notes')).toBeVisible()
 
@@ -185,6 +198,83 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await expect(resourceRow(page, 'roadmap')).toBeVisible()
   await expandResource(page, 'roadmap')
   await expect(resourceRow(page, 'release-notes')).toBeVisible()
+})
+
+test('a slow second label click starts the canonical inline rename', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  const label = resourceRow(page, 'welcome').locator('.resource-copy')
+  await label.click()
+  await page.waitForTimeout(450)
+  await label.click()
+  const input = page.getByLabel('Discord resource name')
+  await expect(input).toBeVisible()
+  await input.fill('welcome-center')
+  await input.press('Enter')
+
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD_A}/plans$`))
+  expect(captured.plans[0]?.nodes?.[0]).toMatchObject({ discord_id: CHANNEL_WELCOME, resource_type: 'CHANNEL', properties: { name: 'welcome-center' } })
+})
+
+test('F2 starts the same inline rename and plan compiler path', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  const row = resourceRow(page, 'General')
+  await row.click()
+  await row.press('F2')
+  await page.getByLabel('Discord resource name').fill('Community')
+  await page.getByLabel('Discord resource name').press('Enter')
+
+  expect(captured.plans[0]?.nodes?.[0]).toMatchObject({ discord_id: CAT_GENERAL, resource_type: 'CATEGORY', properties: { name: 'Community' } })
+})
+
+test('context-menu Rename starts the same inline rename and plan compiler path', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  await resourceRow(page, 'welcome').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Rename' }).click()
+  await page.getByLabel('Discord resource name').fill('welcome-desk')
+  await page.getByLabel('Discord resource name').press('Enter')
+
+  expect(captured.plans[0]?.nodes?.[0]).toMatchObject({ discord_id: CHANNEL_WELCOME, properties: { name: 'welcome-desk' } })
+})
+
+test('emoji picker and Unicode name round-trip unchanged into the validated plan', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  const row = resourceRow(page, 'welcome')
+  await row.click()
+  await row.press('F2')
+  await page.getByRole('button', { name: 'Choose an emoji' }).click()
+  await page.getByRole('button', { name: 'grinning face', exact: true }).click()
+  const input = page.getByLabel('Discord resource name')
+  await expect(input).toHaveValue('😀 welcome')
+  await input.fill('📣 annonces-été')
+  await input.press('Enter')
+
+  expect(captured.plans[0]?.nodes?.[0]?.properties?.name).toBe('📣 annonces-été')
+})
+
+test('an invalid Discord name is blocked before any plan request', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  const row = resourceRow(page, 'welcome')
+  await row.click()
+  await row.press('F2')
+  await page.getByLabel('Discord resource name').fill('a'.repeat(101))
+  await expect(page.getByText('Discord names are limited to 100 characters.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prepare rename' })).toBeDisabled()
+  expect(captured.plans).toHaveLength(0)
 })
 
 test('left drag channel into category creates a proposal with Discord parent_id and no direct mutation', async ({ page }) => {

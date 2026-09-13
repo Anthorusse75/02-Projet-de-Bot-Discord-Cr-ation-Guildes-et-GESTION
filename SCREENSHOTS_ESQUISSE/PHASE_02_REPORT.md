@@ -165,3 +165,49 @@ Tout nouveau défaut trouvé pendant ce parcours reste bloquant pour la fermetur
 ## Décision de sortie
 
 La branche reste en **validation utilisateur Phase 2**. Les deux défauts concrets découverts lors du premier passage live ont été corrigés et couverts par un gate ciblé. La Phase 2 ne sera marquée complètement close qu'après le prochain passage A/B réel sans P0 restant.
+
+## 9. Complément post-audit ciblé — REQ-WIZ-011 / REQ-WIZ-012
+
+Ce complément réinspecte le code de `ui/complete-redesign` après l'audit réalisé sur `stage/10-acceptance`. Il ne crée ni second Wizard ni nouvelle phase.
+
+### REQ-WIZ-011 — neuf contrôles du premier setup
+
+Statut audit antérieur : **NON DÉMONTRÉ**. Statut après réinspection et correction : **CONFORME**.
+
+| # | Contrôle | Implémentation réelle réinspectée | Correction ciblée |
+|---:|---|---|---|
+| 1 | Bot présent | `guilds.py` produit `bot_present` depuis l'installation/cache réel. | Ligne dédiée rendue dans l'onboarding. |
+| 2 | Identité du configurateur | La session `/me` fournit l'utilisateur Discord authentifié. | Ligne distincte avec nom et snowflake, au lieu de la confondre avec le bootstrap. |
+| 3 | Droit de bootstrap | `can_bootstrap` / `configurator_verified` sont calculés côté backend. | Ligne dédiée et état bloqué explicite. |
+| 4 | Capabilities bot réelles | `bot_operations` expose les décisions par opération. | Ligne dédiée et détail de chaque décision. |
+| 5 | Import initial | `structure_imported` suit le job `INITIAL_SYNC`. | Déjà explicite, conservé. |
+| 6 | Audit initial | `initial_audit_complete` suit l'audit initial des capabilities bot, distinct de l'état d'import. | Ligne dédiée, conservée. |
+| 7 | Limites / contraintes | Les opérations non `CAN`, causes et remédiations étaient déjà renvoyées. | Ligne dédiée avec nombre de contraintes et explications humaines. |
+| 8 | Configuration proposée | `dashboard_configuration_ready` matérialise la configuration utilisable. | Ligne dédiée, conservée. |
+| 9 | Activation tenant | `complete` et l'action d'activation pilotent le passage à `ACTIVE`. | Ligne dédiée, conservée. |
+
+L'écart réel était donc principalement de présentation : l'UI montrait sept lignes et fusionnait identité/bootstrap ainsi que permissions/contraintes. `OnboardingPage.tsx` expose désormais exactement neuf contrôles distincts, adossés au snapshot backend existant.
+
+### REQ-WIZ-012 — moindre privilège explicable
+
+Statut audit antérieur : **PARTIEL**. Statut après réinspection et correction : **CONFORME**.
+
+Le moteur existant `permissions/capabilities.py` associait déjà chaque `BotOperation` aux seules permissions Discord requises et propageait `CAN`, `CANNOT` ou `UNKNOWN` sans demander `ADMINISTRATOR`. Une incapacité restait limitée à l'opération concernée. Le manque réel était l'explication utilisateur : chips techniques, causes en attribut `title`, pas de justification lisible des permissions.
+
+L'onboarding affiche maintenant, opération par opération :
+
+- le résultat `CAN` / `CANNOT` / `UNKNOWN` et sa signification ;
+- les permissions précises et leur finalité fonctionnelle ;
+- une cause compréhensible pour permission, contexte salon/rôle, intent ou installation manquante ;
+- une remédiation lorsque le backend en fournit une ;
+- l'engagement explicite de moindre privilège et l'absence de demande `ADMINISTRATOR` par commodité.
+
+Une permission absente ne rend indisponibles que les opérations dont la décision n'est pas `CAN`; les autres restent détaillées et utilisables.
+
+### Preuves ciblées
+
+- `npm run typecheck` : PASS ;
+- `npm run i18n:check` : PASS, scan des littéraux visibles et 3 tests catalogue ;
+- ESLint limité aux fichiers Phase 2/3 modifiés : PASS ;
+- `phase02-redesign.spec.ts` : 2 scénarios PASS, dont neuf lignes de setup, moindre privilège, permissions expliquées, causes lisibles et blocage d'un non-administrateur ;
+- aucune API, règle d'autorisation, migration ou mutation Discord live n'a été modifiée pour ce complément.
