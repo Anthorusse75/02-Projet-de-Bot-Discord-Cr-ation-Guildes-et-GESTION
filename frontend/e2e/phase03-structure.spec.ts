@@ -11,6 +11,10 @@ const THREAD_RELEASE = '700000000000000301'
 const B_CAT = '700000000000000401'
 
 type CapturedPlan = { schema_version?: string; nodes?: Array<{ discord_id?: string; resource_type?: string; properties?: Record<string, unknown> }> }
+type RouteOptions = {
+  denyMove?: boolean
+  structureAProvider?: () => ReturnType<typeof structureA>
+}
 
 function channel(id: string, name: string, position: number, parentId: string | null, type = 0, threads: unknown[] = []) {
   return { guild_id: GUILD_A, id, type, name, position, parent_id: parentId, resource_kind: type === 4 ? 'CATEGORY' : 'CHANNEL', observability: 'OBSERVED', freshness: 'FRESH', data_assertion: 'KNOWN', threads }
@@ -43,14 +47,15 @@ function structureB() {
   }
 }
 
-function capabilities(guildId: string) {
+function capabilities(guildId: string, denyMove = false) {
   const can = { outcome: 'CAN', causes: [], remediations: [] }
+  const cannot = { outcome: 'CANNOT', causes: ['MISSING_CAPABILITY'], remediations: ['Grant the required capability.'] }
   return {
     guild_id: guildId,
     source: 'AUTHORIZATION_AND_LOCAL_CACHE',
     discord_rest_calls: 0,
-    user_capabilities: { 'structure.read': can, 'structure.write': can, 'plans.create': can, 'permissions.read': can },
-    scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: { 'structure.write': can } },
+    user_capabilities: { 'structure.read': can, 'structure.write': denyMove ? cannot : can, 'plans.create': can, 'permissions.read': can },
+    scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: { 'structure.write': denyMove ? cannot : can } },
     bot_operations: {
       REORDER_CHANNELS: { ...can, operation: 'REORDER_CHANNELS', required_permissions: [] },
       CREATE_CHANNEL: { ...can, operation: 'CREATE_CHANNEL', required_permissions: [] },
@@ -59,7 +64,7 @@ function capabilities(guildId: string) {
   }
 }
 
-async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }) {
+async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }, options: RouteOptions = {}) {
   await page.route('**/health/features', (route) => route.fulfill({ json: { features: { oauth: true, live_events: true, portability: true } } }))
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
@@ -75,9 +80,9 @@ async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }) {
       { guild_id: GUILD_A, name: 'Guild A', owner: true, permissions: '8', installation_status: 'ACTIVE' },
       { guild_id: GUILD_B, name: 'Guild B', owner: true, permissions: '8', installation_status: 'ACTIVE' },
     ] } })
-    if (path === `/api/v1/guilds/${GUILD_A}/structure`) return route.fulfill({ json: structureA() })
+    if (path === `/api/v1/guilds/${GUILD_A}/structure`) return route.fulfill({ json: options.structureAProvider?.() ?? structureA() })
     if (path === `/api/v1/guilds/${GUILD_B}/structure`) return route.fulfill({ json: structureB() })
-    if (path === `/api/v1/guilds/${GUILD_A}/dashboard-capabilities`) return route.fulfill({ json: capabilities(GUILD_A) })
+    if (path === `/api/v1/guilds/${GUILD_A}/dashboard-capabilities`) return route.fulfill({ json: capabilities(GUILD_A, options.denyMove) })
     if (path === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities`) return route.fulfill({ json: capabilities(GUILD_B) })
     if (path === `/api/v1/guilds/${GUILD_A}/plans` && method === 'POST') {
       captured.plans.push(request.postDataJSON() as CapturedPlan)
@@ -113,6 +118,42 @@ async function drag(page: Page, sourceText: string, targetText: string, button: 
   await page.mouse.move(sourceBox.x + Math.min(105, sourceBox.width * .7), sourceBox.y + sourceBox.height / 2, { steps: 3 })
   await page.mouse.move(targetBox.x + Math.min(90, targetBox.width * .55), targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up({ button })
+}
+
+async function installSocketHarness(page: Page) {
+  await page.addInitScript({ content: `
+    (() => {
+      const sockets = [];
+      class DIDMockWebSocket {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        constructor(url) {
+          this.url = String(url);
+          this.readyState = DIDMockWebSocket.CONNECTING;
+          this.onopen = null;
+          this.onclose = null;
+          this.onerror = null;
+          this.onmessage = null;
+          sockets.push(this);
+          setTimeout(() => {
+            this.readyState = DIDMockWebSocket.OPEN;
+            if (this.onopen) this.onopen(new Event('open'));
+          }, 0);
+        }
+        close(code = 1000) {
+          this.readyState = DIDMockWebSocket.CLOSED;
+          if (this.onclose) this.onclose({ code });
+        }
+      }
+      window.WebSocket = DIDMockWebSocket;
+      window.__didEmitGuildEvent = (event) => {
+        const socket = sockets.at(-1);
+        if (socket && socket.onmessage) socket.onmessage({ data: JSON.stringify(event) });
+      };
+    })();
+  ` })
 }
 
 test('explorer renders faithful hierarchy, selection inspector, compact language control and survives reload', async ({ page }) => {
@@ -209,4 +250,44 @@ test('right drag to another server exposes only safe cross-server actions', asyn
   await expect(menu.getByRole('menuitem', { name: 'Clone with dependencies' })).toBeEnabled()
   await expect(menu.getByRole('menuitem', { name: 'Propose move' })).toHaveCount(0)
   expect(captured.plans).toHaveLength(0)
+})
+
+test('an impossible structure action is blocked and explains the missing capability', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured, { denyMove: true })
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  await resourceRow(page, 'welcome').click({ button: 'right' })
+  const menu = page.getByRole('menu', { name: 'Available actions' })
+  await expect(menu).toBeVisible()
+  const move = menu.getByRole('menuitem', { name: 'Propose move' })
+  await expect(move).toBeDisabled()
+  await expect(move).toHaveAttribute('title', 'Required capability is missing.')
+  expect(captured.plans).toHaveLength(0)
+})
+
+test('a live structure event reconciles an external Discord change without a full page reload', async ({ page }) => {
+  await installSocketHarness(page)
+  let currentStructure = structureA()
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured, { structureAProvider: () => currentStructure })
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  await expect(resourceRow(page, 'welcome')).toBeVisible()
+  await expect(page.getByText('Live', { exact: true })).toBeVisible()
+
+  currentStructure = {
+    ...currentStructure,
+    categories: currentStructure.categories.map((category) => category.id === CAT_GENERAL
+      ? { ...category, channels: category.channels.map((item) => item.id === CHANNEL_WELCOME ? { ...item, name: 'welcome-renamed' } : item) }
+      : category),
+  }
+
+  await page.evaluate((event) => {
+    const emitter = (globalThis as unknown as { __didEmitGuildEvent?: (value: unknown) => void }).__didEmitGuildEvent
+    emitter?.(event)
+  }, { guild_id: GUILD_A, sequence: 1, version: 1, type: 'structure.updated' })
+
+  await expect(resourceRow(page, 'welcome-renamed')).toBeVisible()
+  await expect(resourceRow(page, 'welcome')).toHaveCount(0)
 })
