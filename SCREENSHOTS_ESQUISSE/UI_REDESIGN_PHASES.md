@@ -132,6 +132,9 @@ Construire le cœur du produit : l'administration de structure la plus simple po
 
 # Phase 4 — Rôles et permissions
 
+**Statut : ✅ TERMINÉE**  
+**Rapport de clôture :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`
+
 ### Objectif
 
 Permettre d'administrer les accès sans exiger de connaître les bitfields Discord.
@@ -154,6 +157,10 @@ Permettre d'administrer les accès sans exiger de connaître les bitfields Disco
 - passer en mode expert ;
 - diagnostiquer un refus ;
 - permissions bot insuffisantes -> mutation bloquée avant l'appel Discord.
+
+### Frontière de phase
+
+La Phase 4 couvre l'administration, le diagnostic, la simulation d'impact et la préparation sûre de plans validés. La confirmation, l'apply Discord, la progression, la vérification post-apply et l'audit lié à l'opération sont traités par la Phase 5 afin qu'une seule chaîne de mutation soit utilisée par le produit. La preuve A/B de mutation réelle est donc attachée au pipeline Phase 5 puis rejouée en Phase 9 ; la Phase 4 n'introduit aucune mutation directe parallèle pour satisfaire artificiellement son gate.
 
 ---
 
