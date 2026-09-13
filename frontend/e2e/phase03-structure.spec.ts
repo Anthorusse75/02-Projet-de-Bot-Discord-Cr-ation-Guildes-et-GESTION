@@ -274,7 +274,7 @@ test('a live structure event reconciles an external Discord change without a ful
   await page.goto(`/guild/${GUILD_A}/structure`)
 
   await expect(resourceRow(page, 'welcome')).toBeVisible()
-  await expect(page.getByText('Live', { exact: true })).toBeVisible()
+  await expect(page.getByText('Live updates connected', { exact: true })).toBeVisible()
 
   currentStructure = {
     ...currentStructure,
