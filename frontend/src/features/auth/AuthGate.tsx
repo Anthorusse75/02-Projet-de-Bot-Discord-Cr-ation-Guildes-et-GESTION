@@ -18,11 +18,10 @@ export function LoginPage() {
       <div className="login-language"><LanguageSelector /></div>
       <div className="login-card premium-login-card">
         <span className="brand-mark">D</span>
-        <div className="login-product"><strong>DID</strong><small>Discord Infrastructure Designer</small></div>
+        <div className="login-product"><strong>DID</strong><small>{t('app.title')}</small></div>
         <h1>{t('app.title')}</h1>
         <p>{t('auth.welcome')}</p>
         <a className="primary-action" href="/auth/discord/login">{t('auth.login')}</a>
-        <small className="login-footnote">OAuth Discord · permissions minimales · aucun mot de passe Discord stocké</small>
       </div>
     </main>
   )
