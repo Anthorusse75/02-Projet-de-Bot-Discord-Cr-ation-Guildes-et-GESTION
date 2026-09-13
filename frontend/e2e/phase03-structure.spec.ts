@@ -180,6 +180,10 @@ test('category-to-category drag compiles a position reorder without fake categor
 })
 
 test('right drag to another server exposes only safe cross-server actions', async ({ page }) => {
+  // Cross-server DnD is a desktop workbench interaction. Keep source and destination
+  // simultaneously inside the viewport so the pointer path represents a real drag,
+  // not an impossible move to coordinates below the browser viewport.
+  await page.setViewportSize({ width: 1600, height: 1000 })
   const captured = { plans: [] as CapturedPlan[] }
   await installRoutes(page, captured)
   const destinationCapabilitiesReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities` && response.ok())
