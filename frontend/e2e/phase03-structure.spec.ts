@@ -95,6 +95,13 @@ function resourceRow(page: Page, name: string) {
   return page.locator(`[role="treeitem"][data-drop-name="${name}"] > .structure-resource-row`).first()
 }
 
+async function expandResource(page: Page, name: string) {
+  const row = resourceRow(page, name)
+  const expander = row.locator('.resource-expander:not(.placeholder)')
+  await expect(expander).toBeVisible()
+  await expander.click()
+}
+
 async function drag(page: Page, sourceText: string, targetText: string, button: 'left'|'right' = 'left') {
   const source = resourceRow(page, sourceText)
   const target = resourceRow(page, targetText)
@@ -119,6 +126,8 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await expect(page.getByText('1 threads')).toBeVisible()
   await expect(resourceRow(page, 'General')).toBeVisible()
   await expect(resourceRow(page, 'welcome')).toBeVisible()
+  await expect(resourceRow(page, 'roadmap')).toBeVisible()
+  await expandResource(page, 'roadmap')
   await expect(resourceRow(page, 'release-notes')).toBeVisible()
 
   await resourceRow(page, 'welcome').click()
@@ -132,6 +141,8 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await page.reload()
   await expect(resourceRow(page, 'General')).toBeVisible()
   await expect(resourceRow(page, 'welcome')).toBeVisible()
+  await expect(resourceRow(page, 'roadmap')).toBeVisible()
+  await expandResource(page, 'roadmap')
   await expect(resourceRow(page, 'release-notes')).toBeVisible()
 })
 
@@ -174,6 +185,9 @@ test('right drag to another server exposes only safe cross-server actions', asyn
   const destinationCapabilitiesReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities` && response.ok())
   await page.goto(`/guild/${GUILD_A}/structure`)
   await destinationCapabilitiesReady
+  // The response resolves before TanStack Query commits the capability data used
+  // by the drop resolver. One short render turn avoids racing authorization state.
+  await page.waitForTimeout(150)
 
   const source = resourceRow(page, 'welcome')
   const target = page.locator('.destination-guild-row').filter({ hasText: 'Guild B' }).first()
