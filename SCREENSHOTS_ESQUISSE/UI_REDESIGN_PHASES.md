@@ -96,6 +96,9 @@ Obtenir une application que l'on peut lancer proprement et une première expéri
 
 # Phase 3 — Explorateur de serveur, arborescence et Drag & Drop
 
+**Statut : ✅ TERMINÉE**  
+**Rapport de clôture :** `SCREENSHOTS_ESQUISSE/PHASE_03_REPORT.md`
+
 ### Objectif
 
 Construire le cœur du produit : l'administration de structure la plus simple possible.
