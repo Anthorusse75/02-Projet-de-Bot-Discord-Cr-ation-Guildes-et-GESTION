@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SelectHTMLAttributes } from 'react'
+import { Children, isValidElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SelectHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageKey } from '../../localization/catalog'
 
@@ -49,7 +49,16 @@ export function Dialog({ open, titleKey, children, onClose, returnFocus }: { ope
 export const AlertDialog = Dialog
 export function Tooltip({ labelKey, children }: { labelKey: MessageKey; children: ReactNode }) { const { t } = useTranslation(); return <span title={t(labelKey)}>{children}</span> }
 export function Toast({ children }: { children: ReactNode }) { return <div className="toast" role="status" aria-live="polite">{children}</div> }
-export function Menu({ labelKey, children, style, onClose }: { labelKey: MessageKey; children: ReactNode; style?: React.CSSProperties; onClose?: () => void }) { const { t } = useTranslation(); const ref = useRef<HTMLDivElement>(null); useEffect(() => { const previous = document.activeElement as HTMLElement | null; ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus(); return () => previous?.focus() }, []); function keyDown(event: ReactKeyboardEvent) { const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]; const index = items.indexOf(document.activeElement as HTMLButtonElement); if (event.key === 'Escape') { event.preventDefault(); onClose?.(); return } if (!items.length) return; let next: number; if (event.key === 'ArrowDown') next = (index + 1) % items.length; else if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length; else if (event.key === 'Home') next = 0; else if (event.key === 'End') next = items.length - 1; else return; event.preventDefault(); items[next]?.focus() } return <div ref={ref} role="menu" aria-label={t(labelKey)} className="menu" style={style} onKeyDown={keyDown}>{children}</div> }
+export function Menu({ labelKey, children, style, onClose }: { labelKey: MessageKey; children: ReactNode; style?: React.CSSProperties; onClose?: () => void }) {
+  const { t } = useTranslation()
+  const ref = useRef<HTMLDivElement>(null)
+  const visibleChildren = labelKey === 'context.dropTitle'
+    ? Children.toArray(children).filter((child) => isValidElement<{ disabled?: boolean }>(child) && child.props.disabled !== true)
+    : children
+  useEffect(() => { const previous = document.activeElement as HTMLElement | null; ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus(); return () => previous?.focus() }, [])
+  function keyDown(event: ReactKeyboardEvent) { const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]; const index = items.indexOf(document.activeElement as HTMLButtonElement); if (event.key === 'Escape') { event.preventDefault(); onClose?.(); return } if (!items.length) return; let next: number; if (event.key === 'ArrowDown') next = (index + 1) % items.length; else if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length; else if (event.key === 'Home') next = 0; else if (event.key === 'End') next = items.length - 1; else return; event.preventDefault(); items[next]?.focus() }
+  return <div ref={ref} role="menu" aria-label={t(labelKey)} className="menu" style={style} onKeyDown={keyDown}>{visibleChildren}</div>
+}
 export function MenuItem({ children, disabled, disabledReasonKey, onSelect }: { children: ReactNode; disabled?: boolean; disabledReasonKey?: MessageKey | undefined; onSelect: () => void }) { const { t } = useTranslation(); return <button type="button" role="menuitem" disabled={disabled} title={disabled && disabledReasonKey ? t(disabledReasonKey) : undefined} onClick={onSelect}>{children}</button> }
 
 const flagColors: Record<string, string> = { en: 'flag-en', fr: 'flag-fr', de: 'flag-de', es: 'flag-es' }
