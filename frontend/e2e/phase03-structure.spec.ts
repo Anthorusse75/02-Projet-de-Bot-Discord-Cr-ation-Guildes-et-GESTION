@@ -89,8 +89,10 @@ async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }) {
   })
 }
 
-function resourceRow(page: Page, text: string) {
-  return page.getByRole('treeitem').filter({ hasText: text }).first().locator(':scope > .structure-resource-row')
+function resourceRow(page: Page, name: string) {
+  // Target the exact resource node. An ancestor category also contains all nested
+  // channel text, so text-only treeitem matching can silently drag the parent.
+  return page.locator(`[role="treeitem"][data-drop-name="${name}"] > .structure-resource-row`).first()
 }
 
 async function drag(page: Page, sourceText: string, targetText: string, button: 'left'|'right' = 'left') {
@@ -115,9 +117,9 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await expect(page.getByText('2 categories')).toBeVisible()
   await expect(page.getByText('3 channels')).toBeVisible()
   await expect(page.getByText('1 threads')).toBeVisible()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'General' }).first()).toBeVisible()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'welcome' }).first()).toBeVisible()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'release-notes' }).first()).toBeVisible()
+  await expect(resourceRow(page, 'General')).toBeVisible()
+  await expect(resourceRow(page, 'welcome')).toBeVisible()
+  await expect(resourceRow(page, 'release-notes')).toBeVisible()
 
   await resourceRow(page, 'welcome').click()
   await expect(page.getByText(CHANNEL_WELCOME, { exact: true }).last()).toBeVisible()
@@ -128,9 +130,9 @@ test('explorer renders faithful hierarchy, selection inspector, compact language
   await expect(locale.locator('.locale-flag')).toHaveCount(0)
 
   await page.reload()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'General' }).first()).toBeVisible()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'welcome' }).first()).toBeVisible()
-  await expect(page.getByRole('treeitem').filter({ hasText: 'release-notes' }).first()).toBeVisible()
+  await expect(resourceRow(page, 'General')).toBeVisible()
+  await expect(resourceRow(page, 'welcome')).toBeVisible()
+  await expect(resourceRow(page, 'release-notes')).toBeVisible()
 })
 
 test('left drag channel into category creates a proposal with Discord parent_id and no direct mutation', async ({ page }) => {
