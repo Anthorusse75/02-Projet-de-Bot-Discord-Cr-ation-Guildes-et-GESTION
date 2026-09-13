@@ -82,12 +82,15 @@ export function RolesScreen() {
     try {
       let node: AccessPlanNode
       if (action.kind === 'create') {
-        const position = Math.max(0, ...roles.map((item) => item.position)) + 1
+        // Let Discord create the role at its safe default hierarchy position. A separate
+        // reorder proposal can then move it only after the new role actually exists.
+        // Guessing max(position)+1 here could place the requested role above the bot,
+        // which Discord cannot apply and which the preflight would correctly reject.
         node = {
           logical_key: `ui.role.create.${crypto.randomUUID()}`,
           resource_type: 'ROLE',
           symbol: `role-${crypto.randomUUID()}`,
-          properties: { name: action.name.trim(), permissions: '0', position },
+          properties: { name: action.name.trim(), permissions: '0' },
         }
       } else if (action.kind === 'rename') {
         node = {
