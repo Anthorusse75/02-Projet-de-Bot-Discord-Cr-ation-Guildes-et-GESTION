@@ -6,6 +6,7 @@ import { App } from './app/App'
 import './shared/styles.css'
 import './shared/redesign.css'
 import './shared/login-redesign.css'
+import './shared/phase3-structure.css'
 
 const root = document.getElementById('root')
 
