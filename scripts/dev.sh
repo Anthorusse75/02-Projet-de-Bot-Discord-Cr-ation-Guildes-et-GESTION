@@ -62,7 +62,10 @@ start() {
   pids+=("$!")
 }
 
-start api uv run uvicorn did.api.main:app --host 127.0.0.1 --port 8001 --reload
+# Uvicorn's base package does not ship a WebSocket protocol implementation.
+# Keep the Phase 2 local stack reproducible without mutating uv.lock on startup:
+# the API process gets the pinned websockets runtime as an ephemeral uv overlay.
+start api uv run --with websockets==15.0.1 uvicorn did.api.main:app --host 127.0.0.1 --port 8001 --reload
 start bot uv run python -m did.bot
 start worker uv run python -m did.worker
 start scheduler uv run python -m did.scheduler
