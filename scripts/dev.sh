@@ -21,12 +21,17 @@ if not settings.discord_client_id:
     missing.append("DISCORD_CLIENT_ID")
 if settings.discord_client_secret is None:
     missing.append("DISCORD_CLIENT_SECRET")
+if not settings.discord_oauth_redirect_uri:
+    missing.append("DISCORD_REDIRECT_URI")
 if settings.session_secret is None:
     missing.append("SESSION_SECRET")
 if settings.oauth_token_encryption_key is None:
     missing.append("OAUTH_TOKEN_ENCRYPTION_KEY")
 if missing:
     raise SystemExit("[DID] Missing required local settings: " + ", ".join(missing))
+
+if settings.artifact_encryption_key is None:
+    print("[DID] Optional feature warning: ARTIFACT_ENCRYPTION_KEY is not configured; templates/library/clone will be disabled in the UI.")
 PY
 
 echo "[DID] Starting PostgreSQL and Redis..."
