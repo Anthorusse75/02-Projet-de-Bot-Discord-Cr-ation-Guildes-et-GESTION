@@ -32,14 +32,18 @@ export function validatePack(payload: unknown): MessagePack { if (!payload || ty
 function bundledPack(locale: string): Record<string, string> | undefined {
   if (!bootstrap.includes(locale as BootstrapLocaleCode)) return undefined
   const code = locale as BootstrapLocaleCode
-  return { ...bootstrapPacks[code], ...(phase2Packs[code] ?? {}) }
+  return { ...bootstrapPacks[code], ...phase2Packs[code] }
 }
+
+const bundledResources = Object.fromEntries(
+  bootstrap.map((code) => [code, { translation: { ...bootstrapPacks[code], ...phase2Packs[code] } }]),
+)
 
 void i18n.init({
   lng: 'en',
   fallbackLng: false,
   interpolation: { escapeValue: true },
-  resources: Object.fromEntries(bootstrap.map((locale) => [locale, { translation: bundledPack(locale) }])),
+  resources: bundledResources,
   returnNull: false,
 })
 
