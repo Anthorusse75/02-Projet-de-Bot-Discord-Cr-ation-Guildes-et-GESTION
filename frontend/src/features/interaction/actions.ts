@@ -37,7 +37,7 @@ export type AppAction = {
 
 export const actions: readonly AppAction[] = [
   { id: 'open', sourceTypes: ['GUILD','CATEGORY','CHANNEL','THREAD','ROLE','ARTIFACT','TEMPLATE'], min: 1, max: 1, guildMode: 'ANY', risk: 'LOW', labelKey: 'actions.open', descriptionKey: 'actions.open.description', tooltipKey: 'actions.open.tooltip', intention: 'READ' },
-  { id: 'move', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY'], requiresTarget: true, min: 1, max: 100, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['REORDER_CHANNELS'], risk: 'MEDIUM', labelKey: 'actions.move', descriptionKey: 'actions.move.description', tooltipKey: 'actions.move.tooltip', intention: 'PLAN' },
+  { id: 'move', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY','CHANNEL'], requiresTarget: true, min: 1, max: 100, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['REORDER_CHANNELS'], risk: 'MEDIUM', labelKey: 'actions.move', descriptionKey: 'actions.move.description', tooltipKey: 'actions.move.tooltip', intention: 'PLAN' },
   { id: 'copy', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY'], requiresTarget: true, min: 1, max: 100, guildMode: 'CROSS', sourceUserCapabilities: ['structure.read'], destinationUserCapabilities: ['plans.create','structure.write'], destinationBotCapabilities: ['CREATE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.copy', descriptionKey: 'actions.copy.description', tooltipKey: 'actions.copy.tooltip', intention: 'PORTABLE_CLONE' },
   { id: 'clone', sourceTypes: ['CATEGORY','CHANNEL','ARTIFACT','TEMPLATE'], targetTypes: ['GUILD','CATEGORY'], requiresTarget: true, min: 1, max: 1, guildMode: 'ANY', sourceUserCapabilities: ['structure.read'], destinationUserCapabilities: ['plans.create','structure.write'], destinationBotCapabilities: ['CREATE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.clone', descriptionKey: 'actions.clone.description', tooltipKey: 'actions.clone.tooltip', intention: 'PORTABLE_CLONE' },
   { id: 'export', sourceTypes: ['CATEGORY','CHANNEL'], min: 1, max: 100, guildMode: 'ANY', sourceUserCapabilities: ['structure.read'], risk: 'LOW', labelKey: 'actions.export', descriptionKey: 'actions.export.description', tooltipKey: 'actions.export.tooltip', intention: 'PORTABLE_EXPORT' },
@@ -58,6 +58,18 @@ function outcome(required: readonly string[] | undefined, available: Readonly<Re
   return values.every((value) => value === 'CAN') ? 'CAN' : 'UNKNOWN'
 }
 
+function structurallyCompatible(action: AppAction, sourceType: ResourceType, context: ActionContext, cross: boolean): boolean {
+  const destination = context.destination
+  if (!destination) return true
+  if (action.id === 'move') {
+    if (sourceType === 'CATEGORY' && destination.type === 'CHANNEL') return false
+    if (sourceType === 'CATEGORY' && destination.type === 'CATEGORY' && cross) return false
+    if (sourceType === 'CHANNEL' && destination.type === 'CHANNEL' && cross) return false
+  }
+  if ((action.id === 'copy' || action.id === 'clone') && sourceType === 'CATEGORY' && destination.type === 'CATEGORY') return false
+  return true
+}
+
 export function resolveActions(context: ActionContext): Availability[] {
   const sourceType = context.source[0]?.type
   if (!sourceType || context.source.some((item) => item.type !== sourceType)) return []
@@ -67,6 +79,7 @@ export function resolveActions(context: ActionContext): Availability[] {
     if (context.destination?.type === 'LANGUAGE_TARGET' && context.destination.parentId !== context.source[0]?.id) return []
     const cross = Boolean(context.destination && context.source.some((item) => item.guildId !== context.destination?.guildId))
     if ((action.guildMode === 'CROSS' && context.destination && !cross) || (action.guildMode === 'SAME' && cross)) return []
+    if (!structurallyCompatible(action, sourceType, context, cross)) return []
     const checks: CapabilityOutcome[] = [
       outcome(action.sourceUserCapabilities, context.sourceUserCapabilities),
       outcome(action.sourceBotCapabilities, context.sourceBotCapabilities),
