@@ -126,7 +126,7 @@ test('pending Guild follows setup -> import -> activate -> overview', async ({ p
   await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/overview$`))
   await expect(page.getByRole('heading', { name: 'Server overview' })).toBeVisible()
   await expect(page.getByText('Guild A').first()).toBeVisible()
-  await expect(page.getByText('My library')).toBeVisible()
+  await expect(page.getByText('My library', { exact: true }).first()).toBeVisible()
 })
 
 test('non-admin sees a blocked setup with no executable action', async ({ page }) => {
