@@ -35,19 +35,29 @@ export function createActionIntent(actionId: string, source: ResourceRef[], dest
 
 function moveGraph(intent: ActionIntent) {
   if (!intent.destination) throw new Error('ACTION_DESTINATION_REQUIRED')
-  const parentId = intent.destination.type === 'CATEGORY' ? intent.destination.id : null
+  const destination = intent.destination
   return {
     schema_version: 'did-dsg-v1',
-    nodes: intent.source.map((source, index) => ({
-      logical_key: `dashboard.${intent.actionId}.${source.type.toLowerCase()}.${source.id}.${index}`,
-      resource_type: source.type,
-      discord_id: source.id,
-      presence: 'PRESENT',
-      properties: source.type === 'CATEGORY'
-        ? { name: source.name, position: source.position ?? 0 }
-        : { type: source.channelType ?? 0, name: source.name, position: source.position ?? 0, parent_id: parentId },
-      relations: [],
-    })),
+    nodes: intent.source.map((source, index) => {
+      const destinationParentId = destination.type === 'CATEGORY'
+        ? destination.id
+        : destination.type === 'CHANNEL'
+          ? destination.parentId ?? null
+          : null
+      const targetPosition = destination.type === 'CHANNEL' || (source.type === 'CATEGORY' && destination.type === 'CATEGORY')
+        ? destination.position ?? source.position ?? 0
+        : source.position ?? 0
+      return {
+        logical_key: `dashboard.${intent.actionId}.${source.type.toLowerCase()}.${source.id}.${index}`,
+        resource_type: source.type,
+        discord_id: source.id,
+        presence: 'PRESENT',
+        properties: source.type === 'CATEGORY'
+          ? { name: source.name, position: targetPosition }
+          : { type: source.channelType ?? 0, name: source.name, position: targetPosition, parent_id: destinationParentId },
+        relations: [],
+      }
+    }),
   }
 }
 
