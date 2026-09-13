@@ -46,13 +46,21 @@ type Step = {
   key: string
   label: string
   state: StepState
-  detail?: string
+  detail?: string | undefined
 }
 
 function statusTone(state: StepState): 'ok' | 'warning' | 'danger' {
   if (state === 'done') return 'ok'
   if (state === 'blocked') return 'danger'
   return 'warning'
+}
+
+function onboardingBlockedMessage(snapshot: OnboardingSnapshot, t: (key: string) => string): string | null {
+  if (snapshot.blocked_reason === 'BOOTSTRAP_OWNER_OR_ADMINISTRATOR_REQUIRED') return t('onboarding.notAdmin')
+  if (snapshot.blocked_reason === 'BOT_GATEWAY_IDENTITY_NOT_OBSERVED') return t('onboarding.gatewayMissing')
+  if (snapshot.blocked_reason === 'INITIAL_STRUCTURE_IMPORT_REQUIRED') return t('onboarding.importRequired')
+  if (snapshot.blocked_reason === 'BOT_PERMISSIONS_NOT_VERIFIED') return t('onboarding.permissionsPending')
+  return null
 }
 
 export function OnboardingPage() {
@@ -121,7 +129,7 @@ export function OnboardingPage() {
     {
       key: 'structure',
       label: t('onboarding.structure'),
-      state: snapshot.structure_imported ? 'done' : importQueued ? 'waiting' : 'waiting',
+      state: snapshot.structure_imported ? 'done' : 'waiting',
       detail: snapshot.structure_imported ? t('onboarding.counts', { channels: snapshot.channel_count, roles: snapshot.role_count }) : undefined,
     },
     {
@@ -141,13 +149,7 @@ export function OnboardingPage() {
     },
   ]
 
-  function blockedMessage() {
-    if (snapshot.blocked_reason === 'BOOTSTRAP_OWNER_OR_ADMINISTRATOR_REQUIRED') return t('onboarding.notAdmin')
-    if (snapshot.blocked_reason === 'BOT_GATEWAY_IDENTITY_NOT_OBSERVED') return t('onboarding.gatewayMissing')
-    if (snapshot.blocked_reason === 'INITIAL_STRUCTURE_IMPORT_REQUIRED') return t('onboarding.importRequired')
-    if (snapshot.blocked_reason === 'BOT_PERMISSIONS_NOT_VERIFIED') return t('onboarding.permissionsPending')
-    return null
-  }
+  const blockedMessage = onboardingBlockedMessage(snapshot, (key) => t(key))
 
   async function importStructure() {
     setActionError(null)
@@ -236,7 +238,7 @@ export function OnboardingPage() {
           ))}
         </div>
 
-        {blockedMessage() && <div className="onboarding-callout danger" role="alert">{blockedMessage()}</div>}
+        {blockedMessage && <div className="onboarding-callout danger" role="alert">{blockedMessage}</div>}
         {importQueued && !snapshot.structure_imported && <div className="onboarding-callout">{t('onboarding.importing')}</div>}
         {unavailableOperations.length > 0 && snapshot.permissions_checked && (
           <div className="onboarding-callout warning">
