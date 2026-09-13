@@ -4,7 +4,7 @@
 
 Ce document relie les exigences `PARTIEL`, `ABSENT` et `NON DÉMONTRÉ` de l'audit étendu aux **9 phases UI existantes**.
 
-**Règle ferme : aucune nouvelle phase UI n'est créée.** Les lots internes servent uniquement à ordonner le travail dans une phase.
+**Règle ferme : aucune nouvelle phase UI n'est créée.** Une exigence reste rattachée à la phase fonctionnelle qui aurait dû la couvrir, même si l'écart n'a été découvert qu'après la clôture initiale de cette phase. Une phase déjà livrée peut donc recevoir un **complément post-audit ciblé** sans être rejouée intégralement.
 
 Audit source : `docs/10_implementation/11_REQUIREMENTS_IMPLEMENTATION_AUDIT.md`.
 
@@ -14,25 +14,72 @@ Snapshot audité : 389 exigences, dont 265 conformes et 124 non totalement confo
 
 ## Phase 1 — Audit/baseline
 
-**État : terminée.**
+**État : terminée sur son périmètre initial ; doctrine de preuve consolidée par l'audit 389 exigences.**
 
-Aucune exigence n'est renvoyée dans cette phase. Le nouvel audit complète la connaissance du produit mais ne provoque pas une nouvelle Phase 1.
+### Exigences concernées
+
+- `REQ-QA-001` : la règle « un fichier/écran ne suffit pas à prouver la conformité » appartient à la méthode d'audit de Phase 1. Sa preuve finale reste contrôlée en Phase 9.
+- `REQ-QA-002` est déjà conforme et matérialise la règle qu'une fonctionnalité partielle ne peut pas être déclarée conforme.
+
+### Action
+
+Aucun chantier produit à rejouer. Le nouvel audit remplace seulement les anciennes déclarations trop optimistes par une preuve plus stricte.
 
 ---
 
-## Phase 2 — Runtime/onboarding/fondations visuelles
+## Phase 2 — Runtime, onboarding et fondations visuelles
 
-**État : implémentée.**
+**État : socle implémenté ; complément post-audit ciblé à vérifier/corriger, sans rejouer toute la phase.**
 
-Pas de nouveau chantier structurel issu de l'audit. Les preuves live A/B globales seront consolidées en Phase 9 afin d'éviter des campagnes répétitives pendant la refonte.
+### Exigences affectées
+
+- `REQ-WIZ-011` — le **premier setup 9 étapes** appartient directement à l'onboarding de Phase 2.
+- `REQ-WIZ-012` — le **moindre privilège** et l'explication des permissions bot demandées appartiennent également à l'onboarding de Phase 2.
+
+Le rapport Phase 2 démontre déjà un assistant de première configuration, l'import réel, les diagnostics de permissions bot et l'activation. L'audit ayant porté sur un autre snapshot, ces deux exigences doivent être **réinspectées sur `ui/complete-redesign`** avant de conclure qu'un développement supplémentaire est nécessaire.
+
+### Résultat attendu
+
+- les neuf contrôles de setup sont réellement présents ou complétés ;
+- chaque permission bot demandée est expliquée ;
+- aucune demande `ADMINISTRATOR` par commodité ;
+- une permission manquante ne bloque que les capacités concernées ;
+- le parcours reste utilisable après refresh/reconnexion.
+
+### Preuve minimale utile
+
+Un E2E onboarding ciblé et, uniquement si le backend est modifié, les tests API/intégration directement concernés. Pas de régression générale.
 
 ---
 
 ## Phase 3 — Explorateur / structure / DnD
 
-**État : terminée.**
+**État : socle explorateur/DnD terminé ; complément UX post-audit ciblé à réaliser.**
 
-La Phase 3 n'est pas rouverte. Les raffinements UX découverts après sa clôture sont absorbés par la Phase 8.
+### Exigences affectées
+
+- `REQ-UXN-003` — libellé utilisateur configurable des groupes logiques ;
+- `REQ-UXN-004` — absence de confusion entre groupe logique et Guild Discord ;
+- `REQ-UXN-005` — renommage inline au second clic lent ;
+- `REQ-UXN-006` — renommage par `F2` ;
+- `REQ-UXN-007` — action `Renommer` dans le menu contextuel canonique ;
+- `REQ-UXN-012` — Unicode/emoji dans les noms de catégories/salons ;
+- `REQ-UXN-013` — emoji picker réutilisable ;
+- `REQ-UXN-014` — suggestions de noms stylés sobres ;
+- `REQ-UXN-015` — validation des contraintes Discord avant plan.
+
+`REQ-UXN-001` et `REQ-UXN-002` sont déjà conformes et constituent le socle des groupes logiques. Les exigences Structure historiques restent fermées : on ne rejoue pas le DnD ni la synchronisation déjà prouvés si ces composants ne changent pas.
+
+### Résultat attendu
+
+- explorer et renommer les objets de structure de façon naturelle ;
+- distinguer sans ambiguïté Guild Discord, objet Discord et groupe logique ;
+- proposer un nom Unicode/emoji valide sans contourner les contraintes Discord ;
+- toutes les voies de renommage compilent la même intention et le même plan.
+
+### Preuve minimale utile
+
+Quelques tests interaction/UI ciblés sur second clic, F2, menu contextuel et validation de nom. Aucun replay du gate DnD complet si le moteur de gestes n'est pas modifié.
 
 ---
 
@@ -41,9 +88,10 @@ La Phase 3 n'est pas rouverte. Les raffinements UX découverts après sa clôtur
 ### Exigences affectées
 
 - **`REQ-POL-001` à `REQ-POL-053`** : toute la famille Policy est à fermer dans cette phase ; le moteur générique manque encore alors que quelques policies spécialisées existent déjà.
-- **`REQ-WIZ-001` à `REQ-WIZ-014`** : le socle Wizard est construit ici, puis réutilisé en Phases 6/7 sans recréer un second framework.
+- **`REQ-WIZ-001` à `REQ-WIZ-010`, `REQ-WIZ-013`, `REQ-WIZ-014`** : le socle Wizard générique est construit ici puis réutilisé en Phases 6/7. `REQ-WIZ-011` et `012` restent la propriété de la Phase 2 car ils décrivent le premier setup.
 - **`REQ-PERMX-010`** : raccord complet du moteur canonique de permissions au Policy Engine/Wizard.
-- **`REQ-UXN-009`** : cohérence UI avec les rôles cumulés et le calcul réel des permissions.
+- **`REQ-UXN-009`** : aucune UI métier mono-rôle lorsque Discord autorise les rôles cumulés.
+- **`REQ-UXN-010` / `REQ-UXN-011`** : règles multi-rôles `ANY` / `ALL` portées par le moteur de règles/Policies.
 
 ### Résultat attendu
 
@@ -129,35 +177,22 @@ Aucun test backend massif si seule la présentation change.
 
 ---
 
-## Phase 8 — Diagnostics, paramètres et finition UX
+## Phase 8 — Diagnostics, paramètres et finition UX transverse
 
 ### Exigences affectées
 
-- **`REQ-BOT-005`** : visualisation dashboard de l'endroit où chaque bot peut lire/écrire.
-- `REQ-UXN-003`
-- `REQ-UXN-004`
-- `REQ-UXN-005`
-- `REQ-UXN-006`
-- `REQ-UXN-007`
-- `REQ-UXN-010`
-- `REQ-UXN-011`
-- `REQ-UXN-012`
-- `REQ-UXN-013`
-- `REQ-UXN-014`
-- `REQ-UXN-015`
-- `REQ-UXN-016`
-- `REQ-UXN-017`
+- **`REQ-BOT-005`** : visualisation dashboard de l'endroit où chaque bot peut lire/écrire ;
+- `REQ-UXN-016` : ne pas imposer l'acronyme interne DID sans explication ;
+- `REQ-UXN-017` : aide contextuelle proche des décisions complexes ;
 - **toutes les exigences `REQ-REUSE-*` non conformes** : `001`, `002`, `003`, `004`, `005`, `006`, `007`, `009`, `010`, `011`, `012`.
 
-`REQ-UXN-001`, `002`, `008`, `018` et `REQ-REUSE-008` sont déjà conformes.
+La Phase 8 réalise aussi un **contrôle transverse** des exigences UX déjà affectées aux Phases 2-7, mais elle n'en devient pas artificiellement propriétaire.
 
 ### Résultat attendu
 
-- rename second clic/F2/contextuel ;
-- naming/emoji lorsque prévu ;
-- labels et concepts compréhensibles ;
-- diagnostics actionnables ;
+- audit et diagnostics actionnables ;
 - bot capability/read-write visualisée ;
+- jargon produit maîtrisé et aide contextuelle ;
 - primitives UI cohérentes ;
 - réutilisation de bibliothèques existantes avant code maison ;
 - i18n/a11y/responsive/polish final.
@@ -173,8 +208,8 @@ Contrôle visuel + i18n/a11y + E2E uniquement pour les interactions critiques aj
 ### Exigences affectées
 
 - **`REQ-TEST-003`** : preuve Discord sandbox A/B du commit final ;
-- **`REQ-QA-001`, `REQ-QA-003` à `REQ-QA-012`** ;
-- toute exigence encore `NON DÉMONTRÉ` après les Phases 4-8 ;
+- **`REQ-QA-001`, `REQ-QA-003` à `REQ-QA-012`** : fermeture finale de la doctrine de preuve et des tests pertinents ;
+- toute exigence encore `NON DÉMONTRÉ` après les Phases 2-8 ;
 - toute exigence encore `PARTIEL` ou `ABSENT` à ce checkpoint.
 
 `REQ-QA-002` est déjà conforme.
