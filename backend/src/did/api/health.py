@@ -39,3 +39,21 @@ async def ready(request: Request, response: Response) -> dict[str, object]:
         "status": "ready" if ready_state else "not_ready",
         "checks": {"database": database, "redis": redis},
     }
+
+
+@router.get("/features")
+async def features(request: Request) -> dict[str, object]:
+    """Expose non-secret feature availability for the dashboard preflight.
+
+    Optional services are reported rather than turned into mysterious 503s in
+    the UI.  No token, key material, URL or tenant data is exposed here.
+    """
+
+    container = getattr(request.app.state, "services", None)
+    return {
+        "features": {
+            "oauth": container is not None and getattr(container, "auth", None) is not None,
+            "live_events": container is not None and getattr(container, "pubsub", None) is not None,
+            "portability": container is not None and getattr(container, "portability", None) is not None,
+        }
+    }
