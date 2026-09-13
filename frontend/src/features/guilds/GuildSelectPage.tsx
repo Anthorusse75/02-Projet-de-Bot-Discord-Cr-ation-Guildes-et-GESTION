@@ -19,8 +19,11 @@ type SelectableGuild = Guild & {
 
 function canBootstrapGuild(guild: SelectableGuild): boolean {
   if (guild.can_bootstrap !== undefined) return guild.can_bootstrap
-  const permissions = Number(guild.permissions)
-  return guild.owner || (Number.isSafeInteger(permissions) && (permissions & 8) === 8)
+  try {
+    return guild.owner || (BigInt(guild.permissions) & 8n) === 8n
+  } catch {
+    return guild.owner
+  }
 }
 
 export function GuildSelectPage() {
@@ -75,7 +78,7 @@ export function GuildSelectPage() {
 
       <section className="guild-hub-content">
         <div className="guild-hub-intro">
-          <p className="eyebrow">Discord Infrastructure Designer</p>
+          <p className="eyebrow">{t('app.title')}</p>
           <h1>{t('guilds.title')}</h1>
           <p>{t('guilds.subtitle')}</p>
         </div>
