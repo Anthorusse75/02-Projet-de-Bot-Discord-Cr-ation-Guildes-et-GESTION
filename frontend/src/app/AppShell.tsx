@@ -119,7 +119,7 @@ export function AppShell() {
       <aside className="premium-sidebar">
         <div className="premium-brand">
           <span className="brand-mark">D</span>
-          <div><strong>DID</strong><small>Infrastructure Designer</small></div>
+          <div><strong>DID</strong><small>{t('app.title')}</small></div>
         </div>
 
         <button type="button" className="active-server-card" onClick={() => navigate('/guilds')}>
@@ -159,7 +159,7 @@ export function AppShell() {
         </div>
 
         {!portabilityAvailable && (
-          <div className="sidebar-preflight-warning"><span>!</span><div><strong>Portability</strong><small>{t('common.readOnly')}</small></div></div>
+          <div className="sidebar-preflight-warning"><span>!</span><div><strong>{t('nav.library')}</strong><small>{t('common.readOnly')}</small></div></div>
         )}
 
         <button type="button" className="sidebar-user" onClick={() => setCommandOpen(true)}>
