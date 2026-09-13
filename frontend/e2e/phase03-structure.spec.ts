@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const USER = '700000000000000003'
 const GUILD_A = '700000000000000001'
@@ -89,20 +89,24 @@ async function installRoutes(page: Page, captured: { plans: CapturedPlan[] }) {
   })
 }
 
+function resourceRow(page: Page, text: string) {
+  return page.getByRole('treeitem').filter({ hasText: text }).first().locator(':scope > .structure-resource-row')
+}
+
 async function drag(page: Page, sourceText: string, targetText: string, button: 'left'|'right' = 'left') {
-  const source = page.getByRole('treeitem').filter({ hasText: sourceText }).first()
-  const target = page.getByRole('treeitem').filter({ hasText: targetText }).first()
+  const source = resourceRow(page, sourceText)
+  const target = resourceRow(page, targetText)
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
   if (!sourceBox || !targetBox) throw new Error('drag target is not visible')
-  await page.mouse.move(sourceBox.x + 80, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.move(sourceBox.x + Math.min(85, sourceBox.width * .55), sourceBox.y + sourceBox.height / 2)
   await page.mouse.down({ button })
-  await page.mouse.move(sourceBox.x + 95, sourceBox.y + sourceBox.height / 2, { steps: 3 })
-  await page.mouse.move(targetBox.x + 90, targetBox.y + targetBox.height / 2, { steps: 8 })
+  await page.mouse.move(sourceBox.x + Math.min(105, sourceBox.width * .7), sourceBox.y + sourceBox.height / 2, { steps: 3 })
+  await page.mouse.move(targetBox.x + Math.min(90, targetBox.width * .55), targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up({ button })
 }
 
-test('explorer renders faithful hierarchy, selection inspector and compact language control', async ({ page }) => {
+test('explorer renders faithful hierarchy, selection inspector, compact language control and survives reload', async ({ page }) => {
   const captured = { plans: [] as CapturedPlan[] }
   await installRoutes(page, captured)
   await page.goto(`/guild/${GUILD_A}/structure`)
@@ -115,13 +119,18 @@ test('explorer renders faithful hierarchy, selection inspector and compact langu
   await expect(page.getByRole('treeitem').filter({ hasText: 'welcome' }).first()).toBeVisible()
   await expect(page.getByRole('treeitem').filter({ hasText: 'release-notes' }).first()).toBeVisible()
 
-  await page.getByRole('treeitem').filter({ hasText: 'welcome' }).first().click()
+  await resourceRow(page, 'welcome').click()
   await expect(page.getByText(CHANNEL_WELCOME, { exact: true }).last()).toBeVisible()
   await expect(page.getByText('Channel', { exact: true }).last()).toBeVisible()
 
   const locale = page.locator('.locale-control')
   await expect(locale.locator('.locale-code')).toHaveText('EN')
   await expect(locale.locator('.locale-flag')).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('treeitem').filter({ hasText: 'General' }).first()).toBeVisible()
+  await expect(page.getByRole('treeitem').filter({ hasText: 'welcome' }).first()).toBeVisible()
+  await expect(page.getByRole('treeitem').filter({ hasText: 'release-notes' }).first()).toBeVisible()
 })
 
 test('left drag channel into category creates a proposal with Discord parent_id and no direct mutation', async ({ page }) => {
@@ -160,17 +169,19 @@ test('category-to-category drag compiles a position reorder without fake categor
 test('right drag to another server exposes only safe cross-server actions', async ({ page }) => {
   const captured = { plans: [] as CapturedPlan[] }
   await installRoutes(page, captured)
+  const destinationCapabilitiesReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/guilds/${GUILD_B}/dashboard-capabilities` && response.ok())
   await page.goto(`/guild/${GUILD_A}/structure`)
+  await destinationCapabilitiesReady
 
-  const source = page.getByRole('treeitem').filter({ hasText: 'welcome' }).first()
+  const source = resourceRow(page, 'welcome')
   const target = page.locator('.destination-guild-row').filter({ hasText: 'Guild B' }).first()
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
   if (!sourceBox || !targetBox) throw new Error('cross-server drag target is not visible')
-  await page.mouse.move(sourceBox.x + 80, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.move(sourceBox.x + Math.min(85, sourceBox.width * .55), sourceBox.y + sourceBox.height / 2)
   await page.mouse.down({ button: 'right' })
-  await page.mouse.move(sourceBox.x + 95, sourceBox.y + sourceBox.height / 2, { steps: 3 })
-  await page.mouse.move(targetBox.x + 70, targetBox.y + targetBox.height / 2, { steps: 8 })
+  await page.mouse.move(sourceBox.x + Math.min(105, sourceBox.width * .7), sourceBox.y + sourceBox.height / 2, { steps: 3 })
+  await page.mouse.move(targetBox.x + Math.min(70, targetBox.width * .45), targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up({ button: 'right' })
 
   const menu = page.getByRole('menu', { name: 'Choose a drop action' })
