@@ -17,6 +17,12 @@ type SelectableGuild = Guild & {
   icon_hash?: string | null
 }
 
+function canBootstrapGuild(guild: SelectableGuild): boolean {
+  if (guild.can_bootstrap !== undefined) return guild.can_bootstrap
+  const permissions = Number(guild.permissions)
+  return guild.owner || (Number.isSafeInteger(permissions) && (permissions & 8) === 8)
+}
+
 export function GuildSelectPage() {
   const { t } = useTranslation()
   const me = useOutletContext<Me>()
@@ -28,7 +34,8 @@ export function GuildSelectPage() {
   const [actionError, setActionError] = useState<string | null>(null)
 
   async function openGuild(guild: SelectableGuild) {
-    if (guild.installation_status !== 'ACTIVE' && !guild.can_bootstrap) return
+    const canBootstrap = canBootstrapGuild(guild)
+    if (guild.installation_status !== 'ACTIVE' && !canBootstrap) return
     setOpening(guild.guild_id)
     setActionError(null)
     try {
@@ -81,7 +88,8 @@ export function GuildSelectPage() {
         <div className="guild-card-grid">
           {(guilds.data as SelectableGuild[] | undefined)?.map((guild) => {
             const active = guild.installation_status === 'ACTIVE'
-            const blocked = !active && !guild.can_bootstrap
+            const canBootstrap = canBootstrapGuild(guild)
+            const blocked = !active && !canBootstrap
             return (
               <article className={`guild-card ${blocked ? 'blocked' : ''}`} key={guild.guild_id}>
                 <div className="guild-card-cover"><span>{guild.name.slice(0, 2).toUpperCase()}</span></div>
