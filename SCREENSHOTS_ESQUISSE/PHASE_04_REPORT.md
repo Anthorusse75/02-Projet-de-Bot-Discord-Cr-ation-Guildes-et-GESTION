@@ -243,3 +243,54 @@ l'écran Rôles passent. Le typecheck, ESLint ciblé, Ruff ciblé et le contrôl
 i18n passent également. Aucun Playwright, Discord live A/B ni suite backend
 complète n'a été exécuté pour ce correctif localisé. Le statut global de la
 Phase 4 et les statuts Policy Foundation ne changent pas.
+
+## 12. Lot backend « resolver Policy générique » — 2026-09-14
+
+Le resolver `ACCESS_CONTROL` v1 est livré comme service de domaine pur, appelé
+par `PolicyService.resolve_access()` à partir du read model cache-first. La route
+de lecture `POST /api/v1/guilds/{guild_id}/policy-resolution`, protégée par
+`policies.read`, expose exactement le même résultat ; aucune logique de
+résolution n'est dupliquée dans l'API ou le frontend.
+
+La règle normative est :
+
+```text
+priorité explicite décroissante
+  puis, à priorité égale, spécificité dans une hiérarchie déclarée
+  puis conflit BLOCKED si les effets maximaux restent incompatibles
+```
+
+La hiérarchie ressource est `GUILD → LOGICAL_GROUP → CATEGORY → CHANNEL`. La
+hiérarchie sujet est `GUILD → ROLE → MEMBER/BOT`. Un scope ressource et un scope
+sujet sont incomparables à priorité égale : l'UUID stable ordonne uniquement
+l'explication, jamais la décision. Une règle héritée reste visible avec son
+scope source, sa révision et sa contribution ; une exception locale ne supprime
+donc pas l'historique hérité.
+
+Le résultat structuré contient décision `CAN/CANNOT/BLOCKED/UNKNOWN`, cible,
+fraîcheur, coverage, Policies applicables, conditions `TRUE/FALSE/UNKNOWN`,
+contributions, scopes sources, trace de priorité, conflits et diagnostics. Un
+conflit départagé par priorité ou spécificité indique la règle gagnante. Une
+opposition de rang égal/incomparable devient `BLOCKED`. Une cible supprimée ou
+inaccessible devient également `BLOCKED`; une cible stale/unknown ou une
+condition critique dépendant de rôles incomplets devient `UNKNOWN`, avec une
+recommandation de refresh/reconcile déjà supportée par le système.
+
+La priorité est désormais un champ durable borné de la Policy, inclus dans les
+snapshots de version via la migration `0037_ui_phase4`. Les conditions `ANY` et
+`ALL` évaluent l'ensemble complet des rôles Discord du membre. Le moteur de
+permissions Discord natif, le Plan Engine, les Visibility Scopes et les helpers
+message/traduction restent canoniques dans leurs responsabilités respectives et
+n'ont pas été dupliqués.
+
+Preuves ciblées : 43 tests unitaires Policy passent, dont permutation de l'ordre
+d'entrée, priorité/spécificité, héritage complet, exception locale, composition,
+matrice de conflits, `ANY`/`ALL`, drift et fail-closed. Les 7 tests PostgreSQL
+passent, dont persistance/versionnement de la priorité et isolation A/B. Le
+round-trip Alembic `0037 → 0036 → 0037`, Ruff ciblé et mypy (167 modules) passent.
+Aucun Playwright, Discord live A/B, APPLY ni suite backend complète n'a été
+exécuté, car aucun de ces chemins n'est modifié par ce lot.
+
+Ce lot ferme le resolver générique, pas la Phase 4 : preview/impact,
+préflight/Plan, enforcement des mutations, UI Policies et Wizards restent dans
+les lots suivants de la même Phase 4.

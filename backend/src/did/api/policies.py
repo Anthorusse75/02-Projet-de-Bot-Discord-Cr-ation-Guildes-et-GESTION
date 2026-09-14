@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, status
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from did.api.dependencies import CsrfSessionDep, CurrentSessionDep, ServicesDep
@@ -36,15 +37,35 @@ class PolicyDefinitionInput(BaseModel):
 class PolicyCreate(PolicyDefinitionInput):
     policy_type: str = Field(min_length=1, max_length=64)
     contract_version: int = Field(ge=1)
+    priority: int = Field(default=0, ge=-1_000_000, le=1_000_000)
 
 
 class PolicyPatch(PolicyDefinitionInput):
     expected_revision: int = Field(ge=1)
+    priority: int | None = Field(default=None, ge=-1_000_000, le=1_000_000)
 
 
 class PolicyTransition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=1)
+
+
+class PolicyResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    subject_id: str
+    target_scope_type: Literal[
+        PolicyScopeType.GUILD,
+        PolicyScopeType.LOGICAL_GROUP,
+        PolicyScopeType.CATEGORY,
+        PolicyScopeType.CHANNEL,
+    ]
+    target_scope_id: str | None = Field(default=None, max_length=64)
+    requested_access: Literal["VIEW", "WRITE", "MANAGE", "CONNECT", "SPEAK"]
+
+    @field_validator("subject_id")
+    @classmethod
+    def subject_snowflake(cls, value: str) -> str:
+        return str(parse_snowflake(value))
 
 
 def _policy(value: Policy) -> dict[str, Any]:
@@ -57,6 +78,7 @@ def _policy(value: Policy) -> dict[str, Any]:
         "description": value.description,
         "lifecycle_state": value.lifecycle_state.value,
         "revision": value.revision,
+        "priority": value.priority,
         "scope_type": value.scope_type.value,
         "scope_id": value.scope_id,
         "conditions": list(value.conditions),
@@ -161,6 +183,7 @@ async def create_policy(
             effects=body.effects,
             metadata=body.metadata,
             idempotency_key=idempotency_key,
+            priority=body.priority,
         )
     )
 
@@ -190,8 +213,32 @@ async def update_policy(
             effects=body.effects,
             metadata=body.metadata,
             idempotency_key=idempotency_key,
+            priority=body.priority,
         )
     )
+
+
+@router.post("/{guild_id}/policy-resolution")
+async def resolve_policy(
+    guild_id: str,
+    body: PolicyResolutionRequest,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Explain a cache-first decision; this endpoint has no mutation semantics."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    resolution = await container.policies.resolve_access(
+        guild_id=parsed,
+        subject_id=parse_snowflake(body.subject_id),
+        target_scope_type=PolicyScopeType(body.target_scope_type),
+        target_scope_id=body.target_scope_id,
+        requested_access=body.requested_access,
+    )
+    encoded = jsonable_encoder(resolution)
+    assert isinstance(encoded, dict)
+    return encoded
 
 
 async def _transition(

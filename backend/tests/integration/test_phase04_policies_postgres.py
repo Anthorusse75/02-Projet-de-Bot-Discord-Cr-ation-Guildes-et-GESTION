@@ -83,7 +83,14 @@ async def policies_context() -> AsyncIterator[tuple[PoliciesRepository, PolicySe
         await admin_engine.dispose()
 
 
-async def _create(service: PolicyService, guild_id: int, actor_id: int, key: str):
+async def _create(
+    service: PolicyService,
+    guild_id: int,
+    actor_id: int,
+    key: str,
+    *,
+    priority: int = 0,
+):
     return await service.create_draft(
         guild_id=guild_id,
         actor_id=actor_id,
@@ -97,6 +104,7 @@ async def _create(service: PolicyService, guild_id: int, actor_id: int, key: str
         effects=[{"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"}],
         metadata={"summary": "Real PostgreSQL proof"},
         idempotency_key=key,
+        priority=priority,
     )
 
 
@@ -166,6 +174,22 @@ async def test_history_is_versioned_and_app_role_cannot_mutate_it(policies_conte
                 )
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_explicit_priority_round_trips_and_is_versioned(policies_context) -> None:
+    repository, service = policies_context
+    created = await _create(
+        service,
+        GUILD_A,
+        ACTOR_A,
+        "priority-create",
+        priority=42,
+    )
+
+    assert created.priority == 42
+    assert (await repository.get(GUILD_A, created.policy_id)).priority == 42
+    assert (await repository.versions(GUILD_A, created.policy_id))[0].snapshot["priority"] == 42
 
 
 @pytest.mark.asyncio

@@ -120,6 +120,24 @@ Couverture acquise : `REQ-POL-002` à `005`, `007` à `011`, `027`, `029` à
 complets. Tous les autres `REQ-POL-*`, le resolver, la preview, le raccord Plan,
 l'UI et les Wizards gardent leur statut antérieur.
 
+### Lot backend resolver Policy — livré le 2026-09-14
+
+Le resolver générique est désormais raccordé au read model cache-first et à une
+route d'explication utilisant le même service. La priorité explicite persistée
+domine ; à égalité, la spécificité s'applique uniquement dans les hiérarchies
+`GUILD → LOGICAL_GROUP → CATEGORY → CHANNEL` et
+`GUILD → ROLE → MEMBER/BOT`. Deux scopes incomparables ou de même rang qui
+portent des effets opposés bloquent la décision. Toutes les contributions et
+provenances héritées restent exposées.
+
+Couverture acquise dans ce lot : `REQ-POL-001`, `012` à `020`, `024`, `033`,
+`034`, `040`, `047` à `049`, ainsi que `REQ-UXN-010` et `REQ-UXN-011`, passent à
+**CONFORME**. Les tests couvrent le déterminisme par permutation, la matrice de
+conflits, l'héritage complet, les ensembles de rôles `ANY`/`ALL`, les données
+incomplètes, le drift et les cibles supprimées/inaccessibles. Preview/impact,
+préflight/Plan, enforcement, UI Policies et Wizards restent ouverts ; la Phase 4
+n'est donc pas déclarée terminée.
+
 ### Preuve minimale utile
 
 Tests unitaires ciblés resolver/lifecycle, intégration RLS/RBAC/persistance, E2E whitelist + blacklist/conflit + Wizard. Pas de régression générale à chaque changement UI.

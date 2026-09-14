@@ -10,8 +10,15 @@ from uuid import uuid4
 import pytest
 
 from did.api.main import create_app
-from did.api.policies import PolicyCreate, create_policy, list_policies
+from did.api.policies import (
+    PolicyCreate,
+    PolicyResolutionRequest,
+    create_policy,
+    list_policies,
+    resolve_policy,
+)
 from did.domain.auth import READ_ONLY_CAPABILITIES, Capability
+from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import (
     Policy,
     PolicyLifecycleError,
@@ -19,6 +26,7 @@ from did.domain.policies import (
     PolicyScopeType,
 )
 from did.policies.registry import POLICY_TYPE_REGISTRY, PolicyDefinitionValidationError
+from did.policies.resolver import PolicyResolution, PolicyResolutionOutcome, PolicyTargetState
 
 
 def _policy(state: PolicyLifecycleState = PolicyLifecycleState.DRAFT) -> Policy:
@@ -126,6 +134,7 @@ def test_policy_api_and_distinct_rbac_capabilities_are_declared() -> None:
     assert base in contract["paths"]
     assert f"{base}/{{policy_id}}" in contract["paths"]
     assert f"{base}/{{policy_id}}/versions" in contract["paths"]
+    assert "/api/v1/guilds/{guild_id}/policy-resolution" in contract["paths"]
     for action in ("activate", "disable", "retire"):
         path = f"{base}/{{policy_id}}/{action}"
         assert path in contract["paths"]
@@ -157,6 +166,7 @@ def test_policy_foundations_have_no_discord_mutation_or_expression_execution() -
         Path("backend/src/did/domain/policies.py"),
         Path("backend/src/did/policies/registry.py"),
         Path("backend/src/did/application/policies/service.py"),
+        Path("backend/src/did/policies/resolver.py"),
     )
     for path in roots:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -201,3 +211,55 @@ async def test_api_calls_distinct_read_and_create_authorization_capabilities() -
     )
     assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_CREATE
     assert authorization.authorize.await_args.kwargs["sensitive"] is True
+    assert policy_service.create_draft.await_args.kwargs["priority"] == 0
+
+
+@pytest.mark.asyncio
+async def test_explain_api_uses_read_capability_and_serializes_canonical_result() -> None:
+    resolution = PolicyResolution(
+        guild_id=123,
+        subject_id=456,
+        decision="ACCESS_CONTROL:VIEW",
+        outcome=PolicyResolutionOutcome.CANNOT,
+        target_scope_type=PolicyScopeType.GUILD,
+        target_scope_id=None,
+        target_state=PolicyTargetState.CURRENT,
+        target_freshness=FreshnessState.FRESH,
+        coverage=CoverageMode.FULL,
+        applicable_policies=(),
+        contributions=(),
+        conflicts=(),
+        source_scopes=(),
+        priority_trace=(),
+        conditions=(),
+        incomplete_reasons=(),
+        warnings=(),
+        source_versions=("guild:1",),
+    )
+    authorization = SimpleNamespace(authorize=AsyncMock())
+    policy_service = SimpleNamespace(resolve_access=AsyncMock(return_value=resolution))
+    container = SimpleNamespace(authorization=authorization, policies=policy_service)
+    session = SimpleNamespace(discord_user_id=456)
+
+    response = await resolve_policy(
+        "123",
+        PolicyResolutionRequest(
+            subject_id="456",
+            target_scope_type=PolicyScopeType.GUILD,
+            target_scope_id=None,
+            requested_access="VIEW",
+        ),
+        session,
+        container,
+    )
+
+    assert response["outcome"] == "CANNOT"
+    assert response["target_state"] == "CURRENT"
+    assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_READ
+    policy_service.resolve_access.assert_awaited_once_with(
+        guild_id=123,
+        subject_id=456,
+        target_scope_type=PolicyScopeType.GUILD,
+        target_scope_id=None,
+        requested_access="VIEW",
+    )

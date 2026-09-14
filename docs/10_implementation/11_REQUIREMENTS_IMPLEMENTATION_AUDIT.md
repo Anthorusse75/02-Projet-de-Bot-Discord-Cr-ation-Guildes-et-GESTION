@@ -13,10 +13,10 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 296 |
-| PARTIEL | 39 |
-| ABSENT | 42 |
-| NON DÉMONTRÉ | 12 |
+| CONFORME | 315 |
+| PARTIEL | 35 |
+| ABSENT | 29 |
+| NON DÉMONTRÉ | 10 |
 | **Total** | **389** |
 
 Le socle historique est à **244 CONFORME / 2 PARTIEL** (`REQ-BOT-005`, `REQ-TEST-003`). Les écarts nouveaux portent surtout sur Policies, Wizards, UX nouvelle, reprise inter-session et templates produit.
@@ -74,17 +74,41 @@ lot sont entièrement prouvés.
 | REQ-POL-052 | ABSENT | ADR comparative Pydantic/rule-engine/json-rules-engine/DSL maison ; registre Pydantic fermé retenu sans nouveau moteur d'expressions. | CONFORME |
 | REQ-POL-053 | PARTIEL | ADR et modules distinguent explicitement le moteur générique des helpers message/translation existants. | CONFORME |
 
+### Complément ciblé `ui/complete-redesign` — Phase 4, resolver Policy backend
+
+Ce second lot conserve le registre fermé et ajoute un unique resolver de domaine,
+une priorité explicite persistée et une route Explain déléguant au même service.
+Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
+
+| ID | Avant | Preuve complémentaire | Après |
+|---|---|---|---|
+| REQ-POL-001 | PARTIEL | `PolicyResolver` résout réellement les Policies actives via `PolicyService.resolve_access`; la route Explain délègue au même resolver. | CONFORME |
+| REQ-POL-012 | PARTIEL | Resolver borné aux conditions/effets validés par le contrat `ACCESS_CONTROL` version 1, sans callback, expression, SQL ou exécution arbitraire. | CONFORME |
+| REQ-POL-013 | PARTIEL | Tri canonique sans `created_at`; permutations de la liste d'entrée strictement égales. | CONFORME |
+| REQ-POL-014 | ABSENT | Provenance et booléen d'héritage conservés pour chaque contribution. | CONFORME |
+| REQ-POL-015 | ABSENT | Champ `priority` explicite, borné, persisté et versionné; priorité décroissante normative. | CONFORME |
+| REQ-POL-016 | ABSENT | À priorité égale, spécificité ressource `GUILD→LOGICAL_GROUP→CATEGORY→CHANNEL`; hiérarchie sujet séparée, axes incomparables bloquants. | CONFORME |
+| REQ-POL-017 | ABSENT | Effets `ALLOW/DENY` opposés détectés et retournés avec IDs, révisions, scopes et effets. | CONFORME |
+| REQ-POL-018 | ABSENT | Conflits départagés uniquement par `HIGHER_PRIORITY` ou `MORE_SPECIFIC_SCOPE`, règle gagnante exposée. | CONFORME |
+| REQ-POL-019 | ABSENT | Même rang ou scopes incomparables avec effets opposés = `BLOCKED`, sans préférence par UUID/date. | CONFORME |
+| REQ-POL-020 | ABSENT | Contributions compatibles conservées individuellement, y compris les règles héritées et dépassées. | CONFORME |
+| REQ-POL-024 | ABSENT | Réponse structurée : cible/état, Policies, conditions, contributions, sources, priorité, conflits, diagnostic et résultat. | CONFORME |
+| REQ-POL-033 | ABSENT | Cible supprimée ou inaccessible explicitement identifiée et décision `BLOCKED`. | CONFORME |
+| REQ-POL-034 | ABSENT | Freshness/coverage/source versions et recommandation refresh/reconcile exposées; cible stale = `UNKNOWN`. | CONFORME |
+| REQ-POL-040 | PARTIEL | Rôle/target critique incomplet ou inconnu ne peut pas produire `CAN`; cas dépendants retournent `UNKNOWN/BLOCKED`. | CONFORME |
+| REQ-POL-047 | ABSENT | Tests de vérité ciblés sur allow/deny/unknown, priorité, spécificité et ordre aléatoire. | CONFORME |
+| REQ-POL-048 | ABSENT | Matrice paramétrée : priorité, spécificité, rang égal et axes incomparables. | CONFORME |
+| REQ-POL-049 | ABSENT | Test complet `GUILD→LOGICAL_GROUP→CATEGORY→CHANNEL`, héritage et exception locale. | CONFORME |
+| REQ-UXN-010 | NON DÉMONTRÉ | `ROLE_MATCH ANY` testé avec zéro, un et plusieurs rôles correspondants. | CONFORME |
+| REQ-UXN-011 | NON DÉMONTRÉ | `ROLE_MATCH ALL` testé avec ensemble incomplet, complet et sur-ensemble. | CONFORME |
+
 ## PARTIEL — ce qui est fait / ce qui manque
 
 | ID | Implémenté | Manque |
 |---|---|---|
 | REQ-BOT-005 | API backend réelle par bot/salon (lecture/écriture), cache-derived, testée. | La visualisation dashboard demandée reste différée. |
 | REQ-TEST-003 | Harness et rapports live A/B prévus/intégrés dans Stage10. | Pas d’agrégat live A/B valide du run courant: credentials sandbox externes indisponibles. |
-| REQ-POL-001 | Agrégat générique explicite, sérialisable, tenant-scopé et identifié. | Le resolver de domaine est réservé au lot suivant. |
 | REQ-POL-006 | Nom, description et métadonnées humaines sont persistés. | L'UI Policies n'est pas livrée dans ce lot backend. |
-| REQ-POL-012 | Contrats fermés et tests de refus code/SQL/callback ; aucune exécution d'expression. | Le futur resolver borné reste à implémenter et tester. |
-| REQ-POL-013 | Les policies spécialisées inspectées sont déterministes | pas de moteur générique. |
-| REQ-POL-040 | Permission engine actuel sait représenter incomplete/unknown | pas de policy engine générique. |
 | REQ-POL-050 | Contrats API, capabilities et tests PostgreSQL cross-tenant ciblés. | Test HTTP 403 complet et chaîne enforcement hors de ce lot. |
 | REQ-UXN-009 | Moteur multi-rôles conforme | audit de toutes les UIs non réalisé. |
 | REQ-OPS-003 | Persistance backend démontrée | UX de reprise après nouvelle session non démontrée. |
@@ -100,7 +124,7 @@ lot sont entièrement prouvés.
 | REQ-TPL-003 | Portabilité rapporte mappings | écran dédié de template infrastructure non prouvé. |
 | REQ-TPL-004 | COPY_AS_NEW sait créer | expérience de suggestion non démontrée. |
 | REQ-TPL-007 | REQ-DUP-019 couvre portabilité de définitions | moteur générique de Policy absent. |
-| REQ-TPL-009 | `template_id`, `schema_version` et `content_hash` donnent identité et empreinte reproductible. | Pas de révision métier publiée/sélectionnable (v1/v2 immuables) démontrée. |
+| REQ-TPL-009 | `template_id`, `schema_version` et `content_hash` donnent identité et empreinte reproductible. | Pas de révision métier publiée/sélectionnable (versions 1/2 immuables) démontrée. |
 | REQ-TPL-010 | Portabilité converge sur planning | Wizard absent. |
 | REQ-REUSE-001 | Architecture recommande dnd-kit, Radix/shadcn, i18next, discord.py, etc. | processus formel non démontré. |
 | REQ-REUSE-005 | uv.lock/npm audit et Stage10 existent | règle universelle non prouvée. |
@@ -137,23 +161,24 @@ lot sont entièrement prouvés.
 - `REQ-TEST-001`, `REQ-TEST-002`, `REQ-TEST-004`, `REQ-TEST-005`, `REQ-UXN-001`, `REQ-UXN-002`, `REQ-UXN-008`, `REQ-UXN-018`, `REQ-OPS-001`, `REQ-OPS-002`, `REQ-OPS-013`, `REQ-TPL-005`, `REQ-TPL-006`, `REQ-TPL-008`, `REQ-REUSE-008`, `REQ-PERMX-001`, `REQ-PERMX-002`, `REQ-PERMX-003`, `REQ-PERMX-004`, `REQ-PERMX-005`
 - `REQ-PERMX-006`, `REQ-PERMX-007`, `REQ-PERMX-008`, `REQ-PERMX-009`, `REQ-QA-002`
 - `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-027`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-052`, `REQ-POL-053`
+- `REQ-POL-001`, `REQ-POL-012`, `REQ-POL-013`, `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-024`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-040`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-UXN-010`, `REQ-UXN-011`
 - `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
 
 ### PARTIEL
 
-- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-001`, `REQ-POL-006`, `REQ-POL-012`, `REQ-POL-013`, `REQ-POL-040`, `REQ-POL-050`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
+- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-006`, `REQ-POL-050`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
 - `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
 
-- `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-021`, `REQ-POL-022`
-- `REQ-POL-023`, `REQ-POL-024`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
-- `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-POL-051`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
+- `REQ-POL-021`, `REQ-POL-022`
+- `REQ-POL-023`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
+- `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-051`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
 - `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
 ### NON DÉMONTRÉ
 
-- `REQ-UXN-010`, `REQ-UXN-011`, `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
+- `REQ-UXN-016`, `REQ-UXN-017`, `REQ-OPS-010`, `REQ-OPS-011`, `REQ-OPS-012`, `REQ-REUSE-002`, `REQ-REUSE-003`, `REQ-REUSE-004`, `REQ-REUSE-006`, `REQ-REUSE-011`
 
 ## Preuves principales réinspectées
 
@@ -162,11 +187,11 @@ lot sont entièrement prouvés.
 - Planning : service planning, modèles, persistance/DAG/preflight/impact/UNKNOWN_OUTCOME, failure-injection.
 - Portabilité/templates : service/repository/API Stage06, tests PostgreSQL/E2E; template privé RLS démontré.
 - Stage10 : large couverture backend/Playwright; `REQ-TEST-003` reste partiel car l’agrégat live A/B du run courant manque.
-- Policies/Wizards : fondations génériques Policy backend (agrégat, registre, lifecycle, API/RBAC, RLS, historique) démontrées ; resolver, preview/Plan, enforcement, UI et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
+- Policies/Wizards : fondations et resolver générique Policy backend démontrés (priorité, héritage, composition, conflits, explain et fail-closed) ; preview/Plan, enforcement, UI et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
 
 ## Priorités
 
-1. **Policy Engine générique** : traité dans la Phase UI 4 existante.
+1. **Suite du Policy Engine** : preview/Plan, enforcement et UI traités dans la Phase UI 4 existante.
 2. **Wizards** : socle en Phase UI 4, réutilisé ensuite.
 3. **Operations Center inter-session + drafts** : Phase UI 5.
 4. **Templates adaptatifs** : Phase UI 6.

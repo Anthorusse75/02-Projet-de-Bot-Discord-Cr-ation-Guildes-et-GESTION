@@ -240,7 +240,7 @@ def create_app(
             )
             campaigns_repository = CampaignsRepository(session_factory)
             policies_repository = PoliciesRepository(session_factory)
-            policies = PolicyService(policies_repository)
+            policies = PolicyService(policies_repository, read_models=stage04_repository)
             campaigns_admin_engine = create_database_engine(
                 configured.database_admin_url.get_secret_value()
             )

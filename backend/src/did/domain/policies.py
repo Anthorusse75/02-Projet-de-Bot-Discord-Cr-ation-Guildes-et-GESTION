@@ -61,6 +61,7 @@ class Policy:
     metadata: dict[str, object]
     created_by_user_id: int
     modified_by_user_id: int
+    priority: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
     activated_at: datetime | None = None
@@ -76,6 +77,8 @@ class Policy:
             raise ValueError("policy_type must not be blank")
         if self.contract_version <= 0 or self.revision <= 0:
             raise ValueError("Policy contract version and revision must be positive")
+        if isinstance(self.priority, bool) or not -1_000_000 <= self.priority <= 1_000_000:
+            raise ValueError("Policy priority must be an integer between -1000000 and 1000000")
         if not self.name.strip():
             raise ValueError("Policy name must not be blank")
         if self.name != self.name.strip():
