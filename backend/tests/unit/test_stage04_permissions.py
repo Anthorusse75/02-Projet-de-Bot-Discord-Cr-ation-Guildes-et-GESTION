@@ -578,9 +578,10 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
     cannot_equal_by_snowflake = hierarchy_diagnostic(snapshot, bot, equal_below)
     cannot_managed = hierarchy_diagnostic(snapshot, bot, managed)
     missing = checker.check(
-        operation=BotOperation.MANAGE_CHANNEL,
-        guild=guild(0, role(ROLE_A, 0, position=5)),
+        operation=BotOperation.MANAGE_ROLE,
+        guild=guild(0, role(ROLE_A, 0, position=5), lower),
         bot=bot,
+        target_role=lower,
     )
 
     assert can.outcome is CapabilityOutcome.CAN
@@ -588,7 +589,36 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
     assert cannot_equal_by_snowflake.outcome is CapabilityOutcome.CANNOT
     assert cannot_managed.reasons == ("capability.hierarchy.target_managed",)
     assert missing.outcome is CapabilityOutcome.CANNOT
+    assert "capability.permission_missing.manage_roles" in missing.causes
+    assert missing.remediations == ("capability.remediation.grant.manage_roles",)
     assert all("administrator" not in value for value in missing.remediations)
+
+
+def test_role_capability_reports_hierarchy_remediation_and_real_unknown_data() -> None:
+    bot_role = role(ROLE_A, bits("MANAGE_ROLES"), position=5)
+    above = role(ROLE_B, 0, position=6)
+    snapshot = guild(0, bot_role, above)
+    checker = BotCapabilityChecker()
+
+    too_low = checker.check(
+        operation=BotOperation.MANAGE_ROLE,
+        guild=snapshot,
+        bot=member(ROLE_A),
+        target_role=above,
+    )
+    incomplete = checker.check(
+        operation=BotOperation.MANAGE_ROLE,
+        guild=snapshot,
+        bot=member(ROLE_A, complete=False),
+        target_role=above,
+    )
+
+    assert too_low.outcome is CapabilityOutcome.CANNOT
+    assert "capability.hierarchy.bot_role_not_above_target" in too_low.causes
+    assert "capability.remediation.move_bot_role_above_target" in too_low.remediations
+    assert incomplete.outcome is CapabilityOutcome.UNKNOWN
+    assert "capability.hierarchy.bot_roles_incomplete" in incomplete.causes
+    assert "capability.remediation.refresh_discord_data" in incomplete.remediations
 
 
 def test_audit_guild_bots_flags_administrator_and_owner_bots_only() -> None:

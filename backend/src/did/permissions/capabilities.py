@@ -249,11 +249,14 @@ class BotCapabilityChecker:
             causes.append("capability.target_role_required")
         if not installation_active:
             causes.append("capability.installation_not_active")
+            remediations.append("capability.remediation.restore_installation")
         if not required_intents_available:
             causes.append("capability.required_intent_missing")
+            remediations.append("capability.remediation.restore_required_intent")
         decision = self.evaluator.evaluate(guild=guild, member=bot, resource=channel)
         if decision.status is not DecisionStatus.COMPLETE:
             causes.extend(decision.incomplete_reasons)
+            remediations.append("capability.remediation.refresh_discord_data")
         else:
             for name in required:
                 bit = self.registry.value(name)
@@ -263,6 +266,17 @@ class BotCapabilityChecker:
         if operation in role_operations:
             hierarchy = hierarchy_diagnostic(guild, bot, target_role)
             causes.extend(hierarchy.reasons)
+            if "capability.hierarchy.bot_role_not_above_target" in hierarchy.reasons:
+                remediations.append("capability.remediation.move_bot_role_above_target")
+            if any(
+                reason
+                in {
+                    "capability.hierarchy.bot_roles_incomplete",
+                    "capability.hierarchy.target_or_bot_role_missing",
+                }
+                for reason in hierarchy.reasons
+            ):
+                remediations.append("capability.remediation.refresh_discord_data")
             if operation is BotOperation.REORDER_ROLES and target_role is not None:
                 if target_role.role_id == guild.guild_id:
                     causes.append("capability.hierarchy.default_role_reorder_forbidden")

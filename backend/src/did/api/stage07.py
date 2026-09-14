@@ -171,35 +171,9 @@ async def dashboard_capabilities(
 
     operations = list(BotOperation)
     bot: dict[str, dict[str, Any]] = {}
-    if Capability.BOTS_AUDIT not in granted:
-        bot = {
-            operation.value: {
-                "operation": operation.value,
-                "outcome": CapabilityOutcome.UNKNOWN.value,
-                "required_permissions": [],
-                "causes": ["capability.user.bot_audit_required"],
-                "remediations": [],
-                "warnings": [],
-                "hierarchy": None,
-            }
-            for operation in operations
-        }
-        return {
-            "guild_id": str(parsed),
-            "source": "AUTHORIZATION_AND_LOCAL_CACHE",
-            "discord_rest_calls": 0,
-            "user_capabilities": user,
-            "scoped_capabilities": {
-                "scope_kind": authorization.scope.kind.value,
-                "scope_id": authorization.scope.scope_id,
-                "capabilities": user,
-            },
-            "bot_operations": bot,
-            "coverage": "UNKNOWN",
-            "completeness": "UNKNOWN",
-            "freshness": "UNKNOWN",
-        }
-
+    # This projection exposes only the installed DID bot's minimal operational
+    # outcome. It does not enumerate or inspect arbitrary bots. Guild-wide bot
+    # audit and access-map routes remain protected by BOTS_AUDIT in stage04.
     bot_id, installation_status = await container.stage04_repository.bot_identity(parsed)
     if bot_id is None:
         bot = {
@@ -208,7 +182,7 @@ async def dashboard_capabilities(
                 "outcome": CapabilityOutcome.UNKNOWN.value,
                 "required_permissions": [],
                 "causes": ["capability.bot_identity_unknown"],
-                "remediations": [],
+                "remediations": ["capability.remediation.refresh_discord_data"],
                 "warnings": [],
                 "hierarchy": None,
             }

@@ -198,3 +198,48 @@ Cette livraison ne referme pas la Phase 4. Elle ne contient ni resolver,
 priorité/héritage/conflits, preview/impact, préflight/Plan, UI/Wizard, ni
 enforcement Discord. Les helpers `message_content_policy.py` et
 `translation_policy.py` restent spécialisés et séparés du moteur générique.
+
+## 11. Correctif ciblé « capacité bot UNKNOWN » — 2026-09-14
+
+Le chemin du défaut a été isolé dans les deux couches qui perdaient
+l'information utile :
+
+- `dashboard_capabilities()` arrêtait tout calcul si l'utilisateur n'avait pas
+  `bots.audit` et fabriquait un `UNKNOWN` avec
+  `capability.user.bot_audit_required`, avant même la lecture de l'identité et
+  du snapshot du bot ;
+- l'écran Rôles appliquait `?? 'UNKNOWN'` aussi bien pendant le chargement
+  qu'après une erreur HTTP, puis remplaçait presque toutes les causes
+  structurées par un texte générique.
+
+La dépendance `bots.audit` a été retirée uniquement de la projection minimale
+de capacité opérationnelle du bot DID installé. Cette projection reste
+autorisée par `tenant.read`, tenant-scopée, cache-first, sans appel REST Discord
+et sans valeur d'autorité pour une mutation : chaque commande conserve son
+RBAC et son préflight. Les véritables surfaces d'audit global
+`/{guild_id}/bots/audit` et d'access-map d'un bot arbitraire restent protégées
+par `bots.audit` et marquées sensibles.
+
+Le résultat reste fail-closed : une identité bot absente, des rôles bot
+incomplets, un snapshot incomplet ou non actuel produisent toujours
+`UNKNOWN`. L'API renvoie désormais une remédiation structurée pour actualiser
+les données. Une permission `MANAGE_ROLES` absente, une installation inactive,
+un rôle géré ou une hiérarchie trop basse produisent `CANNOT`; les deux cas
+actionnables proposent respectivement d'accorder `MANAGE_ROLES` ou de placer le
+rôle du bot au-dessus du rôle cible. Ces règles correspondent aux exigences
+Discord officielles de gestion des rôles et de hiérarchie :
+<https://docs.discord.com/developers/resources/guild#modify-guild-role> et
+<https://docs.discord.com/developers/platform/server-and-channel-management>.
+
+L'UI distingue maintenant cinq états de transport/produit : `LOADING`,
+`ERROR`, `CAN`, `CANNOT` et `UNKNOWN`. Les causes et remédiations backend sont
+présentées via un helper réutilisable, avec textes EN/FR/DE/ES. Une erreur HTTP
+est explicitement affichée comme erreur de requête avec bouton de retry et
+n'est plus assimilée à un `UNKNOWN` Discord.
+
+Preuves ciblées : 3 tests du checker de capacités, 2 tests de la projection API
+(dont `roles.write` + `plans.create` sans `bots.audit`) et 6 tests montés de
+l'écran Rôles passent. Le typecheck, ESLint ciblé, Ruff ciblé et le contrôle
+i18n passent également. Aucun Playwright, Discord live A/B ni suite backend
+complète n'a été exécuté pour ce correctif localisé. Le statut global de la
+Phase 4 et les statuts Policy Foundation ne changent pas.

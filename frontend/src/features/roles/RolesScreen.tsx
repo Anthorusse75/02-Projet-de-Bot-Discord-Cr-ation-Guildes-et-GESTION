@@ -4,9 +4,10 @@ import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { useRoles } from '../../api/queries'
-import type { DashboardCapabilities, Role } from '../../api/types'
+import type { CapabilityDecision, DashboardCapabilities, Role } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, EmptyState, ErrorState, Skeleton } from '../../shared/components/ui'
+import { capabilityPresentation, type CapabilityPresentation } from '../access/capabilityPresentation'
 import { createValidatedAccessPlan, type AccessPlanNode } from '../access/planDraft'
 
 type RoleAction =
@@ -16,7 +17,7 @@ type RoleAction =
   | { kind: 'reorder'; role: Role; position: number; direction: 'up' | 'down' }
 
 function outcomeTone(value: string | undefined): 'ok' | 'warning' | 'danger' {
-  return value === 'CAN' ? 'ok' : value === 'CANNOT' ? 'danger' : 'warning'
+  return value === 'CAN' ? 'ok' : value === 'CANNOT' || value === 'ERROR' ? 'danger' : 'warning'
 }
 
 export function RolesScreen() {
@@ -40,27 +41,42 @@ export function RolesScreen() {
   const userCanWrite = capabilities?.user_capabilities['roles.write']?.outcome ?? 'UNKNOWN'
   const userCanPlan = capabilities?.user_capabilities['plans.create']?.outcome ?? 'UNKNOWN'
   const createBot = capabilities?.bot_operations.CREATE_ROLE?.outcome ?? 'UNKNOWN'
-  const manageBot = targetCapabilities.data?.bot_operations.MANAGE_ROLE?.outcome ?? 'UNKNOWN'
-  const reorderBot = targetCapabilities.data?.bot_operations.REORDER_ROLES?.outcome ?? 'UNKNOWN'
+  const manageDecision = targetCapabilities.data?.bot_operations.MANAGE_ROLE
+  const reorderDecision = targetCapabilities.data?.bot_operations.REORDER_ROLES
   const isEveryone = selected?.id === guild.guild_id
-  const targetBlocked = Boolean(selected?.managed || isEveryone)
-  const selectedActionOutcome = targetBlocked ? 'CANNOT' : manageBot
+  const localTargetDecision: CapabilityDecision | undefined = selected?.managed
+    ? { outcome: 'CANNOT', causes: ['capability.hierarchy.target_managed'], remediations: [] }
+    : isEveryone
+      ? { outcome: 'CANNOT', causes: ['capability.hierarchy.default_role_mutation_forbidden'], remediations: [] }
+      : manageDecision
+  const managePresentation = capabilityPresentation({ isLoading: targetCapabilities.isLoading, isError: targetCapabilities.isError, decision: localTargetDecision })
+  const reorderPresentation = capabilityPresentation({ isLoading: targetCapabilities.isLoading, isError: targetCapabilities.isError, decision: selected?.managed || isEveryone ? localTargetDecision : reorderDecision })
 
-  function blockerText(outcome: string, role?: Role | null) {
-    if (role?.managed) return t('access.blocked.managed')
-    if (role?.id === guild.guild_id) return t('access.blocked.bot')
-    const causes = targetCapabilities.data?.bot_operations.MANAGE_ROLE?.causes ?? []
-    if (causes.some((cause) => cause.includes('bot_role_not_above_target'))) return t('access.blocked.hierarchy')
+  function blockerText(presentation: CapabilityPresentation, role?: Role | null) {
     if (userCanWrite === 'CANNOT' || userCanPlan === 'CANNOT') return t('access.blocked.user')
-    if (outcome === 'CANNOT') return t('access.blocked.bot')
-    return t('access.blocked.unknown')
+    if (presentation.state === 'LOADING') return t('capability.loading')
+    if (presentation.state === 'ERROR') return t('capability.queryError')
+    if (presentation.reasonKey) return t(presentation.reasonKey, { role: role?.name ?? '' })
+    return t('capability.cause.unclassified')
   }
 
   function canPrepare(kind: RoleAction['kind'], role?: Role | null) {
     if (userCanWrite !== 'CAN' || userCanPlan !== 'CAN') return false
     if (kind === 'create') return createBot === 'CAN'
     if (!role || role.managed || role.id === guild.guild_id) return false
-    return kind === 'reorder' ? reorderBot === 'CAN' : manageBot === 'CAN'
+    return (kind === 'reorder' ? reorderPresentation : managePresentation).state === 'CAN'
+  }
+
+  function capabilityTitle(presentation: CapabilityPresentation) {
+    if (presentation.state === 'LOADING') return t('capability.loading')
+    if (presentation.state === 'ERROR') return t('capability.errorTitle')
+    if (presentation.state === 'CAN') return t('roles.botCan')
+    if (presentation.state === 'CANNOT') return t('roles.botBlocked')
+    return t('roles.botUnknown')
+  }
+
+  function capabilityBadge(presentation: CapabilityPresentation) {
+    return t(`capability.badge.${presentation.state.toLowerCase()}`)
   }
 
   function actionDescription(value: RoleAction) {
@@ -74,7 +90,12 @@ export function RolesScreen() {
     if (!action) return
     const role = action.kind === 'create' ? null : action.role
     if (!canPrepare(action.kind, role)) {
-      setProblem(blockerText(action.kind === 'reorder' ? reorderBot : action.kind === 'create' ? createBot : selectedActionOutcome, role))
+      const presentation = action.kind === 'reorder'
+        ? reorderPresentation
+        : action.kind === 'create'
+          ? capabilityPresentation({ isLoading: false, isError: false, decision: capabilities?.bot_operations.CREATE_ROLE })
+          : managePresentation
+      setProblem(blockerText(presentation, role))
       return
     }
     setBusy(true)
@@ -136,7 +157,7 @@ export function RolesScreen() {
     <section className="access-page roles-workbench">
       <header className="access-hero">
         <div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('roles.title')}</h1><p>{t('roles.subtitle')}</p></div>
-        <button type="button" className="button primary" disabled={!canPrepare('create')} title={!canPrepare('create') ? blockerText(createBot) : undefined} onClick={() => setAction({ kind: 'create', name: '' })}>{t('roles.create')}</button>
+        <button type="button" className="button primary" disabled={!canPrepare('create')} title={!canPrepare('create') ? blockerText(capabilityPresentation({ isLoading: false, isError: false, decision: capabilities?.bot_operations.CREATE_ROLE })) : undefined} onClick={() => setAction({ kind: 'create', name: '' })}>{t('roles.create')}</button>
       </header>
 
       <div className="roles-layout">
@@ -156,7 +177,7 @@ export function RolesScreen() {
 
         <article className="access-panel role-detail-panel">
           {!selected ? <div className="access-empty"><span>◇</span><p>{t('roles.noSelection')}</p></div> : <>
-            <div className="access-panel-heading"><div><small>{t('roles.details')}</small><strong>{selected.name}</strong></div><Badge tone={outcomeTone(selectedActionOutcome)}>{selected.managed ? t('roles.managed') : selectedActionOutcome}</Badge></div>
+            <div className="access-panel-heading"><div><small>{t('roles.details')}</small><strong>{selected.name}</strong></div><Badge tone={outcomeTone(managePresentation.state)}>{selected.managed ? t('roles.managed') : capabilityBadge(managePresentation)}</Badge></div>
             <div className="role-meta-grid">
               <div><span>{t('structure.inspector.discordId')}</span><strong>{selected.id}</strong></div>
               <div><span>{t('structure.inspector.position')}</span><strong>{selected.position}</strong></div>
@@ -166,12 +187,12 @@ export function RolesScreen() {
             {selected.managed && <p className="access-callout warning">{t('roles.managedHelp')}</p>}
             {selected.unknown_bits !== '0' && <p className="access-callout warning">{t('roles.unknownBits', { value: selected.unknown_bits })}</p>}
             <section className="permission-chip-section"><h2>{t('permissions.expertRoleFlags')}</h2><div className="permission-chip-cloud">{selected.known_flags.map((flag) => <span key={flag}>{flag}</span>)}</div></section>
-            <section className="role-capability-card"><div><small>{t('roles.botCapability')}</small><strong>{selectedActionOutcome === 'CAN' ? t('roles.botCan') : selectedActionOutcome === 'CANNOT' ? t('roles.botBlocked') : t('roles.botUnknown')}</strong></div>{selectedActionOutcome !== 'CAN' && <p>{blockerText(selectedActionOutcome, selected)}</p>}</section>
+            <section className="role-capability-card" aria-live="polite"><div><small>{t('roles.botCapability')}</small><strong>{capabilityTitle(managePresentation)}</strong></div>{managePresentation.state !== 'CAN' && managePresentation.state !== 'LOADING' && <p>{blockerText(managePresentation, selected)}</p>}{managePresentation.remediationKeys.map((key) => <p className="capability-remediation" key={key}>{t(key, { role: selected.name })}</p>)}{managePresentation.state === 'ERROR' && <button type="button" className="button quiet" onClick={() => void targetCapabilities.refetch()}>{t('capability.retry')}</button>}</section>
             <div className="role-action-grid">
-              <button type="button" className="button quiet" disabled={!canPrepare('rename', selected)} title={!canPrepare('rename', selected) ? blockerText(manageBot, selected) : undefined} onClick={() => setAction({ kind: 'rename', role: selected, name: selected.name })}>{t('roles.edit')}</button>
-              <button type="button" className="button quiet" disabled={!roleAbove || !canPrepare('reorder', selected)} title={!canPrepare('reorder', selected) ? blockerText(reorderBot, selected) : undefined} onClick={() => roleAbove && setAction({ kind: 'reorder', role: selected, position: roleAbove.position, direction: 'up' })}>{t('roles.moveUp')}</button>
-              <button type="button" className="button quiet" disabled={!roleBelow || !canPrepare('reorder', selected)} title={!canPrepare('reorder', selected) ? blockerText(reorderBot, selected) : undefined} onClick={() => roleBelow && setAction({ kind: 'reorder', role: selected, position: roleBelow.position, direction: 'down' })}>{t('roles.moveDown')}</button>
-              <button type="button" className="button danger" disabled={!canPrepare('delete', selected)} title={!canPrepare('delete', selected) ? blockerText(manageBot, selected) : undefined} onClick={() => setAction({ kind: 'delete', role: selected })}>{t('roles.delete')}</button>
+              <button type="button" className="button quiet" disabled={!canPrepare('rename', selected)} title={!canPrepare('rename', selected) ? blockerText(managePresentation, selected) : undefined} onClick={() => setAction({ kind: 'rename', role: selected, name: selected.name })}>{t('roles.edit')}</button>
+              <button type="button" className="button quiet" disabled={!roleAbove || !canPrepare('reorder', selected)} title={!canPrepare('reorder', selected) ? blockerText(reorderPresentation, selected) : undefined} onClick={() => roleAbove && setAction({ kind: 'reorder', role: selected, position: roleAbove.position, direction: 'up' })}>{t('roles.moveUp')}</button>
+              <button type="button" className="button quiet" disabled={!roleBelow || !canPrepare('reorder', selected)} title={!canPrepare('reorder', selected) ? blockerText(reorderPresentation, selected) : undefined} onClick={() => roleBelow && setAction({ kind: 'reorder', role: selected, position: roleBelow.position, direction: 'down' })}>{t('roles.moveDown')}</button>
+              <button type="button" className="button danger" disabled={!canPrepare('delete', selected)} title={!canPrepare('delete', selected) ? blockerText(managePresentation, selected) : undefined} onClick={() => setAction({ kind: 'delete', role: selected })}>{t('roles.delete')}</button>
             </div>
             {problem && <p className="access-callout danger" role="alert">{problem}</p>}
           </>}

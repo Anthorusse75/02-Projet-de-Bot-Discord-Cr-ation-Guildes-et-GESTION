@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from httpx import ASGITransport, AsyncClient
@@ -7,7 +8,16 @@ from httpx import ASGITransport, AsyncClient
 from did.api.main import create_app
 from did.api.stage07 import application_commands_localization_status, dashboard_capabilities
 from did.domain.auth import AuthorizationScope, Capability
+from did.domain.discord_runtime import CoverageMode, FreshnessState
+from did.domain.read_model import (
+    CoverageSnapshot,
+    FreshnessSnapshot,
+    GuildSnapshot,
+    MemberSnapshot,
+    RoleSnapshot,
+)
 from did.localization import CATALOG_VERSION, LocalePackInvalid, LocalePackValidator
+from did.permissions import DEFAULT_PERMISSION_REGISTRY
 
 
 async def test_public_catalog_contract_and_etag() -> None:
@@ -131,4 +141,83 @@ async def test_dashboard_capabilities_use_resolved_authority_and_fail_closed_bot
     assert response["user_capabilities"]["structure.read"]["outcome"] == "CAN"
     assert response["user_capabilities"]["structure.write"]["outcome"] == "CANNOT"
     assert response["bot_operations"]["CREATE_CHANNEL"]["outcome"] == "UNKNOWN"
+    assert response["bot_operations"]["CREATE_CHANNEL"]["causes"] == [
+        "capability.bot_identity_unknown"
+    ]
+    assert response["bot_operations"]["CREATE_CHANNEL"]["remediations"] == [
+        "capability.remediation.refresh_discord_data"
+    ]
     assert response["scoped_capabilities"]["scope_kind"] == "GUILD"
+
+
+async def test_dashboard_role_capability_does_not_require_global_bot_audit() -> None:
+    guild_id = 700000000000000001
+    bot_id = 700000000000000010
+    bot_role_id = 700000000000000011
+    target_role_id = 700000000000000012
+    now = datetime(2026, 9, 14, tzinfo=UTC)
+    fresh = FreshnessSnapshot(FreshnessState.FRESH, "GATEWAY", 1, now, now, now)
+    manage_roles = DEFAULT_PERMISSION_REGISTRY.value("MANAGE_ROLES")
+    roles = (
+        RoleSnapshot(guild_id, guild_id, "@everyone", 0, 0, False, fresh),
+        RoleSnapshot(guild_id, target_role_id, "bots", 4, 0, False, fresh),
+        RoleSnapshot(guild_id, bot_role_id, "DID Bot", 5, manage_roles, True, fresh),
+    )
+    coverage = CoverageSnapshot(
+        guild_id,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "LOCAL_PROJECTION",
+        1,
+        known_roles=len(roles),
+        members_complete=True,
+        overwrites_complete=True,
+        threads_complete=True,
+        gateway_continuity="CONNECTED",
+    )
+    guild = GuildSnapshot(
+        guild_id,
+        700000000000000099,
+        roles,
+        (),
+        coverage,
+        fresh,
+        roles_complete=True,
+    )
+    bot = MemberSnapshot(guild_id, bot_id, (bot_role_id,), True, fresh, is_bot=True)
+
+    class Authorization:
+        async def authorize(self, **_: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                capabilities=frozenset(
+                    {Capability.TENANT_READ, Capability.ROLES_WRITE, Capability.PLANS_CREATE}
+                ),
+                scope=AuthorizationScope.guild(),
+            )
+
+    class Repository:
+        async def bot_identity(self, _: int) -> tuple[int, str]:
+            return bot_id, "ACTIVE"
+
+        async def guild_snapshot(self, _: int, __: int) -> tuple[GuildSnapshot, MemberSnapshot]:
+            return guild, bot
+
+    response = await dashboard_capabilities(
+        str(guild_id),
+        SimpleNamespace(discord_user_id=700000000000000002),
+        SimpleNamespace(
+            authorization=Authorization(),
+            stage04_repository=Repository(),
+            runtime_repository=SimpleNamespace(
+                metrics=SimpleNamespace(capability_check=lambda _: None)
+            ),
+        ),
+        resource_id=None,
+        target_role_id=str(target_role_id),
+    )
+
+    assert response["user_capabilities"]["bots.audit"]["outcome"] == "CANNOT"
+    assert response["user_capabilities"]["roles.write"]["outcome"] == "CAN"
+    assert response["user_capabilities"]["plans.create"]["outcome"] == "CAN"
+    assert response["bot_operations"]["MANAGE_ROLE"]["outcome"] == "CAN"
+    assert response["discord_rest_calls"] == 0

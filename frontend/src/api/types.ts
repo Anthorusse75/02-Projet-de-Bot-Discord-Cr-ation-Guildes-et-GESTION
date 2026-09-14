@@ -12,7 +12,8 @@ export type AuditEvent = { id: string; event_type: string; target_type: string; 
 export type PortableArtifact = { id: string; artifact_type: string; kind: string; name: string | null; content_hash: string; created_at: string; expires_at: string | null }
 export type Template = { id: string; name: string; artifact_type: string; created_at: string; updated_at: string }
 export type CapabilityOutcome = 'CAN' | 'CANNOT' | 'UNKNOWN'
-export type CapabilityDecision = { outcome: CapabilityOutcome; causes: string[]; remediations: string[]; warnings?: string[]; scope_kind?: string; scope_id?: string }
+export type CapabilityHierarchy = { outcome: CapabilityOutcome; bot_highest_role_id: DiscordSnowflake | null; bot_highest_position: number | null; target_role_id: DiscordSnowflake | null; target_position: number | null; reasons: string[] }
+export type CapabilityDecision = { outcome: CapabilityOutcome; causes: string[]; remediations: string[]; hierarchy?: CapabilityHierarchy | null; warnings?: string[]; scope_kind?: string; scope_id?: string }
 export type DashboardCapabilities = {
   guild_id: DiscordSnowflake
   source: 'AUTHORIZATION_AND_LOCAL_CACHE'
