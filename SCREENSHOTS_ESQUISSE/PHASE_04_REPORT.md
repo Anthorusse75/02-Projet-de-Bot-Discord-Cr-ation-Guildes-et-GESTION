@@ -393,3 +393,141 @@ Tests exécutés : 57 tests backend Policy, 5 tests unitaires catalogue/UI, troi
 Playwright ciblés dont axe sur `#main`, typecheck, lint, i18n EN/FR/DE/ES,
 Ruff/format et OpenAPI. Tests non exécutés : campagne globale, PostgreSQL/RLS,
 Discord live A/B et tout APPLY. Aucun fichier de migration n'est ajouté.
+
+## 15. Lot frontend « Socle Wizard générique + assistant Configurer l'accès à un espace » — 2026-09-15
+
+Ce lot est **frontend seul** : le backend (Policy, resolver, Plan/DSG,
+capabilities) était déjà suffisant pour porter un vrai assistant de bout en
+bout et n'a pas été modifié.
+
+### Entrée dédiée et catalogue
+
+Une entrée localisée **Assistants** apparaît dans la navigation principale,
+distincte de Politiques d'accès, Plans et Templates (`/guild/:id/wizards`).
+L'écran catalogue liste, pour chaque assistant, objectif, portée, ce qu'il
+peut proposer, prérequis et complexité approximative. Le catalogue contient
+volontairement deux entrées seulement : **Configurer l'accès à un espace**
+(disponible, démarre le Wizard) et **Construire un gabarit** (marqué non
+disponible avec sa raison — prévu pour la Phase 6 Templates). Aucune entrée
+n'est un faux catalogue : ce qui n'est pas construit est explicitement dit
+indisponible.
+
+### Socle Wizard réutilisable
+
+Trois primitives génériques, indépendantes de tout domaine métier, vivent
+dans `frontend/src/features/wizards/core/` :
+
+- `reducer.ts` : reducer pur `createWizardReducer(steps, initialAnswers)` —
+  navigation `NEXT/BACK/GOTO/RESET`, `furthestIndex` (steps déjà atteints),
+  et invalidation explicite (`UPDATE` avec `resetKeys`) qui réinitialise les
+  réponses dépendantes et ramène `furthestIndex` à l'étape courante ;
+- `useWizard.ts` : hook React (`useReducer`) exposant l'état et les actions ;
+- `WizardShell.tsx` : présentation générique (barre de progression cliquable
+  uniquement sur les étapes atteintes, titre d'étape focus au changement,
+  boutons Précédent/Suivant/Quitter) ;
+- `RoleMultiSelect.tsx` : sélecteur de rôles multi-sélection réutilisable
+  (rôles gérés visibles mais désactivés avec explication, jamais masqués ;
+  bloc « rôle suggéré » ; « + Créer un rôle » ouvrant une proposition locale).
+
+Le socle ne contient aucun appel réseau et aucune logique de résolution : les
+étapes concrètes (dans `features/wizards/accessSpace/`) sont seules
+responsables des appels Policy/Plan existants. Il est explicitement conçu
+pour être réutilisé tel quel par un futur Wizard Templates (Phase 6) ou
+Traduction/Campagnes (Phase 7).
+
+### Assistant « Configurer l'accès à un espace »
+
+Sept étapes guidées, retour arrière libre : Cible → Intention → Rôles →
+Conflits → Ajuster → Preview/Impact → Plan.
+
+- **Cible/Intention** réutilisent exactement le catalogue de politiques
+  natives et le calcul de compatibilité déjà utilisés par l'espace Policies
+  (`features/policies/catalog.ts`, `targets.ts` désormais extrait et partagé
+  par les deux écrans).
+- **Rôles** propose tous les rôles existants du read model tenant courant
+  (aucune recréation aveugle) via `RoleMultiSelect`. Si aucun rôle n'est
+  encore sélectionné, une suggestion contextuelle (« Rôle suggéré : Membres
+  confirmés — sera créé ») ouvre `+ Créer un rôle`, toujours modifiable, qui
+  n'ajoute qu'une **proposition locale** (nom validé par
+  `validateDiscordResourceName` de la Phase 3). Un rôle proposé seul, sans
+  aucun rôle réel sélectionné, bloque explicitement l'étape avec un état
+  `CANNOT` expliqué (« le rôle n'existe pas encore ») plutôt qu'un bouton
+  désactivé sans cause.
+- **Conflits** affiche, en lecture seule, les politiques existantes déjà
+  compatibles avec la cible choisie — purement informatif, avec un rappel
+  explicite que les conflits exacts viennent du même resolver canonique à
+  l'étape Preview.
+- **Preview/Impact** réutilise mot pour mot les routes Policy existantes
+  (`POST .../policies` puis `POST .../policies/{id}/preview`) : décision
+  avant/après, gains/pertes, membres impactés, conflits, précision
+  `EXACT/BOUNDED/INCOMPLETE`. Aucune logique de résolution React parallèle.
+  La création du brouillon est explicite (bouton « Créer le brouillon et
+  prévisualiser », bandeau « Discord n'a pas été modifié ») : REQ-WIZ-013 est
+  respecté puisque la Policy créée reste toujours `DRAFT`.
+- **Plan** ne propose que « Préparer le plan » (jamais « Appliquer »). S'il
+  existe un rôle proposé, un plan de rôle séparé (DSG existant, `symbol` sans
+  `discord_id`, **validé mais jamais appliqué**) peut être préparé en plus ;
+  la Policy elle-même ne référence que des rôles réellement existants, car le
+  contrat `ACCESS_CONTROL` valide les `role_ids` contre le tenant à la
+  création — un rôle encore proposé ne peut donc pas y figurer avant d'avoir
+  été réellement créé via son propre Plan/Preflight/Apply (Phase 5).
+
+### Annulation
+
+Avant la moindre création de brouillon, « Quitter sans enregistrer » ne
+déclenche aucun appel réseau. Une fois un brouillon `DRAFT` créé (action
+explicite et disclosée, jamais silencieuse), le bouton devient « Quitter
+(brouillon conservé) » : le brouillon existe déjà côté serveur mais reste
+`DRAFT`, donc sans effet — la distinction est réelle, pas décorative,
+puisqu'elle reflète exactement si un appel réseau a eu lieu ou non.
+
+### Exigences fermées
+
+`REQ-WIZ-001` à `010`, `013`, `014` passent d'**ABSENT** à **CONFORME**.
+`REQ-POL-043` passe d'**ABSENT** à **CONFORME** (Policy proposée par un
+Wizard, visible/éditable/previewable avant activation, jamais activée
+silencieusement). `REQ-PERMX-010` passe de **PARTIEL** à **CONFORME** : le
+Wizard consomme le même `PolicyResolver`/Plan Engine que le reste du produit,
+sans calcul frontend autorisant une mutation. `REQ-WIZ-011`/`012`
+(onboarding Phase 2) ne sont pas retouchés.
+
+### Tests exécutés
+
+- Unitaires (Vitest) : navigation avant/arrière et invalidation des étapes
+  dépendantes (`reducer.test.ts`, 6 tests) ; rôle suggéré/créé reste une
+  proposition locale, jamais un appel réseau (`RoleMultiSelect.test.tsx`,
+  2 tests) ; annulation avant brouillon ne déclenche aucune mutation, et
+  aucune affordance « Apply » n'existe sur la page
+  (`AccessSpaceWizardScreen.test.tsx`, 2 tests).
+- E2E Playwright ciblés (`e2e/phase04-wizard-access-space.spec.ts`, 2 tests
+  au lieu de 3 en fusionnant un cas `CANNOT`) :
+  1. parcours nominal avec axe sur `#main` — Assistants → Configurer l'accès
+     → cible existante → « Visible uniquement par… » → rôle existant →
+     Preview → Policy DRAFT → Préparer le plan, zéro requête `apply` ;
+  2. rôle manquant — `+ Créer un rôle`, étape bloquée en `CANNOT` tant
+     qu'aucun rôle réel n'est sélectionné, plan de rôle validé (jamais
+     appliqué), Policy créée ne référence que le rôle réellement existant.
+- Suite complète frontend (`npm run test`, `typecheck`, `lint`,
+  `i18n:check`) et E2E Policies existant (`phase04-policies.spec.ts`)
+  rejoués sans régression : un seul échec pré-existant et sans rapport
+  (`StructureScreen.test.tsx`) reproduit identiquement sur `HEAD` avant ce
+  lot.
+
+### Tests volontairement non exécutés
+
+Campagne backend complète, PostgreSQL/RLS (aucune table modifiée), Discord
+live A/B, tout APPLY réel, Operations Center, matrice d'accès globale,
+édition en masse, Templates (Phase 6) — aucun de ces éléments n'est concerné
+par ce lot.
+
+### Fichiers ajoutés/modifiés
+
+Nouveaux : `features/wizards/core/{reducer,useWizard,WizardShell,
+RoleMultiSelect}.tsx?`, `features/wizards/{catalog.ts,AssistantsScreen.tsx,
+wizards.css}`, `features/wizards/accessSpace/AccessSpaceWizardScreen.tsx`,
+`features/policies/{targets.ts,errors.ts}`, `localization/
+phase4WizardCatalog.ts`, `e2e/phase04-wizard-access-space.spec.ts`, tests
+unitaires associés. Modifiés : `app/App.tsx`, `app/AppShell.tsx`,
+`localization/runtime.tsx`, `main.tsx`, `features/policies/PoliciesScreen.tsx`
+(extraction de `buildPolicyTargets`/`targetKey`/`apiProblem` vers des modules
+partagés, comportement inchangé). Aucune migration base de données.

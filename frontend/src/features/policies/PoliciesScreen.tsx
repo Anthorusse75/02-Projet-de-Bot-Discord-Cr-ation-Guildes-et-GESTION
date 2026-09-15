@@ -2,12 +2,12 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
-import { ApiError, apiRequest } from '../../api/client'
+import { apiRequest } from '../../api/client'
 import { usePolicies, useRoles, useStructure } from '../../api/queries'
 import type { LogicalGroup, Policy, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
+import { apiProblem } from './errors'
 import {
   clonePolicyDefinition,
   compatibleNativePolicies,
@@ -19,15 +19,12 @@ import {
   type PolicyDraftDefinition,
   type PolicyTarget,
 } from './catalog'
+import { buildPolicyTargets, targetKey } from './targets'
 
 type Selection = { kind: 'NATIVE'; native: NativePolicy } | { kind: 'CUSTOM'; policy: Policy }
 type EditorState = { name: string; description: string; priority: number; roleIds: string[] }
 
 const lifecycleTone = { DRAFT: 'warning', ACTIVE: 'ok', DISABLED: 'neutral', RETIRED: 'danger' } as const
-
-function targetKey(target: PolicyTarget): string {
-  return `${target.kind}:${target.scopeId ?? '*'}`
-}
 
 function partialMember(value: string): string {
   return value.length <= 4 ? value : `…${value.slice(-4)}`
@@ -67,12 +64,6 @@ function customDefinition(policy: Policy, editor: EditorState): PolicyDraftDefin
   }
 }
 
-function apiProblem(error: unknown, t: TFunction): string {
-  if (error instanceof ApiError && error.status === 403) return t('policies.error.denied')
-  if (error instanceof ApiError && error.status === 409) return t('policies.error.conflict')
-  return t('errors.generic', { requestId: error instanceof ApiError ? error.requestId : 'unknown' })
-}
-
 export function PoliciesScreen() {
   const { t, i18n } = useTranslation()
   const { me, guild, capabilities } = useOutletContext<DashboardContext>()
@@ -105,17 +96,10 @@ export function PoliciesScreen() {
   const [remediationKey, setRemediationKey] = useState<string | null>(null)
 
   const roles = useMemo(() => [...(rolesQuery.data?.roles ?? [])].filter((role) => !role.managed).sort((a, b) => b.position - a.position), [rolesQuery.data])
-  const targets = useMemo<PolicyTarget[]>(() => {
-    const values: PolicyTarget[] = [{ kind: 'GUILD', scopeType: 'GUILD', scopeId: null, label: guild.name }]
-    for (const group of groupsQuery.data?.groups ?? []) values.push({ kind: 'LOGICAL_GROUP', scopeType: 'LOGICAL_GROUP', scopeId: group.id, label: group.name })
-    for (const category of structureQuery.data?.categories ?? []) {
-      values.push({ kind: 'CATEGORY', scopeType: 'CATEGORY', scopeId: category.id, label: category.name })
-      for (const channel of category.channels) values.push({ kind: channel.type === 2 || channel.type === 13 ? 'VOICE_CHANNEL' : 'TEXT_CHANNEL', scopeType: 'CHANNEL', scopeId: channel.id, label: `${category.name} / ${channel.name}` })
-    }
-    for (const channel of structureQuery.data?.root_channels ?? []) values.push({ kind: channel.type === 2 || channel.type === 13 ? 'VOICE_CHANNEL' : 'TEXT_CHANNEL', scopeType: 'CHANNEL', scopeId: channel.id, label: channel.name })
-    for (const role of roles) values.push({ kind: 'ROLE', scopeType: 'ROLE', scopeId: role.id, label: role.name })
-    return values
-  }, [groupsQuery.data, guild.name, roles, structureQuery.data])
+  const targets = useMemo<PolicyTarget[]>(
+    () => buildPolicyTargets(guild, roles, groupsQuery.data?.groups, structureQuery.data),
+    [groupsQuery.data, guild, roles, structureQuery.data],
+  )
   const selectedTarget = targets.find((target) => targetKey(target) === targetValue) ?? targets[0] ?? null
   const channelTypes = useMemo(() => new Map(targets.filter((target) => target.scopeType === 'CHANNEL' && target.scopeId).map((target) => [target.scopeId as string, target.kind === 'VOICE_CHANNEL' ? 2 : 0])), [targets])
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))

@@ -188,6 +188,47 @@ Preuves : 57 tests backend ciblés, 5 tests catalogue, trois Playwright ciblés,
 typecheck, lint, i18n quatre langues, axe sur l'espace principal, Ruff et
 OpenAPI. Pas de campagne globale, PostgreSQL, Discord live ou APPLY.
 
+### Lot frontend socle Wizard + assistant « Configurer l'accès à un espace » — livré le 2026-09-15
+
+Backend inchangé : le Policy Engine, le resolver, le raccord Plan et les
+capabilities existants étaient déjà suffisants. Une entrée « Assistants »
+localisée rejoint la navigation, distincte de Politiques d'accès/Plans/
+Templates, avec un catalogue à deux entrées (un assistant réellement
+disponible, un marqué explicitement non disponible pour la Phase 6).
+
+Le socle Wizard générique (`features/wizards/core/`) fournit un reducer pur
+de navigation/invalidation, un hook React, une présentation d'étapes avec
+focus géré et un sélecteur de rôles multi-sélection réutilisable (rôles
+gérés visibles-mais-désactivés, suggestion de rôle manquant, « + Créer un
+rôle » en proposition locale uniquement). Aucune logique de résolution ni
+aucun appel Discord n'y vit : chaque étape concrète appelle uniquement les
+routes Policy/Plan canoniques déjà existantes.
+
+L'assistant « Configurer l'accès à un espace » guide sept étapes (cible,
+intention, rôles, conflits informatifs, ajustement, Preview/Impact réel via
+les routes Policy existantes, Plan) et ne peut produire qu'une Policy
+`DRAFT`, jamais activée depuis le Wizard. Un rôle manquant reste une
+proposition tant qu'il n'a pas son propre Plan de rôle validé (jamais
+appliqué) ; la Policy ne référence que des rôles réellement existants, le
+contrat `ACCESS_CONTROL` validant les `role_ids` contre le tenant à la
+création. Sélectionner uniquement un rôle proposé bloque l'étape avec une
+explication `CANNOT`, pas un bouton désactivé sans cause. L'annulation avant
+toute création de brouillon ne déclenche aucun appel réseau ; après, le
+brouillon `DRAFT` déjà créé (action explicite, jamais silencieuse) reste
+sans effet.
+
+`REQ-WIZ-001` à `010`, `013`, `014` et `REQ-POL-043` passent à **CONFORME**.
+`REQ-PERMX-010` passe de **PARTIEL** à **CONFORME**. `REQ-WIZ-011`/`012`
+restent inchangés (Phase 2).
+
+Preuves : 10 tests unitaires frontend ciblés (reducer, sélecteur de rôles,
+annulation), deux Playwright ciblés (parcours nominal avec axe sur `#main`,
+parcours rôle manquant incluant le cas `CANNOT`), suite frontend complète,
+typecheck, lint et i18n quatre langues rejoués sans régression (un seul
+échec pré-existant sans rapport, déjà présent avant ce lot). Pas de campagne
+backend, PostgreSQL, Discord live ni APPLY : rien de tout cela n'est modifié
+par ce lot. Aucune migration.
+
 ### Preuve minimale utile
 
 Tests unitaires ciblés resolver/lifecycle, intégration RLS/RBAC/persistance, E2E whitelist + blacklist/conflit + Wizard. Pas de régression générale à chaque changement UI.

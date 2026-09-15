@@ -13,9 +13,9 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 328 |
-| PARTIEL | 35 |
-| ABSENT | 16 |
+| CONFORME | 342 |
+| PARTIEL | 34 |
+| ABSENT | 3 |
 | NON DÉMONTRÉ | 10 |
 | **Total** | **389** |
 
@@ -150,6 +150,62 @@ refus capability), typecheck, lint, i18n EN/FR/DE/ES, axe sur `#main`, Ruff et
 contrat OpenAPI. Aucun APPLY, Discord live, test PostgreSQL ou campagne globale
 n'a été exécuté pour ce lot.
 
+### Complément ciblé `ui/complete-redesign` — Phase 4, socle Wizard générique
+
+Ce cinquième lot est **frontend seul** : le Policy Engine, le resolver, le
+raccord Plan canonique et les capabilities étaient déjà suffisants pour
+porter un vrai assistant de bout en bout, sans aucune modification backend.
+
+Un socle Wizard générique et réutilisable (`frontend/src/features/wizards/
+core/`) fournit les primitives REQ-WIZ-001 à 010 : entrée de navigation
+dédiée, catalogue d'assistants (un disponible, un explicitement marqué non
+disponible), navigation multi-étapes avec retour arrière, invalidation
+explicite des réponses dépendantes lors d'un changement en amont, adaptation
+au read model tenant réel, sélecteur de rôles multi-sélection réutilisable
+(rôles gérés visibles-mais-désactivés, jamais masqués) et `+ Créer un rôle`
+qui n'ajoute qu'une proposition locale, jamais une mutation Discord.
+
+L'assistant réel « Configurer l'accès à un espace » (REQ-WIZ-004/005/006/
+007/008) réutilise mot pour mot les routes Policy existantes pour la
+preview/impact (REQ-WIZ-009) et ne peut produire qu'une Policy `DRAFT`
+éditable et previewable avant toute activation (REQ-WIZ-013, REQ-POL-043).
+Un rôle manquant reste une proposition tant qu'il n'a pas son propre Plan de
+rôle validé — jamais appliqué — car le contrat `ACCESS_CONTROL` valide les
+`role_ids` référencés contre le tenant à la création de la Policy; un rôle
+uniquement proposé bloque donc explicitement l'étape avec une cause
+`CANNOT`, jamais un bouton désactivé sans explication. L'annulation avant
+toute création de brouillon ne déclenche aucun appel réseau (REQ-WIZ-010).
+Toutes les chaînes visibles passent par les catalogues i18n EN/FR/DE/ES et
+la navigation clavier des primitives partagées (`Dialog`, `Badge`) déjà
+auditées (REQ-WIZ-014).
+
+| ID | Avant | Preuve complémentaire | Après |
+|---|---|---|---|
+| REQ-WIZ-001 | ABSENT | Entrée « Assistants » localisée dans la navigation principale, distincte de Politiques d'accès/Plans/Templates. | CONFORME |
+| REQ-WIZ-002 | ABSENT | Écran catalogue listant objectif, portée, ce qui peut être proposé, prérequis et complexité pour chaque assistant; aucune entrée indisponible n'est présentée comme utilisable. | CONFORME |
+| REQ-WIZ-003 | ABSENT | Reducer pur testé : `NEXT`/`BACK`/`GOTO` bornés par `furthestIndex`, `UPDATE` avec `resetKeys` invalide les réponses dépendantes et ramène `furthestIndex`; aucune mutation Discord dans le reducer. | CONFORME |
+| REQ-WIZ-004 | ABSENT | Cible/rôles proposés viennent du read model tenant réel (`useRoles`, `useStructure`, `logical-groups`); aucune recréation aveugle d'une ressource déjà adaptée. | CONFORME |
+| REQ-WIZ-005 | ABSENT | `RoleMultiSelect` affiche tous les rôles compatibles, supporte la multi-sélection, ne présente jamais un rôle unique, et signale les rôles gérés/intégrations comme non utilisables avec leur cause au lieu de les masquer. | CONFORME |
+| REQ-WIZ-006 | ABSENT | Rôle suggéré affiché explicitement « sera créé », reste modifiable, n'est jamais confondu avec un rôle existant et n'est créé nulle part avant le Plan. | CONFORME |
+| REQ-WIZ-007 | ABSENT | « + Créer un rôle » ouvre une boîte de dialogue (nom validé par le validateur Phase 3) sans quitter le Wizard; propriétés minimales réellement supportées par le DSG rôle existant (couleur non ajoutée car non gérée proprement par l'architecture actuelle). | CONFORME |
+| REQ-WIZ-008 | ABSENT | Cible, intention, rôles, nom et description restent éditables jusqu'à l'étape Plan; rien n'est imposé silencieusement. | CONFORME |
+| REQ-WIZ-009 | ABSENT | Preview/Impact et création de Plan appellent exactement les routes Policy/Plan canoniques existantes; aucun second resolver ni second moteur de Plan. | CONFORME |
+| REQ-WIZ-010 | ABSENT | Test unitaire et E2E : annuler avant toute création de brouillon ne déclenche aucun appel réseau; aucune Policy `ACTIVE`, aucun rôle Discord créé. | CONFORME |
+| REQ-WIZ-013 | ABSENT | La Policy produite par le Wizard reste `DRAFT`; le bouton final est « Préparer le plan », jamais une activation ni un Apply. | CONFORME |
+| REQ-WIZ-014 | ABSENT | Aucune chaîne visible hors catalogue i18n (scan `check_frontend_i18n.py` vert), quatre langues couvertes, focus géré au changement d'étape, `Dialog` réutilisé pour la création de rôle avec piège de focus et fermeture `Échap`. | CONFORME |
+| REQ-POL-043 | ABSENT | Le Wizard ne propose qu'une Policy `DRAFT`, visible, éditable (cible/rôles/nom/description) et previewable avant toute activation séparée. | CONFORME |
+| REQ-PERMX-010 | PARTIEL | Le Wizard consomme le même `PolicyResolver`/Plan Engine que Policies et Plans; aucun calcul frontend séparé n'autorise une mutation. | CONFORME |
+
+Preuves ciblées : 10 tests unitaires frontend (`reducer.test.ts`,
+`RoleMultiSelect.test.tsx`, `AccessSpaceWizardScreen.test.tsx`), deux
+parcours Playwright ciblés (nominal avec axe sur `#main`; rôle manquant avec
+un cas `CANNOT` explicite), suite frontend complète, typecheck, lint et
+i18n quatre langues rejoués sans régression additionnelle — un seul échec
+pré-existant et sans rapport (`StructureScreen.test.tsx`) est identique
+avant et après ce lot. Aucun test backend, PostgreSQL, Discord live ou APPLY
+n'a été exécuté : rien de ce périmètre n'est modifié par ce lot. Aucune
+migration.
+
 ## PARTIEL — ce qui est fait / ce qui manque
 
 | ID | Implémenté | Manque |
@@ -180,9 +236,8 @@ n'a été exécuté pour ce lot.
 | REQ-REUSE-009 | dnd-kit et primitives UI sont prévus/utilisés | emoji picker pas encore présent. |
 | REQ-REUSE-010 | Redis/streams/locks et abstractions existent | audit exhaustif non réalisé. |
 | REQ-REUSE-012 | TranslationProvider/Discord adapter sont de bons exemples | pas prouvé partout. |
-| REQ-PERMX-010 | Moteurs canoniques permissions/Policy et raccord au Plan existent. | Wizard Policies absent. |
 | REQ-QA-001 | Règle d’audit adoptée ici | traçabilité historique parfois plus large que preuve réinspectée. |
-| REQ-QA-003 | Permissions/planning et pipeline Policy backend fortement testés. | UI/Wizard et chaîne CI Policy complète restent à démontrer. |
+| REQ-QA-003 | Permissions/planning, pipeline Policy backend et Wizard Policies fortement testés. | Chaîne CI Policy complète reste à démontrer. |
 | REQ-QA-004 | Historique Stage10 affirme couverture | pas tout réexécuté. |
 | REQ-QA-005 | Suite importante déclarée | audit indépendant exhaustif non reproduit. |
 | REQ-QA-006 | Stage07-10 E2E existent | nouveaux Wizards/Policies non couverts. |
@@ -213,17 +268,16 @@ n'a été exécuté pour ce lot.
 - `REQ-POL-021`, `REQ-POL-022`, `REQ-POL-023`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`
 - `REQ-POL-006`
 - `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
+- `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`, `REQ-WIZ-014`, `REQ-POL-043`, `REQ-PERMX-010`
 
 ### PARTIEL
 
 - `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-050`, `REQ-POL-051`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
-- `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
+- `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
 
-- `REQ-POL-043`
-- `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
-- `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
+- `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
 ### NON DÉMONTRÉ
 

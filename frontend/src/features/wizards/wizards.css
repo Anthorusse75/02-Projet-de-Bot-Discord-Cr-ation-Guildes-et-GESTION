@@ -1,0 +1,36 @@
+.wizards-catalog-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+.wizard-catalog-card { display: grid; gap: .6rem; align-content: start; }
+.wizard-catalog-card dl { display: grid; gap: .35rem; margin: 0; }
+.wizard-catalog-card dl > div { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: .75rem; }
+.wizard-catalog-card dt { color: var(--muted); }
+
+.wizard-shell { display: grid; gap: 1.25rem; }
+.wizard-progress ol { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: 0; list-style: none; }
+.wizard-progress-step { display: flex; align-items: center; gap: .45rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.wizard-progress-step:disabled { opacity: .5; cursor: not-allowed; }
+.wizard-progress-step.current { border-color: var(--accent); color: #eef2ff; box-shadow: 0 0 0 1px var(--accent); }
+.wizard-progress-step.done { color: #eef2ff; }
+.wizard-progress-index { display: inline-flex; align-items: center; justify-content: center; inline-size: 1.4rem; block-size: 1.4rem; border-radius: 50%; background: var(--panel); font-size: .75rem; }
+.wizard-step-content { padding: 1rem 1.25rem; border: 1px solid var(--line); border-radius: .75rem; background: color-mix(in srgb, var(--panel) 88%, transparent); }
+.wizard-step-content h2 { margin-top: 0; }
+.wizard-step-body { display: grid; gap: .85rem; }
+.wizard-controls { justify-content: space-between; }
+.wizard-controls-nav { display: flex; gap: .65rem; }
+
+.wizard-role-select { display: grid; gap: .75rem; }
+.wizard-role-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .5rem; }
+.wizard-role-row { display: flex; gap: .55rem; align-items: center; min-height: 2.7rem; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--panel-2); }
+.wizard-role-row.unusable { opacity: .65; }
+.wizard-proposed-roles { display: grid; gap: .4rem; padding: 0; margin: 0; list-style: none; }
+.wizard-proposed-roles li { display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border: 1px dashed var(--warning); border-radius: .6rem; }
+.wizard-role-suggestion { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+
+.wizard-conflict-list { display: grid; gap: .4rem; padding: 0; margin: 0; list-style: none; }
+.wizard-conflict-list li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--panel-2); }
+
+.wizard-role-plan-card, .wizard-policy-plan-card { display: grid; gap: .5rem; padding: 1rem; margin-bottom: .75rem; }
+
+@media (max-width: 620px) {
+  .wizard-controls { flex-direction: column; align-items: stretch; }
+  .wizard-controls-nav { justify-content: flex-end; }
+}
