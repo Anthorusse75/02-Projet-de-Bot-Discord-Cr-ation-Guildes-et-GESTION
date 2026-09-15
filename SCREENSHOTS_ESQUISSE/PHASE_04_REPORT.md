@@ -344,3 +344,52 @@ les sept modules source concernés passent. Le round-trip Alembic
 `0038 → 0037 → 0038` passe et la base termine sur `0038_ui_phase4 (head)`.
 Aucun Playwright, Discord live A/B, APPLY Discord réel ni suite backend complète
 n'a été exécuté. La Phase 4 reste ouverte pour l'UI Policies et les Wizards.
+
+## 14. Lot UI « Politiques d'accès » — 2026-09-15
+
+La navigation contient désormais une vraie entrée localisée vers un espace
+Policies en dark navy et à divulgation progressive. L'architecture conserve un
+catalogue DID versionné côté application et ne crée en base que les Policies
+personnalisées `ACCESS_CONTROL v1` tenant-scopées.
+
+Les sept natives disponibles sont :
+
+1. Visible uniquement par…
+2. Visible par tous sauf…
+3. Seuls … peuvent écrire
+4. Tout le monde peut écrire sauf…
+5. Lecture ouverte, publication limitée à…
+6. Espace privé — visible uniquement par…
+7. Staff uniquement
+
+Le contrat fermé accepte une audience de rôles `INCLUDE/EXCLUDE` par effet.
+Cette extension additive est évaluée par l'unique `PolicyResolver`; elle permet
+notamment de laisser `VIEW` ouvert tout en limitant `WRITE`, sans logique de
+permission parallèle dans React.
+
+Les Policies personnalisées peuvent être créées depuis une native, renommées
+et modifiées tant qu'elles sont `DRAFT`, dupliquées depuis une native ou une
+personnalisée, et recréées depuis une révision connue sous forme d'un nouveau
+brouillon. La suppression n'est volontairement pas exposée : le backend ne
+porte pas encore le contrat de dépendances nécessaire pour proposer sans risque
+« détacher / remplacer / annuler ».
+
+Le mode simple montre cible, audiences multi-rôles et intentions humaines
+Voir/Écrire/Rejoindre. Le mode expert expose sans autre calcul l'ID, la
+révision, la priorité, le scope, les conditions, effets et résolutions. La
+preview backend affiche avant/après, gains, pertes, membres, rôles, ressources,
+conflits et précision `EXACT/BOUNDED/INCOMPLETE`. Les remédiations de conflit
+n'appliquent rien et ne retirent aucun rôle automatiquement.
+
+« Pourquoi ce résultat ? » appelle la route Explain existante. « Préparer le
+plan » appelle l'endpoint Policy→Plan canonique puis redirige vers Plans. Aucun
+Apply n'est ajouté dans ce lot.
+
+Exigences : `REQ-POL-006`, `025`, `032`, `041` et `042` passent respectivement
+de **PARTIEL/ABSENT** à **CONFORME**. `REQ-POL-043` reste **ABSENT** pour le lot
+Wizard. Les autres statuts ne sont pas relevés sans preuve supplémentaire.
+
+Tests exécutés : 57 tests backend Policy, 5 tests unitaires catalogue/UI, trois
+Playwright ciblés dont axe sur `#main`, typecheck, lint, i18n EN/FR/DE/ES,
+Ruff/format et OpenAPI. Tests non exécutés : campagne globale, PostgreSQL/RLS,
+Discord live A/B et tout APPLY. Aucun fichier de migration n'est ajouté.

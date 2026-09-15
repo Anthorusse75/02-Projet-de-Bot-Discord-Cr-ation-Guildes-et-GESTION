@@ -1,6 +1,6 @@
 # Discord Infrastructure Designer — Audit d’implémentation
 
-> Snapshot audité : `stage/10-acceptance` @ `dfd6bb57517806f2b68144818714755c82e0871c`  
+> Snapshot audité : `ui/complete-redesign` — HEAD du lot UI Policies
 > Périmètre : **389 exigences** — 246 historiques + 143 détaillées.
 
 ## Méthode
@@ -13,9 +13,9 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 323 |
-| PARTIEL | 36 |
-| ABSENT | 20 |
+| CONFORME | 328 |
+| PARTIEL | 35 |
+| ABSENT | 16 |
 | NON DÉMONTRÉ | 10 |
 | **Total** | **389** |
 
@@ -122,13 +122,40 @@ et futur APPLY délèguent tous au même `PolicyResolver`.
 | REQ-POL-050 | PARTIEL | Contrats preview/plan, capabilities read/sensibles et isolation PostgreSQL A/B testés. La preuve HTTP 403 complète manque encore. | PARTIEL |
 | REQ-POL-051 | ABSENT | Test PostgreSQL persistance→preview→preflight→Plan→activation/provenance et retry sans doublon; chaîne CI complète audit→désactivation non démontrée. | PARTIEL |
 
+### Complément ciblé `ui/complete-redesign` — Phase 4, expérience Policies
+
+Ce quatrième lot livre l'entrée de navigation et l'espace de travail Policies
+en langage humain. Le catalogue DID est versionné côté application et n'est pas
+dupliqué dans chaque tenant. Les objets persistés restent exclusivement des
+Policies personnalisées `ACCESS_CONTROL v1`; leur preview, leur explication et
+leur Plan utilisent les routes et moteurs canoniques existants.
+
+Le contrat fermé accepte désormais une audience de rôles optionnelle par effet.
+Cette extension additive du même registre et du même `PolicyResolver` permet de
+représenter correctement une inclusion, une exclusion et une lecture ouverte
+avec publication limitée sans créer de logique de résolution frontend.
+
+| ID | Avant | Preuve complémentaire | Après |
+|---|---|---|---|
+| REQ-POL-006 | PARTIEL | Catalogue et liste affichent nom, explication, famille, cible, origine DID/personnalisée, lifecycle, révision, héritage et état d'analyse des conflits sans UUID en mode normal. | CONFORME |
+| REQ-POL-025 | ABSENT | Depuis chaque ligne de preview, « Why this result? » appelle `POST /policy-resolution` et rend décision, source, héritage, exception et causes backend; E2E ciblé. | CONFORME |
+| REQ-POL-032 | ABSENT | L'historique append-only propose « Create a new draft from this revision » via la route de création DRAFT; aucun rollback Discord n'est promis. | CONFORME |
+| REQ-POL-041 | ABSENT | Le mode simple manipule cible, audiences multi-rôles et intentions Voir/Écrire/Rejoindre sans flags, bitfield, overwrite, UUID ni Snowflake demandé. | CONFORME |
+| REQ-POL-042 | ABSENT | Le mode expert expose le même objet : ID, révision, priorité, scope, conditions, effets et résolution canonique, sans second calcul. | CONFORME |
+| REQ-POL-043 | ABSENT | Aucun Wizard générique n'est livré par ce lot; le statut reste inchangé. | ABSENT |
+
+Preuves ciblées : 57 tests backend Policy, 5 tests unitaires catalogue/UI, trois
+parcours Playwright (nominal Policy→Plan, conflit multi-rôles + historique,
+refus capability), typecheck, lint, i18n EN/FR/DE/ES, axe sur `#main`, Ruff et
+contrat OpenAPI. Aucun APPLY, Discord live, test PostgreSQL ou campagne globale
+n'a été exécuté pour ce lot.
+
 ## PARTIEL — ce qui est fait / ce qui manque
 
 | ID | Implémenté | Manque |
 |---|---|---|
 | REQ-BOT-005 | API backend réelle par bot/salon (lecture/écriture), cache-derived, testée. | La visualisation dashboard demandée reste différée. |
 | REQ-TEST-003 | Harness et rapports live A/B prévus/intégrés dans Stage10. | Pas d’agrégat live A/B valide du run courant: credentials sandbox externes indisponibles. |
-| REQ-POL-006 | Nom, description et métadonnées humaines sont persistés. | L'UI Policies n'est pas livrée dans ce lot backend. |
 | REQ-POL-050 | Contrats preview/plan, capabilities et tests PostgreSQL cross-tenant ciblés. | Test HTTP 403 complet encore absent. |
 | REQ-POL-051 | Chaîne PostgreSQL persistance, preview, preflight, Plan, activation/provenance et retry testée. | Chaîne CI complète jusqu'à audit puis désactivation non démontrée. |
 | REQ-UXN-009 | Moteur multi-rôles conforme | audit de toutes les UIs non réalisé. |
@@ -183,17 +210,18 @@ et futur APPLY délèguent tous au même `PolicyResolver`.
 - `REQ-PERMX-006`, `REQ-PERMX-007`, `REQ-PERMX-008`, `REQ-PERMX-009`, `REQ-QA-002`
 - `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-027`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-052`, `REQ-POL-053`
 - `REQ-POL-001`, `REQ-POL-012`, `REQ-POL-013`, `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-024`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-040`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-UXN-010`, `REQ-UXN-011`
-- `REQ-POL-021`, `REQ-POL-022`, `REQ-POL-023`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`
+- `REQ-POL-021`, `REQ-POL-022`, `REQ-POL-023`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`
+- `REQ-POL-006`
 - `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
 
 ### PARTIEL
 
-- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-006`, `REQ-POL-050`, `REQ-POL-051`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
+- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-050`, `REQ-POL-051`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
 - `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
 
-- `REQ-POL-025`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
+- `REQ-POL-043`
 - `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
 - `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
@@ -208,11 +236,11 @@ et futur APPLY délèguent tous au même `PolicyResolver`.
 - Planning : service planning, modèles, persistance/DAG/preflight/impact/UNKNOWN_OUTCOME, failure-injection.
 - Portabilité/templates : service/repository/API Stage06, tests PostgreSQL/E2E; template privé RLS démontré.
 - Stage10 : large couverture backend/Playwright; `REQ-TEST-003` reste partiel car l’agrégat live A/B du run courant manque.
-- Policies/Wizards : fondations, resolver, preview/impact, compilation DSG/Plan, provenance et enforcement preflight/pré-opération sont démontrés ; UI Policies et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
+- Policies/Wizards : fondations, resolver, preview/impact, compilation DSG/Plan, provenance, enforcement et UI Policies sont démontrés ; le Wizard reste ouvert. Les policies message/traduction demeurent spécialisées et séparées.
 
 ## Priorités
 
-1. **Suite du Policy Engine** : UI Policies et preuves HTTP/CI restantes dans la Phase UI 4 existante.
+1. **Suite du Policy Engine** : Wizard et preuves HTTP/CI restantes dans la Phase UI 4 existante.
 2. **Wizards** : socle en Phase UI 4, réutilisé ensuite.
 3. **Operations Center inter-session + drafts** : Phase UI 5.
 4. **Templates adaptatifs** : Phase UI 6.

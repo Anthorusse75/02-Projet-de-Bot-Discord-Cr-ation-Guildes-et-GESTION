@@ -20,6 +20,9 @@ const RolesScreen = lazy(async () => ({
 const PermissionsScreen = lazy(async () => ({
   default: (await import('../features/permissions/PermissionsScreen')).PermissionsScreen,
 }))
+const PoliciesScreen = lazy(async () => ({
+  default: (await import('../features/policies/PoliciesScreen')).PoliciesScreen,
+}))
 const PlansScreen = lazy(async () => ({
   default: (await import('../features/plans/PlansScreen')).PlansScreen,
 }))
@@ -64,6 +67,7 @@ export function App() {
             <Route path="structure" element={deferred(<StructureScreen />)} />
             <Route path="roles" element={deferred(<RolesScreen />)} />
             <Route path="permissions" element={deferred(<PermissionsScreen />)} />
+            <Route path="policies" element={deferred(<PoliciesScreen />)} />
             <Route path="plans" element={deferred(<PlansScreen />)} />
             <Route path="diagnostics" element={deferred(<DiagnosticsScreen />)} />
             <Route path="audit" element={deferred(<AuditScreen />)} />

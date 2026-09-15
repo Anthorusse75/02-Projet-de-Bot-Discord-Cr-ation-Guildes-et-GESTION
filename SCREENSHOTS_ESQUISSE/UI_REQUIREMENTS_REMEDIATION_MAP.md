@@ -89,7 +89,7 @@ Quelques tests interaction/UI ciblés sur second clic, F2, menu contextuel et va
 
 ### Exigences affectées
 
-- **`REQ-POL-001` à `REQ-POL-053`** : toute la famille Policy reste à fermer dans cette phase ; le backend générique, son resolver et son raccord Plan sont livrés, tandis que l'UI et les Wizards restent ouverts.
+- **`REQ-POL-001` à `REQ-POL-053`** : le backend générique, son resolver, son raccord Plan et l'UI Policies sont livrés ; le Wizard et les preuves de fermeture restantes restent ouverts dans cette phase.
 - **`REQ-WIZ-001` à `REQ-WIZ-010`, `REQ-WIZ-013`, `REQ-WIZ-014`** : le socle Wizard générique est construit ici puis réutilisé en Phases 6/7. `REQ-WIZ-011` et `012` restent la propriété de la Phase 2 car ils décrivent le premier setup.
 - **`REQ-PERMX-010`** : raccord complet du moteur canonique de permissions au Policy Engine/Wizard.
 - **`REQ-UXN-009`** : aucune UI métier mono-rôle lorsque Discord autorise les rôles cumulés.
@@ -159,6 +159,34 @@ Couverture acquise : `REQ-POL-021`, `022`, `023`, `026`, `028`, `044`, `045` et
 HTTP 403 complète. `REQ-POL-051` devient **PARTIEL** jusqu'à la chaîne CI
 complète incluant audit et désactivation. L'UI Policies et les Wizards restent
 ouverts ; aucune Phase supplémentaire n'est créée.
+
+### Lot UI catalogue et éditeur Policies — livré le 2026-09-15
+
+Une entrée « Politiques d'accès » ouvre un espace intention-first en
+EN/FR/DE/ES. Le catalogue DID versionné fournit sept natives : visibilité en
+inclusion/exclusion, écriture en inclusion/exclusion, lecture ouverte avec
+publication limitée, espace privé et staff uniquement. La cible choisie filtre
+les natives et personnalisées incompatibles.
+
+Les Policies personnalisées peuvent être créées depuis une native, renommées,
+modifiées en `DRAFT`, dupliquées depuis toute Policy et recréées depuis une
+révision historique. La suppression n'est pas exposée tant qu'un contrat
+tenant-safe de dépendances ne permet pas de choisir détacher/remplacer/annuler.
+
+Le mode simple ne montre que cible, audiences cumulatives et intentions. Le
+mode expert expose le même modèle canonique. Preview/impact, conflits,
+`CAN/CANNOT/BLOCKED/UNKNOWN`, Explain et préparation du Plan proviennent des
+routes backend existantes. Aucun bouton Apply ni mutation Discord directe n'est
+ajouté. L'audience optionnelle par effet a été ajoutée au contrat fermé et à
+l'unique resolver afin d'exprimer correctement exclusion et lecture/écriture
+distinctes sans calcul React parallèle.
+
+`REQ-POL-006`, `025`, `032`, `041` et `042` passent à **CONFORME**.
+`REQ-POL-043` reste **ABSENT**, réservé au lot Wizard.
+
+Preuves : 57 tests backend ciblés, 5 tests catalogue, trois Playwright ciblés,
+typecheck, lint, i18n quatre langues, axe sur l'espace principal, Ruff et
+OpenAPI. Pas de campagne globale, PostgreSQL, Discord live ou APPLY.
 
 ### Preuve minimale utile
 

@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, Policy, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -27,11 +27,18 @@ export function useGuilds(userId: DiscordSnowflake | undefined) {
 function tenantQuery<T>(userId: DiscordSnowflake, guildId: DiscordSnowflake, feature: string, path: string) {
   return { queryKey: queryKeys.tenant(userId, guildId, feature), queryFn: () => apiRequest<T>(path, { signal: tenantSignal(guildId) }) }
 }
-export const useStructure = (u: DiscordSnowflake, g: DiscordSnowflake, includeHiddenDeleted = false) => useQuery({
+export const useStructure = (u: DiscordSnowflake, g: DiscordSnowflake, includeHiddenDeleted = false, enabled = true) => useQuery({
   ...tenantQuery<Structure>(u, g, 'structure', `/api/v1/guilds/${g}/structure${includeHiddenDeleted ? '?include_hidden_deleted=true' : ''}`),
   queryKey: queryKeys.tenant(u, g, 'structure', includeHiddenDeleted ? 'all' : 'visible'),
+  enabled,
 })
-export const useRoles = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Roles>(u,g,'roles',`/api/v1/guilds/${g}/roles`))
+export const useRoles = (u: DiscordSnowflake, g: DiscordSnowflake, enabled = true) => useQuery({
+  ...tenantQuery<Roles>(u,g,'roles',`/api/v1/guilds/${g}/roles`), enabled,
+})
+export const usePolicies = (u: DiscordSnowflake, g: DiscordSnowflake, enabled = true) => useQuery({
+  ...tenantQuery<{guild_id:DiscordSnowflake;policies:Policy[]}>(u,g,'policies',`/api/v1/guilds/${g}/policies`),
+  enabled,
+})
 export const useCoverage = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Record<string, unknown>>(u,g,'coverage',`/api/v1/guilds/${g}/coverage`))
 export const usePlans = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{plans:Plan[]}>(u,g,'plans',`/api/v1/guilds/${g}/plans`))
 export const useAudit = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<{events:AuditEvent[]}>(u,g,'audit',`/api/v1/guilds/${g}/audit`))

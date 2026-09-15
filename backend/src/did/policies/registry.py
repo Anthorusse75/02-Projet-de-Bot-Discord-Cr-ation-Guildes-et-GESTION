@@ -55,10 +55,22 @@ PolicyCondition = Annotated[
 ]
 
 
+class RoleAudience(_ClosedModel):
+    mode: Literal["INCLUDE", "EXCLUDE"]
+    match: Literal["ANY", "ALL"]
+    role_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+
+    @field_validator("role_ids")
+    @classmethod
+    def positive_unique_snowflakes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return RoleMatchCondition.positive_unique_snowflakes(values)
+
+
 class SetAccessEffect(_ClosedModel):
     kind: Literal["SET_ACCESS"]
     access: Literal["VIEW", "WRITE", "MANAGE", "CONNECT", "SPEAK"]
     decision: Literal["ALLOW", "DENY"]
+    audience: RoleAudience | None = None
 
 
 PolicyEffect = SetAccessEffect
@@ -137,9 +149,17 @@ class PolicyTypeContract:
                 references.extend(
                     PolicyReference(PolicyScopeType.ROLE, role_id) for role_id in condition.role_ids
                 )
+        for effect in parsed_effects:
+            if effect.audience is not None:
+                references.extend(
+                    PolicyReference(PolicyScopeType.ROLE, role_id)
+                    for role_id in effect.audience.role_ids
+                )
         return ValidatedPolicyDefinition(
             conditions=tuple(item.model_dump(mode="json") for item in parsed_conditions),
-            effects=tuple(item.model_dump(mode="json") for item in parsed_effects),
+            effects=tuple(
+                item.model_dump(mode="json", exclude_none=True) for item in parsed_effects
+            ),
             metadata=parsed_metadata.model_dump(mode="json"),
             references=tuple(references),
         )

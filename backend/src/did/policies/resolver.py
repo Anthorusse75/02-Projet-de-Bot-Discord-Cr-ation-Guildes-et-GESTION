@@ -297,6 +297,42 @@ class PolicyResolver:
             family, specificity = self._specificity(policy.scope_type)
             inherited = self._is_inherited(policy, context)
             for effect_index, effect in requested_effects:
+                effect_outcome = condition_outcome
+                audience = effect.get("audience")
+                if audience is not None and scope_outcome is PolicyTruthValue.TRUE:
+                    assert isinstance(audience, dict)
+                    audience_evaluation = self._evaluate_condition(
+                        policy,
+                        len(definition.conditions) + effect_index,
+                        {
+                            "kind": "ROLE_MATCH",
+                            "match": audience["match"],
+                            "role_ids": audience["role_ids"],
+                        },
+                        context,
+                    )
+                    if audience["mode"] == "EXCLUDE":
+                        inverted = {
+                            PolicyTruthValue.TRUE: PolicyTruthValue.FALSE,
+                            PolicyTruthValue.FALSE: PolicyTruthValue.TRUE,
+                            PolicyTruthValue.UNKNOWN: PolicyTruthValue.UNKNOWN,
+                        }[audience_evaluation.outcome]
+                        audience_evaluation = replace(
+                            audience_evaluation,
+                            outcome=inverted,
+                            kind="ROLE_AUDIENCE_EXCLUDE",
+                            reason="policy.condition.roles_excluded",
+                        )
+                    else:
+                        audience_evaluation = replace(
+                            audience_evaluation,
+                            kind="ROLE_AUDIENCE_INCLUDE",
+                            reason="policy.condition.roles_included",
+                        )
+                    conditions.append(audience_evaluation)
+                    effect_outcome = self._and(effect_outcome, audience_evaluation.outcome)
+                    if audience_evaluation.outcome is PolicyTruthValue.UNKNOWN:
+                        incomplete.append(audience_evaluation.reason)
                 contributions.append(
                     PolicyContribution(
                         policy.policy_id,
@@ -310,12 +346,12 @@ class PolicyResolver:
                         inherited,
                         context.requested_access,
                         str(effect["decision"]),
-                        condition_outcome,
+                        effect_outcome,
                         disposition=(
                             "CONDITION_FALSE"
-                            if condition_outcome is PolicyTruthValue.FALSE
+                            if effect_outcome is PolicyTruthValue.FALSE
                             else "CONDITION_UNKNOWN"
-                            if condition_outcome is PolicyTruthValue.UNKNOWN
+                            if effect_outcome is PolicyTruthValue.UNKNOWN
                             else "CANDIDATE"
                         ),
                     )

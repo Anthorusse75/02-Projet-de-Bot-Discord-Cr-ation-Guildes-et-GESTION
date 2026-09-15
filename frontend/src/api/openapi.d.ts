@@ -478,7 +478,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Guilds */
+        /**
+         * Guilds
+         * @description Return installed Guilds visible to the OAuth identity.
+         *
+         *     Discovery itself is the caller's Discord `/users/@me/guilds` snapshot.  The
+         *     endpoint deliberately does not force one Discord refresh per Guild: that was
+         *     both noisy and made the first dashboard page fragile.  Sensitive bootstrap
+         *     decisions are revalidated by the onboarding endpoints below.
+         */
         get: operations["guilds_api_v1_guilds_get"];
         put?: never;
         post?: never;
@@ -937,6 +945,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Onboarding Status */
+        get: operations["onboarding_status_api_v1_guilds__guild_id__onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/onboarding/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Onboarding Activate */
+        post: operations["onboarding_activate_api_v1_guilds__guild_id__onboarding_activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/onboarding/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Onboarding Import */
+        post: operations["onboarding_import_api_v1_guilds__guild_id__onboarding_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/permissions/evaluate": {
         parameters: {
             query?: never;
@@ -1136,6 +1195,170 @@ export interface paths {
         put?: never;
         /** Validate Plan */
         post: operations["validate_plan_api_v1_guilds__guild_id__plans__plan_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policies */
+        get: operations["list_policies_api_v1_guilds__guild_id__policies_get"];
+        put?: never;
+        /** Create Policy */
+        post: operations["create_policy_api_v1_guilds__guild_id__policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy */
+        get: operations["get_policy_api_v1_guilds__guild_id__policies__policy_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Policy */
+        patch: operations["update_policy_api_v1_guilds__guild_id__policies__policy_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Policy */
+        post: operations["activate_policy_api_v1_guilds__guild_id__policies__policy_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Policy */
+        post: operations["disable_policy_api_v1_guilds__guild_id__policies__policy_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Policy
+         * @description Compile a preview to the canonical DSG/Plan and run canonical preflight.
+         */
+        post: operations["plan_policy_api_v1_guilds__guild_id__policies__policy_id__plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Policy
+         * @description Simulate a DRAFT Policy without persisting or mutating anything.
+         */
+        post: operations["preview_policy_api_v1_guilds__guild_id__policies__policy_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire Policy */
+        post: operations["retire_policy_api_v1_guilds__guild_id__policies__policy_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy Versions */
+        get: operations["get_policy_versions_api_v1_guilds__guild_id__policies__policy_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policy-resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Policy
+         * @description Explain a cache-first decision; this endpoint has no mutation semantics.
+         */
+        post: operations["resolve_policy_api_v1_guilds__guild_id__policy_resolution_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2044,6 +2267,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Features
+         * @description Expose non-secret feature availability for the dashboard preflight.
+         *
+         *     Optional services are reported rather than turned into mysterious 503s in
+         *     the UI.  No token, key material, URL or tenant data is exposed here.
+         */
+        get: operations["features_health_features_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -2524,6 +2770,111 @@ export interface components {
          * @enum {string}
          */
         PlatformRole: "OWNER" | "TENANT_ADMIN" | "READ_ONLY";
+        /** PolicyActivation */
+        PolicyActivation: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Plan Id
+             * Format: uuid
+             */
+            plan_id: string;
+        };
+        /** PolicyCreate */
+        PolicyCreate: {
+            /** Conditions */
+            conditions?: {
+                [key: string]: unknown;
+            }[];
+            /** Contract Version */
+            contract_version: number;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Effects */
+            effects: {
+                [key: string]: unknown;
+            }[];
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Policy Type */
+            policy_type: string;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /** Scope Id */
+            scope_id?: string | null;
+            scope_type: components["schemas"]["PolicyScopeType"];
+        };
+        /** PolicyPatch */
+        PolicyPatch: {
+            /** Conditions */
+            conditions?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Effects */
+            effects: {
+                [key: string]: unknown;
+            }[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Priority */
+            priority?: number | null;
+            /** Scope Id */
+            scope_id?: string | null;
+            scope_type: components["schemas"]["PolicyScopeType"];
+        };
+        /** PolicyPlanRequest */
+        PolicyPlanRequest: {
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /** PolicyResolutionRequest */
+        PolicyResolutionRequest: {
+            /**
+             * Requested Access
+             * @enum {string}
+             */
+            requested_access: "VIEW" | "WRITE" | "MANAGE" | "CONNECT" | "SPEAK";
+            /** Subject Id */
+            subject_id: string;
+            /** Target Scope Id */
+            target_scope_id?: string | null;
+            /**
+             * Target Scope Type
+             * @enum {string}
+             */
+            target_scope_type: "GUILD" | "LOGICAL_GROUP" | "CATEGORY" | "CHANNEL";
+        };
+        /**
+         * PolicyScopeType
+         * @enum {string}
+         */
+        PolicyScopeType: "GUILD" | "LOGICAL_GROUP" | "CATEGORY" | "CHANNEL" | "ROLE" | "MEMBER" | "BOT" | "CAMPAIGN" | "TEMPLATE";
+        /** PolicyTransition */
+        PolicyTransition: {
+            /** Expected Revision */
+            expected_revision: number;
+        };
         /**
          * PortableResourceType
          * @enum {string}
@@ -5290,6 +5641,105 @@ export interface operations {
             };
         };
     };
+    onboarding_status_api_v1_guilds__guild_id__onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    onboarding_activate_api_v1_guilds__guild_id__onboarding_activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    onboarding_import_api_v1_guilds__guild_id__onboarding_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     evaluate_permission_api_v1_guilds__guild_id__permissions_evaluate_post: {
         parameters: {
             query?: never;
@@ -5737,6 +6187,417 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["VersionCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policies_api_v1_guilds__guild_id__policies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_policy_api_v1_guilds__guild_id__policies_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_api_v1_guilds__guild_id__policies__policy_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_policy_api_v1_guilds__guild_id__policies__policy_id__patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_policy_api_v1_guilds__guild_id__policies__policy_id__activate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyActivation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_policy_api_v1_guilds__guild_id__policies__policy_id__disable_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTransition"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_policy_api_v1_guilds__guild_id__policies__policy_id__plan_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_policy_api_v1_guilds__guild_id__policies__policy_id__preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_policy_api_v1_guilds__guild_id__policies__policy_id__retire_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTransition"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_versions_api_v1_guilds__guild_id__policies__policy_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_policy_api_v1_guilds__guild_id__policy_resolution_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyResolutionRequest"];
             };
         };
         responses: {
@@ -7764,6 +8625,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    features_health_features_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
             };
         };
     };

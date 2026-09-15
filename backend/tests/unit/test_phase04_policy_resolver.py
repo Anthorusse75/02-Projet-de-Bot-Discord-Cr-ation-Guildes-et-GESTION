@@ -108,6 +108,60 @@ def test_resolution_is_identical_for_every_input_order() -> None:
     ]
 
 
+def test_effect_audiences_support_whitelist_blacklist_and_separate_read_write() -> None:
+    resolver = PolicyResolver()
+    policy = _policy(
+        10,
+        effects=(
+            {"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},
+            {
+                "kind": "SET_ACCESS",
+                "access": "WRITE",
+                "decision": "ALLOW",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+        ),
+    )
+    excluded = _policy(
+        11,
+        priority=1,
+        effects=(
+            {
+                "kind": "SET_ACCESS",
+                "access": "VIEW",
+                "decision": "ALLOW",
+                "audience": {"mode": "EXCLUDE", "match": "ANY", "role_ids": ["30"]},
+            },
+        ),
+    )
+
+    assert (
+        resolver.resolve(policies=(policy,), context=_context()).outcome
+        is PolicyResolutionOutcome.CAN
+    )
+    assert (
+        resolver.resolve(policies=(policy,), context=_context(requested_access="WRITE")).outcome
+        is PolicyResolutionOutcome.CAN
+    )
+    assert (
+        resolver.resolve(
+            policies=(policy,),
+            context=_context(requested_access="WRITE", subject_role_ids=("20",)),
+        ).outcome
+        is PolicyResolutionOutcome.CANNOT
+    )
+    assert (
+        resolver.resolve(policies=(excluded,), context=_context(subject_role_ids=("10",))).outcome
+        is PolicyResolutionOutcome.CAN
+    )
+    assert (
+        resolver.resolve(
+            policies=(excluded,), context=_context(subject_role_ids=("10", "30"))
+        ).outcome
+        is PolicyResolutionOutcome.CANNOT
+    )
+
+
 @pytest.mark.asyncio
 async def test_application_service_uses_cache_first_context_and_canonical_resolver() -> None:
     policy = _policy(1)

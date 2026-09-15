@@ -83,6 +83,33 @@ def test_closed_registry_normalizes_supported_declaration_and_references() -> No
     assert validated.metadata == {"summary": "Staff access", "tags": ["staff"], "reason": None}
 
 
+def test_closed_registry_validates_effect_level_role_audience_and_references() -> None:
+    validated = POLICY_TYPE_REGISTRY.validate(
+        policy_type="ACCESS_CONTROL",
+        contract_version=1,
+        scope_type=PolicyScopeType.CHANNEL,
+        conditions=[{"kind": "ALWAYS"}],
+        effects=[
+            {"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},
+            {
+                "kind": "SET_ACCESS",
+                "access": "WRITE",
+                "decision": "ALLOW",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+        ],
+        metadata={"summary": "Open reading, limited publishing"},
+    )
+
+    assert "audience" not in validated.effects[0]
+    assert validated.effects[1]["audience"] == {
+        "mode": "INCLUDE",
+        "match": "ANY",
+        "role_ids": ["10"],
+    }
+    assert tuple(reference.scope_id for reference in validated.references) == ("10",)
+
+
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [

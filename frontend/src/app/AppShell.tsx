@@ -26,7 +26,7 @@ type RuntimeFeatures = { features: { oauth: boolean; live_events: boolean; porta
 type ShellGuild = Guild & { can_bootstrap?: boolean; dashboard_access?: boolean }
 
 const navGroups = [
-  { label: 'shell.workspace', sections: ['overview', 'structure', 'roles', 'permissions'] as const },
+  { label: 'shell.workspace', sections: ['overview', 'structure', 'roles', 'permissions', 'policies'] as const },
   { label: 'nav.plans', sections: ['plans', 'diagnostics', 'audit'] as const },
   { label: 'nav.translations', sections: ['translations', 'campaigns'] as const },
   { label: 'nav.templates', sections: ['templates', 'library', 'clone'] as const },
@@ -34,7 +34,7 @@ const navGroups = [
 const portabilitySections = new Set(['templates', 'library', 'clone'])
 
 const sectionGlyph: Record<string, string> = {
-  overview: '⌂', structure: '⌘', roles: '◇', permissions: '◈', plans: '▱', diagnostics: '◌', audit: '≡',
+  overview: '⌂', structure: '⌘', roles: '◇', permissions: '◈', policies: '◆', plans: '▱', diagnostics: '◌', audit: '≡',
   translations: '文', campaigns: '✦', templates: '▣', library: '▤', clone: '⇄',
 }
 

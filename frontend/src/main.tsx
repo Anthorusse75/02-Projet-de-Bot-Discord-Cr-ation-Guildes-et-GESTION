@@ -8,6 +8,7 @@ import './shared/redesign.css'
 import './shared/login-redesign.css'
 import './shared/phase3-structure.css'
 import './shared/phase4-access.css'
+import './features/policies/policies.css'
 
 const root = document.getElementById('root')
 
