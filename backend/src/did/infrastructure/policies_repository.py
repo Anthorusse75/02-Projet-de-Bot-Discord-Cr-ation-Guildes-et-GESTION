@@ -8,7 +8,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from did.domain.policies import Policy, PolicyLifecycleState, PolicyScopeType, PolicyVersion
+from did.domain.policies import (
+    Policy,
+    PolicyLifecycleError,
+    PolicyLifecycleState,
+    PolicyScopeType,
+    PolicyVersion,
+)
 from did.infrastructure.database import tenant_transaction
 from did.tenancy import TenantContext
 
@@ -87,6 +93,63 @@ class PoliciesRepository:
         if not rows and not await self._exists(guild_id, policy_id):
             raise PolicyNotFound("Policy not found")
         return tuple(self._version(row) for row in rows)
+
+    async def get_revision(self, guild_id: int, policy_id: UUID, revision: int) -> Policy:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT snapshot_json FROM policy_versions WHERE guild_id=:guild_id "
+                            "AND policy_id=:policy_id AND revision=:revision"
+                        ),
+                        {"guild_id": guild_id, "policy_id": policy_id, "revision": revision},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise PolicyNotFound("Policy revision not found")
+        return self._policy_snapshot(dict(row["snapshot_json"]))
+
+    async def assert_activation_plan(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        policy_revision: int,
+        plan_id: UUID,
+    ) -> dict[str, Any]:
+        """Require a tenant-local, preflight-validated canonical Policy Plan."""
+
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id,status,plan_hash FROM plans WHERE guild_id=:guild_id "
+                            "AND id=:plan_id AND origin_type='POLICY' "
+                            "AND source_policy_id=:policy_id "
+                            "AND source_policy_revision=:policy_revision "
+                            "AND status IN ('VALIDATED','CONFIRMED','APPLYING','SUCCEEDED')"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "plan_id": plan_id,
+                            "policy_id": policy_id,
+                            "policy_revision": policy_revision,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise PolicyLifecycleError(
+                "Policy activation requires its preflight-validated canonical Plan"
+            )
+        return dict(row)
 
     async def create(
         self,
@@ -542,4 +605,25 @@ class PoliciesRepository:
             correlation_id=row["correlation_id"],
             idempotency_key=row["idempotency_key"],
             created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _policy_snapshot(value: dict[str, Any]) -> Policy:
+        return Policy(
+            policy_id=UUID(str(value["policy_id"])),
+            guild_id=int(value["guild_id"]),
+            policy_type=str(value["policy_type"]),
+            contract_version=int(value["contract_version"]),
+            name=str(value["name"]),
+            description=str(value["description"]),
+            lifecycle_state=PolicyLifecycleState(str(value["lifecycle_state"])),
+            revision=int(value["revision"]),
+            priority=int(value.get("priority", 0)),
+            scope_type=PolicyScopeType(str(value["scope_type"])),
+            scope_id=str(value["scope_id"]) if value.get("scope_id") is not None else None,
+            conditions=tuple(dict(item) for item in value["conditions"]),
+            effects=tuple(dict(item) for item in value["effects"]),
+            metadata=dict(value["metadata"]),
+            created_by_user_id=int(value["created_by_user_id"]),
+            modified_by_user_id=int(value["modified_by_user_id"]),
         )

@@ -6,16 +6,20 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from uuid import uuid4
+from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from did.application.planning.service import PlanningService
+from did.application.policies.planning import PolicyPlanningService
 from did.application.policies.service import PolicyService
-from did.domain.policies import PolicyLifecycleState, PolicyScopeType
+from did.domain.policies import PolicyLifecycleError, PolicyLifecycleState, PolicyScopeType
 from did.infrastructure.database import create_database_engine, tenant_transaction
+from did.infrastructure.planning_repository import PlanningRepository, PlanNotFound
 from did.infrastructure.policies_repository import (
     PoliciesRepository,
     PolicyConflict,
@@ -23,6 +27,7 @@ from did.infrastructure.policies_repository import (
     PolicyNotFound,
     PolicyTargetNotFound,
 )
+from did.infrastructure.stage04_repository import Stage04Repository
 from did.tenancy import TenantContext
 
 pytestmark = [pytest.mark.integration, pytest.mark.security, pytest.mark.failure_injection]
@@ -39,6 +44,10 @@ GUILD_A = 884004001
 GUILD_B = 884004002
 ACTOR_A = 884004011
 ACTOR_B = 884004012
+BOT_A = 884004021
+BOT_B = 884004022
+CHANNEL_A = 884004101
+CHANNEL_B = 884004102
 
 
 @pytest.fixture
@@ -48,6 +57,9 @@ async def policies_context() -> AsyncIterator[tuple[PoliciesRepository, PolicySe
     params = {"ga": GUILD_A, "gb": GUILD_B, "ua": ACTOR_A, "ub": ACTOR_B}
     try:
         async with admin_engine.begin() as connection:
+            await connection.execute(
+                text("SELECT set_config('app.tenant_purge_in_progress', 'on', true)")
+            )
             await connection.execute(
                 text("DELETE FROM guild_installations WHERE guild_id IN (:ga,:gb)"), params
             )
@@ -59,20 +71,77 @@ async def policies_context() -> AsyncIterator[tuple[PoliciesRepository, PolicySe
                     ),
                     {"id": user_id, "name": f"policy-user-{user_id}"},
                 )
-            for guild_id, owner_id in ((GUILD_A, ACTOR_A), (GUILD_B, ACTOR_B)):
+            for guild_id, owner_id, bot_id, channel_id in (
+                (GUILD_A, ACTOR_A, BOT_A, CHANNEL_A),
+                (GUILD_B, ACTOR_B, BOT_B, CHANNEL_B),
+            ):
                 await connection.execute(
                     text(
                         "INSERT INTO guild_installations "
-                        "(guild_id,name,owner_id,installation_status) "
-                        "VALUES (:guild_id,:name,:owner_id,'ACTIVE')"
+                        "(guild_id,name,owner_id,installation_status,application_id,bot_user_id) "
+                        "VALUES (:guild_id,:name,:owner_id,'ACTIVE',:bot_id,:bot_id)"
                     ),
-                    {"guild_id": guild_id, "name": f"Policy {guild_id}", "owner_id": owner_id},
+                    {
+                        "guild_id": guild_id,
+                        "name": f"Policy {guild_id}",
+                        "owner_id": owner_id,
+                        "bot_id": bot_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO discord_cache_coverage "
+                        "(guild_id,coverage_mode,freshness_state,known_channels,"
+                        "visible_channels,known_roles,members_complete) "
+                        "VALUES (:guild_id,'FULL','FRESH',1,1,1,true)"
+                    ),
+                    {"guild_id": guild_id},
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO discord_roles_cache "
+                        "(guild_id,role_id,name,position,permissions_bits,managed,color,hoist,"
+                        "mentionable,raw_json,last_gateway_seen_at) VALUES "
+                        "(:guild_id,:guild_id,'@everyone',0,:permissions,false,0,false,false,"
+                        "CAST('{}' AS jsonb),now())"
+                    ),
+                        {
+                            "guild_id": guild_id,
+                            "permissions": (1 << 28) | (1 << 10),
+                        },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO discord_channels_cache "
+                        "(guild_id,channel_id,type,name,position,last_full_payload,"
+                        "observability_state,freshness_state,last_full_observed_at) VALUES "
+                        "(:guild_id,:channel_id,0,'policy-target',0,CAST('{}' AS jsonb),"
+                        "'VISIBLE','FRESH',now())"
+                    ),
+                    {"guild_id": guild_id, "channel_id": channel_id},
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO discord_member_authorization_cache "
+                        "(guild_id,discord_user_id,role_ids,source,validity,observed_at,is_bot) "
+                        "VALUES (:guild_id,:owner_id,ARRAY[:guild_id]::bigint[],'GATEWAY',"
+                        "'FRESH',now(),false),(:guild_id,:bot_id,ARRAY[:guild_id]::bigint[],"
+                        "'GATEWAY','FRESH',now(),true)"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "owner_id": owner_id,
+                        "bot_id": bot_id,
+                    },
                 )
         factory = async_sessionmaker(app_engine, expire_on_commit=False)
         repository = PoliciesRepository(factory)
         yield repository, PolicyService(repository)
     finally:
         async with admin_engine.begin() as connection:
+            await connection.execute(
+                text("SELECT set_config('app.tenant_purge_in_progress', 'on', true)")
+            )
             await connection.execute(
                 text("DELETE FROM guild_installations WHERE guild_id IN (:ga,:gb)"), params
             )
@@ -227,9 +296,13 @@ async def test_cas_allows_only_one_concurrent_draft_update(policies_context) -> 
 async def test_activation_and_disable_are_idempotent_and_audited(policies_context) -> None:
     repository, service = policies_context
     created = await _create(service, GUILD_A, ACTOR_A, "lifecycle-create")
-    active = await service.activate(GUILD_A, created.policy_id, ACTOR_A, 1, "activate-once")
+    plan_id = uuid4()
+    repository.assert_activation_plan = AsyncMock(return_value={"id": plan_id})  # type: ignore[method-assign]
+    active = await service.activate(
+        GUILD_A, created.policy_id, ACTOR_A, 1, "activate-once", plan_id
+    )
     replayed_active = await service.activate(
-        GUILD_A, created.policy_id, ACTOR_A, 1, "activate-once"
+        GUILD_A, created.policy_id, ACTOR_A, 1, "activate-once", plan_id
     )
     disabled = await service.disable(GUILD_A, created.policy_id, ACTOR_A, 2, "disable-once")
     replayed_disabled = await service.disable(
@@ -246,6 +319,128 @@ async def test_activation_and_disable_are_idempotent_and_audited(policies_contex
         (2, "ACTIVATE"),
         (3, "DISABLE"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_policy_preview_preflight_plan_idempotency_and_provenance_chain(
+    policies_context,
+) -> None:
+    repository, _ = policies_context
+    factory = object.__getattribute__(repository, "_factory")
+    read_models = Stage04Repository(factory)
+    policy_service = PolicyService(repository, read_models=read_models)
+    policy_planning = PolicyPlanningService(
+        policies=policy_service,
+        read_models=read_models,
+    )
+    plans = PlanningRepository(factory)
+    planning = PlanningService(plans, read_models, policy_preflight=policy_planning)
+    policy_planning.bind_planning(planning)
+    draft = await _create(policy_service, GUILD_A, ACTOR_A, "canonical-chain")
+
+    preview = await policy_planning.preview(
+        guild_id=GUILD_A,
+        policy_id=draft.policy_id,
+        actor_user_id=ACTOR_A,
+    )
+    assert draft.lifecycle_state is PolicyLifecycleState.DRAFT
+    assert preview.persisted is False and preview.discord_mutations == 0
+    assert preview.impact.accuracy.value == "EXACT"
+
+    correlation = uuid4()
+    _, first, created, first_preflight = await policy_planning.create_plan(
+        guild_id=GUILD_A,
+        policy_id=draft.policy_id,
+        actor_user_id=ACTOR_A,
+        idempotency_key="canonical-plan-once",
+        correlation_id=correlation,
+        expected_revision=1,
+    )
+    _, replay, replay_created, replay_preflight = await policy_planning.create_plan(
+        guild_id=GUILD_A,
+        policy_id=draft.policy_id,
+        actor_user_id=ACTOR_A,
+        idempotency_key="canonical-plan-once",
+        correlation_id=uuid4(),
+        expected_revision=1,
+    )
+
+    assert created is True and replay_created is False
+    assert replay["id"] == first["id"]
+    assert first_preflight.allowed, first_preflight
+    assert replay_preflight.allowed, replay_preflight
+    assert first["status"] == "VALIDATED"
+    assert first["source_policy_id"] == draft.policy_id
+    assert int(first["source_policy_revision"]) == 1
+    assert first["origin_type"] == "POLICY"
+    operations = await plans.operations(GUILD_A, UUID(str(first["id"])))
+    assert operations and all(row["plan_id"] == first["id"] for row in operations)
+    async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+        provenance = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT o.id AS operation_id,p.id AS plan_id,p.source_policy_id,"
+                        "p.source_policy_revision FROM plan_operations o JOIN plans p "
+                        "ON p.guild_id=o.guild_id AND p.id=o.plan_id "
+                        "WHERE o.guild_id=:guild_id AND o.plan_id=:plan_id LIMIT 1"
+                    ),
+                    {"guild_id": GUILD_A, "plan_id": first["id"]},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert provenance["plan_id"] == first["id"]
+    assert provenance["source_policy_id"] == draft.policy_id
+    assert int(provenance["source_policy_revision"]) == 1
+    with pytest.raises(DBAPIError):
+        async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+            await session.execute(
+                text(
+                    "UPDATE plans SET origin_metadata=jsonb_build_object('tampered',true) "
+                    "WHERE guild_id=:guild_id AND id=:plan_id"
+                ),
+                {"guild_id": GUILD_A, "plan_id": first["id"]},
+            )
+
+    pre_apply_before_activation = await planning.recheck(
+        guild_id=GUILD_A,
+        plan_id=UUID(str(first["id"])),
+        actor_authorization_fresh=True,
+    )
+    assert not pre_apply_before_activation.allowed
+    assert "preflight.policy_not_active" in pre_apply_before_activation.errors
+
+    with pytest.raises(PolicyLifecycleError):
+        await policy_service.activate(
+            GUILD_A,
+            draft.policy_id,
+            ACTOR_A,
+            1,
+            "reject-activation-without-policy-plan",
+            uuid4(),
+        )
+
+    active = await policy_service.activate(
+        GUILD_A,
+        draft.policy_id,
+        ACTOR_A,
+        1,
+        "activate-from-validated-plan",
+        UUID(str(first["id"])),
+    )
+    assert active.lifecycle_state is PolicyLifecycleState.ACTIVE
+    pre_apply_after_activation = await planning.recheck(
+        guild_id=GUILD_A,
+        plan_id=UUID(str(first["id"])),
+        actor_authorization_fresh=True,
+    )
+    assert pre_apply_after_activation.allowed, pre_apply_after_activation
+    with pytest.raises(PolicyNotFound):
+        await policy_service.get(GUILD_B, draft.policy_id)
+    with pytest.raises(PlanNotFound):
+        await plans.get_plan(GUILD_B, UUID(str(first["id"])))
 
 
 @pytest.mark.asyncio

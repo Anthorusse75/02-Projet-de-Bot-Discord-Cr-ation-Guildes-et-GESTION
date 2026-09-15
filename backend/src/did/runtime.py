@@ -10,6 +10,8 @@ import discord
 from did.application.auth import AuthorizationService
 from did.application.lifecycle import run_until_stopped
 from did.application.planning import ApplyActorAuthorizer, PlanningService
+from did.application.policies.planning import PolicyPlanningService
+from did.application.policies.service import PolicyService
 from did.application.reconciliation import (
     AdaptiveReconcilePolicy,
     DiscordSyncService,
@@ -29,6 +31,7 @@ from did.infrastructure.discord_message_sender import DiscordPyMessageSender
 from did.infrastructure.logging import EventId, configure_logging, emit_event
 from did.infrastructure.planning_lock import RedisGuildMutationLock
 from did.infrastructure.planning_repository import PlanningRepository
+from did.infrastructure.policies_repository import PoliciesRepository
 from did.infrastructure.redis import create_redis_client
 from did.infrastructure.runtime_redis import (
     OutboxPublisher,
@@ -167,9 +170,18 @@ async def run_process(
                     singleflight=RedisSingleFlight(redis),
                 )
                 planning_repository = PlanningRepository(session_factory)
+                stage04_repository = Stage04Repository(session_factory)
+                policy_service = PolicyService(
+                    PoliciesRepository(session_factory), read_models=stage04_repository
+                )
+                policy_preflight = PolicyPlanningService(
+                    policies=policy_service,
+                    read_models=stage04_repository,
+                )
                 planning_service = PlanningService(
                     planning_repository,
-                    Stage04Repository(session_factory),
+                    stage04_repository,
+                    policy_preflight=policy_preflight,
                 )
                 campaigns_repository = CampaignsRepository(session_factory)
                 message_sender = DiscordPyMessageSender(rest_client)

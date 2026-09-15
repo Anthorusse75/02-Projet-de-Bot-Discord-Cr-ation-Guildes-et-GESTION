@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, status
+from fastapi import APIRouter, Header, Request, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from did.api.dependencies import CsrfSessionDep, CurrentSessionDep, ServicesDep
 from did.api.guilds import parse_snowflake
+from did.api.stage05 import _plan_response
 from did.domain.auth import AuthorizationScope, Capability
 from did.domain.policies import Policy, PolicyScopeType, PolicyVersion
 
@@ -46,6 +47,15 @@ class PolicyPatch(PolicyDefinitionInput):
 
 
 class PolicyTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+
+
+class PolicyActivation(PolicyTransition):
+    plan_id: UUID
+
+
+class PolicyPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=1)
 
@@ -241,6 +251,69 @@ async def resolve_policy(
     return encoded
 
 
+@router.post("/{guild_id}/policies/{policy_id}/preview")
+async def preview_policy(
+    guild_id: str,
+    policy_id: UUID,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Simulate a DRAFT Policy without persisting or mutating anything."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    preview = await container.policy_planning.preview(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+    )
+    encoded = jsonable_encoder(preview)
+    assert isinstance(encoded, dict)
+    return encoded
+
+
+@router.post("/{guild_id}/policies/{policy_id}/plan", status_code=status.HTTP_201_CREATED)
+async def plan_policy(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyPlanRequest,
+    request: Request,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Compile a preview to the canonical DSG/Plan and run canonical preflight."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(
+        parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True
+    )
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    preview, plan, created, preflight = await container.policy_planning.create_plan(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+        idempotency_key=idempotency_key,
+        correlation_id=UUID(str(request.state.correlation_id)),
+        expected_revision=body.expected_revision,
+    )
+    encoded_preview = jsonable_encoder(preview)
+    assert isinstance(encoded_preview, dict)
+    return {
+        "created": created,
+        "preview": encoded_preview,
+        "plan": _plan_response(plan),
+        "preflight": {
+            "allowed": preflight.allowed,
+            "errors": list(preflight.errors),
+            "warnings": list(preflight.warnings),
+            "checked_capabilities": list(preflight.checked_capabilities),
+            "limits_version": preflight.limits_version,
+            "policy_explanations": list(preflight.policy_explanations),
+        },
+    }
+
+
 async def _transition(
     guild_id: str,
     policy_id: UUID,
@@ -269,21 +342,31 @@ async def _transition(
 async def activate_policy(
     guild_id: str,
     policy_id: UUID,
-    body: PolicyTransition,
+    body: PolicyActivation,
     idempotency_key: IdempotencyKey,
     session: CsrfSessionDep,
     container: ServicesDep,
 ) -> dict[str, Any]:
-    return await _transition(
-        guild_id,
-        policy_id,
-        body,
-        idempotency_key,
-        session,
-        container,
-        "activate",
-        Capability.POLICIES_ACTIVATE,
+    parsed = parse_snowflake(guild_id)
+    await _authorize(
+        parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True
     )
+    policy = await container.policies.activate(
+        parsed,
+        policy_id,
+        session.discord_user_id,
+        body.expected_revision,
+        idempotency_key,
+        body.plan_id,
+    )
+    plan = await container.planning_repository.get_plan(parsed, body.plan_id)
+    response = _policy(policy)
+    response["discord_application"] = {
+        "plan_id": str(body.plan_id),
+        "plan_status": str(plan["status"]),
+        "applied_and_verified": str(plan["status"]) == "SUCCEEDED",
+    }
+    return response
 
 
 @router.post("/{guild_id}/policies/{policy_id}/disable")

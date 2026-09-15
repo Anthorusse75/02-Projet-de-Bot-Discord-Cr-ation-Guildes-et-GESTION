@@ -16,7 +16,7 @@ from did.domain.policies import (
     PolicyScopeType,
     PolicyVersion,
 )
-from did.domain.read_model.models import ChannelType, GuildSnapshot
+from did.domain.read_model.models import ChannelType, GuildSnapshot, MemberSnapshot
 from did.infrastructure.policies_repository import PoliciesRepository
 from did.policies.registry import (
     POLICY_TYPE_REGISTRY,
@@ -56,6 +56,9 @@ class PolicyService:
 
     async def versions(self, guild_id: int, policy_id: UUID) -> tuple[PolicyVersion, ...]:
         return await self._repository.versions(guild_id, policy_id)
+
+    async def get_revision(self, guild_id: int, policy_id: UUID, revision: int) -> Policy:
+        return await self._repository.get_revision(guild_id, policy_id, revision)
 
     async def create_draft(
         self,
@@ -182,10 +185,17 @@ class PolicyService:
         actor_id: int,
         expected_revision: int,
         idempotency_key: str,
+        activation_plan_id: UUID,
     ) -> Policy:
         current = await self._repository.get(guild_id, policy_id)
         if current.lifecycle_state is PolicyLifecycleState.ACTIVE:
             return current
+        await self._repository.assert_activation_plan(
+            guild_id=guild_id,
+            policy_id=policy_id,
+            policy_revision=expected_revision,
+            plan_id=activation_plan_id,
+        )
         definition = self._registry.validate(
             policy_type=current.policy_type,
             contract_version=current.contract_version,
@@ -303,6 +313,34 @@ class PolicyService:
             self._read_models.list_logical_groups(guild_id),
         )
         guild, member = snapshot_and_member
+        return self.resolve_loaded(
+            policies=policies,
+            guild=guild,
+            member=member,
+            logical_groups=logical_groups,
+            target_scope_type=target_scope_type,
+            target_scope_id=normalized_target_id,
+            requested_access=requested_access,
+            subject_id=subject_id,
+        )
+
+    def resolve_loaded(
+        self,
+        *,
+        policies: tuple[Policy, ...],
+        guild: GuildSnapshot,
+        member: MemberSnapshot,
+        logical_groups: Sequence[dict[str, Any]],
+        target_scope_type: PolicyScopeType,
+        target_scope_id: str | None,
+        requested_access: str,
+        subject_id: int | None = None,
+    ) -> PolicyResolution:
+        """Resolve already loaded cache facts through the canonical resolver."""
+
+        normalized_target_id = self._normalize_resolution_target(
+            target_scope_type, target_scope_id
+        )
         target_state, target_freshness, category_id = self._target_state(
             guild, target_scope_type, normalized_target_id, logical_groups
         )
@@ -313,14 +351,14 @@ class PolicyService:
             category_id=category_id,
         )
         context = PolicyResolutionContext(
-            guild_id=guild_id,
+            guild_id=guild.guild_id,
             requested_access=requested_access,
             target_scope_type=target_scope_type,
             target_scope_id=normalized_target_id,
             target_state=target_state,
             target_freshness=target_freshness,
             coverage=guild.coverage.mode,
-            subject_id=subject_id,
+            subject_id=subject_id if subject_id is not None else member.user_id,
             subject_role_ids=tuple(sorted(str(role_id) for role_id in member.role_ids)),
             subject_roles_complete=member.roles_complete,
             subject_freshness=member.freshness.state,

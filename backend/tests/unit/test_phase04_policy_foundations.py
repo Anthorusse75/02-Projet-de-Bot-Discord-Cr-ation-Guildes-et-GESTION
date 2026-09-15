@@ -12,9 +12,12 @@ import pytest
 from did.api.main import create_app
 from did.api.policies import (
     PolicyCreate,
+    PolicyPlanRequest,
     PolicyResolutionRequest,
     create_policy,
     list_policies,
+    plan_policy,
+    preview_policy,
     resolve_policy,
 )
 from did.domain.auth import READ_ONLY_CAPABILITIES, Capability
@@ -135,6 +138,8 @@ def test_policy_api_and_distinct_rbac_capabilities_are_declared() -> None:
     assert f"{base}/{{policy_id}}" in contract["paths"]
     assert f"{base}/{{policy_id}}/versions" in contract["paths"]
     assert "/api/v1/guilds/{guild_id}/policy-resolution" in contract["paths"]
+    assert f"{base}/{{policy_id}}/preview" in contract["paths"]
+    assert f"{base}/{{policy_id}}/plan" in contract["paths"]
     for action in ("activate", "disable", "retire"):
         path = f"{base}/{{policy_id}}/{action}"
         assert path in contract["paths"]
@@ -263,3 +268,40 @@ async def test_explain_api_uses_read_capability_and_serializes_canonical_result(
         target_scope_id=None,
         requested_access="VIEW",
     )
+
+
+@pytest.mark.asyncio
+async def test_preview_and_plan_api_enforce_distinct_read_and_sensitive_capabilities() -> None:
+    authorization = SimpleNamespace(authorize=AsyncMock())
+    policy_planning = SimpleNamespace(
+        preview=AsyncMock(return_value={"policy_id": str(uuid4())}),
+        create_plan=AsyncMock(side_effect=RuntimeError("stop after authorization")),
+    )
+    container = SimpleNamespace(
+        authorization=authorization,
+        policy_planning=policy_planning,
+    )
+    session = SimpleNamespace(discord_user_id=456)
+    policy_id = uuid4()
+
+    await preview_policy("123", policy_id, session, container)
+    assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_READ
+    assert authorization.authorize.await_args.kwargs.get("sensitive", False) is False
+
+    authorization.authorize.reset_mock()
+    request = SimpleNamespace(state=SimpleNamespace(correlation_id=uuid4()))
+    with pytest.raises(RuntimeError, match="stop after authorization"):
+        await plan_policy(
+            "123",
+            policy_id,
+            PolicyPlanRequest(expected_revision=1),
+            request,
+            "plan-key",
+            session,
+            container,
+        )
+    assert [call.kwargs["capability"] for call in authorization.authorize.await_args_list] == [
+        Capability.POLICIES_ACTIVATE,
+        Capability.PLANS_CREATE,
+    ]
+    assert all(call.kwargs["sensitive"] for call in authorization.authorize.await_args_list)

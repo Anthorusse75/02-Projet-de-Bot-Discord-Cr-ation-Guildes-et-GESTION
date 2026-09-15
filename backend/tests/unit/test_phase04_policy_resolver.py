@@ -114,6 +114,7 @@ async def test_application_service_uses_cache_first_context_and_canonical_resolv
     repository = SimpleNamespace(list=AsyncMock(return_value=(policy,)))
     freshness = SimpleNamespace(state=FreshnessState.FRESH)
     guild = SimpleNamespace(
+        guild_id=GUILD_ID,
         freshness=freshness,
         coverage=SimpleNamespace(mode=CoverageMode.FULL, freshness=FreshnessState.FRESH),
         roles=(),

@@ -257,6 +257,50 @@ class PlanState(StrEnum):
     INTERVENTION_REQUIRED = "INTERVENTION_REQUIRED"
 
 
+class PlanOriginType(StrEnum):
+    MANUAL = "MANUAL"
+    POLICY = "POLICY"
+
+
+@dataclass(frozen=True, slots=True)
+class PlanProvenance:
+    """Immutable semantic origin carried by the canonical Plan.
+
+    Correlation is stored separately because a replay may legitimately arrive
+    with a new request correlation ID.  Everything in this value participates
+    in the Plan hash and idempotency comparison.
+    """
+
+    origin_type: PlanOriginType = PlanOriginType.MANUAL
+    policy_id: UUID | None = None
+    policy_revision: int | None = None
+    metadata: FrozenJsonObject = field(default_factory=FrozenJsonObject)
+
+    def __post_init__(self) -> None:
+        has_policy = self.policy_id is not None or self.policy_revision is not None
+        if self.origin_type is PlanOriginType.POLICY:
+            if self.policy_id is None or self.policy_revision is None:
+                raise ValueError("Policy Plan provenance requires policy ID and revision")
+            if self.policy_revision <= 0:
+                raise ValueError("Policy Plan revision must be positive")
+        elif has_policy:
+            raise ValueError("manual Plan provenance cannot reference a Policy")
+
+    @classmethod
+    def policy(
+        cls, *, policy_id: UUID, policy_revision: int, metadata: dict[str, Any]
+    ) -> PlanProvenance:
+        return cls(
+            PlanOriginType.POLICY,
+            policy_id,
+            policy_revision,
+            freeze_json_object(metadata),
+        )
+
+    def metadata_map(self) -> dict[str, Any]:
+        return thaw_json_object(self.metadata)
+
+
 class OperationState(StrEnum):
     PENDING = "PENDING"
     IN_FLIGHT = "IN_FLIGHT"

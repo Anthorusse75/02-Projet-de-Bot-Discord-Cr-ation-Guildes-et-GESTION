@@ -294,3 +294,53 @@ exécuté, car aucun de ces chemins n'est modifié par ce lot.
 Ce lot ferme le resolver générique, pas la Phase 4 : preview/impact,
 préflight/Plan, enforcement des mutations, UI Policies et Wizards restent dans
 les lots suivants de la même Phase 4.
+
+## 13. Lot backend « Policy vers Plan canonique » — 2026-09-15
+
+Une Policy `DRAFT` peut désormais être simulée sans persistance ni mutation.
+La preview construit les contextes depuis le read model cache-first, appelle
+exactement `PolicyResolver` pour l'état courant puis pour la proposition, et
+retourne décisions avant/après, contributions gagnées/perdues, conflits,
+diagnostics, fraîcheur et couverture. L'impact expose des compteurs de
+ressources, rôles, membres, gains, pertes et cibles impossibles avec une
+précision explicite `EXACT`, `BOUNDED` ou `INCOMPLETE`.
+
+La compilation traduit uniquement les décisions Discord matérialisables vers
+les nœuds `OVERWRITE` du Desired State Graph existant, puis délègue au
+`PlanningService`, au compilateur, au moteur de risque et au preflight
+canoniques. Aucun resolver, preview de mutation ou moteur de Plan parallèle
+n'est introduit. Les routes minimales sont :
+
+- `POST /api/v1/guilds/{guild_id}/policies/{policy_id}/preview` ;
+- `POST /api/v1/guilds/{guild_id}/policies/{policy_id}/plan`.
+
+Le Plan persiste une provenance immuable typée `POLICY` : `policy_id`, révision,
+scope, contextes/fingerprint de preview, versions sources et `correlation_id`.
+Les opérations existantes référencent ce Plan ; la chaîne
+`Operation → Plan → Policy/version` est donc requêtable sans dupliquer les
+opérations. Cette provenance participe au hash et à la comparaison
+d'idempotence du Plan.
+
+Le point d'enforcement se situe dans `PlanningService.recheck()`. Le preflight
+canonique y fusionne la décision de capacité Discord avec la réévaluation de la
+Policy par le même resolver. `BLOCKED`, `UNKNOWN`, une définition révisée ou une
+preview non exacte refusent le Plan. Le worker réexécute ce contrôle après le
+fencing `APPLYING` et avant toute opération ; il exige en plus que la Policy soit
+`ACTIVE`. L'activation elle-même exige un Plan Policy tenant-local déjà
+`VALIDATED` (ou plus avancé) et la capability sensible existante. La réponse
+distingue explicitement `Policy ACTIVE` du Plan réellement `SUCCEEDED`, seul
+état déclaré appliqué et vérifié.
+
+Évolution prouvée : `REQ-POL-021`, `022`, `023`, `026`, `028`, `044`, `045` et
+`046` passent d'**ABSENT** à **CONFORME**. `REQ-POL-050` reste **PARTIEL** : les
+capabilities et l'isolation PostgreSQL A/B sont testées, mais pas une réponse
+HTTP 403 complète. `REQ-POL-051` passe d'**ABSENT** à **PARTIEL** : la chaîne
+persistance → preview → preflight → Plan → activation/provenance et les retries
+sont couverts, pas encore la chaîne CI complète jusqu'à audit/désactivation.
+
+Preuves ciblées : 117 tests unitaires du resolver, de la Policy, du Plan, des
+contrats API et du runtime passent ; 8 tests PostgreSQL Policy passent. Ruff ciblé et mypy sur
+les sept modules source concernés passent. Le round-trip Alembic
+`0038 → 0037 → 0038` passe et la base termine sur `0038_ui_phase4 (head)`.
+Aucun Playwright, Discord live A/B, APPLY Discord réel ni suite backend complète
+n'a été exécuté. La Phase 4 reste ouverte pour l'UI Policies et les Wizards.

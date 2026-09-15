@@ -13,9 +13,9 @@ Libellés canoniques : `00_REQUIREMENTS_TRACEABILITY.md` (246 historiques) et `D
 
 | Statut | Nb |
 |---|---:|
-| CONFORME | 315 |
-| PARTIEL | 35 |
-| ABSENT | 29 |
+| CONFORME | 323 |
+| PARTIEL | 36 |
+| ABSENT | 20 |
 | NON DÉMONTRÉ | 10 |
 | **Total** | **389** |
 
@@ -102,6 +102,26 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 | REQ-UXN-010 | NON DÉMONTRÉ | `ROLE_MATCH ANY` testé avec zéro, un et plusieurs rôles correspondants. | CONFORME |
 | REQ-UXN-011 | NON DÉMONTRÉ | `ROLE_MATCH ALL` testé avec ensemble incomplet, complet et sur-ensemble. | CONFORME |
 
+### Complément ciblé `ui/complete-redesign` — Phase 4, Policy vers Plan canonique
+
+Ce troisième lot ajoute une preview non mutante, une analyse d'impact bornée,
+la compilation vers le DSG/Plan existant et un garde Policy dans le preflight
+canonique puis dans le recheck worker juste avant opération. Preview, preflight
+et futur APPLY délèguent tous au même `PolicyResolver`.
+
+| ID | Avant | Preuve complémentaire | Après |
+|---|---|---|---|
+| REQ-POL-021 | ABSENT | Enforcement serveur dans `PlanningService.recheck`; le worker le répète après fencing `APPLYING` et avant opération, en refusant les états critiques. | CONFORME |
+| REQ-POL-022 | ABSENT | Le preflight canonique évalue les Policies pertinentes du Plan, fusionne leurs erreurs et conserve les explications du resolver. | CONFORME |
+| REQ-POL-023 | ABSENT | Preview et garde pré-APPLY appellent tous deux `PolicyService.resolve_loaded`, donc l'unique `PolicyResolver`; aucune logique frontend/parallèle. | CONFORME |
+| REQ-POL-026 | ABSENT | Avant/après explicite et compteurs ressources/rôles/membres/gains/pertes/conflits, marqués `EXACT`, `BOUNDED` ou `INCOMPLETE`. | CONFORME |
+| REQ-POL-028 | ABSENT | Une `DRAFT` est simulée sans persistance ni effet actif, sur des cibles cache-first explicites. | CONFORME |
+| REQ-POL-044 | ABSENT | L'activation exige capability sensible et Plan Policy tenant-local préflighté; l'état Policy actif reste distinct du Plan `SUCCEEDED` appliqué/vérifié. | CONFORME |
+| REQ-POL-045 | ABSENT | Les effets résolus alimentent le DSG puis le Plan Engine existants; Plan, Policy ID et révision sont corrélés. | CONFORME |
+| REQ-POL-046 | ABSENT | FK opération→Plan existante plus provenance immuable du Plan; test PostgreSQL de la remontée opération→Plan→Policy/révision. | CONFORME |
+| REQ-POL-050 | PARTIEL | Contrats preview/plan, capabilities read/sensibles et isolation PostgreSQL A/B testés. La preuve HTTP 403 complète manque encore. | PARTIEL |
+| REQ-POL-051 | ABSENT | Test PostgreSQL persistance→preview→preflight→Plan→activation/provenance et retry sans doublon; chaîne CI complète audit→désactivation non démontrée. | PARTIEL |
+
 ## PARTIEL — ce qui est fait / ce qui manque
 
 | ID | Implémenté | Manque |
@@ -109,7 +129,8 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 | REQ-BOT-005 | API backend réelle par bot/salon (lecture/écriture), cache-derived, testée. | La visualisation dashboard demandée reste différée. |
 | REQ-TEST-003 | Harness et rapports live A/B prévus/intégrés dans Stage10. | Pas d’agrégat live A/B valide du run courant: credentials sandbox externes indisponibles. |
 | REQ-POL-006 | Nom, description et métadonnées humaines sont persistés. | L'UI Policies n'est pas livrée dans ce lot backend. |
-| REQ-POL-050 | Contrats API, capabilities et tests PostgreSQL cross-tenant ciblés. | Test HTTP 403 complet et chaîne enforcement hors de ce lot. |
+| REQ-POL-050 | Contrats preview/plan, capabilities et tests PostgreSQL cross-tenant ciblés. | Test HTTP 403 complet encore absent. |
+| REQ-POL-051 | Chaîne PostgreSQL persistance, preview, preflight, Plan, activation/provenance et retry testée. | Chaîne CI complète jusqu'à audit puis désactivation non démontrée. |
 | REQ-UXN-009 | Moteur multi-rôles conforme | audit de toutes les UIs non réalisé. |
 | REQ-OPS-003 | Persistance backend démontrée | UX de reprise après nouvelle session non démontrée. |
 | REQ-OPS-004 | OutboxScreen/PlanDrawer existent | sémantique “centre d’opérations” et reprise session non totalement prouvées. |
@@ -123,7 +144,7 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 | REQ-TPL-002 | Pipeline portable/preflight existe | UX d’adaptation préconstruite non prouvée. |
 | REQ-TPL-003 | Portabilité rapporte mappings | écran dédié de template infrastructure non prouvé. |
 | REQ-TPL-004 | COPY_AS_NEW sait créer | expérience de suggestion non démontrée. |
-| REQ-TPL-007 | REQ-DUP-019 couvre portabilité de définitions | moteur générique de Policy absent. |
+| REQ-TPL-007 | REQ-DUP-019 couvre portabilité de définitions et le moteur générique Policy existe. | Portabilité des Policies via template non démontrée. |
 | REQ-TPL-009 | `template_id`, `schema_version` et `content_hash` donnent identité et empreinte reproductible. | Pas de révision métier publiée/sélectionnable (versions 1/2 immuables) démontrée. |
 | REQ-TPL-010 | Portabilité converge sur planning | Wizard absent. |
 | REQ-REUSE-001 | Architecture recommande dnd-kit, Radix/shadcn, i18next, discord.py, etc. | processus formel non démontré. |
@@ -132,9 +153,9 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 | REQ-REUSE-009 | dnd-kit et primitives UI sont prévus/utilisés | emoji picker pas encore présent. |
 | REQ-REUSE-010 | Redis/streams/locks et abstractions existent | audit exhaustif non réalisé. |
 | REQ-REUSE-012 | TranslationProvider/Discord adapter sont de bons exemples | pas prouvé partout. |
-| REQ-PERMX-010 | Moteur canonique existe | Wizard/Policy Engine absents. |
+| REQ-PERMX-010 | Moteurs canoniques permissions/Policy et raccord au Plan existent. | Wizard Policies absent. |
 | REQ-QA-001 | Règle d’audit adoptée ici | traçabilité historique parfois plus large que preuve réinspectée. |
-| REQ-QA-003 | Permissions/planning fortement testés | futur Policy Engine absent. |
+| REQ-QA-003 | Permissions/planning et pipeline Policy backend fortement testés. | UI/Wizard et chaîne CI Policy complète restent à démontrer. |
 | REQ-QA-004 | Historique Stage10 affirme couverture | pas tout réexécuté. |
 | REQ-QA-005 | Suite importante déclarée | audit indépendant exhaustif non reproduit. |
 | REQ-QA-006 | Stage07-10 E2E existent | nouveaux Wizards/Policies non couverts. |
@@ -162,18 +183,18 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 - `REQ-PERMX-006`, `REQ-PERMX-007`, `REQ-PERMX-008`, `REQ-PERMX-009`, `REQ-QA-002`
 - `REQ-POL-002`, `REQ-POL-003`, `REQ-POL-004`, `REQ-POL-005`, `REQ-POL-007`, `REQ-POL-008`, `REQ-POL-009`, `REQ-POL-010`, `REQ-POL-011`, `REQ-POL-027`, `REQ-POL-029`, `REQ-POL-030`, `REQ-POL-031`, `REQ-POL-035`, `REQ-POL-036`, `REQ-POL-037`, `REQ-POL-038`, `REQ-POL-039`, `REQ-POL-052`, `REQ-POL-053`
 - `REQ-POL-001`, `REQ-POL-012`, `REQ-POL-013`, `REQ-POL-014`, `REQ-POL-015`, `REQ-POL-016`, `REQ-POL-017`, `REQ-POL-018`, `REQ-POL-019`, `REQ-POL-020`, `REQ-POL-024`, `REQ-POL-033`, `REQ-POL-034`, `REQ-POL-040`, `REQ-POL-047`, `REQ-POL-048`, `REQ-POL-049`, `REQ-UXN-010`, `REQ-UXN-011`
+- `REQ-POL-021`, `REQ-POL-022`, `REQ-POL-023`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`
 - `REQ-WIZ-011`, `REQ-WIZ-012`, `REQ-UXN-003`, `REQ-UXN-004`, `REQ-UXN-005`, `REQ-UXN-006`, `REQ-UXN-007`, `REQ-UXN-012`, `REQ-UXN-013`, `REQ-UXN-014`, `REQ-UXN-015`
 
 ### PARTIEL
 
-- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-006`, `REQ-POL-050`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
+- `REQ-BOT-005`, `REQ-TEST-003`, `REQ-POL-006`, `REQ-POL-050`, `REQ-POL-051`, `REQ-UXN-009`, `REQ-OPS-003`, `REQ-OPS-004`, `REQ-OPS-005`, `REQ-OPS-006`, `REQ-OPS-007`, `REQ-OPS-008`, `REQ-OPS-009`, `REQ-OPS-014`, `REQ-TPL-001`, `REQ-TPL-002`
 - `REQ-TPL-003`, `REQ-TPL-004`, `REQ-TPL-007`, `REQ-TPL-009`, `REQ-TPL-010`, `REQ-REUSE-001`, `REQ-REUSE-005`, `REQ-REUSE-007`, `REQ-REUSE-009`, `REQ-REUSE-010`, `REQ-REUSE-012`, `REQ-PERMX-010`, `REQ-QA-001`, `REQ-QA-003`, `REQ-QA-004`, `REQ-QA-005`, `REQ-QA-006`, `REQ-QA-010`, `REQ-QA-011`, `REQ-QA-012`
 
 ### ABSENT
 
-- `REQ-POL-021`, `REQ-POL-022`
-- `REQ-POL-023`, `REQ-POL-025`, `REQ-POL-026`, `REQ-POL-028`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
-- `REQ-POL-044`, `REQ-POL-045`, `REQ-POL-046`, `REQ-POL-051`, `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
+- `REQ-POL-025`, `REQ-POL-032`, `REQ-POL-041`, `REQ-POL-042`, `REQ-POL-043`
+- `REQ-WIZ-001`, `REQ-WIZ-002`, `REQ-WIZ-003`, `REQ-WIZ-004`, `REQ-WIZ-005`, `REQ-WIZ-006`, `REQ-WIZ-007`, `REQ-WIZ-008`, `REQ-WIZ-009`, `REQ-WIZ-010`, `REQ-WIZ-013`
 - `REQ-WIZ-014`, `REQ-QA-007`, `REQ-QA-008`, `REQ-QA-009`
 
 ### NON DÉMONTRÉ
@@ -187,11 +208,11 @@ Il ne livre ni preview/impact, ni enforcement, ni Plan/APPLY, ni UI/Wizard.
 - Planning : service planning, modèles, persistance/DAG/preflight/impact/UNKNOWN_OUTCOME, failure-injection.
 - Portabilité/templates : service/repository/API Stage06, tests PostgreSQL/E2E; template privé RLS démontré.
 - Stage10 : large couverture backend/Playwright; `REQ-TEST-003` reste partiel car l’agrégat live A/B du run courant manque.
-- Policies/Wizards : fondations et resolver générique Policy backend démontrés (priorité, héritage, composition, conflits, explain et fail-closed) ; preview/Plan, enforcement, UI et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
+- Policies/Wizards : fondations, resolver, preview/impact, compilation DSG/Plan, provenance et enforcement preflight/pré-opération sont démontrés ; UI Policies et Wizard restent ouverts. Les policies message/traduction demeurent spécialisées et séparées.
 
 ## Priorités
 
-1. **Suite du Policy Engine** : preview/Plan, enforcement et UI traités dans la Phase UI 4 existante.
+1. **Suite du Policy Engine** : UI Policies et preuves HTTP/CI restantes dans la Phase UI 4 existante.
 2. **Wizards** : socle en Phase UI 4, réutilisé ensuite.
 3. **Operations Center inter-session + drafts** : Phase UI 5.
 4. **Templates adaptatifs** : Phase UI 6.

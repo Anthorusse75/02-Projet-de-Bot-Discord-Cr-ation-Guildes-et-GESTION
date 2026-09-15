@@ -18,6 +18,7 @@ from did.planning.models import (
     OperationState,
     OperationType,
     PlanOperation,
+    PlanProvenance,
     PlanState,
     ResourceType,
     RiskLevel,
@@ -72,9 +73,11 @@ class PlanningRepository:
         risk: RiskAssessment,
         compiler_version: str,
         correlation_id: UUID,
+        provenance: PlanProvenance | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if not idempotency_key or len(idempotency_key) > 160:
             raise ValueError("idempotency key must be present and bounded")
+        provenance = provenance or PlanProvenance()
         graph_json = canonical_json(graph)
         graph_hash = canonical_hash(graph)
         snapshot_id = uuid4()
@@ -88,6 +91,18 @@ class PlanningRepository:
             if existing is not None:
                 if str(existing["desired_graph_hash"]) != graph_hash:
                     raise PlanConflict("idempotency key reused with another desired graph")
+                if (
+                    str(existing["origin_type"]) != provenance.origin_type.value
+                    or existing["source_policy_id"] != provenance.policy_id
+                    or (
+                        int(existing["source_policy_revision"])
+                        if existing["source_policy_revision"] is not None
+                        else None
+                    )
+                    != provenance.policy_revision
+                    or dict(existing["origin_metadata"]) != provenance.metadata_map()
+                ):
+                    raise PlanConflict("idempotency key reused with another Plan provenance")
                 return dict(existing), False
             await session.execute(
                 text(
@@ -113,11 +128,13 @@ class PlanningRepository:
                     "compiler_version,desired_graph,desired_graph_hash,before_snapshot_id,"
                     "base_structure_version,base_structure_hash,capability_version,plan_hash,"
                     "risk_level,risk_summary,impact_summary,confirmation_required,"
-                    "idempotency_key) VALUES "
+                    "idempotency_key,origin_type,source_policy_id,source_policy_revision,"
+                    "origin_metadata,correlation_id) VALUES "
                     "(:id,:guild_id,:actor,'DRAFT',:schema,:compiler,CAST(:graph AS jsonb),"
                     ":graph_hash,:snapshot_id,:base_version,:base_hash,:capability_version,"
                     ":plan_hash,:risk_level,CAST(:risk AS jsonb),CAST(:impact AS jsonb),"
-                    ":confirmation_required,:idempotency_key)"
+                    ":confirmation_required,:idempotency_key,:origin_type,:source_policy_id,"
+                    ":source_policy_revision,CAST(:origin_metadata AS jsonb),:correlation_id)"
                 ),
                 {
                     "id": plan_id,
@@ -146,6 +163,13 @@ class PlanningRepository:
                     "impact": json.dumps(asdict(risk.impact), separators=(",", ":")),
                     "confirmation_required": risk.reinforced_confirmation_required,
                     "idempotency_key": idempotency_key,
+                    "origin_type": provenance.origin_type.value,
+                    "source_policy_id": provenance.policy_id,
+                    "source_policy_revision": provenance.policy_revision,
+                    "origin_metadata": json.dumps(
+                        provenance.metadata_map(), separators=(",", ":")
+                    ),
+                    "correlation_id": correlation_id,
                 },
             )
             display_order = {
@@ -242,7 +266,15 @@ class PlanningRepository:
                 operation_id=None,
                 correlation_id=correlation_id,
                 result_state=PlanState.DRAFT.value,
-                data={"plan_hash": plan_hash, "operation_count": len(operations)},
+                data={
+                    "plan_hash": plan_hash,
+                    "operation_count": len(operations),
+                    "origin_type": provenance.origin_type.value,
+                    "source_policy_id": (
+                        str(provenance.policy_id) if provenance.policy_id is not None else None
+                    ),
+                    "source_policy_revision": provenance.policy_revision,
+                },
             )
             await self._append_progress(
                 session,

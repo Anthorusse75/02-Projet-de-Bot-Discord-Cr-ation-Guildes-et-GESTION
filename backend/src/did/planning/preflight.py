@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.read_model import GuildSnapshot, MemberSnapshot
@@ -57,6 +58,15 @@ class PreflightResult:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     checked_capabilities: tuple[str, ...] = field(default_factory=tuple)
     limits_version: str = DEFAULT_DISCORD_LIMITS.version
+    policy_explanations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyPreflightResult:
+    allowed: bool
+    errors: tuple[str, ...] = field(default_factory=tuple)
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+    explanations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
 class PreflightEngine:

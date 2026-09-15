@@ -170,6 +170,23 @@ def _plan_response(row: dict[str, Any]) -> dict[str, Any]:
         "reinforced_confirmation_required": bool(row["confirmation_required"]),
         "error_code": row["error_code"],
         "verification": row["verification_summary"],
+        "provenance": {
+            "origin_type": str(row.get("origin_type", "MANUAL")),
+            "policy_id": (
+                str(row["source_policy_id"])
+                if row.get("source_policy_id") is not None
+                else None
+            ),
+            "policy_revision": (
+                int(row["source_policy_revision"])
+                if row.get("source_policy_revision") is not None
+                else None
+            ),
+            "metadata": dict(row.get("origin_metadata") or {}),
+            "correlation_id": (
+                str(row["correlation_id"]) if row.get("correlation_id") is not None else None
+            ),
+        },
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -319,6 +336,7 @@ async def validate_plan(
             "warnings": list(result.warnings),
             "checked_capabilities": list(result.checked_capabilities),
             "limits_version": result.limits_version,
+            "policy_explanations": list(result.policy_explanations),
         },
     }
 

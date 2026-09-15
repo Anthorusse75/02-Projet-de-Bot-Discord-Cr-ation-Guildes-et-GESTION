@@ -71,6 +71,7 @@ class ServiceContainer:
     campaigns_repository: CampaignsRepository | None = None
     policies_repository: Any = None
     policies: Any = None
+    policy_planning: Any = None
     #: RLS-bypassing admin session factory -- used ONLY for the same narrow,
     #: owner-verified-in-query system-process reads
     #: ``CampaignsRepository.list_targets_for_campaign``/

@@ -89,7 +89,7 @@ Quelques tests interaction/UI ciblés sur second clic, F2, menu contextuel et va
 
 ### Exigences affectées
 
-- **`REQ-POL-001` à `REQ-POL-053`** : toute la famille Policy est à fermer dans cette phase ; le moteur générique manque encore alors que quelques policies spécialisées existent déjà.
+- **`REQ-POL-001` à `REQ-POL-053`** : toute la famille Policy reste à fermer dans cette phase ; le backend générique, son resolver et son raccord Plan sont livrés, tandis que l'UI et les Wizards restent ouverts.
 - **`REQ-WIZ-001` à `REQ-WIZ-010`, `REQ-WIZ-013`, `REQ-WIZ-014`** : le socle Wizard générique est construit ici puis réutilisé en Phases 6/7. `REQ-WIZ-011` et `012` restent la propriété de la Phase 2 car ils décrivent le premier setup.
 - **`REQ-PERMX-010`** : raccord complet du moteur canonique de permissions au Policy Engine/Wizard.
 - **`REQ-UXN-009`** : aucune UI métier mono-rôle lorsque Discord autorise les rôles cumulés.
@@ -137,6 +137,28 @@ conflits, l'héritage complet, les ensembles de rôles `ANY`/`ALL`, les données
 incomplètes, le drift et les cibles supprimées/inaccessibles. Preview/impact,
 préflight/Plan, enforcement, UI Policies et Wizards restent ouverts ; la Phase 4
 n'est donc pas déclarée terminée.
+
+### Lot backend Policy → preview/preflight → Plan — livré le 2026-09-15
+
+La preview d'une Policy `DRAFT` compare maintenant la résolution courante à la
+proposition avec l'unique `PolicyResolver`. Elle expose les changements d'accès,
+contributions, conflits et une précision d'impact honnête
+`EXACT/BOUNDED/INCOMPLETE`, sans écriture ni mutation Discord.
+
+Les effets matérialisables sont compilés en nœuds `OVERWRITE` du DSG existant,
+puis passent dans le Plan Engine et le preflight existants. Le Plan porte une
+provenance immuable Policy/révision/scope/corrélation ; ses opérations permettent
+ainsi de remonter au Plan puis à la Policy. Le recheck canonique fusionne les
+capacités Discord et la décision Policy, conserve les explications et bloque
+`BLOCKED`/`UNKNOWN`. Le worker répète ce contrôle avant toute opération. Une
+activation exige désormais ce Plan tenant-local préflighté et ne prétend être
+appliquée/vérifiée que lorsque le Plan est `SUCCEEDED`.
+
+Couverture acquise : `REQ-POL-021`, `022`, `023`, `026`, `028`, `044`, `045` et
+`046` passent à **CONFORME**. `REQ-POL-050` reste **PARTIEL** jusqu'à une preuve
+HTTP 403 complète. `REQ-POL-051` devient **PARTIEL** jusqu'à la chaîne CI
+complète incluant audit et désactivation. L'UI Policies et les Wizards restent
+ouverts ; aucune Phase supplémentaire n'est créée.
 
 ### Preuve minimale utile
 

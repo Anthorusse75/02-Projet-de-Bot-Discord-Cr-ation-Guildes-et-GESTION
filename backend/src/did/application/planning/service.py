@@ -18,6 +18,8 @@ from did.planning.models import (
     NodePresence,
     OperationType,
     PlanOperation,
+    PlanOriginType,
+    PlanProvenance,
     PlanState,
     ReferenceKind,
     ResourceReference,
@@ -38,6 +40,7 @@ class PlanningService:
         read_models: Stage04Repository,
         *,
         confirmation_ttl_seconds: int = 600,
+        policy_preflight: Any = None,
     ) -> None:
         self._repository = repository
         self._read_models = read_models
@@ -45,6 +48,7 @@ class PlanningService:
         self._risk = RiskEngine()
         self._preflight = PreflightEngine()
         self._confirmation_ttl = confirmation_ttl_seconds
+        self._policy_preflight = policy_preflight
 
     async def create(
         self,
@@ -54,8 +58,10 @@ class PlanningService:
         idempotency_key: str,
         correlation_id: UUID,
         operation_order_policy: str | None = None,
+        provenance: PlanProvenance | None = None,
     ) -> tuple[dict[str, Any], bool]:
         guild, _ = await self._read_models.guild_snapshot(graph.guild_id, actor_user_id)
+        provenance = provenance or PlanProvenance()
         plan_id = uuid4()
         compiled = self._compiler.compile(guild, graph, plan_id=plan_id)
         if operation_order_policy is not None:
@@ -78,6 +84,7 @@ class PlanningService:
             base_structure_version=structure_version,
             base_structure_hash=structure_hash,
             symbols=self._symbol_definitions(operations),
+            provenance=provenance,
         )
         return await self._repository.create_plan(
             plan_id=plan_id,
@@ -94,6 +101,7 @@ class PlanningService:
             risk=risk,
             compiler_version=self._compiler.version,
             correlation_id=correlation_id,
+            provenance=provenance,
         )
 
     async def validate(
@@ -139,7 +147,12 @@ class PlanningService:
         return updated, result
 
     async def recheck(
-        self, *, guild_id: int, plan_id: UUID, actor_authorization_fresh: bool
+        self,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        actor_authorization_fresh: bool,
+        require_policy_active: bool | None = None,
     ) -> PreflightResult:
         """Re-evaluate mutable Discord facts without changing plan state.
 
@@ -158,7 +171,7 @@ class PlanningService:
         graph = graph_from_json(dict(plan["desired_graph"]))
         impact = await self._impact(guild, operations)
         risk = self._risk.assess(operations, impact)
-        return self._preflight.check(
+        result = self._preflight.check(
             graph=graph,
             operations=operations,
             context=PreflightContext(
@@ -171,6 +184,34 @@ class PlanningService:
                 capability_version=str(plan["capability_version"]),
             ),
             risk=risk,
+        )
+        provenance = self._provenance_from_row(plan)
+        if provenance.origin_type is not PlanOriginType.POLICY:
+            return result
+        if self._policy_preflight is None:
+            return PreflightResult(
+                False,
+                tuple(sorted(set(result.errors) | {"preflight.policy_guard_unavailable"})),
+                result.warnings,
+                result.checked_capabilities,
+                result.limits_version,
+            )
+        policy = await self._policy_preflight.evaluate_plan(
+            guild_id=guild_id,
+            provenance=provenance,
+            require_active=(
+                str(plan["status"]) != PlanState.DRAFT.value
+                if require_policy_active is None
+                else require_policy_active
+            ),
+        )
+        return PreflightResult(
+            result.allowed and policy.allowed,
+            tuple(sorted(set(result.errors) | set(policy.errors))),
+            tuple(sorted(set(result.warnings) | set(policy.warnings))),
+            result.checked_capabilities,
+            result.limits_version,
+            policy.explanations,
         )
 
     async def confirm(
@@ -577,6 +618,7 @@ class PlanningService:
             base_structure_version=str(snapshot["structure_version"]),
             base_structure_hash=str(snapshot["snapshot_hash"]),
             symbols=tuple(bundle["symbols"]),
+            provenance=self._provenance_from_row(plan),
         )
         if calculated != str(plan["plan_hash"]):
             raise ValueError("persisted plan hash mismatch")
@@ -610,7 +652,9 @@ class PlanningService:
         base_structure_version: str,
         base_structure_hash: str,
         symbols: tuple[dict[str, str], ...],
+        provenance: PlanProvenance | None = None,
     ) -> str:
+        provenance = provenance or PlanProvenance()
         dependencies = tuple(
             {
                 "operation_id": str(operation.operation_id),
@@ -619,23 +663,37 @@ class PlanningService:
             for operation in operations
             for predecessor in operation.predecessors
         )
-        return canonical_hash(
-            {
-                "desired_graph": graph,
-                "desired_graph_hash": canonical_hash(graph),
-                "compiler_version": compiler_version,
-                "capability_version": capability_version,
-                "before_snapshot": {
-                    "schema_version": snapshot_schema_version,
-                    "structure_version": base_structure_version,
-                    "snapshot_hash": base_structure_hash,
-                    "payload": snapshot,
-                },
-                "operations": operations,
-                "dependencies": dependencies,
-                "symbols": symbols,
-            }
-        )
+        material: dict[str, Any] = {
+            "desired_graph": graph,
+            "desired_graph_hash": canonical_hash(graph),
+            "compiler_version": compiler_version,
+            "capability_version": capability_version,
+            "before_snapshot": {
+                "schema_version": snapshot_schema_version,
+                "structure_version": base_structure_version,
+                "snapshot_hash": base_structure_hash,
+                "payload": snapshot,
+            },
+            "operations": operations,
+            "dependencies": dependencies,
+            "symbols": symbols,
+        }
+        # Preserve the byte-for-byte hash contract of every Plan created before
+        # Policy provenance existed. Only Policy-origin Plans add new material.
+        if provenance.origin_type is PlanOriginType.POLICY:
+            material["provenance"] = provenance
+        return canonical_hash(material)
+
+    @staticmethod
+    def _provenance_from_row(row: dict[str, Any]) -> PlanProvenance:
+        origin = PlanOriginType(str(row.get("origin_type", PlanOriginType.MANUAL.value)))
+        if origin is PlanOriginType.POLICY:
+            return PlanProvenance.policy(
+                policy_id=UUID(str(row["source_policy_id"])),
+                policy_revision=int(row["source_policy_revision"]),
+                metadata=dict(row["origin_metadata"]),
+            )
+        return PlanProvenance()
 
 
 def graph_from_json(value: dict[str, Any]) -> DesiredStateGraph:

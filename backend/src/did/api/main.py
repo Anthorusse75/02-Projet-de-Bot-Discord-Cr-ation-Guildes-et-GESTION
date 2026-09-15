@@ -30,6 +30,7 @@ from did.application.auth import AuthorizationService, AuthService
 from did.application.auth.service import AuthorizationDenied
 from did.application.installations import InstallationService
 from did.application.planning import PlanningService
+from did.application.policies.planning import PolicyPlanningService
 from did.application.policies.service import PolicyService
 from did.application.portability import PortabilityService
 from did.application.translation import (
@@ -204,7 +205,18 @@ def create_app(
             )
             planning_repository = PlanningRepository(session_factory)
             stage04_repository = Stage04Repository(session_factory)
-            planning = PlanningService(planning_repository, stage04_repository)
+            policies_repository = PoliciesRepository(session_factory)
+            policies = PolicyService(policies_repository, read_models=stage04_repository)
+            policy_planning = PolicyPlanningService(
+                policies=policies,
+                read_models=stage04_repository,
+            )
+            planning = PlanningService(
+                planning_repository,
+                stage04_repository,
+                policy_preflight=policy_planning,
+            )
+            policy_planning.bind_planning(planning)
             portability_repository = None
             portability = None
             localization_repository = LocalizationRepository(session_factory)
@@ -239,8 +251,6 @@ def create_app(
                 providers=stage08_provider_repository,
             )
             campaigns_repository = CampaignsRepository(session_factory)
-            policies_repository = PoliciesRepository(session_factory)
-            policies = PolicyService(policies_repository, read_models=stage04_repository)
             campaigns_admin_engine = create_database_engine(
                 configured.database_admin_url.get_secret_value()
             )
@@ -308,6 +318,7 @@ def create_app(
                 campaigns_repository=campaigns_repository,
                 policies_repository=policies_repository,
                 policies=policies,
+                policy_planning=policy_planning,
                 campaigns_admin_factory=campaigns_admin_factory,
             )
         try:
