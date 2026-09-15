@@ -496,6 +496,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/access-matrix/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Access Matrix
+         * @description Batch role x resource access synthesis (REQ-AP-MAT-001..004).
+         *
+         *     Read-only: delegates entirely to the canonical `PermissionEvaluator` and
+         *     `PolicyResolver` after a single Guild/Policies/logical-groups read. No
+         *     Discord call, no mutation, no second permission or Policy calculation.
+         */
+        post: operations["resolve_access_matrix_api_v1_guilds__guild_id__access_matrix_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/audit": {
         parameters: {
             query?: never;
@@ -1213,6 +1237,46 @@ export interface paths {
         put?: never;
         /** Create Policy */
         post: operations["create_policy_api_v1_guilds__guild_id__policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/bulk-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Bulk Policies
+         * @description Prepare one canonical Policy Plan per DRAFT, never apply it.
+         */
+        post: operations["plan_bulk_policies_api_v1_guilds__guild_id__policies_bulk_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/bulk-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Bulk Policies
+         * @description Create explicit retry-safe DRAFTs, then preview them in one bounded call.
+         */
+        post: operations["preview_bulk_policies_api_v1_guilds__guild_id__policies_bulk_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2328,6 +2392,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccessMatrixRequest */
+        AccessMatrixRequest: {
+            /** Resource Ids */
+            resource_ids: string[];
+            /** Role Ids */
+            role_ids: string[];
+        };
         /**
          * ArtifactKind
          * @enum {string}
@@ -2348,6 +2419,26 @@ export interface components {
          * @enum {string}
          */
         BotOperation: "CREATE_CHANNEL" | "MANAGE_CHANNEL" | "REORDER_CHANNELS" | "MANAGE_OVERWRITES" | "CREATE_ROLE" | "MANAGE_ROLE" | "REORDER_ROLES" | "ASSIGN_ROLE" | "SEND_MESSAGE" | "MANAGE_THREAD";
+        /** BulkPolicyPlanItem */
+        BulkPolicyPlanItem: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Policy Id
+             * Format: uuid
+             */
+            policy_id: string;
+        };
+        /** BulkPolicyPlanRequest */
+        BulkPolicyPlanRequest: {
+            /** Policies */
+            policies: components["schemas"]["BulkPolicyPlanItem"][];
+        };
+        /** BulkPolicyPreviewRequest */
+        BulkPolicyPreviewRequest: {
+            /** Definitions */
+            definitions: components["schemas"]["PolicyCreate"][];
+        };
         /** CampaignCreateInput */
         CampaignCreateInput: {
             /** Allowed Mentions Policy */
@@ -4558,6 +4649,43 @@ export interface operations {
             };
         };
     };
+    resolve_access_matrix_api_v1_guilds__guild_id__access_matrix_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessMatrixRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_audit_api_v1_guilds__guild_id__audit_get: {
         parameters: {
             query?: {
@@ -6259,6 +6387,84 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_bulk_policies_api_v1_guilds__guild_id__policies_bulk_plan_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkPolicyPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_bulk_policies_api_v1_guilds__guild_id__policies_bulk_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkPolicyPreviewRequest"];
             };
         };
         responses: {

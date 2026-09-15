@@ -1,7 +1,8 @@
 # Phase 4 — Rapport initial et réouverture post-audit
 
 **Branche :** `ui/complete-redesign`  
-**Statut actuel :** 🚧 **RÉOUVERTE — socle initial livré, complétion Policy/Wizard requise**  
+**Statut actuel :** 🚧 **RÉOUVERTE — matrice/bulk livrés, politiques avancées encore ouvertes**
+
 **Référence visuelle :** `SCREENSHOTS_ESQUISSE/Esquisse 1.png`  
 **Plan maître :** `SCREENSHOTS_ESQUISSE/UI_REDESIGN_PHASES.md`
 
@@ -531,3 +532,124 @@ unitaires associés. Modifiés : `app/App.tsx`, `app/AppShell.tsx`,
 `localization/runtime.tsx`, `main.tsx`, `features/policies/PoliciesScreen.tsx`
 (extraction de `buildPolicyTargets`/`targetKey`/`apiProblem` vers des modules
 partagés, comportement inchangé). Aucune migration base de données.
+
+## 16. Lot « Matrice d’accès simplifiée + édition massive » — 2026-09-15
+
+### Architecture et source de vérité
+
+Une entrée **Matrice d’accès** (`/guild/:guildId/matrix`) présente les rôles
+non gérés en lignes et les catégories/salons du read model local en colonnes.
+Le frontend émet une unique requête bornée (50 rôles × 150 ressources maximum)
+vers `POST /api/v1/guilds/{guild_id}/access-matrix/resolve`. Il ne recalcule ni
+bitfield, ni héritage, ni conflit.
+
+Le service batch charge une seule fois le snapshot de Guild, les Policies et
+les groupes logiques, puis délègue chaque cellule aux moteurs canoniques :
+
+- `PermissionEvaluator` fournit l’accès Discord effectif ;
+- `PolicyResolver` fournit intention, provenance héritée, exception et conflit ;
+- une donnée stale/incomplète produit une synthèse `UNKNOWN`, jamais un faux
+  « Aucun accès ».
+
+La grille propose les filtres Tous, Conflits, Exceptions et Zones privées. Les
+cellules sont des boutons accessibles au clavier (flèches, activation native),
+avec libellé complet rôle × ressource × synthèse. Le clic ouvre d’abord un
+éditeur d’intention humaine ; les détails Discord structurés restent repliés
+derrière une action secondaire.
+
+### Bulk, DRAFTs et Plans
+
+Les cases d’en-tête permettent une sélection multiple de catégories et salons.
+Le catalogue ne propose que les Policies compatibles avec au moins une cible ;
+pour la Policy choisie, toutes les ressources incompatibles restent listées
+avec leur raison. Les compteurs sélectionné/compatible/exclu sont séparés.
+
+Deux commandes HTTP batch bornées évitent tout N×M ou N appels depuis React :
+
+1. `POST .../policies/bulk-preview` crée une Policy `DRAFT` explicite par
+   ressource compatible et renvoie la Preview canonique de chacune ;
+2. `POST .../policies/bulk-plan` crée un Plan Policy canonique par DRAFT et
+   retourne le nombre réel de Plans préparés.
+
+Le service de Preview partage un seul chargement Policy/read-model pour le lot.
+Chaque Policy porte un tag commun `bulk-operation:*`; chaque DRAFT et chaque
+Plan reçoit une clé enfant déterministe dérivée de l’`Idempotency-Key` du geste.
+Un retry après timeout retrouve donc les mêmes agrégats. La chaîne durable
+reste strictement `ressource → Policy → révision → Plan`; aucun mega-payload,
+second Plan Engine, endpoint Apply ou appel Discord direct n’a été ajouté.
+
+L’écran agrège uniquement les compteurs de présentation des Previews :
+différences avant/après, conflits, `BLOCKED`, `UNKNOWN` et précision
+`EXACT/BOUNDED/INCOMPLETE`. Un lot non exact ou contenant `BLOCKED/UNKNOWN` ne
+peut pas préparer de Plans.
+
+Le menu contextuel canonique existant porte une action bulk de déplacement de
+salons exigeant une catégorie destination ; il ne représente pas une sélection
+mixte catégorie/salon ni une Policy. Aucun second menu concurrent n’a été créé :
+`REQ-AP-BULK-004` (SHOULD) reste ouvert.
+
+### Couverture de ce lot
+
+- `REQ-AP-MAT-001` à `REQ-AP-MAT-006` : **couverts par ce lot** ;
+- `REQ-AP-BULK-001` à `REQ-AP-BULK-003` : **couverts par ce lot** ;
+- `REQ-AP-BULK-004` : **encore à faire**.
+
+### Tests exécutés
+
+- backend : `test_phase04_access_matrix.py`, 13 tests (déterminisme,
+  PermissionEvaluator/PolicyResolver canoniques, conflit, tenant refusé avant
+  lecture, stale/unknown, absence de mutation, limites et idempotence) ;
+- backend Policy existant : 30 tests fondations + planning ;
+- frontend : 4 tests unitaires ciblés (synthèse, filtres, exclusion motivée,
+  sélection multiple) ;
+- Playwright : 2 parcours ciblés, dont un refetch et un contrôle axe, avec zéro
+  requête `/apply` ; le harness navigateur vérifie le contrat et les
+  interactions, tandis que le calcul canonique lui-même est prouvé par les
+  tests backend et non par la valeur mockée du harness ;
+- Ruff, format Ruff, mypy ciblé, TypeScript, ESLint, i18n EN/FR/DE/ES, OpenAPI
+  et `git diff --check`.
+
+Tests non exécutés : campagne globale backend/frontend, PostgreSQL/RLS (aucune
+table ni migration), Discord live A/B et tout APPLY réel.
+
+### Inventaire factuel après ce lot — Phase 4 toujours ouverte
+
+Déjà couvert : matrice et bulk ci-dessus ; socle intention-first, sept Policies
+natives initiales, Policy générique/versionnée, resolver déterministe,
+héritage visible, Preview/Impact, Explain, DRAFT→Plan canonique et Wizard accès.
+
+Encore à faire ou à fermer complètement :
+
+- contradictions/remédiations transverses : `REQ-AP-004` à `007` restent
+  partiels jusqu’à la résolution complète des conflits ci-dessous ;
+- visibilité/écriture avancées : `REQ-AP-VIS-004`, `011` à `014`, `016`, `017`,
+  `REQ-AP-WRI-011` et `REQ-AP-WRI-022` ;
+- menu contextuel Policy : `REQ-AP-BULK-004`, `REQ-AP-UX-004` ;
+- vocal : `REQ-AP-VOC-001`, `010`, `020`, `021`, `030` ;
+- threads/réactions/mentions : `REQ-AP-THR-001`, `REQ-AP-REA-001`,
+  `REQ-AP-MEN-001` à `004`, ainsi que `REQ-AP-WRI-022` et `REQ-AP-PRS-013` ;
+- bots : `REQ-AP-BOT-001` à `004` ;
+- accès temporaires : `REQ-AP-TMP-001` à `006` ;
+- politique maître de catégorie : socle catégorie/héritage présent, mais
+  `REQ-AP-INH-003` (réappliquer aux exceptions) reste ouvert ;
+- politique verrouillée, drift et auto-remédiation : `REQ-AP-LOCK-001` à `006`
+  et leurs preuves `REQ-AP-TST-005` ;
+- zones/audiences avancées : `REQ-AP-ZONE-001` à `003`, `010` à `012`, `020` à
+  `023`, `030` à `032`, `040` à `041`, `050` à `052`, `060` à `061` ;
+- presets encore absents/incomplets : `REQ-AP-PRS-001`, `010` à `013`, `020` à
+  `022` ;
+- résolution/optimisation de conflits complète : `REQ-AP-CFL-001` à `006`
+  restent au minimum partiels tant que les causes rôle par rôle, remédiations
+  valides et impacts collatéraux/plan séparé ne sont pas tous livrés ;
+- lifecycle personnalisé : `REQ-AP-014` (suppression avec stratégie explicite)
+  reste ouvert ; exemples logiques/favoris : `REQ-AP-UX-002` et `007` restent
+  ouverts, et `REQ-AP-UX-006` devra être vérifié transversalement sur les
+  fonctions restantes ;
+- validation finale de ces fonctions : les `REQ-AP-TST-*` correspondantes ne
+  seront fermées qu’avec les primitives concernées, sans extrapoler les deux
+  parcours de ce lot.
+
+Les `REQ-AP-*` restent des clarifications produit séparées : aucun statut de
+l’audit historique des 389 exigences n’a changé dans ce lot, donc
+`docs/10_implementation/11_REQUIREMENTS_IMPLEMENTATION_AUDIT.md` n’est pas
+modifié.

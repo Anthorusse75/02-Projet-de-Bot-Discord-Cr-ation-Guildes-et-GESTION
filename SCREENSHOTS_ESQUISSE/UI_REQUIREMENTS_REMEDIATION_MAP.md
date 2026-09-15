@@ -229,6 +229,27 @@ typecheck, lint et i18n quatre langues rejoués sans régression (un seul
 backend, PostgreSQL, Discord live ni APPLY : rien de tout cela n'est modifié
 par ce lot. Aucune migration.
 
+### Lot Matrice d’accès + édition massive — livré le 2026-09-15
+
+Une matrice rôle/audience × catégorie/salon consomme désormais un endpoint
+batch cache-first borné, alimenté exclusivement par `PermissionEvaluator` et
+`PolicyResolver`. Les cellules montrent synthèse humaine, `UNKNOWN`, héritage,
+exception et conflit ; les filtres et l’édition intention-first sont accessibles
+au clavier, avec détails Discord secondaires.
+
+La sélection multiple prépare en une requête batch des DRAFTs tenant-safe, puis
+leurs Previews ; une seconde requête batch prépare autant de Plans canoniques
+qu’il existe de Policies compatibles. Les ressources incompatibles restent
+explicitement exclues avec leur raison et les compteurs/avant-après/conflits/
+précision sont affichés avant Plan. Les clés enfants stables rendent les retries
+idempotents. Aucun APPLY ni appel Discord direct n’existe dans ce parcours.
+
+`REQ-AP-MAT-001` à `006` et `REQ-AP-BULK-001` à `003` sont couverts.
+`REQ-AP-BULK-004` reste ouvert : l’Action Registry actuel décrit un bulk de
+déplacement structurel, pas une Policy sur sélection mixte, et aucun second
+menu contextuel n’a été ajouté. La Phase 4 reste ouverte pour les familles
+avancées inventoriées dans `PHASE_04_REPORT.md`.
+
 ### Preuve minimale utile
 
 Tests unitaires ciblés resolver/lifecycle, intégration RLS/RBAC/persistance, E2E whitelist + blacklist/conflit + Wizard. Pas de régression générale à chaque changement UI.

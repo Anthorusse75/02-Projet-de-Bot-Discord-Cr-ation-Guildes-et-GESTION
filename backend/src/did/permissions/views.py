@@ -162,6 +162,52 @@ def compile_simple_permissions(
     )
 
 
+class AccessSynthesis(StrEnum):
+    """Human synthesis tier for an access-matrix cell (REQ-AP-MAT-002).
+
+    Reuses the exact same concept -> bit tables as ``compile_simple_permissions``;
+    it never introduces a second permission calculation.
+    """
+
+    UNKNOWN = "UNKNOWN"
+    NONE = "NONE"
+    VIEW = "VIEW"
+    WRITE = "WRITE"
+    MANAGE = "MANAGE"
+    CONNECT = "CONNECT"
+    SPEAK = "SPEAK"
+
+
+def synthesize_access(
+    effective_bits: int,
+    *,
+    is_voice: bool,
+    registry: PermissionRegistry = DEFAULT_PERMISSION_REGISTRY,
+) -> AccessSynthesis:
+    if not effective_bits & registry.value("VIEW_CHANNEL"):
+        return AccessSynthesis.NONE
+    manage_bits = compile_simple_permissions(
+        (SimplePermissionConcept.MANAGE,), registry=registry
+    ).allow_bits
+    if is_voice:
+        if effective_bits & manage_bits:
+            return AccessSynthesis.MANAGE
+        connect_bit = registry.value("CONNECT")
+        if not effective_bits & connect_bit:
+            return AccessSynthesis.NONE
+        if effective_bits & registry.value("SPEAK"):
+            return AccessSynthesis.SPEAK
+        return AccessSynthesis.CONNECT
+    if effective_bits & manage_bits:
+        return AccessSynthesis.MANAGE
+    write_bits = compile_simple_permissions(
+        (SimplePermissionConcept.WRITE,), registry=registry
+    ).allow_bits
+    if effective_bits & write_bits:
+        return AccessSynthesis.WRITE
+    return AccessSynthesis.VIEW
+
+
 def bot_writes_humans_read_overwrite_nodes(
     *,
     channel_id: int,

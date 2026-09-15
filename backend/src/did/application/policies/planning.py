@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from typing import Any, cast
@@ -113,9 +114,7 @@ class PolicyPlanningService:
             raise RuntimeError("Policy planning is already bound")
         self._planning = planning
 
-    async def preview(
-        self, *, guild_id: int, policy_id: UUID, actor_user_id: int
-    ) -> PolicyPreview:
+    async def preview(self, *, guild_id: int, policy_id: UUID, actor_user_id: int) -> PolicyPreview:
         draft = await self._policies.get(guild_id, policy_id)
         if draft.lifecycle_state is not PolicyLifecycleState.DRAFT:
             raise PolicyLifecycleError("only a DRAFT Policy can be previewed")
@@ -123,6 +122,58 @@ class PolicyPlanningService:
             guild_id=guild_id, actor_user_id=actor_user_id
         )
         guild, seed_member = seed_pair
+        return await self._preview_loaded(
+            draft=draft,
+            policies=policies,
+            guild=guild,
+            seed_member=seed_member,
+            groups=groups,
+            cached_members=cached_members,
+        )
+
+    async def preview_many(
+        self, *, guild_id: int, policy_ids: Sequence[UUID], actor_user_id: int
+    ) -> tuple[PolicyPreview, ...]:
+        """Preview a bounded batch after one shared Policy/read-model load."""
+
+        policies, seed_pair, groups, cached_members = await self._load(
+            guild_id=guild_id, actor_user_id=actor_user_id
+        )
+        guild, seed_member = seed_pair
+        by_id = {policy.policy_id: policy for policy in policies}
+        drafts: list[Policy] = []
+        for policy_id in policy_ids:
+            draft = by_id.get(policy_id)
+            if draft is None:
+                # Preserve the repository's canonical not-found behavior.
+                draft = await self._policies.get(guild_id, policy_id)
+            if draft.lifecycle_state is not PolicyLifecycleState.DRAFT:
+                raise PolicyLifecycleError("only a DRAFT Policy can be previewed")
+            drafts.append(draft)
+        return tuple(
+            [
+                await self._preview_loaded(
+                    draft=draft,
+                    policies=policies,
+                    guild=guild,
+                    seed_member=seed_member,
+                    groups=groups,
+                    cached_members=cached_members,
+                )
+                for draft in drafts
+            ]
+        )
+
+    async def _preview_loaded(
+        self,
+        *,
+        draft: Policy,
+        policies: tuple[Policy, ...],
+        guild: GuildSnapshot,
+        seed_member: MemberSnapshot,
+        groups: list[dict[str, Any]],
+        cached_members: tuple[MemberSnapshot, ...],
+    ) -> PolicyPreview:
         members = await self._candidate_members(draft, cached_members, seed_member)
         resources = self._candidate_resources(draft, guild, groups)
         accesses = tuple(sorted({str(effect["access"]) for effect in draft.effects}))
@@ -187,9 +238,7 @@ class PolicyPlanningService:
             entry for entry in entries if entry.access_change is not AccessChange.UNCHANGED
         )
         impacted_member_ids = {entry.target.subject_id for entry in changed}
-        impacted_resources = {
-            (entry.target.scope_type, entry.target.scope_id) for entry in changed
-        }
+        impacted_resources = {(entry.target.scope_type, entry.target.scope_id) for entry in changed}
         member_by_id = {member.user_id: member for member in members}
         role_ids = {
             role_id
@@ -257,9 +306,61 @@ class PolicyPlanningService:
         preview = await self.preview(
             guild_id=guild_id, policy_id=policy_id, actor_user_id=actor_user_id
         )
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        return await self._create_plan_from_preview(
+            guild_id=guild_id,
+            actor_user_id=actor_user_id,
+            preview=preview,
+            guild=guild,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
+            expected_revision=expected_revision,
+        )
+
+    async def create_plans(
+        self,
+        *,
+        guild_id: int,
+        items: Sequence[tuple[UUID, int, str]],
+        actor_user_id: int,
+        correlation_id: UUID,
+    ) -> tuple[tuple[PolicyPreview, dict[str, Any], bool, PreflightResult], ...]:
+        """Compile one canonical Plan per Policy without N preview HTTP/read-model loads."""
+
+        previews = await self.preview_many(
+            guild_id=guild_id,
+            policy_ids=tuple(policy_id for policy_id, _, _ in items),
+            actor_user_id=actor_user_id,
+        )
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        results = []
+        for preview, (_, expected_revision, idempotency_key) in zip(previews, items, strict=True):
+            results.append(
+                await self._create_plan_from_preview(
+                    guild_id=guild_id,
+                    actor_user_id=actor_user_id,
+                    preview=preview,
+                    guild=guild,
+                    idempotency_key=idempotency_key,
+                    correlation_id=correlation_id,
+                    expected_revision=expected_revision,
+                )
+            )
+        return tuple(results)
+
+    async def _create_plan_from_preview(
+        self,
+        *,
+        guild_id: int,
+        actor_user_id: int,
+        preview: PolicyPreview,
+        guild: GuildSnapshot,
+        idempotency_key: str,
+        correlation_id: UUID,
+        expected_revision: int,
+    ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         if preview.policy_revision != expected_revision:
             raise PolicyLifecycleError("Policy revision changed before Plan creation")
-        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
         graph = self._compile_graph(guild, preview)
         context_rows = tuple(
             {
@@ -280,7 +381,7 @@ class PolicyPlanningService:
         }
         metadata["preview_fingerprint"] = canonical_hash(metadata)
         provenance = PlanProvenance.policy(
-            policy_id=policy_id,
+            policy_id=preview.policy_id,
             policy_revision=expected_revision,
             metadata=metadata,
         )
@@ -420,9 +521,7 @@ class PolicyPlanningService:
             return cast(tuple[MemberSnapshot, ...], tuple(members))
         if draft.scope_type is PolicyScopeType.ROLE:
             assert draft.scope_id is not None
-            matching = tuple(
-                member for member in cached if int(draft.scope_id) in member.role_ids
-            )
+            matching = tuple(member for member in cached if int(draft.scope_id) in member.role_ids)
             return matching or ((seed,) if not seed.roles_complete else ())
         return cached or (seed,)
 
@@ -544,10 +643,14 @@ class PolicyPlanningService:
         for entry in preview.entries:
             if entry.access_change not in {AccessChange.GAINED, AccessChange.LOST}:
                 continue
-            if entry.target.scope_type not in {
-                PolicyScopeType.CATEGORY,
-                PolicyScopeType.CHANNEL,
-            } or entry.target.scope_id is None:
+            if (
+                entry.target.scope_type
+                not in {
+                    PolicyScopeType.CATEGORY,
+                    PolicyScopeType.CHANNEL,
+                }
+                or entry.target.scope_id is None
+            ):
                 continue
             channel_id = int(entry.target.scope_id)
             channel = guild.channel(channel_id)
@@ -574,9 +677,7 @@ class PolicyPlanningService:
             desired[key] = allow, deny
         nodes = tuple(
             DesiredNode.build(
-                logical_key=(
-                    f"policy.{preview.policy_id}.overwrite.{channel_id}.{subject_id}"
-                ),
+                logical_key=(f"policy.{preview.policy_id}.overwrite.{channel_id}.{subject_id}"),
                 resource_type=ResourceType.OVERWRITE,
                 properties={"target_type": 1, "allow": str(allow), "deny": str(deny)},
                 relations={

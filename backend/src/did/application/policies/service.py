@@ -4,11 +4,11 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID, uuid4
 
-from did.domain.discord_runtime import FreshnessState, ObservabilityState
+from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.policies import (
     Policy,
     PolicyLifecycleError,
@@ -18,6 +18,8 @@ from did.domain.policies import (
 )
 from did.domain.read_model.models import ChannelType, GuildSnapshot, MemberSnapshot
 from did.infrastructure.policies_repository import PoliciesRepository
+from did.permissions.calculator import PermissionEvaluator
+from did.permissions.views import AccessSynthesis, synthesize_access, view_as_role
 from did.policies.registry import (
     POLICY_TYPE_REGISTRY,
     PolicyDefinitionValidationError,
@@ -27,9 +29,54 @@ from did.policies.registry import (
 from did.policies.resolver import (
     PolicyResolution,
     PolicyResolutionContext,
+    PolicyResolutionOutcome,
     PolicyResolver,
     PolicyTargetState,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class AccessMatrixCell:
+    """One role x resource cell (REQ-AP-MAT-002/004): synthesis comes from the
+    canonical `PermissionEvaluator`, conflict/exception/inherited from the
+    canonical `PolicyResolver` -- no second calculation of either."""
+
+    role_id: int
+    resource_id: int
+    synthesis: AccessSynthesis
+    permission_status: str
+    policy_outcome: PolicyResolutionOutcome
+    conflict: bool
+    exception: bool
+    inherited: bool
+    contributing_policy_ids: tuple[UUID, ...]
+    conflict_policy_ids: tuple[UUID, ...]
+    incomplete_reasons: tuple[str, ...]
+    role_known: bool
+    resource_known: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AccessMatrixResult:
+    guild_id: int
+    coverage: CoverageMode
+    freshness: FreshnessState
+    source_versions: tuple[str, ...]
+    cells: tuple[AccessMatrixCell, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BulkPolicyDraftDefinition:
+    policy_type: str
+    contract_version: int
+    name: str
+    description: str
+    scope_type: PolicyScopeType
+    scope_id: str | None
+    conditions: object
+    effects: object
+    metadata: object
+    priority: int = 0
 
 
 class PolicyService:
@@ -121,6 +168,53 @@ class PolicyService:
             request_hash=request_hash,
             correlation_id=uuid4(),
         )
+
+    async def create_bulk_drafts(
+        self,
+        *,
+        guild_id: int,
+        actor_id: int,
+        definitions: Sequence[BulkPolicyDraftDefinition],
+        idempotency_key: str,
+    ) -> tuple[Policy, ...]:
+        """Create one explicit DRAFT per target under one retry-safe user intention.
+
+        The individual Policy aggregate remains canonical.  Stable child keys make a
+        retry after a timeout return the same drafts instead of duplicating them.
+        """
+
+        drafts: list[Policy] = []
+        operation_id = self.bulk_operation_id(idempotency_key)
+        for definition in definitions:
+            child_key = self.bulk_child_key(
+                idempotency_key,
+                "draft",
+                definition.scope_type.value,
+                definition.scope_id or "*",
+            )
+            metadata = dict(definition.metadata) if isinstance(definition.metadata, dict) else {}
+            tags = list(metadata.get("tags", ()))
+            if operation_id not in tags:
+                tags.append(operation_id)
+            metadata["tags"] = tags
+            drafts.append(
+                await self.create_draft(
+                    guild_id=guild_id,
+                    actor_id=actor_id,
+                    policy_type=definition.policy_type,
+                    contract_version=definition.contract_version,
+                    name=definition.name,
+                    description=definition.description,
+                    scope_type=definition.scope_type,
+                    scope_id=definition.scope_id,
+                    conditions=definition.conditions,
+                    effects=definition.effects,
+                    metadata=metadata,
+                    idempotency_key=child_key,
+                    priority=definition.priority,
+                )
+            )
+        return tuple(drafts)
 
     async def update_draft(
         self,
@@ -338,9 +432,7 @@ class PolicyService:
     ) -> PolicyResolution:
         """Resolve already loaded cache facts through the canonical resolver."""
 
-        normalized_target_id = self._normalize_resolution_target(
-            target_scope_type, target_scope_id
-        )
+        normalized_target_id = self._normalize_resolution_target(target_scope_type, target_scope_id)
         target_state, target_freshness, category_id = self._target_state(
             guild, target_scope_type, normalized_target_id, logical_groups
         )
@@ -374,6 +466,193 @@ class PolicyService:
             source_versions=guild.source_versions,
         )
         return self._resolver.resolve(policies=policies, context=context)
+
+    async def resolve_matrix(
+        self,
+        *,
+        guild_id: int,
+        actor_user_id: int,
+        role_ids: tuple[int, ...],
+        resource_ids: tuple[int, ...],
+    ) -> AccessMatrixResult:
+        """Batch-resolve Discord effective access and Policy intent for a role
+        x resource grid (REQ-AP-MAT-001..004).
+
+        Loads the tenant Guild snapshot, the active Policies and the logical
+        groups exactly once, then evaluates every (role, resource) pair in
+        memory with the same canonical `PermissionEvaluator` and
+        `PolicyResolver` used everywhere else in the product -- no second
+        engine, no per-cell Discord or database round trip. Complexity is
+        O(len(role_ids) * len(resource_ids)) pure in-memory calls after three
+        constant-size reads; callers must keep both lists within
+        `MAX_MATRIX_ROLES`/`MAX_MATRIX_RESOURCES` (enforced at the API layer).
+        """
+
+        if self._read_models is None:
+            raise RuntimeError("Policy resolution read model is not configured")
+        policies, snapshot_and_member, logical_groups = await asyncio.gather(
+            self._repository.list(guild_id),
+            self._read_models.guild_snapshot(guild_id, actor_user_id),
+            self._read_models.list_logical_groups(guild_id),
+        )
+        guild, _ = snapshot_and_member
+        evaluator = PermissionEvaluator()
+        cells: list[AccessMatrixCell] = []
+        for role_id in role_ids:
+            try:
+                subject = view_as_role(guild, role_id, freshness=guild.freshness)
+            except ValueError:
+                resource_known = {
+                    resource_id: guild.channel(resource_id) is not None
+                    for resource_id in resource_ids
+                }
+                cells.extend(
+                    AccessMatrixCell(
+                        role_id=role_id,
+                        resource_id=resource_id,
+                        synthesis=AccessSynthesis.UNKNOWN,
+                        permission_status="UNKNOWN",
+                        policy_outcome=PolicyResolutionOutcome.UNKNOWN,
+                        conflict=False,
+                        exception=False,
+                        inherited=False,
+                        contributing_policy_ids=(),
+                        conflict_policy_ids=(),
+                        incomplete_reasons=("policy.matrix.role_unknown",),
+                        role_known=False,
+                        resource_known=resource_known[resource_id],
+                    )
+                    for resource_id in resource_ids
+                )
+                continue
+            member = subject.member
+            for resource_id in resource_ids:
+                channel = guild.channel(resource_id)
+                if channel is None:
+                    cells.append(
+                        AccessMatrixCell(
+                            role_id=role_id,
+                            resource_id=resource_id,
+                            synthesis=AccessSynthesis.UNKNOWN,
+                            permission_status="UNKNOWN",
+                            policy_outcome=PolicyResolutionOutcome.UNKNOWN,
+                            conflict=False,
+                            exception=False,
+                            inherited=False,
+                            contributing_policy_ids=(),
+                            conflict_policy_ids=(),
+                            incomplete_reasons=("policy.matrix.resource_unknown",),
+                            role_known=True,
+                            resource_known=False,
+                        )
+                    )
+                    continue
+                decision = evaluator.evaluate(guild=guild, member=member, resource=channel)
+                is_voice = channel.channel_type in {
+                    ChannelType.GUILD_VOICE,
+                    ChannelType.GUILD_STAGE_VOICE,
+                }
+                synthesis = (
+                    synthesize_access(decision.effective_bits, is_voice=is_voice)
+                    if decision.status.value == "COMPLETE"
+                    else AccessSynthesis.UNKNOWN
+                )
+                target_scope_type = (
+                    PolicyScopeType.CATEGORY
+                    if channel.channel_type is ChannelType.GUILD_CATEGORY
+                    else PolicyScopeType.CHANNEL
+                )
+                requested_accesses = (
+                    ("VIEW", "CONNECT", "SPEAK", "MANAGE")
+                    if is_voice
+                    else ("VIEW", "WRITE", "MANAGE")
+                )
+                resolutions = tuple(
+                    self.resolve_loaded(
+                        policies=policies,
+                        guild=guild,
+                        member=member,
+                        logical_groups=logical_groups,
+                        target_scope_type=target_scope_type,
+                        target_scope_id=str(resource_id),
+                        requested_access=requested_access,
+                        subject_id=member.user_id,
+                    )
+                    for requested_access in requested_accesses
+                )
+                scopes = tuple(
+                    scope for resolution in resolutions for scope in resolution.source_scopes
+                )
+                inherited = any(scope.inherited for scope in scopes)
+                local = any(not scope.inherited for scope in scopes)
+                outcomes = {resolution.outcome for resolution in resolutions}
+                primary_access = {
+                    AccessSynthesis.WRITE: "WRITE",
+                    AccessSynthesis.MANAGE: "MANAGE",
+                    AccessSynthesis.CONNECT: "CONNECT",
+                    AccessSynthesis.SPEAK: "SPEAK",
+                }.get(synthesis, "VIEW")
+                primary_outcome = next(
+                    resolution.outcome
+                    for resolution in resolutions
+                    if resolution.decision.endswith(f":{primary_access}")
+                )
+                policy_outcome = (
+                    PolicyResolutionOutcome.BLOCKED
+                    if PolicyResolutionOutcome.BLOCKED in outcomes
+                    else PolicyResolutionOutcome.UNKNOWN
+                    if PolicyResolutionOutcome.UNKNOWN in outcomes
+                    else primary_outcome
+                )
+                cells.append(
+                    AccessMatrixCell(
+                        role_id=role_id,
+                        resource_id=resource_id,
+                        synthesis=synthesis,
+                        permission_status=decision.status.value,
+                        policy_outcome=policy_outcome,
+                        conflict=any(resolution.conflicts for resolution in resolutions),
+                        exception=inherited and local,
+                        inherited=inherited,
+                        contributing_policy_ids=tuple(
+                            dict.fromkeys(
+                                item.policy_id
+                                for resolution in resolutions
+                                for item in resolution.contributions
+                                if item.selected
+                            )
+                        ),
+                        conflict_policy_ids=tuple(
+                            dict.fromkeys(
+                                policy_id
+                                for resolution in resolutions
+                                for conflict in resolution.conflicts
+                                for policy_id in conflict.policy_ids
+                            )
+                        ),
+                        incomplete_reasons=tuple(
+                            dict.fromkeys(
+                                (
+                                    *decision.incomplete_reasons,
+                                    *(
+                                        reason
+                                        for resolution in resolutions
+                                        for reason in resolution.incomplete_reasons
+                                    ),
+                                )
+                            )
+                        ),
+                        role_known=True,
+                        resource_known=True,
+                    )
+                )
+        return AccessMatrixResult(
+            guild_id=guild_id,
+            coverage=guild.coverage.mode,
+            freshness=guild.coverage.freshness,
+            source_versions=guild.source_versions,
+            cells=tuple(cells),
+        )
 
     @classmethod
     def _target_state(
@@ -544,3 +823,13 @@ class PolicyService:
     def _hash(value: object) -> str:
         encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
         return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def bulk_child_key(parent: str, *parts: str) -> str:
+        digest = hashlib.sha256("\x00".join((parent, *parts)).encode()).hexdigest()
+        return f"policy-bulk:{digest}"
+
+    @staticmethod
+    def bulk_operation_id(parent: str) -> str:
+        digest = hashlib.sha256(parent.encode()).hexdigest()[:48]
+        return f"bulk-operation:{digest}"

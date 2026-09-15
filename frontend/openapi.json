@@ -1,6 +1,35 @@
 {
   "components": {
     "schemas": {
+      "AccessMatrixRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 150,
+            "minItems": 1,
+            "title": "Resource Ids",
+            "type": "array"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Role Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role_ids",
+          "resource_ids"
+        ],
+        "title": "AccessMatrixRequest",
+        "type": "object"
+      },
       "ArtifactKind": {
         "enum": [
           "CLIPBOARD",
@@ -46,6 +75,65 @@
         ],
         "title": "BotOperation",
         "type": "string"
+      },
+      "BulkPolicyPlanItem": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "policy_id": {
+            "format": "uuid",
+            "title": "Policy Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_id",
+          "expected_revision"
+        ],
+        "title": "BulkPolicyPlanItem",
+        "type": "object"
+      },
+      "BulkPolicyPlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/BulkPolicyPlanItem"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Policies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "policies"
+        ],
+        "title": "BulkPolicyPlanRequest",
+        "type": "object"
+      },
+      "BulkPolicyPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "definitions": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyCreate"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Definitions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "definitions"
+        ],
+        "title": "BulkPolicyPreviewRequest",
+        "type": "object"
       },
       "CampaignCreateInput": {
         "additionalProperties": false,
@@ -4927,6 +5015,61 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/access-matrix/resolve": {
+      "post": {
+        "description": "Batch role x resource access synthesis (REQ-AP-MAT-001..004).\n\nRead-only: delegates entirely to the canonical `PermissionEvaluator` and\n`PolicyResolver` after a single Guild/Policies/logical-groups read. No\nDiscord call, no mutation, no second permission or Policy calculation.",
+        "operationId": "resolve_access_matrix_api_v1_guilds__guild_id__access_matrix_resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessMatrixRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Access Matrix Api V1 Guilds  Guild Id  Access Matrix Resolve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Access Matrix",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/audit": {
       "get": {
         "operationId": "list_audit_api_v1_guilds__guild_id__audit_get",
@@ -7572,6 +7715,138 @@
           }
         },
         "summary": "Create Policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/bulk-plan": {
+      "post": {
+        "description": "Prepare one canonical Policy Plan per DRAFT, never apply it.",
+        "operationId": "plan_bulk_policies_api_v1_guilds__guild_id__policies_bulk_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkPolicyPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Plan Bulk Policies Api V1 Guilds  Guild Id  Policies Bulk Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Bulk Policies",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/bulk-preview": {
+      "post": {
+        "description": "Create explicit retry-safe DRAFTs, then preview them in one bounded call.",
+        "operationId": "preview_bulk_policies_api_v1_guilds__guild_id__policies_bulk_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkPolicyPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Bulk Policies Api V1 Guilds  Guild Id  Policies Bulk Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Bulk Policies",
         "tags": [
           "policies"
         ]
