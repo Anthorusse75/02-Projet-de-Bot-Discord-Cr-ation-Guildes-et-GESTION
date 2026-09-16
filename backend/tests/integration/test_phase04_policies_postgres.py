@@ -322,6 +322,92 @@ async def test_activation_and_disable_are_idempotent_and_audited(policies_contex
 
 
 @pytest.mark.asyncio
+async def test_accept_exception_persists_a_new_metadata_only_revision(policies_context) -> None:
+    repository, service = policies_context
+    created = await _create(service, GUILD_A, ACTOR_A, "exception-create")
+    plan_id = uuid4()
+    repository.assert_activation_plan = AsyncMock(return_value={"id": plan_id})  # type: ignore[method-assign]
+    active = await service.activate(
+        GUILD_A, created.policy_id, ACTOR_A, 1, "exception-activate", plan_id
+    )
+    other_policy_id = uuid4()
+
+    annotated = await service.accept_exception(
+        GUILD_A,
+        active.policy_id,
+        ACTOR_A,
+        other_policy_id=other_policy_id,
+        expected_revision=2,
+        idempotency_key="accept-once",
+        reason="Managers keeps intentional visibility",
+    )
+    replayed = await service.accept_exception(
+        GUILD_A,
+        active.policy_id,
+        ACTOR_A,
+        other_policy_id=other_policy_id,
+        expected_revision=2,
+        idempotency_key="accept-once",
+        reason="Managers keeps intentional visibility",
+    )
+
+    assert annotated.lifecycle_state is PolicyLifecycleState.ACTIVE
+    assert annotated.revision == replayed.revision == 3
+    assert f"exception_accepted:{other_policy_id}" in annotated.metadata["tags"]
+    assert annotated.metadata["reason"] == "Managers keeps intentional visibility"
+    assert annotated.conditions == active.conditions
+    assert annotated.effects == active.effects
+    versions = await repository.versions(GUILD_A, active.policy_id)
+    assert [(value.revision, value.change_kind) for value in versions] == [
+        (1, "CREATE"),
+        (2, "ACTIVATE"),
+        (3, "ANNOTATE"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_accept_exception_rejects_a_stale_revision(policies_context) -> None:
+    repository, service = policies_context
+    created = await _create(service, GUILD_A, ACTOR_A, "exception-cas-create")
+    plan_id = uuid4()
+    repository.assert_activation_plan = AsyncMock(return_value={"id": plan_id})  # type: ignore[method-assign]
+    active = await service.activate(
+        GUILD_A, created.policy_id, ACTOR_A, 1, "exception-cas-activate", plan_id
+    )
+
+    with pytest.raises(PolicyConflict):
+        await service.accept_exception(
+            GUILD_A,
+            active.policy_id,
+            ACTOR_A,
+            other_policy_id=uuid4(),
+            expected_revision=999,
+            idempotency_key="accept-stale",
+        )
+
+
+@pytest.mark.asyncio
+async def test_accept_exception_is_tenant_isolated(policies_context) -> None:
+    repository, service = policies_context
+    created = await _create(service, GUILD_A, ACTOR_A, "exception-tenant-create")
+    plan_id = uuid4()
+    repository.assert_activation_plan = AsyncMock(return_value={"id": plan_id})  # type: ignore[method-assign]
+    active = await service.activate(
+        GUILD_A, created.policy_id, ACTOR_A, 1, "exception-tenant-activate", plan_id
+    )
+
+    with pytest.raises(PolicyNotFound):
+        await service.accept_exception(
+            GUILD_B,
+            active.policy_id,
+            ACTOR_B,
+            other_policy_id=uuid4(),
+            expected_revision=2,
+            idempotency_key="cross-tenant-accept",
+        )
+
+
+@pytest.mark.asyncio
 async def test_policy_preview_preflight_plan_idempotency_and_provenance_chain(
     policies_context,
 ) -> None:

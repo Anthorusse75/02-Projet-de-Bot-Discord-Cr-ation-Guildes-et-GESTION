@@ -108,6 +108,33 @@ def test_resolution_is_identical_for_every_input_order() -> None:
     ]
 
 
+def test_role_exclude_resolution_is_identical_for_every_input_order() -> None:
+    resolver = PolicyResolver()
+    policies = (
+        _policy(
+            1,
+            decision="ALLOW",
+            priority=1,
+            conditions=({"kind": "ROLE_MATCH", "match": "ANY", "role_ids": ["10"]},),
+        ),
+        _policy(
+            2,
+            decision="DENY",
+            priority=0,
+            conditions=({"kind": "ROLE_EXCLUDE", "match": "ANY", "role_ids": ["20"]},),
+        ),
+        _policy(3, decision="ALLOW", priority=-1),
+    )
+
+    results = [
+        resolver.resolve(policies=tuple(order), context=_context())
+        for order in permutations(policies)
+    ]
+
+    assert all(result == results[0] for result in results)
+    assert results[0].outcome is PolicyResolutionOutcome.CAN
+
+
 def test_effect_audiences_support_whitelist_blacklist_and_separate_read_write() -> None:
     resolver = PolicyResolver()
     policy = _policy(
@@ -585,6 +612,71 @@ def test_all_role_condition_requires_every_configured_role(
     )
 
     assert result.outcome is expected
+
+
+@pytest.mark.parametrize(
+    ("member_roles", "expected"),
+    [
+        (("10",), PolicyResolutionOutcome.CANNOT),
+        ((), PolicyResolutionOutcome.CAN),
+        (("40",), PolicyResolutionOutcome.CAN),
+    ],
+)
+def test_role_exclude_condition_denies_any_of_the_excluded_roles(
+    member_roles: tuple[str, ...], expected: PolicyResolutionOutcome
+) -> None:
+    policy = _policy(
+        1,
+        conditions=({"kind": "ROLE_EXCLUDE", "match": "ANY", "role_ids": ["10", "30"]},),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(policy,), context=_context(subject_role_ids=member_roles)
+    )
+
+    assert result.outcome is expected
+
+
+@pytest.mark.parametrize(
+    ("member_roles", "expected"),
+    [
+        (("10",), PolicyResolutionOutcome.CAN),
+        (("10", "20"), PolicyResolutionOutcome.CANNOT),
+        ((), PolicyResolutionOutcome.CANNOT),
+    ],
+)
+def test_a_but_not_b_combines_role_match_and_role_exclude_conditions(
+    member_roles: tuple[str, ...], expected: PolicyResolutionOutcome
+) -> None:
+    """A but not B == ROLE_MATCH(A) AND ROLE_EXCLUDE(B), ANDed as any conditions tuple is."""
+    policy = _policy(
+        1,
+        conditions=(
+            {"kind": "ROLE_MATCH", "match": "ANY", "role_ids": ["10"]},
+            {"kind": "ROLE_EXCLUDE", "match": "ANY", "role_ids": ["20"]},
+        ),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(policy,), context=_context(subject_role_ids=member_roles)
+    )
+
+    assert result.outcome is expected
+
+
+def test_role_exclude_fails_closed_when_member_roles_are_incomplete() -> None:
+    policy = _policy(
+        1,
+        conditions=({"kind": "ROLE_EXCLUDE", "match": "ANY", "role_ids": ["10"]},),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(policy,),
+        context=_context(subject_roles_complete=False, subject_freshness=FreshnessState.UNKNOWN),
+    )
+
+    assert result.outcome is PolicyResolutionOutcome.UNKNOWN
+    assert "policy.member_roles_incomplete" in result.incomplete_reasons
 
 
 def test_incomplete_critical_member_data_fails_closed_as_unknown() -> None:

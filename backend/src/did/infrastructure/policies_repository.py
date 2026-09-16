@@ -260,6 +260,33 @@ class PoliciesRepository:
             correlation_id=correlation_id,
         )
 
+    async def annotate(
+        self,
+        policy: Policy,
+        *,
+        expected_revision: int,
+        expected_state: PolicyLifecycleState,
+        idempotency_key: str,
+        request_hash: str,
+        correlation_id: UUID,
+    ) -> Policy:
+        """Persist a metadata-only revision (e.g. an accepted exception tag).
+
+        Lifecycle state, conditions, effects and scope are unchanged; only
+        ``metadata`` and ``revision`` move, matched against the same
+        optimistic-concurrency (``expected_revision``/``expected_state``) and
+        idempotency guarantees as any other Policy mutation.
+        """
+        return await self._mutate(
+            policy,
+            expected_revision=expected_revision,
+            expected_state=expected_state,
+            change_kind="ANNOTATE",
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=correlation_id,
+        )
+
     async def _mutate(
         self,
         policy: Policy,
@@ -288,6 +315,7 @@ class PoliciesRepository:
                 return self._policy(current)
             update_sql = {
                 "UPDATE": _UPDATE_POLICY_SQL,
+                "ANNOTATE": _UPDATE_POLICY_SQL,
                 "ACTIVATE": _UPDATE_POLICY_SQL.replace(
                     " WHERE guild_id", ", activated_at=:now WHERE guild_id"
                 ),

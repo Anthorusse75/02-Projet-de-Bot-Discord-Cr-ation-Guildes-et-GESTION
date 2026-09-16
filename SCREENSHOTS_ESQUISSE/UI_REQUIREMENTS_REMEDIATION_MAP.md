@@ -411,3 +411,41 @@ ne sont visibles que dans les détails secondaires.
 Preuve minimale obtenue : 127 tests backend ciblés, 11 tests Vitest ciblés,
 contrôles Ruff/mypy/ESLint/typecheck/i18n/OpenAPI et exactement trois parcours
 Playwright du lot. Pas de campagne globale, Discord live, APPLY ou migration.
+
+## Addendum Phase 4 — audiences nommées, ANY/ALL/NOT et exceptions livrées le 2026-09-16
+
+Staff et Membre confirmé sont désormais des définitions explicites,
+persistées par Guild (réutilisation de `visibility_scopes`/
+`scope_membership_rules` Stage04, aucune nouvelle table), jamais devinées par
+nom de rôle. ANY/ALL/NOT (`ROLE_EXCLUDE` nouveau) et « A mais pas B » passent
+par le `PolicyResolver` canonique existant. Un contournement de blacklist par
+un rôle cumulé est expliqué avec le rôle exact et peut devenir une exception
+documentée dans les métadonnées de la Policy.
+
+- **couverts** : `REQ-AP-ZONE-010/011/012`, `REQ-AP-ZONE-020/021/022/023`,
+  `REQ-AP-ZONE-040/041`, `REQ-AP-ZONE-060/061`, `REQ-AP-VIS-011/012/013`,
+  `REQ-AP-VIS-017`, `REQ-AP-WRI-011` ;
+- **partiels, documentés comme tels** : `REQ-AP-ZONE-030/031/032` (composition
+  OU et réévaluation live réelles ; pas de maintien continu d'un Plan déjà
+  généré sans reconciler), `REQ-AP-ZONE-050` (couvert) et `REQ-AP-ZONE-051/052`
+  (traduction exacte à la génération du Plan uniquement — aucun rôle
+  technique de combinaison entretenu en continu, pour éviter le bricolage
+  explicitement interdit), `REQ-AP-VIS-004` (cause rôle-vs-rôle couverte ;
+  ADMINISTRATOR/overwrite membre/héritage non unifiés dans la même
+  explication) ;
+- **ouverts, non tentés ce lot** : `REQ-AP-ZONE-001/002/003` (zone publique +
+  espace staff associé via Logical Group DID — primitive Stage04 disponible,
+  aucune UI de liaison construite), `REQ-AP-PRS-001/010/011/012/013/020/021/022`
+  (Confidentiel, Salon d'annonces, Zone support — aucun preset composite
+  construit ce lot), `REQ-AP-CFL-005/006` (optimisation globale des rôles
+  redondants).
+
+Preuve minimale obtenue : 47 tests resolver + 5 tests conflict_explanations +
+21 tests policy foundations backend, 11 tests d'intégration PostgreSQL réels
+(dont 3 nouveaux, révision CAS + isolation tenant), une migration réelle
+(`0039`, élargissement d'un `CHECK` existant, testée réversible), 15 tests
+Vitest ciblés, typecheck/i18n EN-FR-DE-ES/garde anti-littéral, et exactement
+trois nouveaux parcours Playwright (Staff uniquement de bout en bout ;
+Membres confirmés avec réévaluation live ; blacklist contournée puis
+exception acceptée) plus les 14 parcours Phase 4 existants revérifiés sans
+régression. Pas de campagne globale, Discord live ou APPLY.

@@ -708,8 +708,12 @@ class PolicyResolver:
                     if condition["match"] == "ANY"
                     else configured_roles.issubset(member_roles)
                 )
-                outcome = PolicyTruthValue.TRUE if matched else PolicyTruthValue.FALSE
-                reason = f"policy.condition.roles_{str(condition['match']).lower()}"
+                if kind == "ROLE_EXCLUDE":
+                    outcome = PolicyTruthValue.FALSE if matched else PolicyTruthValue.TRUE
+                    reason = f"policy.condition.roles_excluded_{str(condition['match']).lower()}"
+                else:
+                    outcome = PolicyTruthValue.TRUE if matched else PolicyTruthValue.FALSE
+                    reason = f"policy.condition.roles_{str(condition['match']).lower()}"
         return PolicyConditionEvaluation(
             policy.policy_id,
             policy.revision,

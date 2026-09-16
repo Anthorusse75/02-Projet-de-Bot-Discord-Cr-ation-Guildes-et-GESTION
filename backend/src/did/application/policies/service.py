@@ -20,6 +20,12 @@ from did.domain.read_model.models import ChannelType, GuildSnapshot, MemberSnaps
 from did.infrastructure.policies_repository import PoliciesRepository
 from did.permissions.calculator import PermissionEvaluator
 from did.permissions.views import AccessSynthesis, synthesize_access, view_as_role
+from did.policies.conflict_explanations import (
+    BlacklistRegrant,
+    ConflictExplanation,
+    explain_conflicts,
+    find_blacklist_regrants,
+)
 from did.policies.registry import (
     POLICY_TYPE_REGISTRY,
     PolicyDefinitionValidationError,
@@ -33,6 +39,13 @@ from did.policies.resolver import (
     PolicyResolver,
     PolicyTargetState,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ExplainedPolicyResolution:
+    resolution: PolicyResolution
+    conflict_explanations: tuple[ConflictExplanation, ...]
+    blacklist_regrants: tuple[BlacklistRegrant, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +369,72 @@ class PolicyService:
             idempotency_key,
         )
 
+    async def accept_exception(
+        self,
+        guild_id: int,
+        policy_id: UUID,
+        actor_id: int,
+        *,
+        other_policy_id: UUID,
+        expected_revision: int,
+        idempotency_key: str,
+        reason: str | None = None,
+    ) -> Policy:
+        """Document an intentional exception on this Policy's metadata (REQ-AP-VIS-017).
+
+        Reuses the existing Policy metadata contract (tags/reason) instead of
+        a second exceptions store: a conflict between this Policy and
+        ``other_policy_id`` becomes an explicit "exception voulue" rather than
+        a silent conflict. Conditions, effects, scope and lifecycle state are
+        untouched -- only metadata changes, as a new audited revision.
+        """
+        current = await self._repository.get(guild_id, policy_id)
+        if current.lifecycle_state not in {
+            PolicyLifecycleState.ACTIVE,
+            PolicyLifecycleState.DISABLED,
+        }:
+            raise PolicyLifecycleError(
+                "an exception can only be accepted on an ACTIVE or DISABLED Policy"
+            )
+        tag = f"exception_accepted:{other_policy_id}"
+        raw_tags = current.metadata.get("tags", ())
+        existing_tags: tuple[str, ...] = (
+            tuple(str(value) for value in raw_tags) if isinstance(raw_tags, list | tuple) else ()
+        )
+        if tag in existing_tags:
+            return current
+        new_metadata = {
+            **current.metadata,
+            "tags": (*existing_tags, tag),
+            "reason": reason if reason is not None else current.metadata.get("reason"),
+        }
+        contract = self._registry.get(current.policy_type, current.contract_version)
+        validated_metadata = contract.metadata_adapter.validate_python(new_metadata)
+        changed = replace(
+            current,
+            metadata=validated_metadata.model_dump(mode="json"),
+            modified_by_user_id=actor_id,
+            revision=expected_revision + 1,
+        )
+        request_hash = self._hash(
+            {
+                "guild_id": current.guild_id,
+                "policy_id": str(current.policy_id),
+                "actor_id": actor_id,
+                "expected_revision": expected_revision,
+                "other_policy_id": str(other_policy_id),
+                "reason": reason,
+            }
+        )
+        return await self._repository.annotate(
+            changed,
+            expected_revision=expected_revision,
+            expected_state=current.lifecycle_state,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=uuid4(),
+        )
+
     async def _transition(
         self,
         current: Policy,
@@ -422,6 +501,55 @@ class PolicyService:
             target_scope_id=normalized_target_id,
             requested_access=requested_access,
             subject_id=subject_id,
+        )
+
+    async def resolve_access_explained(
+        self,
+        *,
+        guild_id: int,
+        subject_id: int,
+        target_scope_type: PolicyScopeType,
+        target_scope_id: str | None,
+        requested_access: str,
+    ) -> ExplainedPolicyResolution:
+        """Same as `resolve_access`, plus human-narratable conflict causes.
+
+        REQ-AP-VIS-011/012/013: re-reads the same resolution the canonical
+        resolver already produced -- no second resolver, no new permission
+        evaluation -- and explains, in terms of the member's actual roles,
+        both a genuine resolver-detected conflict and a blacklist an
+        unrelated Policy silently bypasses.
+        """
+
+        if self._read_models is None:
+            raise RuntimeError("Policy resolution read model is not configured")
+        normalized_target_id = self._normalize_resolution_target(target_scope_type, target_scope_id)
+        policies, snapshot_and_member, logical_groups = await asyncio.gather(
+            self._repository.list(guild_id),
+            self._read_models.guild_snapshot(guild_id, subject_id),
+            self._read_models.list_logical_groups(guild_id),
+        )
+        guild, member = snapshot_and_member
+        resolution = self.resolve_loaded(
+            policies=policies,
+            guild=guild,
+            member=member,
+            logical_groups=logical_groups,
+            target_scope_type=target_scope_type,
+            target_scope_id=normalized_target_id,
+            requested_access=requested_access,
+            subject_id=subject_id,
+        )
+        policies_by_id = {policy.policy_id: policy for policy in policies}
+        member_role_ids = tuple(sorted(str(role_id) for role_id in member.role_ids))
+        return ExplainedPolicyResolution(
+            resolution=resolution,
+            conflict_explanations=explain_conflicts(
+                resolution, policies_by_id=policies_by_id, member_role_ids=member_role_ids
+            ),
+            blacklist_regrants=find_blacklist_regrants(
+                resolution, policies_by_id=policies_by_id, member_role_ids=member_role_ids
+            ),
         )
 
     def resolve_loaded(

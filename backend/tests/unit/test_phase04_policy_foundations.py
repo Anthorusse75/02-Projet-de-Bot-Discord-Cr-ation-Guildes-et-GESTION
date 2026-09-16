@@ -11,15 +11,18 @@ import pytest
 
 from did.api.main import create_app
 from did.api.policies import (
+    PolicyAcceptException,
     PolicyCreate,
     PolicyPlanRequest,
     PolicyResolutionRequest,
+    accept_policy_exception,
     create_policy,
     list_policies,
     plan_policy,
     preview_policy,
     resolve_policy,
 )
+from did.application.policies.service import ExplainedPolicyResolution
 from did.domain.auth import READ_ONLY_CAPABILITIES, Capability
 from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import (
@@ -195,7 +198,7 @@ def test_policy_api_and_distinct_rbac_capabilities_are_declared() -> None:
     assert "/api/v1/guilds/{guild_id}/policy-resolution" in contract["paths"]
     assert f"{base}/{{policy_id}}/preview" in contract["paths"]
     assert f"{base}/{{policy_id}}/plan" in contract["paths"]
-    for action in ("activate", "disable", "retire"):
+    for action in ("activate", "disable", "retire", "accept-exception"):
         path = f"{base}/{{policy_id}}/{action}"
         assert path in contract["paths"]
         assert any(
@@ -296,8 +299,11 @@ async def test_explain_api_uses_read_capability_and_serializes_canonical_result(
         warnings=(),
         source_versions=("guild:1",),
     )
+    explained = ExplainedPolicyResolution(
+        resolution=resolution, conflict_explanations=(), blacklist_regrants=()
+    )
     authorization = SimpleNamespace(authorize=AsyncMock())
-    policy_service = SimpleNamespace(resolve_access=AsyncMock(return_value=resolution))
+    policy_service = SimpleNamespace(resolve_access_explained=AsyncMock(return_value=explained))
     container = SimpleNamespace(authorization=authorization, policies=policy_service)
     session = SimpleNamespace(discord_user_id=456)
 
@@ -315,13 +321,49 @@ async def test_explain_api_uses_read_capability_and_serializes_canonical_result(
 
     assert response["outcome"] == "CANNOT"
     assert response["target_state"] == "CURRENT"
+    assert response["conflict_explanations"] == []
+    assert response["blacklist_regrants"] == []
     assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_READ
-    policy_service.resolve_access.assert_awaited_once_with(
+    policy_service.resolve_access_explained.assert_awaited_once_with(
         guild_id=123,
         subject_id=456,
         target_scope_type=PolicyScopeType.GUILD,
         target_scope_id=None,
         requested_access="VIEW",
+    )
+
+
+@pytest.mark.asyncio
+async def test_accept_exception_api_uses_update_capability_and_forwards_fields() -> None:
+    other_policy_id = uuid4()
+    accepted = _policy(PolicyLifecycleState.ACTIVE)
+    authorization = SimpleNamespace(authorize=AsyncMock())
+    policy_service = SimpleNamespace(accept_exception=AsyncMock(return_value=accepted))
+    container = SimpleNamespace(authorization=authorization, policies=policy_service)
+    session = SimpleNamespace(discord_user_id=456)
+
+    response = await accept_policy_exception(
+        "123",
+        accepted.policy_id,
+        PolicyAcceptException(
+            expected_revision=1, other_policy_id=other_policy_id, reason="Intentional"
+        ),
+        "accept-once",
+        session,
+        container,
+    )
+
+    assert response["policy_id"] == str(accepted.policy_id)
+    assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_UPDATE
+    assert authorization.authorize.await_args.kwargs["sensitive"] is True
+    policy_service.accept_exception.assert_awaited_once_with(
+        123,
+        accepted.policy_id,
+        456,
+        other_policy_id=other_policy_id,
+        expected_revision=1,
+        idempotency_key="accept-once",
+        reason="Intentional",
     )
 
 

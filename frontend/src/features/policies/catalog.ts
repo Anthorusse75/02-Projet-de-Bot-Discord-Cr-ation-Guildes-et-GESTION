@@ -1,4 +1,5 @@
 import type { Policy, PolicyAccess, PolicyCondition, PolicyEffect, PolicyScopeType } from '../../api/types'
+import type { NamedAudienceKind } from './audiences'
 
 export type PolicyTargetKind = 'GUILD' | 'LOGICAL_GROUP' | 'CATEGORY' | 'TEXT_CHANNEL' | 'VOICE_CHANNEL' | 'ROLE'
 export type NativePolicyId =
@@ -9,6 +10,10 @@ export type NativePolicyId =
   | 'open_read_limited_write'
   | 'private_space'
   | 'staff_only'
+  | 'confirmed_members_only'
+  | 'at_least_one_role'
+  | 'all_roles_required'
+  | 'role_but_not_role'
   | 'voice_join_no_speak'
   | 'voice_speakers'
   | 'private_voice'
@@ -23,7 +28,7 @@ export type BotFunction = 'READ' | 'WRITE' | 'MANAGE' | 'THREADS' | 'VOCAL'
 
 export type NativePolicy = {
   id: NativePolicyId
-  family: 'VISIBILITY' | 'WRITING' | 'AUDIENCE' | 'VOCAL' | 'THREADS' | 'REACTIONS' | 'MENTIONS' | 'BOTS'
+  family: 'VISIBILITY' | 'WRITING' | 'AUDIENCE' | 'ZONE' | 'VOCAL' | 'THREADS' | 'REACTIONS' | 'MENTIONS' | 'BOTS'
   titleKey: string
   summaryKey: string
   helpKey: string
@@ -31,9 +36,12 @@ export type NativePolicy = {
   compatibility: readonly PolicyTargetKind[]
   access: readonly PolicyAccess[]
   audienceMode: 'INCLUDE' | 'EXCLUDE'
-  editorKind?: 'AUDIENCE' | 'MODE' | 'MENTIONS' | 'BOT'
+  editorKind?: 'AUDIENCE' | 'MODE' | 'MENTIONS' | 'BOT' | 'NAMED_AUDIENCE' | 'ROLE_BUT_NOT'
   wizardCompatible?: boolean
   matrixCompatible?: boolean
+  /** REQ-AP-ZONE-010/012, REQ-AP-ZONE-020/022: roles come from the guild's
+   * persisted Named Audience definition, never an ad-hoc per-Policy pick. */
+  requiresNamedAudience?: NamedAudienceKind
 }
 
 const RESOURCE_TARGETS = ['GUILD', 'LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL'] as const
@@ -45,7 +53,11 @@ export const nativePolicies: readonly NativePolicy[] = [
   { id: 'write_except', family: 'WRITING', titleKey: 'policies.native.writeExcept.title', summaryKey: 'policies.native.writeExcept.summary', helpKey: 'policies.native.writeExcept.help', audienceKey: 'policies.audience.whoCannotWrite', compatibility: RESOURCE_TARGETS, access: ['WRITE'], audienceMode: 'EXCLUDE' },
   { id: 'open_read_limited_write', family: 'WRITING', titleKey: 'policies.native.openRead.title', summaryKey: 'policies.native.openRead.summary', helpKey: 'policies.native.openRead.help', audienceKey: 'policies.audience.whoCanPublish', compatibility: RESOURCE_TARGETS, access: ['VIEW', 'WRITE'], audienceMode: 'INCLUDE' },
   { id: 'private_space', family: 'VISIBILITY', titleKey: 'policies.native.private.title', summaryKey: 'policies.native.private.summary', helpKey: 'policies.native.private.help', audienceKey: 'policies.audience.whoCanSee', compatibility: ['LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL'], access: ['VIEW'], audienceMode: 'INCLUDE' },
-  { id: 'staff_only', family: 'AUDIENCE', titleKey: 'policies.native.staff.title', summaryKey: 'policies.native.staff.summary', helpKey: 'policies.native.staff.help', audienceKey: 'policies.audience.whichStaff', compatibility: ['GUILD', 'LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL', 'VOICE_CHANNEL'], access: ['VIEW'], audienceMode: 'INCLUDE' },
+  { id: 'staff_only', family: 'AUDIENCE', titleKey: 'policies.native.staff.title', summaryKey: 'policies.native.staff.summary', helpKey: 'policies.native.staff.help', audienceKey: 'policies.audience.whichStaff', compatibility: ['GUILD', 'LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL', 'VOICE_CHANNEL'], access: ['VIEW'], audienceMode: 'INCLUDE', editorKind: 'NAMED_AUDIENCE', requiresNamedAudience: 'STAFF' },
+  { id: 'confirmed_members_only', family: 'AUDIENCE', titleKey: 'policies.native.confirmedMembers.title', summaryKey: 'policies.native.confirmedMembers.summary', helpKey: 'policies.native.confirmedMembers.help', audienceKey: 'policies.audience.whichConfirmed', compatibility: RESOURCE_TARGETS, access: ['VIEW'], audienceMode: 'INCLUDE', editorKind: 'NAMED_AUDIENCE', requiresNamedAudience: 'CONFIRMED_MEMBER' },
+  { id: 'at_least_one_role', family: 'ZONE', titleKey: 'policies.native.anyRole.title', summaryKey: 'policies.native.anyRole.summary', helpKey: 'policies.native.anyRole.help', audienceKey: 'policies.audience.anyOfTheseRoles', compatibility: RESOURCE_TARGETS, access: ['VIEW'], audienceMode: 'INCLUDE' },
+  { id: 'all_roles_required', family: 'ZONE', titleKey: 'policies.native.allRoles.title', summaryKey: 'policies.native.allRoles.summary', helpKey: 'policies.native.allRoles.help', audienceKey: 'policies.audience.allOfTheseRoles', compatibility: RESOURCE_TARGETS, access: ['VIEW'], audienceMode: 'INCLUDE' },
+  { id: 'role_but_not_role', family: 'ZONE', titleKey: 'policies.native.roleButNotRole.title', summaryKey: 'policies.native.roleButNotRole.summary', helpKey: 'policies.native.roleButNotRole.help', audienceKey: 'policies.audience.hasButNot', compatibility: RESOURCE_TARGETS, access: ['VIEW'], audienceMode: 'INCLUDE', editorKind: 'ROLE_BUT_NOT', wizardCompatible: false, matrixCompatible: false },
   { id: 'voice_join_no_speak', family: 'VOCAL', titleKey: 'policies.native.voiceJoinNoSpeak.title', summaryKey: 'policies.native.voiceJoinNoSpeak.summary', helpKey: 'policies.native.voiceJoinNoSpeak.help', audienceKey: 'policies.audience.whoCanJoinWithoutSpeaking', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT', 'SPEAK'], audienceMode: 'INCLUDE' },
   { id: 'voice_speakers', family: 'VOCAL', titleKey: 'policies.native.voiceSpeakers.title', summaryKey: 'policies.native.voiceSpeakers.summary', helpKey: 'policies.native.voiceSpeakers.help', audienceKey: 'policies.audience.whoCanSpeak', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT', 'SPEAK'], audienceMode: 'INCLUDE' },
   { id: 'private_voice', family: 'VOCAL', titleKey: 'policies.native.privateVoice.title', summaryKey: 'policies.native.privateVoice.summary', helpKey: 'policies.native.privateVoice.help', audienceKey: 'policies.audience.whoCanJoin', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT'], audienceMode: 'INCLUDE' },
@@ -70,6 +82,8 @@ export type NativePolicyValues = {
   reactionMode?: PolicyMode; threadMode?: PolicyMode
   includeStaff?: boolean; staffRoleIds?: readonly string[]
   botId?: string; botFunctions?: readonly BotFunction[]
+  /** REQ-AP-ZONE-060/061: "A mais pas B" -- roleIds is A, excludedRoleIds is B. */
+  excludedRoleIds?: readonly string[]
 }
 
 export function compatibleNativePolicies(kind: PolicyTargetKind | null): readonly NativePolicy[] {
@@ -99,8 +113,8 @@ export function nativePolicyByTag(policy: Policy): NativePolicy | undefined {
   return nativePolicies.find((native) => `did-native:${native.id}` === tag)
 }
 
-function audience(roleIds: readonly string[], mode: 'INCLUDE' | 'EXCLUDE') {
-  return { mode, match: 'ANY' as const, role_ids: [...new Set(roleIds)] }
+function audience(roleIds: readonly string[], mode: 'INCLUDE' | 'EXCLUDE', match: 'ANY' | 'ALL' = 'ANY') {
+  return { mode, match, role_ids: [...new Set(roleIds)] }
 }
 
 function whitelist(access: PolicyAccess, roleIds: readonly string[]): PolicyEffect[] {
@@ -159,6 +173,15 @@ export function createDefinitionFromNative(
   } else if (native.id === 'bot_minimal') {
     conditions = values.botId ? [{ kind: 'BOT_MATCH', bot_user_ids: [values.botId] }] : []
     effects = botEffects(values.botFunctions ?? [])
+  } else if (native.id === 'all_roles_required') {
+    effects = native.access.map((access) => ({ kind: 'SET_ACCESS', access, decision: 'ALLOW', audience: audience(roleIds, 'INCLUDE', 'ALL') }))
+  } else if (native.id === 'role_but_not_role') {
+    const excluded = values.excludedRoleIds ?? []
+    conditions = [
+      { kind: 'ROLE_MATCH', match: 'ANY', role_ids: [...new Set(roleIds)] },
+      ...(excluded.length ? [{ kind: 'ROLE_EXCLUDE' as const, match: 'ANY' as const, role_ids: [...new Set(excluded)] }] : []),
+    ]
+    effects = native.access.map((access) => ({ kind: 'SET_ACCESS', access, decision: 'ALLOW' }))
   } else {
     effects = native.access.map((access) => ({
       kind: 'SET_ACCESS', access, decision: 'ALLOW',
@@ -183,6 +206,38 @@ export function createDefinitionFromNative(
     conditions, effects,
     metadata: { summary: values.description.trim() || values.name.trim(), tags, reason: null },
   }
+}
+
+// REQ-AP-ZONE-030..032: "visible to members not yet confirmed, optionally
+// including staff". The OR between "not confirmed" and "is staff" cannot be
+// expressed inside one Policy's (implicitly ANDed) conditions tuple -- the
+// resolver already composes independent Policies with the same ALLOW
+// decision (see PolicyResolver._maximal), so this is two Policies sharing a
+// `newcomer-area:<id>` tag, not a new engine capability.
+export function createNewcomerAreaDefinitions(
+  target: PolicyTarget,
+  confirmedMemberRoleIds: readonly string[],
+  values: NativePolicyValues & { includeStaffRoleIds?: readonly string[] },
+): PolicyDraftDefinition[] {
+  const groupId = crypto.randomUUID()
+  const base: PolicyDraftDefinition = {
+    policy_type: 'ACCESS_CONTROL', contract_version: 1,
+    name: values.name.trim(), description: values.description.trim(),
+    scope_type: target.scopeType, scope_id: target.scopeId, priority: values.priority ?? 0,
+    conditions: [{ kind: 'ROLE_EXCLUDE', match: 'ANY', role_ids: [...new Set(confirmedMemberRoleIds)] }],
+    effects: [{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }],
+    metadata: { summary: values.description.trim() || values.name.trim(), tags: ['did-native:newcomer_area', `newcomer-area:${groupId}`, 'newcomer-area:base'], reason: null },
+  }
+  const staffRoleIds = values.includeStaffRoleIds ?? []
+  if (!staffRoleIds.length) return [base]
+  const staffLayer: PolicyDraftDefinition = {
+    ...base,
+    name: `${base.name} (Staff)`,
+    conditions: [{ kind: 'ALWAYS' }],
+    effects: [{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW', audience: audience(staffRoleIds, 'INCLUDE') }],
+    metadata: { ...base.metadata, tags: ['did-native:newcomer_area', `newcomer-area:${groupId}`, 'newcomer-area:staff'] },
+  }
+  return [base, staffLayer]
 }
 
 export function clonePolicyDefinition(policy: Policy, name: string): PolicyDraftDefinition {

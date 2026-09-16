@@ -62,6 +62,24 @@ class RoleMatchCondition(_ClosedModel):
         return values
 
 
+class RoleExcludeCondition(_ClosedModel):
+    """True when the subject holds none (ANY) / not all (ALL) of the listed roles.
+
+    Combined with ``RoleMatchCondition`` in the same (implicitly ANDed) conditions
+    tuple, this expresses "has role A but not role B" without a new composite
+    condition shape or a second resolver.
+    """
+
+    kind: Literal["ROLE_EXCLUDE"]
+    match: Literal["ANY", "ALL"]
+    role_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+
+    @field_validator("role_ids")
+    @classmethod
+    def positive_unique_snowflakes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return RoleMatchCondition.positive_unique_snowflakes(values)
+
+
 class SubjectKindCondition(_ClosedModel):
     kind: Literal["SUBJECT_KIND"]
     subject_kind: Literal["MEMBER", "BOT"]
@@ -84,7 +102,11 @@ class BotMatchCondition(_ClosedModel):
 
 
 PolicyCondition = Annotated[
-    AlwaysCondition | RoleMatchCondition | SubjectKindCondition | BotMatchCondition,
+    AlwaysCondition
+    | RoleMatchCondition
+    | RoleExcludeCondition
+    | SubjectKindCondition
+    | BotMatchCondition,
     Field(discriminator="kind"),
 ]
 
@@ -193,7 +215,7 @@ class PolicyTypeContract:
             raise PolicyDefinitionValidationError("a Policy requires at least one effect")
         references: list[PolicyReference] = []
         for condition in parsed_conditions:
-            if isinstance(condition, RoleMatchCondition):
+            if isinstance(condition, RoleMatchCondition | RoleExcludeCondition):
                 references.extend(
                     PolicyReference(PolicyScopeType.ROLE, role_id) for role_id in condition.role_ids
                 )

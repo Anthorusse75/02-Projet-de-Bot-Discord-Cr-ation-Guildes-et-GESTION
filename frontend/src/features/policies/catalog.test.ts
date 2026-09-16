@@ -1,6 +1,6 @@
 import type { Policy } from '../../api/types'
 import { phase4PoliciesPacks } from '../../localization/phase4PoliciesCatalog'
-import { clonePolicyDefinition, compatibleNativePolicies, createDefinitionFromNative, nativePolicies, type PolicyTarget } from './catalog'
+import { clonePolicyDefinition, compatibleNativePolicies, createDefinitionFromNative, createNewcomerAreaDefinitions, nativePolicies, type PolicyTarget } from './catalog'
 
 const target: PolicyTarget = { kind: 'TEXT_CHANNEL', scopeType: 'CHANNEL', scopeId: '700000000000000201', label: 'welcome' }
 
@@ -8,6 +8,7 @@ describe('Phase 4 access policy catalogue', () => {
   it('ships the intention-first access families and filters incompatible targets', () => {
     expect(nativePolicies.map((policy) => policy.id)).toEqual([
       'visible_only', 'visible_except', 'write_only', 'write_except', 'open_read_limited_write', 'private_space', 'staff_only',
+      'confirmed_members_only', 'at_least_one_role', 'all_roles_required', 'role_but_not_role',
       'voice_join_no_speak', 'voice_speakers', 'private_voice', 'voice_managers', 'thread_creators', 'reactions', 'mentions', 'bot_minimal',
     ])
     expect(compatibleNativePolicies('VOICE_CHANNEL').map((policy) => policy.id)).toEqual([
@@ -88,6 +89,50 @@ describe('Phase 4 access policy catalogue', () => {
     expect(duplicate.conditions).toEqual(policy.conditions)
     expect(duplicate.effects).toEqual(policy.effects)
     expect(duplicate.metadata.tags).toContain(`source-policy:${policy.policy_id}`)
+  })
+
+  it('requires every role for the ALL-match native (REQ-AP-ZONE-050)', () => {
+    const allRoles = nativePolicies.find((policy) => policy.id === 'all_roles_required')
+    if (!allRoles) throw new Error('all_roles_required native missing')
+    const roleA = '700000000000000011'; const roleB = '700000000000000012'
+    const definition = createDefinitionFromNative(allRoles, target, [roleA, roleB], { name: 'Both roles', description: 'Needs both' })
+    expect(definition.conditions).toEqual([{ kind: 'ALWAYS' }])
+    expect(definition.effects).toEqual([
+      { kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW', audience: { mode: 'INCLUDE', match: 'ALL', role_ids: [roleA, roleB] } },
+    ])
+  })
+
+  it('expresses "A but not B" as two ANDed conditions, never a second engine (REQ-AP-ZONE-060/061)', () => {
+    const roleButNotRole = nativePolicies.find((policy) => policy.id === 'role_but_not_role')
+    if (!roleButNotRole) throw new Error('role_but_not_role native missing')
+    const roleA = '700000000000000011'; const roleB = '700000000000000012'
+    const definition = createDefinitionFromNative(roleButNotRole, target, [roleA], { name: 'A not B', description: 'Has A, not B', excludedRoleIds: [roleB] })
+    expect(definition.conditions).toEqual([
+      { kind: 'ROLE_MATCH', match: 'ANY', role_ids: [roleA] },
+      { kind: 'ROLE_EXCLUDE', match: 'ANY', role_ids: [roleB] },
+    ])
+    expect(definition.effects).toEqual([{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }])
+    // No exclusion selected yet: a degenerate but valid "has A" definition, no ROLE_EXCLUDE condition.
+    expect(createDefinitionFromNative(roleButNotRole, target, [roleA], { name: 'A only', description: 'Has A' }).conditions).toEqual([
+      { kind: 'ROLE_MATCH', match: 'ANY', role_ids: [roleA] },
+    ])
+  })
+
+  it('builds the newcomer-area preset as two independently-composable Policies sharing an ALLOW decision (REQ-AP-ZONE-030..032)', () => {
+    const confirmedRoleId = '700000000000000021'
+    const staffRoleId = '700000000000000022'
+    const baseOnly = createNewcomerAreaDefinitions(target, [confirmedRoleId], { name: 'Welcome area', description: 'Not yet confirmed' })
+    expect(baseOnly).toHaveLength(1)
+    expect(baseOnly[0]?.conditions).toEqual([{ kind: 'ROLE_EXCLUDE', match: 'ANY', role_ids: [confirmedRoleId] }])
+    expect(baseOnly[0]?.effects).toEqual([{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }])
+    expect(baseOnly[0]?.metadata.tags).toContain('did-native:newcomer_area')
+
+    const withStaff = createNewcomerAreaDefinitions(target, [confirmedRoleId], { name: 'Welcome area', description: 'Not yet confirmed', includeStaffRoleIds: [staffRoleId] })
+    expect(withStaff).toHaveLength(2)
+    expect(withStaff[1]?.conditions).toEqual([{ kind: 'ALWAYS' }])
+    expect(withStaff[1]?.effects).toEqual([{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW', audience: { mode: 'INCLUDE', match: 'ANY', role_ids: [staffRoleId] } }])
+    const groupTagOf = (definition: { metadata: { tags: string[] } }) => definition.metadata.tags.find((tag) => tag.startsWith('newcomer-area:') && tag !== 'newcomer-area:base' && tag !== 'newcomer-area:staff')
+    expect(groupTagOf(withStaff[0]!)).toBe(groupTagOf(withStaff[1]!))
   })
 
   it('keeps the Phase 4 policy catalogue structurally complete in EN/FR/DE/ES', () => {

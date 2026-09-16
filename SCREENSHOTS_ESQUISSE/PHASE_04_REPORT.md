@@ -743,3 +743,199 @@ Fichiers concernés : registry/resolver/permissions/capabilities, service et
 planning Policy, routes Stage 04/Policies, tests unitaires correspondants,
 catalogue/écran Policies, matrice/Wizard, types/OpenAPI, localisation et le
 scénario E2E Phase 4. Aucune migration et aucun secret.
+
+## 18. Lot « Audiences nommées, ANY/ALL/NOT et exceptions de blacklist » — 2026-09-16
+
+### Inspection préalable
+
+Avant tout code, le lot a vérifié qu'aucune primitive équivalente n'existait
+déjà pour représenter un « Staff » ou un « Membre confirmé » explicite. Le
+Stage04 (`visibility_scopes` + `scope_membership_rules`, migration `0006`,
+`did.domain.scopes`, `did.infrastructure.stage04_repository`) fournit déjà
+exactement cette primitive : guild-scoped, nommée, tenant-safe (RLS), auditée,
+avec un `ScopeMembershipResolver` fail-closed supportant
+`ANY_DISCORD_ROLE`/`ALL_DISCORD_ROLES`. Elle était jusqu'ici uniquement câblée
+dans Stage08 (traduction/campagnes), jamais dans le Policy Engine. Ce lot la
+réutilise telle quelle plutôt que d'inventer un second agrégat
+« NamedAudience » : **aucune nouvelle table, aucune nouvelle migration** pour
+les définitions Staff/Confirmé.
+
+### Architecture d'audience nommée
+
+- **Staff** : `visibility_scopes.scope_type = 'STAFF'`, `scope_key = 'staff'`
+  (valeur déjà permise par le `CHECK` existant).
+- **Membre confirmé** : `visibility_scopes.scope_type = 'CUSTOM'`,
+  `scope_key = 'confirmed_member'` (CUSTOM était déjà une valeur permise ;
+  aucune migration nécessaire).
+- Le rôle-ensemble est porté par une `scope_membership_rules` de type
+  `ANY_DISCORD_ROLE`, exactement le même mécanisme que Stage08.
+- Le frontend consomme directement les endpoints Stage04 génériques
+  existants (`GET/POST/PATCH /guilds/{id}/visibility-scopes`) via un nouveau
+  module `frontend/src/features/policies/audiences.ts` — **aucune route
+  backend n'a été ajoutée pour la persistance des définitions**.
+- Quand un admin crée/édite une Policy « Staff uniquement » ou « Membres
+  confirmés uniquement », l'éditeur lit les `role_ids` courants de la
+  définition persistée et les matérialise dans la condition `ROLE_MATCH`
+  de la Policy au moment de la création — la Policy elle-même reste un
+  contrat fermé, régi uniquement par le `PolicyResolver` existant, sans
+  aucune référence différée résolue à l'exécution (pas de nouveau
+  `PolicyResolver`, pas d'E/S dans la résolution).
+- Détection assistée : `suggestStaffRoleIds()` propose des rôles dont le nom
+  (normalisé, accents retirés) contient un indice (« admin », « modérat »,
+  « staff », « owner »), affichée comme suggestion non appliquée — l'admin
+  doit ouvrir l'éditeur et cliquer « Enregistrer cette définition » pour
+  qu'elle devienne réelle. Aucune inférence silencieuse de « Staff » par nom
+  de rôle n'existe dans le chemin d'écriture.
+- Si aucune définition n'existe, la Policy native affiche
+  « Staff configuration required » / « Confirmed-member configuration
+  required » avec un bouton « Configure » inline (pas de nouvel écran séparé).
+
+### Nouvelle primitive de condition : `ROLE_EXCLUDE`
+
+`ROLE_MATCH` (ANY/ALL) existait déjà pour « au moins un rôle » et « tous ces
+rôles ». Il manquait un « ne possède pas » pour exprimer « A mais pas B »
+(REQ-AP-ZONE-060/061). `ROLE_EXCLUDE` a été ajouté au contrat fermé
+(`did/policies/registry.py`) et à l'évaluateur (`did/policies/resolver.py`),
+en miroir exact du mécanisme d'inversion déjà utilisé par
+`RoleAudience.mode = EXCLUDE` — même sémantique fail-closed (`UNKNOWN` si le
+rôle catalog ou les rôles du membre sont incomplets). « A mais pas B » est
+alors deux conditions dans le même tuple `conditions` (déjà ANDées par le
+resolver, aucun nouveau connecteur logique) :
+`[ROLE_MATCH(ANY,[A]), ROLE_EXCLUDE(ANY,[B])]`. Traduction Discord : ALLOW
+explicite pour A, DENY explicite pour B ; Discord applique le DENY quand un
+membre a les deux — ce comportement est exactement celui voulu et ne
+nécessite aucun rôle technique.
+
+### ANY / ALL et leur traduction Discord réelle
+
+- REQ-AP-ZONE-040/041 (« au moins un rôle ») : natif `at_least_one_role`,
+  strictement la même mécanique qu'un `visible_only` déjà livré (audience
+  `INCLUDE`/`ANY`). Couvert sans code nouveau côté moteur.
+- REQ-AP-ZONE-050 (« tous ces rôles ») : natif `all_roles_required`, audience
+  `INCLUDE`/`ALL`. Le compilateur de Plan (`PolicyPlanningService._compile_graph`)
+  produit un overwrite **par membre réel** (pas par rôle) à partir du résultat
+  exact de la résolution pour ce membre — donc la décision ALL est
+  correctement traduite pour chaque membre au moment de la génération du Plan.
+- REQ-AP-ZONE-051/052 restent **partielles, volontairement non déclarées
+  conformes** : rien ne maintient cette exactitude quand un membre gagne ou
+  perd un rôle après coup sans qu'un admin ne relance Preview/Plan. Un rôle
+  technique de combinaison entretenu en continu nécessiterait le futur
+  reconciler (`REQ-AP-LOCK-*`, hors périmètre de ce lot) ; aucun rôle
+  technique n'a été créé pour éviter le bricolage explicitement interdit.
+
+### « Zone d'accueil avant validation » (REQ-AP-ZONE-030..032)
+
+« Visible par les non-confirmés, staff optionnel inclus » combine un OU entre
+deux audiences, impossible à exprimer dans le tuple `conditions` (ANDé) d'une
+seule Policy. Le moteur compose déjà plusieurs Policies indépendantes portant
+la même décision ALLOW (`PolicyResolver._maximal`) : `createNewcomerAreaDefinitions()`
+construit donc 1 ou 2 Policies (base = `ROLE_EXCLUDE` des rôles confirmés ;
+couche staff optionnelle = `ALWAYS` + audience `INCLUDE`), liées par un tag
+`newcomer-area:<id>` commun pour l'affichage — aucune nouvelle capacité de
+résolution. La condition est évaluée à partir des rôles actuels du membre à
+chaque résolution (jamais copiée dans une liste figée) : le scénario
+Playwright B le démontre en interrogeant deux fois `/policy-resolution` et en
+observant un résultat différent sans qu'aucun état ne soit modifié côté
+Policy. Maintenir ce résultat à jour dans un Plan déjà généré reste soumis à
+la même limite de re-vérification que REQ-AP-ZONE-051/052 ; documentée, pas
+sur-déclarée.
+
+### Blacklists, cause exacte et exception voulue (REQ-AP-VIS-011..017, REQ-AP-WRI-011)
+
+`did/policies/conflict_explanations.py` (nouveau module pur, aucune E/S,
+aucun second resolver) relit la `PolicyResolution` déjà produite :
+
+- `explain_conflicts()` attribue un `PolicyConflict` détecté par le resolver
+  (deux contributions réellement concurrentes) au(x) rôle(s) exact(s) du
+  membre qui ont fait gagner la Policy retenue.
+- `find_blacklist_regrants()` couvre le cas le plus courant et le plus
+  « silencieux » : une Policy « visible sauf Contractors » (audience
+  `EXCLUDE`) ne s'applique correctement PAS à ce membre (`CONDITION_FALSE`),
+  donc le resolver n'émet aucun `PolicyConflict` — pourtant le membre garde
+  l'accès via une Policy indépendante (ex. « Managers voient toujours »). Le
+  module recoupe les contributions `CONDITION_FALSE` à audience `EXCLUDE`
+  dont les rôles exclus recoupent les rôles du membre, avec la Policy
+  gagnante, et nomme les deux rôles exacts en cause.
+- Les deux fonctions ne couvrent que la cause « rôle Policy contre Policy ».
+  ADMINISTRATOR, un overwrite membre brut ou l'héritage de catégorie ne sont
+  pas unifiés dans cette même explication (ce sont des signaux déjà partiels
+  ailleurs : `AccessMatrixCell.inherited`, l'évaluateur Discord-effectif
+  séparé) — laissé ouvert plutôt que sur-déclaré.
+- **Exception voulue** (REQ-AP-VIS-017) : `PolicyService.accept_exception()`
+  documente l'exception directement dans les métadonnées existantes de la
+  Policy (`tags: exception_accepted:<autre_policy_id>`), comme une nouvelle
+  révision auditée (`change_kind = ANNOTATE`) sans toucher conditions/effets/
+  lifecycle. Aucun second système d'exceptions. Cela nécessitait un vrai
+  ajout : les Policies n'avaient jusqu'ici aucun chemin de mutation pour une
+  Policy déjà ACTIVE (seul `update_draft` existait, réservé au DRAFT) ; une
+  migration réelle (`0039_ui_phase4_policy_exception_annotations.py`) élargit
+  la contrainte `CHECK` de `policy_versions.change_kind` pour inclure
+  `ANNOTATE`. Aucune nouvelle table.
+- `PolicyService.resolve_access_explained()` (nouveau, additif —
+  `resolve_access()` existant n'est pas modifié) enrichit
+  `POST /policy-resolution` avec `conflict_explanations`/`blacklist_regrants`
+  pour un affichage humain direct dans l'écran Policies.
+
+### UX livrée
+
+- Panneau d'audience nommée inline dans l'éditeur simple (`PoliciesScreen.tsx`)
+  pour `staff_only`/`confirmed_members_only` : affiche « Staff = … »,
+  la suggestion non appliquée, et un mini-éditeur de rôles avec bouton
+  « Enregistrer cette définition ».
+- Natifs `at_least_one_role`, `all_roles_required`, `role_but_not_role`
+  ajoutés au catalogue (famille « Zone ») avec exemples concrets en langage
+  humain (« Exemple : un membre avec … a accès. »).
+- Panneau d'explication existant étendu : cause du contournement de
+  blacklist nommant le rôle exact, bouton « Accepter cette exception ».
+- Catalogue i18n mis à jour en EN/FR/DE/ES (structurellement complet, testé).
+
+### Exigences couvertes, partielles et ouvertes
+
+- couvertes : `REQ-AP-ZONE-010..012`, `REQ-AP-ZONE-020..023`,
+  `REQ-AP-ZONE-040/041`, `REQ-AP-ZONE-060/061`, `REQ-AP-VIS-011..013`,
+  `REQ-AP-VIS-017`, `REQ-AP-WRI-011` ;
+- partielles et explicitement documentées comme telles :
+  `REQ-AP-ZONE-030..032` (composition OU réelle et réévaluation live livrées ;
+  maintien continu d'un Plan déjà généré non garanti sans reconciler),
+  `REQ-AP-ZONE-050` (couvert), `REQ-AP-ZONE-051/052` (traduction exacte à la
+  génération du Plan, pas de maintenance continue), `REQ-AP-VIS-004`
+  (cause rôle-vs-rôle couverte ; ADMINISTRATOR/overwrite/héritage non
+  unifiés) ;
+- toujours ouvertes, non tentées ce lot : `REQ-AP-ZONE-001..003` (« zone
+  publique + espace staff associé » via un Logical Group DID — la primitive
+  Stage04 `logical_groups` existe et convient, mais aucune UI de liaison n'a
+  été construite ce lot), `REQ-AP-PRS-001`, `010..013`, `020..022`
+  (Confidentiel, Salon d'annonces, Zone support — aucune UI de preset
+  composite construite ce lot, malgré des sous-primitives disponibles),
+  `REQ-AP-CFL-005/006` (optimisation globale des rôles redondants).
+
+Les statuts de l'audit historique des 389 exigences ne sont pas modifiés ; les
+`REQ-AP-*` demeurent la clarification produit distincte.
+
+### Tests et inventaire
+
+- backend ciblé : 47 tests resolver (dont les nouveaux `ROLE_EXCLUDE`/A-NOT-B/
+  permutation), 5 tests `conflict_explanations`, 21 tests policy foundations
+  (dont le nouvel endpoint `accept-exception`), 11 tests intégration
+  PostgreSQL réels (dont 3 nouveaux pour `accept_exception` : révision CAS,
+  isolation tenant A/B) — tous PASS sur `compose.test.yaml` avec la migration
+  `0039` appliquée puis vérifiée réversible ;
+- frontend : typecheck strict, catalogue i18n EN/FR/DE/ES structurellement
+  complet, 15 tests Vitest ciblés (catalogue + audiences), garde anti-littéral
+  visible : PASS ;
+- Playwright : exactement 3 parcours nouveaux (A — Staff uniquement de bout
+  en bout ; B — Membres confirmés + réévaluation live ; C — contournement de
+  blacklist, cause exacte, exception acceptée), plus les 14 parcours Phase 4
+  existants revérifiés sans régression — tous PASS, zéro appel APPLY ;
+- non exécutés : campagne Playwright globale, Discord live A/B, APPLY réel,
+  UI de liaison Logical Group, UI de presets composites.
+
+Fichiers concernés : `registry.py`/`resolver.py`/nouveau
+`conflict_explanations.py`, `application/policies/service.py` (accept_exception,
+resolve_access_explained), `infrastructure/policies_repository.py` (annotate),
+`api/policies.py` (accept-exception, policy-resolution enrichi), migration
+`0039`, tests unitaires/intégration correspondants ; frontend
+`features/policies/audiences.ts` (+ test), `catalog.ts` (+ test),
+`PoliciesScreen.tsx`, `api/types.ts`, `localization/phase4PoliciesCatalog.ts`,
+nouveau `e2e/phase04-zones-and-conflicts.spec.ts`. Une seule migration réelle
+(`0039`, élargissement d'un `CHECK` existant) ; aucun secret.

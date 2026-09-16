@@ -56,6 +56,11 @@ class PolicyActivation(PolicyTransition):
     plan_id: UUID
 
 
+class PolicyAcceptException(PolicyTransition):
+    other_policy_id: UUID
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class PolicyPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=1)
@@ -299,15 +304,17 @@ async def resolve_policy(
 
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.POLICIES_READ)
-    resolution = await container.policies.resolve_access(
+    explained = await container.policies.resolve_access_explained(
         guild_id=parsed,
         subject_id=parse_snowflake(body.subject_id),
         target_scope_type=PolicyScopeType(body.target_scope_type),
         target_scope_id=body.target_scope_id,
         requested_access=body.requested_access,
     )
-    encoded = jsonable_encoder(resolution)
+    encoded = jsonable_encoder(explained.resolution)
     assert isinstance(encoded, dict)
+    encoded["conflict_explanations"] = jsonable_encoder(explained.conflict_explanations)
+    encoded["blacklist_regrants"] = jsonable_encoder(explained.blacklist_regrants)
     return encoded
 
 
@@ -585,6 +592,36 @@ async def disable_policy(
         container,
         "disable",
         Capability.POLICIES_ACTIVATE,
+    )
+
+
+@router.post("/{guild_id}/policies/{policy_id}/accept-exception")
+async def accept_policy_exception(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyAcceptException,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Document an intentional exception (REQ-AP-VIS-017) on this Policy's metadata.
+
+    No mutation of conditions/effects/scope/lifecycle: only a new, audited
+    metadata revision so the conflict this Policy has with ``other_policy_id``
+    shows up as "exception voulue" instead of a silent conflict.
+    """
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_UPDATE, sensitive=True)
+    return _policy(
+        await container.policies.accept_exception(
+            parsed,
+            policy_id,
+            session.discord_user_id,
+            other_policy_id=body.other_policy_id,
+            expected_revision=body.expected_revision,
+            idempotency_key=idempotency_key,
+            reason=body.reason,
+        )
     )
 
 
