@@ -308,21 +308,95 @@ added below once the real running frontend has been inspected against
 Esquisse 1.
 
 ### P4-UI-000 — Visual acceptance pass (Roles/Permissions/Policies/Matrix/Wizard)
-Status: TODO
+Status: IN_PROGRESS (first pass done, desktop + mobile; a few screens still
+need a look — see NEXT EXACT ACTION)
 Purpose: Compare the real running UI for all Phase 4 screens against
 `Esquisse 1.png`, at the sizes required by the closure checkpoint, and log
 genuine defects as atomic P4-UI-* tasks. Do NOT log cosmetic nitpicks that
 aren't real defects.
+Method used: a throwaway Playwright spec (`frontend/e2e/_visual_audit.spec.ts`,
+deleted after use, not committed — recreate the same way if more screens
+need screenshots) that mocks the same backend routes the existing
+`phase04-*.spec.ts` harnesses use (see those files for the exact JSON
+shapes) and screenshots each route at 1440x900 and 390x844 via
+`page.screenshot({fullPage:false})`. Use `fullPage:false` — `fullPage:true`
+produces a stitching artifact that duplicates the fixed header/sidebar and
+is NOT a real bug (confirmed by comparing against a viewport screenshot
+before logging anything).
+Already covered this session: Roles, Permissions, Policies (list + target
+selected + editor), Access Matrix, Wizards catalog, Wizard access-space
+step 1 — each at desktop width, and Policies + Matrix at 390px mobile.
+Defects found and FIXED (see P4-T021, done, commit 2ce541f):
+- body had `min-width:1180px` (src/shared/redesign.css) — forced horizontal
+  scroll on literally every screen below 1180px, defeating every existing
+  per-component responsive media query. Removed.
+- several `@media` breakpoints collapsed grids with bare `1fr` instead of
+  `minmax(0,1fr)`, so content min-size still blew out the track even after
+  "collapsing to one column" (policy-layout/policy-target-panel in
+  policies.css; roles-layout/permissions-layout/access-form-grid/
+  role-meta-grid/overwrite-preview/role-action-grid in phase4-access.css;
+  matrix-before-after in matrix.css). Fixed throughout.
+- sidebar/topbar had zero mobile collapse behavior at all (no hamburger, no
+  off-canvas). Added nav-toggle + off-canvas sidebar + backdrop + topbar
+  wrap + connection-label visual collapse <480px (kept in a11y tree).
+- Wizard step pills showed the step number twice ("1 1 · Target") because
+  the i18n strings embedded their own number on top of WizardShell's own
+  numbered badge. Stripped the redundant prefix in all 4 locales.
+Verified clean after fix: scrollWidth===clientWidth===390 at mobile on both
+Policies and Matrix (Matrix's own table still scrolls internally within its
+own container, which is the explicitly allowed exception, not a page-level
+scroll). All 17 Phase 4 Playwright specs still green, typecheck/i18n/lint
+clean (3 pre-existing unrelated lint errors in untouched files, 1
+pre-existing unrelated Vitest failure in StructureScreen.test.tsx — both
+confirmed pre-existing via `git status` showing those files untouched).
 NEXT EXACT ACTION:
-1. Start the frontend dev server (and backend if screens need live data) via
-   the `run` skill or documented dev commands.
-2. Screenshot: Roles, Permissions (simple+expert), Policies list, Policies
-   editor (simple+expert), Access Matrix, Wizard catalog, Wizard access-space
-   flow, conflict/remediation panel, Named Audience editor.
-3. Compare each against Esquisse 1.png direction (dark navy, progressive
-   disclosure, intention-first, calm density).
-4. For each real defect, create a `P4-UI-0xx` task below with a concrete
-   description, not a vague "make it nicer".
+1. Re-run the same throwaway-spec method for screens not yet screenshotted
+   this session: the conflict/remediation explanation panel (open a policy
+   with a conflict, e.g. reuse the `conflict=true` harness pattern from
+   `phase04-policies.spec.ts`), the Named Audience inline editor (staff_only
+   native with no persisted definition yet, to see the "Configure" prompt),
+   Policy expert mode, and Access Matrix cell editor drawer/dialog.
+2. Once P4-T010..T020 below produce new screens (temporary access, locked
+   policy/drift banner, presets, deletion strategy modal, context menu
+   entries), screenshot those too before declaring this task DONE — the
+   Phase 4 closure checkpoint requires visual acceptance for those surfaces
+   too, not just the screens that existed at session start.
+3. Only mark P4-UI-000 DONE at the very end of Phase 4 closure, once every
+   screen listed in the closure checkpoint's "Vérifier au minimum" list
+   (10 items in the master instructions) has been screenshotted and compared.
+
+### P4-T021 — Fix visual defects found in first acceptance pass
+Status: DONE
+Purpose: Fix the 3 real defects found by P4-UI-000's first pass before doing
+any further functional backlog work, per the master rule that visual
+correction is prioritized over adding secondary functions.
+Requirements: general "responsive raisonnablement" / visual consistency
+closure criteria for Phase 4 (not a REQ-AP-* item; a UI-quality gate).
+Implementation: see P4-UI-000 above for the full list; in short: removed
+`body{min-width:1180px}`, fixed 6 media-query rules from bare `1fr` to
+`minmax(0,1fr)`, added a real off-canvas mobile sidebar with hamburger
+toggle to AppShell, fixed wizard step-title number duplication in all 4
+locales.
+UI: Roles/Permissions/Policies/Matrix/Wizards all now usable at 390px
+without page-level horizontal scroll; wizard progress pills show each
+number once.
+Files: `frontend/src/app/AppShell.tsx`, `frontend/src/shared/redesign.css`,
+`frontend/src/shared/phase4-access.css`, `frontend/src/features/policies/policies.css`,
+`frontend/src/features/matrix/matrix.css`, `frontend/src/localization/phase2Catalog.ts`
+(shell.openNavigation/closeNavigation keys, 4 locales),
+`frontend/src/localization/phase4WizardCatalog.ts` (step title fix, 4 locales).
+Tests: typecheck PASS, i18n:check PASS, full Vitest suite 75/76 passed (1
+pre-existing unrelated StructureScreen.test.tsx failure, confirmed
+pre-existing — file untouched by this change), all 17 Phase 4 Playwright
+specs PASS, manual overflow verification (scrollWidth===clientWidth===390
+at mobile on Policies and Matrix).
+Commit: `2ce541f fix(ui-phase4): fix mobile overflow, off-canvas nav, and wizard step duplication`.
+Known limitations: only Roles/Permissions/Policies/Matrix/Wizards-catalog/
+Wizard-step-1 were actually screenshotted; other Wizard steps and the
+conflict panel/Named Audience editor still need a look (tracked back in
+P4-UI-000's NEXT EXACT ACTION). The 3 pre-existing lint errors and 1
+pre-existing test failure were NOT fixed — out of scope (unrelated files,
+not touched by this task).
 
 ### P4-T010 — Zone publique + espace staff associé (Logical Group link)
 Status: TODO
@@ -599,34 +673,125 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-16, session start.
+Last updated: 2026-09-16, mid-session after P4-T021.
 
-Current HEAD: `80c1535b4e2c0fc4dcf21c418b3d2a6622ced91f`
+Current HEAD: `2ce541f` (fix(ui-phase4): fix mobile overflow, off-canvas nav, and wizard step duplication)
 
-Worktree state: clean.
+Worktree state: clean, not yet pushed to origin (push after this update).
 
-Task IN_PROGRESS: P4-UI-000 (visual acceptance pass) — not yet started,
-about to launch the frontend.
+Task IN_PROGRESS: P4-UI-000 (visual acceptance pass, first pass done —
+see its own section for exact remaining screens) is the next thing to
+either finish or consciously postpone in favor of P4-T010+.
 
-Just done: reconstructed full Phase 4 history (P4-T001..P4-T009) from
-`PHASE_04_REPORT.md`/`UI_REQUIREMENTS_REMEDIATION_MAP.md`/git log; drafted
-the open backlog (P4-T010..P4-T020) from
-`docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md` cross-referenced
-against PHASE_04_REPORT.md §16-18 gap lists; dispatched a background Explore
-agent for reconciler/worker/scheduler research needed by P4-T012/P4-T014.
+Just done:
+1. Reconstructed full Phase 4 history (P4-T001..P4-T009) from
+   `PHASE_04_REPORT.md`/`UI_REQUIREMENTS_REMEDIATION_MAP.md`/git log.
+2. Drafted the open backlog (P4-T010..P4-T020) from
+   `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
+   cross-referenced against PHASE_04_REPORT.md §16-18 gap lists.
+3. Dispatched and received a background Explore agent's findings on
+   reconciler/worker/scheduler infra — incorporated into P4-T012/P4-T014
+   below (see "Reconciler/scheduler research findings" subsection).
+4. Ran a real visual acceptance pass (screenshots, not just code reading)
+   against Esquisse 1.png for Roles/Permissions/Policies/Matrix/Wizards at
+   desktop + 390px mobile, found and fixed 3 real defects (P4-T021, DONE,
+   commit 2ce541f): body min-width:1180px blocking all responsiveness, 6
+   bare-1fr grid collapse bugs, no mobile nav at all, and duplicated wizard
+   step numbers.
 
-Files modified this session so far: `SCREENSHOTS_ESQUISSE/UI_PHASE_EXECUTION_STATE.md` (new).
+Files modified this session so far:
+- `SCREENSHOTS_ESQUISSE/UI_PHASE_EXECUTION_STATE.md` (new, this file)
+- `frontend/src/app/AppShell.tsx`, `frontend/src/shared/redesign.css`,
+  `frontend/src/shared/phase4-access.css`,
+  `frontend/src/features/policies/policies.css`,
+  `frontend/src/features/matrix/matrix.css`,
+  `frontend/src/localization/phase2Catalog.ts`,
+  `frontend/src/localization/phase4WizardCatalog.ts` (all in commit 2ce541f)
 
-Tests already run this session: none yet (pure documentation/reconstruction step).
+Tests already run this session: typecheck PASS, i18n:check PASS, full
+Vitest suite (75 passed / 1 pre-existing unrelated failure), lint (3
+pre-existing unrelated errors in untouched files), all 17 Phase 4 Playwright
+specs PASS.
 
-Tests remaining: all — nothing implemented yet this session.
+Tests remaining: everything for P4-T010 onward — nothing implemented yet
+for the functional backlog.
 
 NEXT EXACT ACTION:
-1. Launch the frontend (and backend if needed for live data) to perform the
-   mandatory visual audit (P4-UI-000) against `Esquisse 1.png`.
-2. Log any genuine visual defects as `P4-UI-0xx` tasks in this file.
-3. Check on the background Explore agent; incorporate its findings into
-   P4-T012 and P4-T014.
-4. Start implementing the open backlog in the order listed, updating this
-   file's status and evidence after every meaningful step, committing
-   atomically, and pushing to `origin/ui/complete-redesign` regularly.
+1. `git push` this commit and the tracker doc to `origin/ui/complete-redesign`.
+2. Decide: either finish P4-UI-000's remaining screens now (conflict panel,
+   Named Audience editor, expert mode, matrix cell dialog) or move to
+   P4-T010 (Logical Group public+staff pairing) — given the master rule
+   that visual correctness precedes new functions, prefer finishing
+   P4-UI-000's remaining screens first if time allows, but P4-T010 is also
+   reasonable to start since it's a genuinely new, currently-nonexistent UI
+   surface that will itself need its own visual audit anyway (no point
+   auditing twice).
+3. Start P4-T010 (see its own section for the concrete NEXT EXACT ACTION):
+   confirm the Stage04 logical_groups API surface, then build the
+   public+staff pairing UI.
+
+## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
+
+A background Explore agent investigated existing infrastructure to reuse.
+Summary (full detail was in the agent's report, not persisted verbatim —
+re-verify file paths before use since this is a paraphrase):
+
+- **Drift detection precedent**: `did/application/discord_runtime/gateway.py`
+  (`normalize_gateway_dispatch`, `GatewaySessionTracker`) is the event-driven
+  listener contract (CHANNEL_*, GUILD_ROLE_*, THREAD_* dispatches). Continuity
+  states mark cache stale via `RuntimeRepository.record_gateway_discontinuity`
+  (`did/infrastructure/runtime_repository.py`), which already writes audit
+  rows with `source='SYSTEM'` — but this only detects cache staleness, NOT
+  policy drift; the actual "does Discord still match what a locked Policy
+  requires" comparison is net-new logic.
+- **Periodic safety net precedent**: `did/application/reconciliation/scheduler.py`
+  (`ReconcileScheduler`, `AdaptiveReconcilePolicy`) polls periodically and
+  enqueues `WorkloadJob("RECONCILE_STRUCTURE", ...)` via
+  `RuntimeRepository.enqueue_job`. This event-triggered-urgency +
+  periodic-fallback shape, feeding one durable job queue, is exactly the
+  pattern to reuse for locked-Policy drift — but it only refreshes the
+  observed-state cache today, no Policy comparison.
+- **Worker/scheduler process reuse point**: `did/runtime.py::run_process` has
+  a `"scheduler"` branch (~line 273-344) that runs a `runners: list[Awaitable]`
+  concurrently via `asyncio.gather(*runners)` — currently
+  `ReconcileScheduler.run` + `CampaignSchedulerRuntime.run` (Stage 09). Add a
+  new `PolicyDriftSchedulerRuntime`/`TemporaryAccessSchedulerRuntime` with the
+  same `.run(stop_event)` contract and append to `runners` — no new process
+  type needed.
+- **Apply/repair path**: a repair Plan for drift should be created via the
+  same `PlanningService`/`ApplyPlanExecutor` pipeline (provenance
+  `PlanOriginType.POLICY` already exists) — `worker/io/plan_executor.py`
+  (`ApplyPlanExecutor._execute`, `APPLYING`/lease fencing),
+  `worker/io/worker.py` (`DurableDiscordIOWorker`),
+  `worker/io/governor.py` (`DiscordWorkloadGovernor`). No new mutation path.
+- **System-actor audit precedent**: `internal_audit_events`
+  (migration `0003_stage_03_discord_runtime.py`) already has a nullable
+  `actor_user_id` and an unconstrained `source` string already used as
+  `'SYSTEM'` (event `CACHE_STALE_AFTER_GATEWAY_GAP`) — use `'POLICY_RECONCILER'`
+  the same way, no migration needed for the audit row itself.
+  `PolicyService.accept_exception()` (`did/application/policies/service.py`)
+  already shows the append-only `policy_versions` pattern for a
+  metadata-only system annotation (`change_kind='ANNOTATE'`) — reusable for
+  a repair/needs-intervention annotation.
+- **Policy aggregate**: `did/domain/policies.py` (`Policy`/`PolicyVersion`).
+  Tables via migrations `0036`-`0039`. **No `locked` field exists anywhere**
+  — confirmed absent. Needs a new migration adding `locked: bool` (or richer
+  lock metadata) to `Policy`/`policies`.
+- **Durable scheduled-action precedent (for P4-T012 temporary access)**:
+  Stage 09's `message_campaign_schedules`
+  (migration `0022_stage_09_campaign_engine.py`, columns `fire_at`/`rrule`/
+  `misfire_policy`) with lease-based claim/finalize —
+  `CampaignsRepository.claim_due_schedules`/`finalize_schedule_claim`, driven
+  by `did/campaigns/scheduler_loop.py::run_scheduler_tick`. Restart-safe,
+  retry-safe (only advances cursor if lease still held). Model temporary
+  access expirations as a sibling table with the same claim/lease/finalize
+  contract, add a `TemporaryAccessSchedulerRuntime.run(stop_event)` to the
+  scheduler process's `runners`, fire removal through
+  `PlanningService`/`ApplyPlanExecutor` (never direct Discord), mark
+  `INTERVENTION_REQUIRED` on failure (mirrors `plan_executor.py::_finalize`'s
+  existing terminal states) rather than silently showing success.
+
+This research is NOT yet re-verified against the current file tree by a
+human/AI reading the actual files — treat file paths as a strong lead, not
+gospel; grep/read them before writing code that depends on exact function
+signatures.
