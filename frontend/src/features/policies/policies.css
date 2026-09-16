@@ -46,7 +46,7 @@
 .policy-preview-entries summary { cursor: pointer; color: var(--muted); }
 
 @media (max-width: 980px) {
-  .policy-target-panel, .policy-layout { grid-template-columns: 1fr; }
+  .policy-target-panel, .policy-layout { grid-template-columns: minmax(0, 1fr); }
   .policy-catalog-panel { max-height: none; }
   .policy-impact-grid { grid-template-columns: repeat(3, 1fr); }
 }

@@ -29,4 +29,4 @@
 .matrix-resource-previews { display: grid; gap: .45rem; }
 .matrix-resource-previews > div { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem; border: 1px solid var(--line); border-radius: .55rem; }
 .matrix-resource-previews span { color: var(--muted); }
-@media (max-width: 720px) { .matrix-toolbar, .matrix-resource-previews > div { align-items: stretch; flex-direction: column; } .matrix-before-after { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .matrix-toolbar, .matrix-resource-previews > div { align-items: stretch; flex-direction: column; } .matrix-before-after { grid-template-columns: minmax(0,1fr); } }

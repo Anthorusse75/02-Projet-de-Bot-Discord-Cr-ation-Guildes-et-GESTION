@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -48,6 +48,7 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const setMe = useSessionStore((state) => state.setMe)
   const setCommandOpen = useInteractionStore((state) => state.setCommandOpen)
+  const [navOpen, setNavOpen] = useState(false)
   const parsedGuild = guildId ? discordSnowflake(guildId) : null
   const connection = useGuildSocket(queryClient, me.user.discord_user_id, parsedGuild ?? me.user.discord_user_id)
   const featureQuery = useQuery({
@@ -62,10 +63,15 @@ export function AppShell() {
         event.preventDefault()
         setCommandOpen(true)
       }
+      if (event.key === 'Escape') setNavOpen(false)
     }
     document.addEventListener('keydown', key)
     return () => document.removeEventListener('keydown', key)
   }, [setCommandOpen])
+
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
 
   if (!parsedGuild) return <Navigate to="/guilds" replace />
   const currentGuildId = parsedGuild
@@ -116,7 +122,8 @@ export function AppShell() {
   return (
     <div className="premium-app-layout">
       <a href="#main" className="skip-link">{t('app.skip')}</a>
-      <aside className="premium-sidebar">
+      {navOpen && <button type="button" className="nav-backdrop" aria-label={t('shell.closeNavigation')} onClick={() => setNavOpen(false)} />}
+      <aside className={`premium-sidebar${navOpen ? ' nav-open' : ''}`} id="primary-navigation">
         <div className="premium-brand">
           <span className="brand-mark">D</span>
           <div><strong>DID</strong><small>{t('app.title')}</small></div>
@@ -171,11 +178,21 @@ export function AppShell() {
 
       <div className="premium-workspace">
         <header className="premium-topbar">
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label={t('shell.openNavigation')}
+            aria-expanded={navOpen}
+            aria-controls="primary-navigation"
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
           <button type="button" className="global-search" onClick={() => setCommandOpen(true)}>
             <span aria-hidden="true">⌕</span><span>{t('shell.searchHint')}</span><kbd>Ctrl K</kbd>
           </button>
           <div className="topbar-actions">
-            <Badge tone={connectionTone}><span className={`connection-led ${connection}`} />{connectionLabel}</Badge>
+            <Badge tone={connectionTone}><span className={`connection-led ${connection}`} /><span className="connection-label">{connectionLabel}</span></Badge>
             <LanguageSelector />
             <span className="topbar-avatar">{(me.user.global_name ?? me.user.username).slice(0, 2).toUpperCase()}</span>
           </div>
