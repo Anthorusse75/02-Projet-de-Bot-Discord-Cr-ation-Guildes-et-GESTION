@@ -9,10 +9,21 @@ export type NativePolicyId =
   | 'open_read_limited_write'
   | 'private_space'
   | 'staff_only'
+  | 'voice_join_no_speak'
+  | 'voice_speakers'
+  | 'private_voice'
+  | 'voice_managers'
+  | 'thread_creators'
+  | 'reactions'
+  | 'mentions'
+  | 'bot_minimal'
+
+export type PolicyMode = 'INHERIT' | 'EVERYONE' | 'ONLY' | 'NONE'
+export type BotFunction = 'READ' | 'WRITE' | 'MANAGE' | 'THREADS' | 'VOCAL'
 
 export type NativePolicy = {
   id: NativePolicyId
-  family: 'VISIBILITY' | 'WRITING' | 'AUDIENCE'
+  family: 'VISIBILITY' | 'WRITING' | 'AUDIENCE' | 'VOCAL' | 'THREADS' | 'REACTIONS' | 'MENTIONS' | 'BOTS'
   titleKey: string
   summaryKey: string
   helpKey: string
@@ -20,6 +31,9 @@ export type NativePolicy = {
   compatibility: readonly PolicyTargetKind[]
   access: readonly PolicyAccess[]
   audienceMode: 'INCLUDE' | 'EXCLUDE'
+  editorKind?: 'AUDIENCE' | 'MODE' | 'MENTIONS' | 'BOT'
+  wizardCompatible?: boolean
+  matrixCompatible?: boolean
 }
 
 const RESOURCE_TARGETS = ['GUILD', 'LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL'] as const
@@ -32,26 +46,30 @@ export const nativePolicies: readonly NativePolicy[] = [
   { id: 'open_read_limited_write', family: 'WRITING', titleKey: 'policies.native.openRead.title', summaryKey: 'policies.native.openRead.summary', helpKey: 'policies.native.openRead.help', audienceKey: 'policies.audience.whoCanPublish', compatibility: RESOURCE_TARGETS, access: ['VIEW', 'WRITE'], audienceMode: 'INCLUDE' },
   { id: 'private_space', family: 'VISIBILITY', titleKey: 'policies.native.private.title', summaryKey: 'policies.native.private.summary', helpKey: 'policies.native.private.help', audienceKey: 'policies.audience.whoCanSee', compatibility: ['LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL'], access: ['VIEW'], audienceMode: 'INCLUDE' },
   { id: 'staff_only', family: 'AUDIENCE', titleKey: 'policies.native.staff.title', summaryKey: 'policies.native.staff.summary', helpKey: 'policies.native.staff.help', audienceKey: 'policies.audience.whichStaff', compatibility: ['GUILD', 'LOGICAL_GROUP', 'CATEGORY', 'TEXT_CHANNEL', 'VOICE_CHANNEL'], access: ['VIEW'], audienceMode: 'INCLUDE' },
+  { id: 'voice_join_no_speak', family: 'VOCAL', titleKey: 'policies.native.voiceJoinNoSpeak.title', summaryKey: 'policies.native.voiceJoinNoSpeak.summary', helpKey: 'policies.native.voiceJoinNoSpeak.help', audienceKey: 'policies.audience.whoCanJoinWithoutSpeaking', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT', 'SPEAK'], audienceMode: 'INCLUDE' },
+  { id: 'voice_speakers', family: 'VOCAL', titleKey: 'policies.native.voiceSpeakers.title', summaryKey: 'policies.native.voiceSpeakers.summary', helpKey: 'policies.native.voiceSpeakers.help', audienceKey: 'policies.audience.whoCanSpeak', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT', 'SPEAK'], audienceMode: 'INCLUDE' },
+  { id: 'private_voice', family: 'VOCAL', titleKey: 'policies.native.privateVoice.title', summaryKey: 'policies.native.privateVoice.summary', helpKey: 'policies.native.privateVoice.help', audienceKey: 'policies.audience.whoCanJoin', compatibility: ['VOICE_CHANNEL'], access: ['CONNECT'], audienceMode: 'INCLUDE' },
+  { id: 'voice_managers', family: 'VOCAL', titleKey: 'policies.native.voiceManagers.title', summaryKey: 'policies.native.voiceManagers.summary', helpKey: 'policies.native.voiceManagers.help', audienceKey: 'policies.audience.whoManagesVoice', compatibility: ['VOICE_CHANNEL'], access: ['MANAGE_VOICE'], audienceMode: 'INCLUDE' },
+  { id: 'thread_creators', family: 'THREADS', titleKey: 'policies.native.threadCreators.title', summaryKey: 'policies.native.threadCreators.summary', helpKey: 'policies.native.threadCreators.help', audienceKey: 'policies.audience.whoCreatesThreads', compatibility: ['TEXT_CHANNEL'], access: ['CREATE_THREAD'], audienceMode: 'INCLUDE' },
+  { id: 'reactions', family: 'REACTIONS', titleKey: 'policies.native.reactions.title', summaryKey: 'policies.native.reactions.summary', helpKey: 'policies.native.reactions.help', audienceKey: 'policies.audience.reactionMode', compatibility: ['TEXT_CHANNEL'], access: ['REACT'], audienceMode: 'INCLUDE', editorKind: 'MODE', wizardCompatible: false },
+  { id: 'mentions', family: 'MENTIONS', titleKey: 'policies.native.mentions.title', summaryKey: 'policies.native.mentions.summary', helpKey: 'policies.native.mentions.help', audienceKey: 'policies.audience.mentionMode', compatibility: ['GUILD', 'CATEGORY', 'TEXT_CHANNEL'], access: ['MENTION_EVERYONE_HERE'], audienceMode: 'INCLUDE', editorKind: 'MENTIONS', wizardCompatible: false },
+  { id: 'bot_minimal', family: 'BOTS', titleKey: 'policies.native.botMinimal.title', summaryKey: 'policies.native.botMinimal.summary', helpKey: 'policies.native.botMinimal.help', audienceKey: 'policies.bot.select', compatibility: ['TEXT_CHANNEL', 'VOICE_CHANNEL'], access: [], audienceMode: 'INCLUDE', editorKind: 'BOT', wizardCompatible: false, matrixCompatible: false },
 ] as const
 
-export type PolicyTarget = {
-  kind: PolicyTargetKind
-  scopeType: PolicyScopeType
-  scopeId: string | null
-  label: string
-}
+export type PolicyTarget = { kind: PolicyTargetKind; scopeType: PolicyScopeType; scopeId: string | null; label: string }
 
 export type PolicyDraftDefinition = {
-  policy_type: 'ACCESS_CONTROL'
-  contract_version: 1
-  name: string
-  description: string
-  scope_type: PolicyScopeType
-  scope_id: string | null
-  priority: number
-  conditions: PolicyCondition[]
-  effects: PolicyEffect[]
+  policy_type: 'ACCESS_CONTROL'; contract_version: 1; name: string; description: string
+  scope_type: PolicyScopeType; scope_id: string | null; priority: number
+  conditions: PolicyCondition[]; effects: PolicyEffect[]
   metadata: { summary: string; tags: string[]; reason: string | null }
+}
+
+export type NativePolicyValues = {
+  name: string; description: string; priority?: number; sourcePolicyId?: string
+  reactionMode?: PolicyMode; threadMode?: PolicyMode
+  includeStaff?: boolean; staffRoleIds?: readonly string[]
+  botId?: string; botFunctions?: readonly BotFunction[]
 }
 
 export function compatibleNativePolicies(kind: PolicyTargetKind | null): readonly NativePolicy[] {
@@ -68,7 +86,7 @@ export function isPolicyCompatible(policy: Policy, target: PolicyTarget | null, 
   if (!target) return true
   if (policy.scope_type === 'CHANNEL' && target.scopeType === 'CHANNEL') {
     const accesses = policy.effects.map((effect) => effect.access)
-    const policyVoice = accesses.some((access) => access === 'CONNECT' || access === 'SPEAK')
+    const policyVoice = accesses.some((access) => access === 'CONNECT' || access === 'SPEAK' || access === 'MANAGE_VOICE')
     const targetVoice = target.kind === 'VOICE_CHANNEL'
     return policyVoice === targetVoice || (!policyVoice && !targetVoice)
   }
@@ -81,33 +99,88 @@ export function nativePolicyByTag(policy: Policy): NativePolicy | undefined {
   return nativePolicies.find((native) => `did-native:${native.id}` === tag)
 }
 
+function audience(roleIds: readonly string[], mode: 'INCLUDE' | 'EXCLUDE') {
+  return { mode, match: 'ANY' as const, role_ids: [...new Set(roleIds)] }
+}
+
+function whitelist(access: PolicyAccess, roleIds: readonly string[]): PolicyEffect[] {
+  return [
+    { kind: 'SET_ACCESS', access, decision: 'ALLOW', audience: audience(roleIds, 'INCLUDE') },
+    { kind: 'SET_ACCESS', access, decision: 'DENY', audience: audience(roleIds, 'EXCLUDE') },
+  ]
+}
+
+function modeEffects(access: PolicyAccess, mode: PolicyMode, roleIds: readonly string[]): PolicyEffect[] {
+  if (mode === 'INHERIT') return []
+  if (mode === 'EVERYONE') return [{ kind: 'SET_ACCESS', access, decision: 'ALLOW' }]
+  if (mode === 'NONE') return [{ kind: 'SET_ACCESS', access, decision: 'DENY' }]
+  return whitelist(access, roleIds)
+}
+
+function botEffects(functions: readonly BotFunction[]): PolicyEffect[] {
+  const accesses: PolicyAccess[] = functions.length ? ['VIEW'] : []
+  for (const value of functions) {
+    if (value === 'READ') accesses.push('READ_HISTORY')
+    if (value === 'WRITE') accesses.push('SEND')
+    if (value === 'MANAGE') accesses.push('MANAGE_CHANNEL')
+    if (value === 'THREADS') accesses.push('CREATE_THREAD', 'PARTICIPATE_THREAD')
+    if (value === 'VOCAL') accesses.push('CONNECT', 'SPEAK')
+  }
+  return [...new Set(accesses)].map((access) => ({ kind: 'SET_ACCESS', access, decision: 'ALLOW' }))
+}
+
 export function createDefinitionFromNative(
   native: NativePolicy,
   target: PolicyTarget,
   roleIds: readonly string[],
-  values: { name: string; description: string; priority?: number; sourcePolicyId?: string },
+  values: NativePolicyValues,
 ): PolicyDraftDefinition {
-  const conditions: PolicyCondition[] = [{ kind: 'ALWAYS' }]
-  const audience = { mode: native.audienceMode, match: 'ANY' as const, role_ids: [...new Set(roleIds)] }
-  const effects: PolicyEffect[] = native.access.map((access) => ({
-    kind: 'SET_ACCESS', access, decision: 'ALLOW',
-    ...(native.id === 'open_read_limited_write' && access === 'VIEW' ? {} : { audience }),
-  }))
-  if (native.id === 'staff_only' && target.kind === 'VOICE_CHANNEL') {
-    effects.push({ kind: 'SET_ACCESS', access: 'CONNECT', decision: 'ALLOW', audience })
+  let conditions: PolicyCondition[] = [{ kind: 'ALWAYS' }]
+  let effects: PolicyEffect[]
+  const selectedAudience = audience(roleIds, native.audienceMode)
+  if (native.id === 'voice_join_no_speak') {
+    effects = [
+      { kind: 'SET_ACCESS', access: 'CONNECT', decision: 'ALLOW', audience: selectedAudience },
+      { kind: 'SET_ACCESS', access: 'SPEAK', decision: 'DENY', audience: selectedAudience },
+    ]
+  } else if (native.id === 'voice_speakers') {
+    effects = [{ kind: 'SET_ACCESS', access: 'CONNECT', decision: 'ALLOW' }, ...whitelist('SPEAK', roleIds)]
+  } else if (native.id === 'private_voice') {
+    const joined = [...new Set([...roleIds, ...(values.includeStaff ? values.staffRoleIds ?? [] : [])])]
+    effects = whitelist('CONNECT', joined)
+  } else if (native.id === 'voice_managers') {
+    effects = whitelist('MANAGE_VOICE', roleIds)
+  } else if (native.id === 'thread_creators') {
+    effects = whitelist('CREATE_THREAD', roleIds)
+  } else if (native.id === 'reactions') {
+    effects = modeEffects('REACT', values.reactionMode ?? 'ONLY', roleIds)
+  } else if (native.id === 'mentions') {
+    effects = modeEffects('MENTION_EVERYONE_HERE', values.reactionMode ?? 'ONLY', roleIds)
+  } else if (native.id === 'bot_minimal') {
+    conditions = values.botId ? [{ kind: 'BOT_MATCH', bot_user_ids: [values.botId] }] : []
+    effects = botEffects(values.botFunctions ?? [])
+  } else {
+    effects = native.access.map((access) => ({
+      kind: 'SET_ACCESS', access, decision: 'ALLOW',
+      ...(native.id === 'open_read_limited_write' && access === 'VIEW' ? {} : { audience: selectedAudience }),
+    }))
+    if (native.id === 'staff_only' && target.kind === 'VOICE_CHANNEL') effects.push({ kind: 'SET_ACCESS', access: 'CONNECT', decision: 'ALLOW', audience: selectedAudience })
+    if (native.id === 'open_read_limited_write') {
+      effects.push(...modeEffects('REACT', values.reactionMode ?? 'INHERIT', roleIds))
+      effects.push(...modeEffects('CREATE_THREAD', values.threadMode ?? 'INHERIT', roleIds))
+    }
   }
   const tags = [`did-native:${native.id}`, `audience:${native.audienceMode.toLowerCase()}`]
+  if (values.reactionMode) tags.push(`reaction-mode:${values.reactionMode.toLowerCase()}`)
+  if (values.threadMode) tags.push(`thread-mode:${values.threadMode.toLowerCase()}`)
+  if (values.includeStaff) tags.push('staff-explicit:true')
+  if (native.id === 'bot_minimal' && values.botFunctions?.length) tags.push(`bot-functions:${values.botFunctions.map((value) => value.toLowerCase()).join(',')}`)
   if (values.sourcePolicyId) tags.push(`source-policy:${values.sourcePolicyId}`)
   return {
-    policy_type: 'ACCESS_CONTROL',
-    contract_version: 1,
-    name: values.name.trim(),
-    description: values.description.trim(),
-    scope_type: target.scopeType,
-    scope_id: target.scopeId,
-    priority: values.priority ?? 0,
-    conditions,
-    effects,
+    policy_type: 'ACCESS_CONTROL', contract_version: 1,
+    name: values.name.trim(), description: values.description.trim(),
+    scope_type: target.scopeType, scope_id: target.scopeId, priority: values.priority ?? 0,
+    conditions, effects,
     metadata: { summary: values.description.trim() || values.name.trim(), tags, reason: null },
   }
 }
@@ -116,15 +189,10 @@ export function clonePolicyDefinition(policy: Policy, name: string): PolicyDraft
   const tags = policy.metadata.tags.filter((tag) => !tag.startsWith('source-policy:'))
   tags.push(`source-policy:${policy.policy_id}`)
   return {
-    policy_type: 'ACCESS_CONTROL',
-    contract_version: 1,
-    name: name.trim(),
-    description: policy.description,
-    scope_type: policy.scope_type,
-    scope_id: policy.scope_id,
-    priority: policy.priority,
-    conditions: policy.conditions,
-    effects: policy.effects,
+    policy_type: 'ACCESS_CONTROL', contract_version: 1,
+    name: name.trim(), description: policy.description,
+    scope_type: policy.scope_type, scope_id: policy.scope_id, priority: policy.priority,
+    conditions: policy.conditions, effects: policy.effects,
     metadata: { ...policy.metadata, tags },
   }
 }

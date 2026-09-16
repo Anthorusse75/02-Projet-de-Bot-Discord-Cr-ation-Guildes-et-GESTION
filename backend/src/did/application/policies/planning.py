@@ -513,6 +513,20 @@ class PolicyPlanningService:
         cached: tuple[MemberSnapshot, ...],
         seed: MemberSnapshot,
     ) -> tuple[MemberSnapshot, ...]:
+        raw_bot_ids = tuple(
+            condition.get("bot_user_ids")
+            for condition in draft.conditions
+            if condition.get("kind") == "BOT_MATCH"
+        )
+        bot_ids = tuple(
+            int(value)
+            for values in raw_bot_ids
+            if isinstance(values, list | tuple)
+            for value in values
+        )
+        if bot_ids:
+            members = await self._read_models.member_snapshots(draft.guild_id, bot_ids)
+            return cast(tuple[MemberSnapshot, ...], tuple(members))
         if draft.scope_type in {PolicyScopeType.MEMBER, PolicyScopeType.BOT}:
             assert draft.scope_id is not None
             members = await self._read_models.member_snapshots(
@@ -669,7 +683,11 @@ class PolicyPlanningService:
                 )
                 desired[key] = (current.allow, current.deny) if current is not None else (0, 0)
             allow, deny = desired[key]
-            bits = PolicyPlanningService._access_bits(entry.target.requested_access)
+            bits = (
+                int(entry.proposed.discord_allow_bits)
+                if entry.proposed.outcome is PolicyResolutionOutcome.CAN
+                else int(entry.proposed.discord_deny_bits)
+            )
             if entry.proposed.outcome is PolicyResolutionOutcome.CAN:
                 allow, deny = allow | bits, deny & ~bits
             else:
@@ -698,7 +716,18 @@ class PolicyPlanningService:
         }
         if access in concepts:
             return compile_simple_permissions((concepts[access],)).allow_bits
-        return DEFAULT_PERMISSION_REGISTRY.value(access)
+        aliases = {
+            "CONNECT": "CONNECT",
+            "SPEAK": "SPEAK",
+            "REACT": "ADD_REACTIONS",
+            "MENTION_EVERYONE_HERE": "MENTION_EVERYONE",
+            "PARTICIPATE_THREAD": "SEND_MESSAGES_IN_THREADS",
+        }
+        if access in aliases:
+            return DEFAULT_PERMISSION_REGISTRY.value(aliases[access])
+        from did.permissions.views import compile_policy_access
+
+        return compile_policy_access(access).bits
 
     @staticmethod
     def _same_definition(source: Policy, current: Policy) -> bool:

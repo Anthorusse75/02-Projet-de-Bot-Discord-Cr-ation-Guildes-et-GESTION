@@ -4,7 +4,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, useRoles, useStructure } from '../../api/queries'
-import type { LogicalGroup, Policy, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
+import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
 import { apiProblem } from './errors'
@@ -16,13 +16,30 @@ import {
   nativePolicies,
   nativePolicyByTag,
   type NativePolicy,
+  type BotFunction,
+  type PolicyMode,
   type PolicyDraftDefinition,
   type PolicyTarget,
 } from './catalog'
 import { buildPolicyTargets, targetKey } from './targets'
 
 type Selection = { kind: 'NATIVE'; native: NativePolicy } | { kind: 'CUSTOM'; policy: Policy }
-type EditorState = { name: string; description: string; priority: number; roleIds: string[] }
+type EditorState = {
+  name: string; description: string; priority: number; roleIds: string[]
+  reactionMode: PolicyMode; threadMode: PolicyMode; includeStaff: boolean; staffRoleIds: string[]
+  botId: string; botFunctions: BotFunction[]
+}
+type BotAudit = { user_id: string; status: string; incomplete_reasons: string[] }
+type BotMinimum = {
+  functions: BotFunction[]; outcome: CapabilityOutcome; required_permissions: string[]
+  missing_permissions: string[]; causes: string[]; remediations: string[]; warnings: string[]
+}
+type BotAccessMap = { channels: Array<{ channel_id: string; status: string; minimum?: BotMinimum }> }
+
+const emptyEditor = (): EditorState => ({
+  name: '', description: '', priority: 0, roleIds: [], reactionMode: 'ONLY',
+  threadMode: 'INHERIT', includeStaff: false, staffRoleIds: [], botId: '', botFunctions: [],
+})
 
 const lifecycleTone = { DRAFT: 'warning', ACTIVE: 'ok', DISABLED: 'neutral', RETIRED: 'danger' } as const
 
@@ -41,6 +58,39 @@ function roleIds(policy: Policy): string[] {
   return condition?.kind === 'ROLE_MATCH' ? condition.role_ids : []
 }
 
+function modeFromPolicy(policy: Policy, access: PolicyAccess): PolicyMode {
+  const effects = policy.effects.filter((effect) => effect.access === access)
+  if (effects.length === 0) return 'INHERIT'
+  if (effects.some((effect) => effect.decision === 'DENY' && !effect.audience)) return 'NONE'
+  if (effects.some((effect) => effect.audience)) return 'ONLY'
+  return 'EVERYONE'
+}
+
+function botFunctions(policy: Policy): BotFunction[] {
+  const tag = policy.metadata.tags.find((value) => value.startsWith('bot-functions:'))
+  if (tag) return tag.slice('bot-functions:'.length).split(',').map((value) => value.toUpperCase() as BotFunction)
+  const accesses = new Set(policy.effects.map((effect) => effect.access))
+  const result: BotFunction[] = []
+  if (accesses.has('READ_HISTORY') || accesses.has('VIEW')) result.push('READ')
+  if (accesses.has('SEND') || accesses.has('WRITE')) result.push('WRITE')
+  if (accesses.has('MANAGE_CHANNEL') || accesses.has('MANAGE')) result.push('MANAGE')
+  if (accesses.has('CREATE_THREAD') || accesses.has('PARTICIPATE_THREAD')) result.push('THREADS')
+  if (accesses.has('CONNECT') || accesses.has('SPEAK')) result.push('VOCAL')
+  return result
+}
+
+function editorFromPolicy(policy: Policy): EditorState {
+  const botMatch = policy.conditions.find((condition) => condition.kind === 'BOT_MATCH')
+  return {
+    ...emptyEditor(), name: policy.name, description: policy.description, priority: policy.priority,
+    roleIds: roleIds(policy), reactionMode: modeFromPolicy(policy, 'REACT'),
+    threadMode: modeFromPolicy(policy, 'CREATE_THREAD'),
+    includeStaff: policy.metadata.tags.includes('staff-explicit:true'),
+    botId: botMatch?.kind === 'BOT_MATCH' ? botMatch.bot_user_ids[0] ?? '' : '',
+    botFunctions: botFunctions(policy),
+  }
+}
+
 function policyFamily(policy: Policy): NativePolicy['family'] {
   const native = nativePolicyByTag(policy)
   if (native) return native.family
@@ -50,9 +100,11 @@ function policyFamily(policy: Policy): NativePolicy['family'] {
 }
 
 function customDefinition(policy: Policy, editor: EditorState): PolicyDraftDefinition {
-  const conditions = policy.conditions.map((condition) => condition.kind === 'ROLE_MATCH'
-    ? { ...condition, role_ids: editor.roleIds }
-    : condition)
+  const conditions = policy.conditions.map((condition) => {
+    if (condition.kind === 'ROLE_MATCH') return { ...condition, role_ids: editor.roleIds }
+    if (condition.kind === 'BOT_MATCH') return { ...condition, bot_user_ids: [editor.botId] }
+    return condition
+  })
   const effects = policy.effects.map((effect) => effect.audience
     ? { ...effect, audience: { ...effect.audience, role_ids: editor.roleIds } }
     : effect)
@@ -86,7 +138,7 @@ export function PoliciesScreen() {
   const [expert, setExpert] = useState(false)
   const [targetValue, setTargetValue] = useState('GUILD:*')
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [editor, setEditor] = useState<EditorState>({ name: '', description: '', priority: 0, roleIds: [] })
+  const [editor, setEditor] = useState<EditorState>(emptyEditor)
   const [preview, setPreview] = useState<PolicyPreview | null>(null)
   const [explanation, setExplanation] = useState<PolicyResolution | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -105,6 +157,17 @@ export function PoliciesScreen() {
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
   const availableNatives = compatibleNativePolicies(selectedTarget?.kind ?? null)
   const selectedPolicy = selection?.kind === 'CUSTOM' ? selection.policy : null
+  const activeNative = selection?.kind === 'NATIVE' ? selection.native : selectedPolicy ? nativePolicyByTag(selectedPolicy) : undefined
+  const botsQuery = useQuery({
+    enabled: policyWorkspaceEnabled && activeNative?.id === 'bot_minimal',
+    queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'bots', 'audit'],
+    queryFn: () => apiRequest<{ bots: BotAudit[] }>(`/api/v1/guilds/${guild.guild_id}/bots/audit`),
+  })
+  const botAccessQuery = useQuery({
+    enabled: activeNative?.id === 'bot_minimal' && Boolean(editor.botId && selectedTarget?.scopeId && editor.botFunctions.length),
+    queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'bots', editor.botId, 'minimal', selectedTarget?.scopeId, editor.botFunctions.join(',')],
+    queryFn: () => apiRequest<BotAccessMap>(`/api/v1/guilds/${guild.guild_id}/bots/${editor.botId}/access-map?functions=${editor.botFunctions.join(',')}`),
+  })
   const versionsQuery = useQuery({
     enabled: historyOpen && Boolean(selectedPolicy),
     queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy?.policy_id ?? 'none', 'versions'],
@@ -113,7 +176,7 @@ export function PoliciesScreen() {
 
   function chooseNative(native: NativePolicy) {
     setSelection({ kind: 'NATIVE', native })
-    setEditor({ name: t(native.titleKey), description: t(native.summaryKey), priority: 0, roleIds: [] })
+    setEditor({ ...emptyEditor(), name: t(native.titleKey), description: t(native.summaryKey), botFunctions: native.id === 'bot_minimal' ? ['READ'] : [] })
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
   }
 
@@ -121,7 +184,7 @@ export function PoliciesScreen() {
     const target = targets.find((item) => item.scopeType === policy.scope_type && item.scopeId === policy.scope_id)
     if (target) setTargetValue(targetKey(target))
     setSelection({ kind: 'CUSTOM', policy })
-    setEditor({ name: policy.name, description: policy.description, priority: policy.priority, roleIds: roleIds(policy) })
+    setEditor(editorFromPolicy(policy))
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
   }
 
@@ -136,15 +199,30 @@ export function PoliciesScreen() {
     finally { setBusy(false) }
   }
 
+  function nativeDefinition(native: NativePolicy, target: PolicyTarget): PolicyDraftDefinition {
+    return createDefinitionFromNative(native, target, editor.roleIds, {
+      ...editor,
+      ...(selectedPolicy && sourcePolicyId(selectedPolicy) ? { sourcePolicyId: sourcePolicyId(selectedPolicy) as string } : {}),
+    })
+  }
+
   async function save() {
     if (!selection || !selectedTarget) return
     if (!editor.name.trim()) { setProblem(t('policies.error.nameRequired')); return }
-    const requiresAudience = selection.kind === 'NATIVE'
-      || selection.policy.conditions.some((condition) => condition.kind === 'ROLE_MATCH')
-      || selection.policy.effects.some((effect) => Boolean(effect.audience))
+    if (activeNative?.id === 'bot_minimal' && (!editor.botId || editor.botFunctions.length === 0)) {
+      setProblem(t('policies.error.botConfigurationRequired')); return
+    }
+    if (activeNative?.id === 'private_voice' && editor.includeStaff && editor.staffRoleIds.length === 0) {
+      setProblem(t('policies.error.staffConfigurationRequired')); return
+    }
+    const modeNeedsAudience = ['reactions', 'mentions'].includes(activeNative?.id ?? '') && editor.reactionMode === 'ONLY'
+    const requiresAudience = activeNative?.editorKind !== 'BOT'
+      && (activeNative?.editorKind === 'AUDIENCE' || !activeNative?.editorKind || modeNeedsAudience
+        || selection.kind === 'CUSTOM' && (selection.policy.conditions.some((condition) => condition.kind === 'ROLE_MATCH')
+          || selection.policy.effects.some((effect) => Boolean(effect.audience))))
     if (requiresAudience && editor.roleIds.length === 0) { setProblem(t('policies.error.audienceRequired')); return }
     if (selection.kind === 'NATIVE') {
-      await createDraft(createDefinitionFromNative(selection.native, selectedTarget, editor.roleIds, editor), 'policies.notice.created')
+      await createDraft(nativeDefinition(selection.native, selectedTarget), 'policies.notice.created')
       return
     }
     if (selection.policy.lifecycle_state !== 'DRAFT') return
@@ -152,7 +230,7 @@ export function PoliciesScreen() {
     try {
       const updated = await apiRequest<Policy>(`/api/v1/guilds/${guild.guild_id}/policies/${selection.policy.policy_id}`, {
         method: 'PATCH', headers: { 'Idempotency-Key': crypto.randomUUID() },
-        body: { ...customDefinition(selection.policy, editor), expected_revision: selection.policy.revision },
+        body: { ...(activeNative ? nativeDefinition(activeNative, selectedTarget) : customDefinition(selection.policy, editor)), expected_revision: selection.policy.revision },
       })
       await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
       chooseCustom(updated); setNotice(t('policies.notice.saved'))
@@ -221,14 +299,15 @@ export function PoliciesScreen() {
   if (!policyWorkspaceEnabled) return <section className="access-page"><header className="access-hero"><div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('policies.title')}</h1></div></header><p className="access-callout danger" role="alert">{t('policies.error.denied')}</p></section>
   if (policiesQuery.isLoading || rolesQuery.isLoading || structureQuery.isLoading) return <Skeleton />
   if (policiesQuery.isError || rolesQuery.isError || structureQuery.isError) return <ErrorState retry={() => { void policiesQuery.refetch(); void rolesQuery.refetch(); void structureQuery.refetch() }} />
-  const activeNative = selection?.kind === 'NATIVE' ? selection.native : selectedPolicy ? nativePolicyByTag(selectedPolicy) : undefined
   const visibleDefinition = selection?.kind === 'NATIVE' && activeNative && selectedTarget
-    ? createDefinitionFromNative(activeNative, selectedTarget, editor.roleIds, editor)
+    ? nativeDefinition(activeNative, selectedTarget)
     : selectedPolicy
-      ? customDefinition(selectedPolicy, editor)
+      ? activeNative && selectedTarget ? nativeDefinition(activeNative, selectedTarget) : customDefinition(selectedPolicy, editor)
       : null
   const canSave = selection?.kind === 'NATIVE' ? canCreate === 'CAN' : selectedPolicy?.lifecycle_state === 'DRAFT' && canUpdate === 'CAN'
   const blocker = planBlocker()
+  const botMinimum = botAccessQuery.data?.channels.find((channel) => channel.channel_id === selectedTarget?.scopeId)?.minimum
+  const editorDisabled = selectedPolicy?.lifecycle_state !== 'DRAFT' && selection?.kind === 'CUSTOM'
 
   return <section className="access-page policies-workbench">
     <header className="access-hero">
@@ -272,8 +351,20 @@ export function PoliciesScreen() {
             <label className="field"><span>{t('policies.editor.description')}</span><textarea value={editor.description} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, description: event.target.value }))} /></label>
           </div>
           {!expert ? <section className="policy-simple-editor"><h2>{activeNative ? t(activeNative.audienceKey) : t('policies.audience.roles')}</h2><p>{activeNative ? t(activeNative.helpKey) : t('policies.audience.customHelp')}</p>
-            <div className="policy-role-picker" role="group" aria-label={t('policies.audience.roles')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.roleIds.includes(role.id)} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, roleIds: event.target.checked ? [...value.roleIds, role.id] : value.roleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>
-            <div className="policy-human-result"><strong>{t('policies.result.title')}</strong>{(activeNative?.access ?? selectedPolicy?.effects.map((effect) => effect.access) ?? []).map((access) => <span key={access}>{t(`policies.access.${access}`)}</span>)}<p>{activeNative?.audienceMode === 'EXCLUDE' ? t('policies.result.excluded') : t('policies.result.others')}</p></div>
+            {(activeNative?.editorKind === 'MODE' || activeNative?.editorKind === 'MENTIONS') && <div className="policy-mode-picker" role="radiogroup" aria-label={t(activeNative.audienceKey)}>
+              {(['EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <label key={mode}><input type="radio" name="policy-mode" checked={editor.reactionMode === mode} disabled={editorDisabled} onChange={() => setEditor((value) => ({ ...value, reactionMode: mode }))} /><span>{t(`policies.mode.${mode}`)}</span></label>)}
+            </div>}
+            {activeNative?.editorKind === 'MENTIONS' && <div className="policy-sensitive-mentions"><label><input type="checkbox" checked={editor.reactionMode !== 'NONE'} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.checked ? 'ONLY' : 'NONE' }))} /><span>{t('policies.mentions.everyone')}</span></label><label><input type="checkbox" checked={editor.reactionMode !== 'NONE'} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.checked ? 'ONLY' : 'NONE' }))} /><span>{t('policies.mentions.here')}</span></label><p>{t('policies.mentions.sharedPermission')}</p><p>{t('policies.mentions.rolesGlobal')}</p></div>}
+            {activeNative?.editorKind === 'BOT' && <div className="policy-bot-editor">
+              <label className="field"><span>{t('policies.bot.select')}</span><select value={editor.botId} disabled={editorDisabled || botsQuery.isLoading} onChange={(event) => setEditor((value) => ({ ...value, botId: event.target.value }))}><option value="">{t('policies.bot.none')}</option>{(botsQuery.data?.bots ?? []).map((bot) => <option key={bot.user_id} value={bot.user_id}>{t('policies.bot.observed', { id: partialMember(bot.user_id) })}</option>)}</select></label>
+              {botsQuery.isError && <p className="access-callout warning">{t('policies.bot.unavailable')}</p>}
+              <div className="policy-role-picker" role="group" aria-label={t('policies.bot.functions')}>{(['READ', 'WRITE', 'MANAGE', ...(selectedTarget?.kind === 'VOICE_CHANNEL' ? ['VOCAL'] : ['THREADS'])] as BotFunction[]).map((value) => <label key={value}><input type="checkbox" checked={editor.botFunctions.includes(value)} disabled={editorDisabled} onChange={(event) => setEditor((state) => ({ ...state, botFunctions: event.target.checked ? [...state.botFunctions, value] : state.botFunctions.filter((item) => item !== value) }))} /><span>{t(`policies.bot.function.${value}`)}</span></label>)}</div>
+              {botAccessQuery.isLoading && <p>{t('policies.bot.checking')}</p>}{botMinimum && <div className="policy-bot-result"><Badge tone={botMinimum.outcome === 'CAN' ? 'ok' : botMinimum.outcome === 'CANNOT' ? 'danger' : 'warning'}>{t(`policies.outcome.${botMinimum.outcome}`)}</Badge>{botMinimum.outcome === 'CAN' ? <p>{t('policies.bot.sufficient')}</p> : botMinimum.outcome === 'UNKNOWN' ? <><p className="access-callout warning">{t('policies.bot.unknownCause')}</p><p>{t('policies.bot.unknownRemediation')}</p></> : <><p>{t('policies.bot.missing', { permissions: botMinimum.missing_permissions.join(', ') })}</p><p>{t('policies.bot.grantRemediation')}</p></>}<details><summary>{t('policies.expert.discordDetails')}</summary><p><code>{botMinimum.required_permissions.join(', ')}</code></p>{botMinimum.causes.map((cause) => <p key={cause}><code>{cause}</code></p>)}{botMinimum.remediations.map((remediation) => <p key={remediation}><code>{remediation}</code></p>)}</details></div>}
+            </div>}
+            {activeNative?.editorKind !== 'BOT' && (activeNative?.editorKind === undefined || activeNative.editorKind === 'AUDIENCE' || editor.reactionMode === 'ONLY') && <div className="policy-role-picker" role="group" aria-label={t('policies.audience.roles')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.roleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, roleIds: event.target.checked ? [...value.roleIds, role.id] : value.roleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>}
+            {activeNative?.id === 'private_voice' && <div className="policy-staff-option"><label><input type="checkbox" checked={editor.includeStaff} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, includeStaff: event.target.checked }))} /><span>{t('policies.voice.staffAlwaysJoin')}</span></label>{editor.includeStaff && <><p className="access-callout warning">{t('policies.voice.staffExplicit')}</p><div className="policy-role-picker">{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.staffRoleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, staffRoleIds: event.target.checked ? [...value.staffRoleIds, role.id] : value.staffRoleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div></>}</div>}
+            {activeNative?.id === 'open_read_limited_write' && <div className="policy-secondary-options"><label className="field"><span>{t('policies.options.reactions')}</span><select value={editor.reactionMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threads')}</span><select value={editor.threadMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label></div>}
+            <div className="policy-human-result"><strong>{t('policies.result.title')}</strong>{[...new Set(visibleDefinition?.effects.map((effect) => effect.access) ?? [])].map((access) => <span key={access}>{t(`policies.access.${access}`)}</span>)}<p>{activeNative?.audienceMode === 'EXCLUDE' ? t('policies.result.excluded') : t('policies.result.others')}</p></div>
           </section> : <section className="policy-expert-editor"><label className="field"><span>{t('policies.expert.priority')}</span><input type="number" min="-1000000" max="1000000" value={editor.priority} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, priority: Number(event.target.value) }))} /></label>
             <dl><div><dt>{t('policies.expert.id')}</dt><dd><code>{selectedPolicy?.policy_id ?? `native:${activeNative?.id}`}</code></dd></div><div><dt>{t('policies.expert.revision')}</dt><dd>{selectedPolicy?.revision ?? 1}</dd></div><div><dt>{t('policies.expert.scope')}</dt><dd><code>{selectedPolicy?.scope_type ?? selectedTarget?.scopeType}:{selectedPolicy?.scope_id ?? selectedTarget?.scopeId ?? '*'}</code></dd></div></dl>
             <h3>{t('policies.expert.conditions')}</h3><pre>{JSON.stringify(visibleDefinition?.conditions ?? [], null, 2)}</pre>
@@ -306,6 +397,7 @@ export function PoliciesScreen() {
           {[...new Set([...entry.proposed.incomplete_reasons, ...entry.diagnostics])].map((reason) => <p className="access-callout warning" key={reason}>{t('policies.reason', { reason })}</p>)}
           {entry.proposed.conflicts.map((conflict, conflictIndex) => <div className="policy-conflict" key={`${conflict.policy_ids.join('-')}-${conflictIndex}`}><strong>{t('policies.conflict.member', { member: partialMember(entry.target.subject_id) })}</strong><p>{t('policies.conflict.sources', { sources: conflict.policy_ids.map(policyName).join(' / '), effects: conflict.effects.join(' / ') })}</p><p>{conflict.outcome === 'RESOLVED' ? t('policies.conflict.winner', { winner: conflict.winning_policy_ids.map(policyName).join(', '), rule: conflict.resolution_rule ?? '—' }) : t('policies.conflict.blocked')}</p><button type="button" className="button quiet" onClick={() => setRemediationKey(remediationKey === `${index}:${conflictIndex}` ? null : `${index}:${conflictIndex}`)}>{t('policies.conflict.resolve')}</button>{remediationKey === `${index}:${conflictIndex}` && <ul><li>{t('policies.conflict.option.keep')}</li><li>{t('policies.conflict.option.priority')}</li><li>{t('policies.conflict.option.draft')}</li></ul>}</div>)}
           <button type="button" className="button quiet" disabled={busy} onClick={() => void explain(entry)}>{t('policies.explain.action')}</button>
+          <details><summary>{t('policies.expert.discordDetails')}</summary><p>{entry.proposed.discord_permissions.join(', ') || '—'}</p><code>allow={entry.proposed.discord_allow_bits} · deny={entry.proposed.discord_deny_bits}</code>{entry.proposed.discord_translation_diagnostics.map((diagnostic) => <p className="access-callout warning" key={diagnostic}>{t('policies.reason', { reason: diagnostic })}</p>)}</details>
           {expert && <details><summary>{t('policies.expert.resolution')}</summary><pre>{JSON.stringify(entry.proposed, null, 2)}</pre></details>}
         </article>)}</div>
         {blocker && <p className="access-callout danger">{blocker}</p>}
@@ -316,6 +408,7 @@ export function PoliciesScreen() {
     {explanation && <article className="access-panel policy-explain-panel"><div className="access-panel-heading"><div><small>{t('policies.explain.question')}</small><strong>{t(`policies.outcome.${explanation.outcome}`)}</strong></div></div>
       <dl><div><dt>{t('policies.explain.allowedBy')}</dt><dd>{explanation.contributions.filter((item) => item.selected).map((item) => policyName(item.policy_id)).join(', ') || t('policies.explain.none')}</dd></div><div><dt>{t('policies.explain.inherited')}</dt><dd>{explanation.source_scopes.filter((item) => item.inherited).map((item) => policyName(item.policy_id)).join(', ') || t('policies.explain.none')}</dd></div><div><dt>{t('policies.explain.exception')}</dt><dd>{explanation.conflicts.length ? t('policies.conflicts.count', { count: explanation.conflicts.length }) : t('policies.explain.none')}</dd></div></dl>
       {explanation.incomplete_reasons.map((reason) => <p className="access-callout warning" key={reason}>{t('policies.reason', { reason })}</p>)}
+      <details><summary>{t('policies.expert.discordDetails')}</summary><p>{explanation.discord_permissions.join(', ') || '—'}</p><code>allow={explanation.discord_allow_bits} · deny={explanation.discord_deny_bits}</code></details>
       {expert && <pre>{JSON.stringify(explanation, null, 2)}</pre>}
     </article>}
   </section>

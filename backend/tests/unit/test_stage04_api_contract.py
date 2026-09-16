@@ -322,6 +322,21 @@ async def test_bot_access_map_endpoint_returns_real_per_channel_posture() -> Non
     ]
 
 
+async def test_bot_access_map_exposes_minimal_functions_with_causes_and_no_administrator() -> None:
+    events: list[str] = []
+    services = container(events, members={ACTOR: _bot(ACTOR)})
+
+    response = await bot_access_map(
+        str(GUILD), str(ACTOR), session(), services, "READ,WRITE,THREADS"
+    )
+
+    minimum = response["channels"][0]["minimum"]
+    assert minimum["outcome"] == "CANNOT"
+    assert minimum["causes"]
+    assert minimum["remediations"]
+    assert "ADMINISTRATOR" not in minimum["required_permissions"]
+
+
 async def test_bot_access_map_returns_404_for_a_target_that_is_not_a_bot() -> None:
     events: list[str] = []
     services = container(events)

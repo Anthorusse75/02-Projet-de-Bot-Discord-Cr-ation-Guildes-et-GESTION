@@ -17,6 +17,7 @@ from did.domain.scopes import ScopeMembershipResolver, ScopeType
 from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
 from did.permissions.capabilities import (
     BotCapabilityChecker,
+    BotFunction,
     BotOperation,
     CapabilityOutcome,
     audit_guild_bots,
@@ -689,6 +690,7 @@ async def bot_access_map(
     bot_user_id: str,
     session: CurrentSessionDep,
     container: ServicesDep,
+    functions: Annotated[str | None, Query(max_length=100)] = None,
 ) -> dict[str, Any]:
     """REQ-BOT-005: real per-channel read/write posture for one bot, computed
     from cached roles/overwrites with the same evaluator Stage04 already uses
@@ -707,6 +709,27 @@ async def bot_access_map(
     if not bot.is_bot:
         raise ApiProblem(status_code=404, code="BOT_NOT_FOUND", message_key="errors.bot.notFound")
     channels = bot_channel_access_map(guild, bot)
+    requested_functions: tuple[BotFunction, ...] = ()
+    if functions:
+        try:
+            requested_functions = tuple(
+                BotFunction(value.strip().upper())
+                for value in functions.split(",")
+                if value.strip()
+            )
+        except ValueError as exc:
+            raise ApiProblem(
+                status_code=422,
+                code="BOT_FUNCTION_INVALID",
+                message_key="errors.input.invalid",
+            ) from exc
+        if not requested_functions or len(set(requested_functions)) != len(requested_functions):
+            raise ApiProblem(
+                status_code=422,
+                code="BOT_FUNCTION_INVALID",
+                message_key="errors.input.invalid",
+            )
+    checker = BotCapabilityChecker()
     return {
         "guild_id": str(parsed_guild),
         "user_id": str(parsed_bot),
@@ -716,6 +739,26 @@ async def bot_access_map(
                 "can_read": item.can_read,
                 "can_write": item.can_write,
                 "status": item.status.value,
+                **(
+                    {
+                        "minimum": {
+                            **asdict(assessment),
+                            "functions": [value.value for value in assessment.functions],
+                            "outcome": assessment.outcome.value,
+                        }
+                    }
+                    if requested_functions
+                    and (channel := guild.channel(item.channel_id)) is not None
+                    and (
+                        assessment := checker.check_functions(
+                            functions=requested_functions,
+                            guild=guild,
+                            bot=bot,
+                            channel=channel,
+                        )
+                    )
+                    else {}
+                ),
             }
             for item in channels
         ],

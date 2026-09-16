@@ -116,7 +116,21 @@ class PolicyResolutionRequest(BaseModel):
         PolicyScopeType.CHANNEL,
     ]
     target_scope_id: str | None = Field(default=None, max_length=64)
-    requested_access: Literal["VIEW", "WRITE", "MANAGE", "CONNECT", "SPEAK"]
+    requested_access: Literal[
+        "VIEW",
+        "WRITE",
+        "MANAGE",
+        "CONNECT",
+        "SPEAK",
+        "MANAGE_VOICE",
+        "CREATE_THREAD",
+        "PARTICIPATE_THREAD",
+        "REACT",
+        "MENTION_EVERYONE_HERE",
+        "READ_HISTORY",
+        "SEND",
+        "MANAGE_CHANNEL",
+    ]
 
     @field_validator("subject_id")
     @classmethod

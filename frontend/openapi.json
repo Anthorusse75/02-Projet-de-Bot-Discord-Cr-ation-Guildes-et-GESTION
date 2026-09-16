@@ -1617,7 +1617,15 @@
               "WRITE",
               "MANAGE",
               "CONNECT",
-              "SPEAK"
+              "SPEAK",
+              "MANAGE_VOICE",
+              "CREATE_THREAD",
+              "PARTICIPATE_THREAD",
+              "REACT",
+              "MENTION_EVERYONE_HERE",
+              "READ_HISTORY",
+              "SEND",
+              "MANAGE_CHANNEL"
             ],
             "title": "Requested Access",
             "type": "string"
@@ -5236,6 +5244,23 @@
             "schema": {
               "title": "Bot User Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "functions",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Functions"
             }
           }
         ],

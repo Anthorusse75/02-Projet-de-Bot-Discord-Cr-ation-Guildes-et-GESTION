@@ -21,7 +21,9 @@ from uuid import UUID
 
 from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import Policy, PolicyLifecycleState, PolicyScopeType
+from did.permissions.views import compile_policy_access
 from did.policies.registry import (
+    ACCESS_CONTROL_INTENTS,
     POLICY_TYPE_REGISTRY,
     PolicyDefinitionValidationError,
     PolicyTypeRegistry,
@@ -103,6 +105,7 @@ class PolicyResolutionContext:
     roles_catalog_complete: bool = False
     source_versions: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    target_channel_type: int | None = None
 
     def __post_init__(self) -> None:
         if self.guild_id <= 0 or self.subject_id <= 0:
@@ -114,7 +117,7 @@ class PolicyResolutionContext:
                 raise ValueError("GUILD resolution target_id must be null")
         elif self.target_scope_id is None or not self.target_scope_id:
             raise ValueError("non-GUILD resolution target_id must be explicit")
-        if self.requested_access not in {"VIEW", "WRITE", "MANAGE", "CONNECT", "SPEAK"}:
+        if self.requested_access not in ACCESS_CONTROL_INTENTS:
             raise ValueError("requested access is not supported by ACCESS_CONTROL v1")
         if len(set(self.subject_role_ids)) != len(self.subject_role_ids):
             raise ValueError("subject role IDs must be unique")
@@ -214,6 +217,10 @@ class PolicyResolution:
     incomplete_reasons: tuple[str, ...]
     warnings: tuple[str, ...]
     source_versions: tuple[str, ...]
+    discord_permissions: tuple[str, ...] = ()
+    discord_allow_bits: str = "0"
+    discord_deny_bits: str = "0"
+    discord_translation_diagnostics: tuple[str, ...] = ()
 
 
 class PolicyResolver:
@@ -442,6 +449,13 @@ class PolicyResolver:
         if outcome is PolicyResolutionOutcome.BLOCKED:
             warnings.append("policy.intervention_required")
 
+        translation = compile_policy_access(
+            context.requested_access, channel_type=context.target_channel_type
+        )
+        if "policy.translation.channel_type_unknown" in translation.diagnostics:
+            outcome = PolicyResolutionOutcome.UNKNOWN
+            incomplete.append("policy.target_channel_type_unknown")
+        warnings.extend(translation.diagnostics)
         return PolicyResolution(
             guild_id=context.guild_id,
             subject_id=context.subject_id,
@@ -461,6 +475,14 @@ class PolicyResolver:
             incomplete_reasons=tuple(sorted(set(incomplete))),
             warnings=tuple(sorted(set(warnings))),
             source_versions=tuple(sorted(set(context.source_versions))),
+            discord_permissions=translation.permission_names,
+            discord_allow_bits=(
+                str(translation.bits) if outcome is PolicyResolutionOutcome.CAN else "0"
+            ),
+            discord_deny_bits=(
+                str(translation.bits) if outcome is PolicyResolutionOutcome.CANNOT else "0"
+            ),
+            discord_translation_diagnostics=translation.diagnostics,
         )
 
     @staticmethod
@@ -648,6 +670,20 @@ class PolicyResolver:
                     else PolicyTruthValue.FALSE
                 )
                 reason = "policy.condition.subject_kind"
+        elif kind == "BOT_MATCH":
+            raw_bot_ids = condition["bot_user_ids"]
+            assert isinstance(raw_bot_ids, list | tuple)
+            if context.subject_is_bot is None:
+                outcome, reason = PolicyTruthValue.UNKNOWN, "policy.subject_kind_unknown"
+            elif not context.subject_is_bot:
+                outcome, reason = PolicyTruthValue.FALSE, "policy.condition.bot_required"
+            else:
+                outcome = (
+                    PolicyTruthValue.TRUE
+                    if str(context.subject_id) in {str(value) for value in raw_bot_ids}
+                    else PolicyTruthValue.FALSE
+                )
+                reason = "policy.condition.bot_match"
         else:
             raw_role_ids = condition["role_ids"]
             assert isinstance(raw_role_ids, list | tuple)

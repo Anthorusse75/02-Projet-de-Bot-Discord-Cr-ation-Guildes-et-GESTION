@@ -102,6 +102,7 @@ def _policy(
     decision: str = "ALLOW",
     priority: int = 0,
     conditions: tuple[dict[str, object], ...] = ({"kind": "ALWAYS"},),
+    effects: tuple[dict[str, object], ...] | None = None,
 ) -> Policy:
     return Policy(
         UUID(int=number),
@@ -115,7 +116,7 @@ def _policy(
         PolicyScopeType.CHANNEL,
         str(CHANNEL),
         conditions,
-        ({"kind": "SET_ACCESS", "access": "VIEW", "decision": decision},),
+        effects or ({"kind": "SET_ACCESS", "access": "VIEW", "decision": decision},),
         {"summary": f"Policy {number}"},
         ACTOR,
         ACTOR,
@@ -191,18 +192,14 @@ async def test_preview_calls_the_injected_canonical_resolver_for_before_and_afte
     draft = _policy(2)
     orchestration, _, _ = _services((draft,), resolver=resolver)
 
-    await orchestration.preview(
-        guild_id=GUILD, policy_id=draft.policy_id, actor_user_id=ACTOR
-    )
+    await orchestration.preview(guild_id=GUILD, policy_id=draft.policy_id, actor_user_id=ACTOR)
 
     assert resolver.resolve.call_count == 2  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 async def test_preview_reports_access_loss_and_winning_contribution_change() -> None:
-    active_allow = _policy(
-        3, state=PolicyLifecycleState.ACTIVE, decision="ALLOW", priority=1
-    )
+    active_allow = _policy(3, state=PolicyLifecycleState.ACTIVE, decision="ALLOW", priority=1)
     draft_deny = _policy(4, decision="DENY", priority=2)
     orchestration, _, _ = _services((active_allow, draft_deny))
 
@@ -237,13 +234,9 @@ async def test_preview_surfaces_unresolved_conflict_as_blocked() -> None:
 async def test_preview_marks_critical_incomplete_member_facts_unknown() -> None:
     draft = _policy(
         7,
-        conditions=(
-            {"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [str(ROLE)]},
-        ),
+        conditions=({"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [str(ROLE)]},),
     )
-    orchestration, _, _ = _services(
-        (draft,), members_complete=False, member_roles_complete=False
-    )
+    orchestration, _, _ = _services((draft,), members_complete=False, member_roles_complete=False)
 
     preview = await orchestration.preview(
         guild_id=GUILD, policy_id=draft.policy_id, actor_user_id=ACTOR
@@ -295,6 +288,65 @@ async def test_policy_compiles_to_existing_dsg_and_plan_with_typed_provenance() 
     assert isinstance(provenance, PlanProvenance)
     assert provenance.policy_id == draft.policy_id and provenance.policy_revision == 1
     assert plan["status"] == "VALIDATED" and created and preflight.allowed
+
+
+@pytest.mark.asyncio
+async def test_new_text_intentions_compile_through_canonical_preview_into_dsg_bits() -> None:
+    accesses = (
+        "CREATE_THREAD",
+        "PARTICIPATE_THREAD",
+        "REACT",
+        "MENTION_EVERYONE_HERE",
+    )
+    draft = _policy(
+        81,
+        effects=tuple(
+            {"kind": "SET_ACCESS", "access": access, "decision": "ALLOW"} for access in accesses
+        ),
+    )
+    captured: dict[str, object] = {}
+    plan_id = uuid4()
+
+    async def create(**kwargs: object):
+        captured.update(kwargs)
+        return {"id": plan_id, "status": "DRAFT", "state_version": 1}, True
+
+    planning = SimpleNamespace(
+        create=AsyncMock(side_effect=create),
+        validate=AsyncMock(
+            return_value=(
+                {"id": plan_id, "status": "VALIDATED", "state_version": 2},
+                PreflightResult(True),
+            )
+        ),
+    )
+    orchestration, _, _ = _services((draft,), planning=planning)
+
+    preview, _, _, _ = await orchestration.create_plan(
+        guild_id=GUILD,
+        policy_id=draft.policy_id,
+        actor_user_id=ACTOR,
+        idempotency_key="policy-new-intentions",
+        correlation_id=uuid4(),
+        expected_revision=1,
+    )
+
+    graph = captured["graph"]
+    assert isinstance(graph, DesiredStateGraph)
+    assert {entry.target.requested_access for entry in preview.entries} == set(accesses)
+    expected_allow = sum(
+        DEFAULT_PERMISSION_REGISTRY.value(permission)
+        for permission in (
+            "CREATE_PUBLIC_THREADS",
+            "CREATE_PRIVATE_THREADS",
+            "SEND_MESSAGES_IN_THREADS",
+            "ADD_REACTIONS",
+            "MENTION_EVERYONE",
+        )
+    )
+    properties = dict(graph.nodes[0].properties.items)
+    assert properties["allow"] == str(expected_allow)
+    assert properties["deny"] == "0"
 
 
 @pytest.mark.asyncio
@@ -404,9 +456,7 @@ async def test_canonical_recheck_merges_policy_failure_fail_closed() -> None:
     )
     service = PlanningService(repository, read_models, policy_preflight=guard)  # type: ignore[arg-type]
 
-    result = await service.recheck(
-        guild_id=GUILD, plan_id=uuid4(), actor_authorization_fresh=True
-    )
+    result = await service.recheck(guild_id=GUILD, plan_id=uuid4(), actor_authorization_fresh=True)
 
     assert not result.allowed
     assert "preflight.policy_unknown" in result.errors

@@ -91,7 +91,7 @@ export function AccessSpaceWizardScreen() {
   const { answers, updateAnswers, currentStep } = wizard
 
   const selectedTarget = targets.find((target) => targetKey(target) === answers.targetKey) ?? null
-  const activeNative = nativePolicies.find((native) => native.id === answers.nativeId) ?? null
+  const activeNative = nativePolicies.find((native) => native.id === answers.nativeId && native.wizardCompatible !== false) ?? null
   const compatiblePolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
 
   function cancel() {
@@ -206,7 +206,7 @@ export function AccessSpaceWizardScreen() {
           <div className="wizard-step-body">
             <p>{t('wizard.accessSpace.intent.help')}</p>
             <div className="policy-card-list">
-              {compatibleNativePolicies(selectedTarget?.kind ?? null).map((native) => (
+              {compatibleNativePolicies(selectedTarget?.kind ?? null).filter((native) => native.wizardCompatible !== false).map((native) => (
                 <button
                   type="button"
                   key={native.id}

@@ -128,3 +128,27 @@ Revue ciblée et tests de non-régression : aucune troncature/float/JS Number; u
 - `REQ-CACHE-007` : l’API `include_hidden_deleted` existe; son contrôle UI appartient à STAGE 07.
 
 Le contrat d’entrée Stage 05 est `GuildSnapshot` + versions de source + `PermissionDecision` + Capability Checker + groupes/scopes locaux. Stage 05 devra construire Desired State/Plan sans modifier le calculateur pur, revalider versions/fraîcheur/capabilities juste avant exécution, conserver RLS/audit/outbox/governor, et traduire toute incertitude en blocage. **STAGE 04 est intégrée dans `main`. STAGE 05 est désormais autorisée (`STAGE_05_READY_NOT_STARTED`), mais aucune implémentation ni branche STAGE 05 n’a été commencée.**
+
+## Addendum UI post-Stage — familles Policy avancées (2026-09-16)
+
+Cet addendum de la branche `ui/complete-redesign` ne rouvre pas le Stage 04
+historique. Il étend `ACCESS_CONTROL` v1 avec `MANAGE_VOICE`, `CREATE_THREAD`,
+`PARTICIPATE_THREAD`, `REACT`, `MENTION_EVERYONE_HERE`, les intentions bot
+granulaires `READ_HISTORY`/`SEND`/`MANAGE_CHANNEL` et `BOT_MATCH`.
+
+Le `PolicyResolver` produit les flags et bitfields Discord canoniques ; la
+compilation DSG/Plan les réutilise sans second moteur. Le
+`BotCapabilityChecker` calcule Lire/Écrire/Gérer/Threads/Vocal au minimum,
+jamais `ADMINISTRATOR`, et retourne `UNKNOWN` avec cause/remédiation lorsque le
+read model n’est pas fiable. UI, matrice et Wizard filtrent les natives selon
+la cible sans exposer les bits dans le parcours normal.
+
+Limites conservées : `@everyone`/`@here` partagent `MENTION_EVERYONE`, les
+rôles mentionnables sont globaux, `ADD_REACTIONS` ne neutralise pas une réaction
+déjà présente et Stage utilise `REQUEST_TO_SPEAK`. Aucun preset incomplet n’est
+déclaré livré.
+
+Validation : 127 tests backend ciblés, Ruff/mypy, 11 tests frontend ciblés,
+ESLint/typecheck/i18n, OpenAPI et 3 Playwright ciblés passent. Pas de campagne
+globale, PostgreSQL/RLS, Discord live, APPLY ou migration. Aucun statut des 389
+exigences historiques n’est modifié par cet addendum.

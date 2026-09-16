@@ -392,3 +392,22 @@ Une seule vraie campagne finale : parcours E2E critiques, RLS/RBAC/sécurité de
 | produit final | campagne complète Phase 9 |
 
 Ne pas écrire ou exécuter des tests uniquement pour faire monter un compteur. Ne pas dupliquer sans raison la même preuve dans plusieurs couches.
+
+## Addendum Phase 4 — familles d’accès avancées livrées le 2026-09-16
+
+Le catalogue intention-first couvre maintenant vocal, threads, réactions,
+mentions sensibles et accès bot minimal. Toutes ces intentions passent par le
+`PolicyResolver`, la Preview et le Plan Engine canoniques ; les flags Discord
+ne sont visibles que dans les détails secondaires.
+
+- **couverts** : `REQ-AP-VOC-001/010/020/021/030`, `REQ-AP-THR-001`,
+  `REQ-AP-MEN-002/003/004`, `REQ-AP-BOT-001/002/003/004` ;
+- **limitation Discord explicitée** : `REQ-AP-REA-001` (`ADD_REACTIONS` ne
+  bloque pas la réutilisation d’une réaction existante) et `REQ-AP-MEN-001`
+  (`@everyone`/`@here` partagent un bit ; rôle mentionnable global) ;
+- **partiels** : `REQ-AP-WRI-022`, `REQ-AP-PRS-013` ;
+- **ouverts** : `REQ-AP-PRS-001/010/011/012` et les presets complets associés.
+
+Preuve minimale obtenue : 127 tests backend ciblés, 11 tests Vitest ciblés,
+contrôles Ruff/mypy/ESLint/typecheck/i18n/OpenAPI et exactement trois parcours
+Playwright du lot. Pas de campagne globale, Discord live, APPLY ou migration.

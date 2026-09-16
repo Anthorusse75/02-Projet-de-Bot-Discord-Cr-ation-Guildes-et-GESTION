@@ -2945,7 +2945,7 @@ export interface components {
              * Requested Access
              * @enum {string}
              */
-            requested_access: "VIEW" | "WRITE" | "MANAGE" | "CONNECT" | "SPEAK";
+            requested_access: "VIEW" | "WRITE" | "MANAGE" | "CONNECT" | "SPEAK" | "MANAGE_VOICE" | "CREATE_THREAD" | "PARTICIPATE_THREAD" | "REACT" | "MENTION_EVERYONE_HERE" | "READ_HISTORY" | "SEND" | "MANAGE_CHANNEL";
             /** Subject Id */
             subject_id: string;
             /** Target Scope Id */
@@ -4789,7 +4789,9 @@ export interface operations {
     };
     bot_access_map_api_v1_guilds__guild_id__bots__bot_user_id__access_map_get: {
         parameters: {
-            query?: never;
+            query?: {
+                functions?: string | null;
+            };
             header?: never;
             path: {
                 guild_id: string;

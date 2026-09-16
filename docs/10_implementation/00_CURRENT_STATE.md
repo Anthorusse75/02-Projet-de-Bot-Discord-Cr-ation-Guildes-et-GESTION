@@ -67,3 +67,21 @@ Documents de clôture associés :
 
 Aucun travail de déploiement production, DNS, TLS ou reverse proxy n’est autorisé
 par cette clôture ; ces sujets restent exclusivement STAGE 11.
+
+## Addendum de branche UI — extension Phase 4 du 2026-09-16
+
+Cet addendum décrit la branche de refonte `ui/complete-redesign`; il ne modifie
+ni la clôture qualifiée Stage 10 ci-dessus, ni le SHA live, ni le statut de
+Stage 11.
+
+Le lot ajoute au moteur Policy canonique les intentions vocal, threads,
+réactions, mentions et accès bot minimal, avec traduction Discord contextuelle,
+Preview/Explain, compilation DSG/Plan et UI intention-first. Les lectures sont
+cache-first, les décisions stale/incomplètes restent `UNKNOWN`, aucune mutation
+Discord directe ou route APPLY n’est ajoutée et aucune migration n’est créée.
+
+Preuves locales du lot : 127 tests backend ciblés, mypy/Ruff ciblés, 11 tests
+frontend ciblés, ESLint/typecheck/i18n, OpenAPI courant et 3 parcours Playwright
+ciblés. Les campagnes globales, PostgreSQL/RLS, Discord live A/B et APPLY réel
+n’ont pas été exécutés. Le détail et les limites officielles sont consignés
+dans `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md` et l’addendum du handoff Stage 04.

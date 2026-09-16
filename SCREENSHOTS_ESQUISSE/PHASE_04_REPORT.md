@@ -653,3 +653,93 @@ Les `REQ-AP-*` restent des clarifications produit séparées : aucun statut de
 l’audit historique des 389 exigences n’a changé dans ce lot, donc
 `docs/10_implementation/11_REQUIREMENTS_IMPLEMENTATION_AUDIT.md` n’est pas
 modifié.
+
+## 17. Lot « Vocal, threads, réactions, mentions et bots » — 2026-09-16
+
+### Extension du contrat canonique
+
+`ACCESS_CONTROL` v1 accepte désormais les intentions `MANAGE_VOICE`,
+`CREATE_THREAD`, `PARTICIPATE_THREAD`, `REACT` et
+`MENTION_EVERYONE_HERE` et les intentions bot granulaires `READ_HISTORY`,
+`SEND`, `MANAGE_CHANNEL`, ainsi qu’une condition fermée `BOT_MATCH`. Le
+`PolicyResolver` reste l’unique moteur de décision : il produit aussi la
+traduction Discord (`discord_permissions`, allow/deny décimaux et diagnostics),
+que la compilation DSG/Plan consomme directement. Aucun calcul d’autorisation
+concurrent n’a été ajouté au frontend ou au router.
+
+| Intention | Traduction Discord contextuelle |
+|---|---|
+| rejoindre / parler | `CONNECT`, `SPEAK`; sur Stage, parler devient `REQUEST_TO_SPEAK` |
+| gérer le vocal | `MANAGE_CHANNELS`, `MOVE_MEMBERS`, `MUTE_MEMBERS`, et `DEAFEN_MEMBERS` lorsque applicable |
+| créer un thread | threads publics/privés sur texte, public sur announcement, `SEND_MESSAGES` sur forum/media |
+| participer à un thread | `SEND_MESSAGES_IN_THREADS` |
+| réagir | `ADD_REACTIONS` |
+| `@everyone` / `@here` | `MENTION_EVERYONE`, permission Discord commune |
+
+Les lectures restent cache-first. Le contrôle d’un bot réutilise le
+`BotCapabilityChecker` et calcule, selon la cible, les permissions minimales
+pour Lire, Écrire, Gérer, Threads et Vocal. Il ne propose jamais
+`ADMINISTRATOR`. Une identité ou un snapshot stale/incomplet retourne
+`UNKNOWN` avec cause humaine et remédiation ; les codes techniques restent
+consultables dans « Discord details ».
+
+### UX livrée
+
+Huit Policies natives complètent le catalogue : rejoindre sans parler,
+whitelist de speakers, vocal privé, gestionnaires du vocal, créateurs de
+threads, réactions, mentions et accès bot minimal. Le vocal privé offre une
+option staff explicite, désactivée par défaut et sans inférence par nom de rôle.
+Les modes réactions sont Tout le monde / Seulement… / Personne. Les mentions
+peuvent avoir un défaut Guild puis une exception catégorie/salon. Le mode
+simple manipule des intentions humaines ; flags et bitfields restent repliés.
+Le mode expert montre exactement la même définition de Policy.
+
+La matrice conserve sa synthèse compacte et expose seulement les natives qui
+peuvent y être configurées sans perdre d’information. Le Wizard applique la
+même règle de compatibilité. Les nouvelles Policies suivent toujours le chemin
+`DRAFT → Preview/Impact → Plan`; aucune action APPLY n’a été ajoutée.
+
+### Limites Discord rendues visibles
+
+- refuser `ADD_REACTIONS` empêche d’ajouter une nouvelle réaction, mais Discord
+  peut encore permettre de réutiliser une réaction déjà présente ; le mode
+  « Personne » n’est donc pas présenté comme une interdiction absolue ;
+- `@everyone` et `@here` partagent `MENTION_EVERYONE` et ne peuvent pas être
+  séparés honnêtement ; les rôles mentionnables sont une propriété globale du
+  rôle, pas un overwrite de salon ;
+- un Stage distingue `REQUEST_TO_SPEAK` de `SPEAK` ;
+- aucune capacité Discord future, création de salon symbolique ou preset
+  incomplet n’est inventé.
+
+### Exigences couvertes et ouvertes
+
+- couvertes : `REQ-AP-VOC-001`, `010`, `020`, `021`, `030`,
+  `REQ-AP-THR-001`, `REQ-AP-MEN-002` à `004`, `REQ-AP-BOT-001` à `004` ;
+- livrées avec limitation Discord explicitée : `REQ-AP-REA-001` et
+  `REQ-AP-MEN-001` ;
+- partielles : `REQ-AP-WRI-022` (réactions/threads, pas encore les réponses)
+  et `REQ-AP-PRS-013` (options présentes, preset complet absent) ;
+- toujours ouvertes : `REQ-AP-PRS-001`, `010`, `011`, `012` et les autres
+  presets avancés. Aucun preset « Confidentiel » ou création future de salon
+  n’est déclaré complet par ce lot.
+
+Les statuts de l’audit historique des 389 exigences ne sont pas modifiés : les
+`REQ-AP-*` demeurent la clarification produit distincte.
+
+### Tests et inventaire
+
+- backend ciblé : 127 tests sur registry, resolver, conflits multi-rôles,
+  permissions/bots, API et compilation DSG/Plan des nouvelles traductions ;
+- mypy ciblé et Ruff/format : PASS ;
+- frontend : ESLint, typecheck, i18n EN/FR/DE/ES et 11 tests Vitest ciblés :
+  PASS ;
+- OpenAPI snapshot/types : régénérés puis contrôlés ;
+- Playwright : exactement 3 parcours du lot, tous PASS — vocal privé,
+  défaut Guild + exception mentions, bot minimal avec `CANNOT` et `UNKNOWN` ;
+- non exécutés : campagnes globales backend/frontend, PostgreSQL/RLS, Discord
+  live A/B, APPLY réel et test global Playwright.
+
+Fichiers concernés : registry/resolver/permissions/capabilities, service et
+planning Policy, routes Stage 04/Policies, tests unitaires correspondants,
+catalogue/écran Policies, matrice/Wizard, types/OpenAPI, localisation et le
+scénario E2E Phase 4. Aucune migration et aucun secret.

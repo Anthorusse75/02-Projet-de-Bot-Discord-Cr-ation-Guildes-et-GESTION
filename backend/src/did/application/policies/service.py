@@ -136,6 +136,9 @@ class PolicyService:
         await self._validate_targets(
             guild_id, scope_type, normalized_scope_id, definition.references
         )
+        await self._validate_definition_compatibility(
+            guild_id, actor_id, scope_type, normalized_scope_id, definition.effects
+        )
         policy = Policy(
             policy_id=uuid4(),
             guild_id=guild_id,
@@ -247,6 +250,9 @@ class PolicyService:
         )
         await self._validate_targets(
             guild_id, scope_type, normalized_scope_id, definition.references
+        )
+        await self._validate_definition_compatibility(
+            guild_id, actor_id, scope_type, normalized_scope_id, definition.effects
         )
         changed = replace(
             current,
@@ -464,6 +470,13 @@ class PolicyService:
             known_role_ids=tuple(sorted(str(role.role_id) for role in guild.roles)),
             roles_catalog_complete=guild.roles_complete,
             source_versions=guild.source_versions,
+            target_channel_type=(
+                int(channel.channel_type)
+                if target_scope_type in {PolicyScopeType.CHANNEL, PolicyScopeType.CATEGORY}
+                and normalized_target_id is not None
+                and (channel := guild.channel(int(normalized_target_id))) is not None
+                else None
+            ),
         )
         return self._resolver.resolve(policies=policies, context=context)
 
@@ -789,6 +802,56 @@ class PolicyService:
             if reference.scope_type is PolicyScopeType.ROLE
         )
         await self._repository.validate_role_references(guild_id, role_ids)
+        for reference in references:
+            if reference.scope_type is PolicyScopeType.BOT:
+                await self._repository.validate_target(
+                    guild_id, PolicyScopeType.BOT, reference.scope_id
+                )
+
+    async def _validate_definition_compatibility(
+        self,
+        guild_id: int,
+        actor_id: int,
+        scope_type: PolicyScopeType,
+        scope_id: str | None,
+        effects: tuple[dict[str, object], ...],
+    ) -> None:
+        accesses = {str(effect["access"]) for effect in effects}
+        voice_only = {"CONNECT", "SPEAK", "MANAGE_VOICE"}
+        thread_text_only = {"CREATE_THREAD", "PARTICIPATE_THREAD", "REACT"}
+        bot_channel_only = {"READ_HISTORY", "SEND", "MANAGE_CHANNEL"}
+        specialized = accesses & (voice_only | thread_text_only | bot_channel_only)
+        if not specialized:
+            return
+        if scope_type is not PolicyScopeType.CHANNEL or scope_id is None:
+            raise PolicyDefinitionValidationError(
+                "vocal, thread, reaction and bot-function intentions require an explicit "
+                "compatible channel"
+            )
+        if self._read_models is None:
+            raise PolicyDefinitionValidationError(
+                "channel compatibility cannot be verified from the local read model"
+            )
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_id)
+        channel = guild.channel(int(scope_id))
+        if channel is None:
+            raise PolicyDefinitionValidationError("Policy channel is absent from the read model")
+        voice_types = {ChannelType.GUILD_VOICE, ChannelType.GUILD_STAGE_VOICE}
+        text_types = {
+            ChannelType.GUILD_TEXT,
+            ChannelType.GUILD_ANNOUNCEMENT,
+            ChannelType.GUILD_FORUM,
+            ChannelType.GUILD_MEDIA,
+        }
+        if accesses & voice_only and channel.channel_type not in voice_types:
+            raise PolicyDefinitionValidationError(
+                "vocal intentions are only valid for voice and stage channels"
+            )
+        if accesses & thread_text_only and channel.channel_type not in text_types:
+            raise PolicyDefinitionValidationError(
+                "thread and reaction intentions require a text, announcement, "
+                "forum or media channel"
+            )
 
     @staticmethod
     def _normalize_scope_id(scope_type: PolicyScopeType, scope_id: str | None) -> str | None:

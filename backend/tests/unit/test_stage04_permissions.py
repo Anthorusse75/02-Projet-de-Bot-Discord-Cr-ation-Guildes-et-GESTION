@@ -21,6 +21,7 @@ from did.domain.read_model.models import ChannelType
 from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
 from did.permissions.capabilities import (
     BotCapabilityChecker,
+    BotFunction,
     BotOperation,
     CapabilityOutcome,
     audit_guild_bots,
@@ -32,6 +33,7 @@ from did.permissions.views import (
     CategorySyncState,
     SimplePermissionConcept,
     category_sync_state,
+    compile_policy_access,
     compile_simple_permissions,
     expert_model,
     simulate_overwrites,
@@ -592,6 +594,62 @@ def test_capability_checker_separates_hierarchy_and_never_recommends_administrat
     assert "capability.permission_missing.manage_roles" in missing.causes
     assert missing.remediations == ("capability.remediation.grant.manage_roles",)
     assert all("administrator" not in value for value in missing.remediations)
+
+
+def test_bot_minimal_functions_report_real_missing_permissions_without_administrator() -> None:
+    resource = channel(channel_type=ChannelType.GUILD_TEXT)
+    bot_role = role(
+        ROLE_A,
+        bits("VIEW_CHANNEL", "READ_MESSAGE_HISTORY", "SEND_MESSAGES"),
+    )
+    snapshot = guild(0, bot_role, channels=(resource,))
+    bot = replace(member(ROLE_A), is_bot=True)
+
+    result = BotCapabilityChecker().check_functions(
+        functions=(BotFunction.READ, BotFunction.WRITE, BotFunction.THREADS),
+        guild=snapshot,
+        bot=bot,
+        channel=resource,
+    )
+
+    assert result.outcome is CapabilityOutcome.CANNOT
+    assert result.missing_permissions == (
+        "CREATE_PUBLIC_THREADS",
+        "CREATE_PRIVATE_THREADS",
+        "SEND_MESSAGES_IN_THREADS",
+    )
+    assert "ADMINISTRATOR" not in result.required_permissions
+    assert all("administrator" not in value for value in result.remediations)
+
+
+def test_bot_minimal_functions_fail_closed_on_stale_data_with_cause_and_remediation() -> None:
+    resource = channel(channel_type=ChannelType.GUILD_VOICE)
+    snapshot = guild(bits("VIEW_CHANNEL", "CONNECT", "SPEAK"), channels=(resource,))
+    bot = replace(member(state=FreshnessState.STALE), is_bot=True)
+
+    result = BotCapabilityChecker().check_functions(
+        functions=(BotFunction.VOCAL,), guild=snapshot, bot=bot, channel=resource
+    )
+
+    assert result.outcome is CapabilityOutcome.UNKNOWN
+    assert result.causes
+    assert result.remediations == ("capability.remediation.refresh_discord_data",)
+
+
+def test_thread_and_reaction_translation_preserves_documented_discord_limits() -> None:
+    forum = compile_policy_access("CREATE_THREAD", channel_type=ChannelType.GUILD_FORUM)
+    reaction = compile_policy_access("REACT", channel_type=ChannelType.GUILD_TEXT)
+    mentions = compile_policy_access("MENTION_EVERYONE_HERE", channel_type=ChannelType.GUILD_TEXT)
+
+    assert forum.permission_names == ("SEND_MESSAGES",)
+    assert forum.diagnostics == ("policy.translation.thread_forum_uses_send_messages",)
+    assert reaction.permission_names == ("ADD_REACTIONS",)
+    assert reaction.diagnostics
+    assert mentions.permission_names == ("MENTION_EVERYONE",)
+    assert mentions.diagnostics
+    stage_speak = compile_policy_access("SPEAK", channel_type=ChannelType.GUILD_STAGE_VOICE)
+    assert stage_speak.permission_names == ("REQUEST_TO_SPEAK",)
+    assert stage_speak.diagnostics == ("policy.translation.stage_speak_controls_request",)
 
 
 def test_role_capability_reports_hierarchy_remediation_and_real_unknown_data() -> None:

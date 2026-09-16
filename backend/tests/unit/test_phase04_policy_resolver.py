@@ -162,6 +162,209 @@ def test_effect_audiences_support_whitelist_blacklist_and_separate_read_write() 
     )
 
 
+def test_vocal_join_without_speak_and_private_speaker_whitelists() -> None:
+    resolver = PolicyResolver()
+    listener = _policy(
+        20,
+        effects=(
+            {
+                "kind": "SET_ACCESS",
+                "access": "CONNECT",
+                "decision": "ALLOW",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+            {
+                "kind": "SET_ACCESS",
+                "access": "SPEAK",
+                "decision": "DENY",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+        ),
+    )
+    speakers = _policy(
+        21,
+        effects=(
+            {"kind": "SET_ACCESS", "access": "CONNECT", "decision": "ALLOW"},
+            {
+                "kind": "SET_ACCESS",
+                "access": "SPEAK",
+                "decision": "ALLOW",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+            {
+                "kind": "SET_ACCESS",
+                "access": "SPEAK",
+                "decision": "DENY",
+                "audience": {"mode": "EXCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+        ),
+    )
+    private_voice = _policy(
+        22,
+        effects=(
+            {
+                "kind": "SET_ACCESS",
+                "access": "CONNECT",
+                "decision": "ALLOW",
+                "audience": {"mode": "INCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+            {
+                "kind": "SET_ACCESS",
+                "access": "CONNECT",
+                "decision": "DENY",
+                "audience": {"mode": "EXCLUDE", "match": "ANY", "role_ids": ["10"]},
+            },
+        ),
+    )
+
+    assert (
+        resolver.resolve(policies=(listener,), context=_context(requested_access="CONNECT")).outcome
+        is PolicyResolutionOutcome.CAN
+    )
+    assert (
+        resolver.resolve(policies=(listener,), context=_context(requested_access="SPEAK")).outcome
+        is PolicyResolutionOutcome.CANNOT
+    )
+    assert (
+        resolver.resolve(policies=(speakers,), context=_context(requested_access="SPEAK")).outcome
+        is PolicyResolutionOutcome.CAN
+    )
+    assert (
+        resolver.resolve(
+            policies=(speakers,),
+            context=_context(requested_access="SPEAK", subject_role_ids=("20",)),
+        ).outcome
+        is PolicyResolutionOutcome.CANNOT
+    )
+    assert (
+        resolver.resolve(
+            policies=(private_voice,),
+            context=_context(requested_access="CONNECT", subject_role_ids=("20",)),
+        ).outcome
+        is PolicyResolutionOutcome.CANNOT
+    )
+
+
+@pytest.mark.parametrize(
+    ("access", "discord_permissions"),
+    [
+        ("MANAGE_VOICE", ("MANAGE_CHANNELS", "MOVE_MEMBERS", "MUTE_MEMBERS", "DEAFEN_MEMBERS")),
+        ("CREATE_THREAD", ("CREATE_PUBLIC_THREADS", "CREATE_PRIVATE_THREADS")),
+        ("REACT", ("ADD_REACTIONS",)),
+        ("MENTION_EVERYONE_HERE", ("MENTION_EVERYONE",)),
+        ("READ_HISTORY", ("READ_MESSAGE_HISTORY",)),
+        ("SEND", ("SEND_MESSAGES",)),
+        ("MANAGE_CHANNEL", ("MANAGE_CHANNELS",)),
+    ],
+)
+def test_new_intentions_resolve_and_explain_real_discord_translation(
+    access: str, discord_permissions: tuple[str, ...]
+) -> None:
+    policy = _policy(
+        23,
+        effects=({"kind": "SET_ACCESS", "access": access, "decision": "ALLOW"},),
+    )
+    result = PolicyResolver().resolve(
+        policies=(policy,), context=_context(requested_access=access, target_channel_type=0)
+    )
+
+    assert result.outcome is PolicyResolutionOutcome.CAN
+    assert result.discord_permissions == discord_permissions
+    assert result.discord_allow_bits != "0"
+
+
+def test_mentions_use_existing_guild_to_channel_inheritance_and_exception() -> None:
+    guild_default = _policy(
+        24,
+        decision="DENY",
+        effects=(
+            {
+                "kind": "SET_ACCESS",
+                "access": "MENTION_EVERYONE_HERE",
+                "decision": "DENY",
+            },
+        ),
+    )
+    channel_exception = _policy(
+        25,
+        scope_type=PolicyScopeType.CHANNEL,
+        scope_id=CHANNEL_ID,
+        effects=(
+            {
+                "kind": "SET_ACCESS",
+                "access": "MENTION_EVERYONE_HERE",
+                "decision": "ALLOW",
+            },
+        ),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(guild_default, channel_exception),
+        context=_context(requested_access="MENTION_EVERYONE_HERE", target_channel_type=0),
+    )
+
+    assert result.outcome is PolicyResolutionOutcome.CAN
+    assert any(scope.inherited for scope in result.source_scopes)
+    assert result.discord_permissions == ("MENTION_EVERYONE",)
+
+
+def test_new_vocal_intent_reports_equal_rank_multi_role_conflict() -> None:
+    role_ten_allows = _policy(
+        251,
+        scope_type=PolicyScopeType.ROLE,
+        scope_id="10",
+        effects=({"kind": "SET_ACCESS", "access": "SPEAK", "decision": "ALLOW"},),
+    )
+    role_twenty_denies = _policy(
+        252,
+        scope_type=PolicyScopeType.ROLE,
+        scope_id="20",
+        effects=({"kind": "SET_ACCESS", "access": "SPEAK", "decision": "DENY"},),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(role_ten_allows, role_twenty_denies),
+        context=_context(requested_access="SPEAK", target_channel_type=2),
+    )
+
+    assert result.outcome is PolicyResolutionOutcome.BLOCKED
+    assert result.discord_permissions == ("SPEAK",)
+    assert result.conflicts[0].outcome is PolicyConflictOutcome.BLOCKED
+    assert result.conflicts[0].resolution_rule is None
+
+
+def test_future_channel_type_blocks_new_translation_instead_of_inventing_support() -> None:
+    policy = _policy(
+        253,
+        effects=({"kind": "SET_ACCESS", "access": "SEND", "decision": "ALLOW"},),
+    )
+
+    result = PolicyResolver().resolve(
+        policies=(policy,),
+        context=_context(requested_access="SEND", target_channel_type=999),
+    )
+
+    assert result.outcome is PolicyResolutionOutcome.UNKNOWN
+    assert result.discord_allow_bits == "0"
+    assert "policy.target_channel_type_unknown" in result.incomplete_reasons
+    assert "policy.translation.channel_type_unknown" in result.warnings
+
+
+def test_bot_match_is_explicit_and_stale_identity_fails_closed() -> None:
+    policy = _policy(
+        26,
+        conditions=({"kind": "BOT_MATCH", "bot_user_ids": [str(SUBJECT_ID)]},),
+        effects=({"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},),
+    )
+
+    can = PolicyResolver().resolve(policies=(policy,), context=_context(subject_is_bot=True))
+    unknown = PolicyResolver().resolve(policies=(policy,), context=_context(subject_is_bot=None))
+
+    assert can.outcome is PolicyResolutionOutcome.CAN
+    assert unknown.outcome is PolicyResolutionOutcome.UNKNOWN
+    assert "policy.subject_kind_unknown" in unknown.incomplete_reasons
+
+
 @pytest.mark.asyncio
 async def test_application_service_uses_cache_first_context_and_canonical_resolver() -> None:
     policy = _policy(1)

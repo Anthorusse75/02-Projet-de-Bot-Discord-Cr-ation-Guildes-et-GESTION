@@ -30,6 +30,14 @@ class BotOperation(StrEnum):
     MANAGE_THREAD = "MANAGE_THREAD"
 
 
+class BotFunction(StrEnum):
+    READ = "READ"
+    WRITE = "WRITE"
+    MANAGE = "MANAGE"
+    THREADS = "THREADS"
+    VOCAL = "VOCAL"
+
+
 @dataclass(frozen=True, slots=True)
 class HierarchyDiagnostic:
     outcome: CapabilityOutcome
@@ -48,6 +56,19 @@ class CapabilityDecision:
     causes: tuple[str, ...]
     remediations: tuple[str, ...]
     hierarchy: HierarchyDiagnostic | None = None
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class BotFunctionDecision:
+    """Least-privilege posture for human bot functions on one observed channel."""
+
+    functions: tuple[BotFunction, ...]
+    outcome: CapabilityOutcome
+    required_permissions: tuple[str, ...]
+    missing_permissions: tuple[str, ...]
+    causes: tuple[str, ...]
+    remediations: tuple[str, ...]
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -321,3 +342,115 @@ class BotCapabilityChecker:
             hierarchy,
             tuple(decision.warnings),
         )
+
+    def check_functions(
+        self,
+        *,
+        functions: tuple[BotFunction, ...],
+        guild: GuildSnapshot,
+        bot: MemberSnapshot,
+        channel: ChannelSnapshot,
+    ) -> BotFunctionDecision:
+        """Check minimal permissions without ever adding ``ADMINISTRATOR``.
+
+        The effective state comes from the existing ``PermissionEvaluator``. This
+        method is an intention adapter on the canonical checker, not a second
+        capability engine.
+        """
+
+        if not functions:
+            raise ValueError("at least one bot function is required")
+        if len(set(functions)) != len(functions):
+            raise ValueError("bot functions must be unique")
+        required: list[str] = []
+        diagnostics: list[str] = []
+        for function in functions:
+            names, function_diagnostics = self._function_permissions(function, channel)
+            required.extend(names)
+            diagnostics.extend(function_diagnostics)
+        required_permissions = tuple(dict.fromkeys(required))
+        if "ADMINISTRATOR" in required_permissions:
+            raise AssertionError("least-privilege bot functions must never require ADMINISTRATOR")
+
+        decision = self.evaluator.evaluate(guild=guild, member=bot, resource=channel)
+        if decision.status is not DecisionStatus.COMPLETE:
+            return BotFunctionDecision(
+                functions,
+                CapabilityOutcome.UNKNOWN,
+                required_permissions,
+                (),
+                tuple(dict.fromkeys((*decision.incomplete_reasons, *diagnostics))),
+                ("capability.remediation.refresh_discord_data",),
+                tuple(dict.fromkeys((*decision.warnings, *diagnostics))),
+            )
+        incompatible = tuple(item for item in diagnostics if item.endswith("_incompatible"))
+        if incompatible:
+            return BotFunctionDecision(
+                functions,
+                CapabilityOutcome.CANNOT,
+                required_permissions,
+                (),
+                incompatible,
+                ("capability.remediation.select_compatible_channel",),
+                tuple(decision.warnings),
+            )
+        missing = tuple(
+            name
+            for name in required_permissions
+            if not decision.effective_bits & self.registry.value(name)
+        )
+        return BotFunctionDecision(
+            functions,
+            CapabilityOutcome.CANNOT if missing else CapabilityOutcome.CAN,
+            required_permissions,
+            missing,
+            tuple(f"capability.permission_missing.{name.lower()}" for name in missing),
+            tuple(f"capability.remediation.grant.{name.lower()}" for name in missing),
+            tuple(dict.fromkeys((*decision.warnings, *diagnostics))),
+        )
+
+    @staticmethod
+    def _function_permissions(
+        function: BotFunction, channel: ChannelSnapshot
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        try:
+            channel_type = ChannelType(channel.channel_type)
+        except ValueError:
+            return (), ("capability.function.channel_type_unknown",)
+        if function is BotFunction.READ:
+            return ("VIEW_CHANNEL", "READ_MESSAGE_HISTORY"), ()
+        if function is BotFunction.WRITE:
+            permission = "SEND_MESSAGES_IN_THREADS" if channel.is_thread else "SEND_MESSAGES"
+            return ("VIEW_CHANNEL", permission), ()
+        if function is BotFunction.MANAGE:
+            return ("VIEW_CHANNEL", "MANAGE_CHANNELS"), ()
+        if function is BotFunction.VOCAL:
+            if channel_type not in {ChannelType.GUILD_VOICE, ChannelType.GUILD_STAGE_VOICE}:
+                return (), ("capability.function.vocal_incompatible",)
+            if channel_type is ChannelType.GUILD_STAGE_VOICE:
+                return (
+                    "VIEW_CHANNEL",
+                    "CONNECT",
+                    "REQUEST_TO_SPEAK",
+                ), ("capability.function.stage_vocal_controls_request",)
+            return ("VIEW_CHANNEL", "CONNECT", "SPEAK"), ()
+        if channel_type in {ChannelType.GUILD_FORUM, ChannelType.GUILD_MEDIA}:
+            return (
+                "VIEW_CHANNEL",
+                "SEND_MESSAGES",
+                "SEND_MESSAGES_IN_THREADS",
+            ), ("capability.function.forum_thread_uses_send_messages",)
+        if channel_type is ChannelType.GUILD_ANNOUNCEMENT:
+            return (
+                "VIEW_CHANNEL",
+                "CREATE_PUBLIC_THREADS",
+                "SEND_MESSAGES_IN_THREADS",
+            ), ()
+        if channel_type is ChannelType.GUILD_TEXT:
+            return (
+                "VIEW_CHANNEL",
+                "CREATE_PUBLIC_THREADS",
+                "CREATE_PRIVATE_THREADS",
+                "SEND_MESSAGES_IN_THREADS",
+            ), ()
+        return (), ("capability.function.threads_incompatible",)

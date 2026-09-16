@@ -14,6 +14,24 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from did.domain.policies import PolicyScopeType
 
+ACCESS_CONTROL_INTENTS = frozenset(
+    {
+        "VIEW",
+        "WRITE",
+        "MANAGE",
+        "CONNECT",
+        "SPEAK",
+        "MANAGE_VOICE",
+        "CREATE_THREAD",
+        "PARTICIPATE_THREAD",
+        "REACT",
+        "MENTION_EVERYONE_HERE",
+        "READ_HISTORY",
+        "SEND",
+        "MANAGE_CHANNEL",
+    }
+)
+
 
 class PolicyDefinitionValidationError(ValueError):
     """A Policy type, scope, condition, effect or metadata contract is invalid."""
@@ -49,8 +67,24 @@ class SubjectKindCondition(_ClosedModel):
     subject_kind: Literal["MEMBER", "BOT"]
 
 
+class BotMatchCondition(_ClosedModel):
+    """Match explicitly observed Discord bot members without overloading roles."""
+
+    kind: Literal["BOT_MATCH"]
+    bot_user_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
+
+    @field_validator("bot_user_ids")
+    @classmethod
+    def positive_unique_snowflakes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("bot_user_ids must be unique")
+        if any(not value.isascii() or not value.isdigit() or int(value) <= 0 for value in values):
+            raise ValueError("bot_user_ids must contain positive decimal Discord IDs")
+        return values
+
+
 PolicyCondition = Annotated[
-    AlwaysCondition | RoleMatchCondition | SubjectKindCondition,
+    AlwaysCondition | RoleMatchCondition | SubjectKindCondition | BotMatchCondition,
     Field(discriminator="kind"),
 ]
 
@@ -68,7 +102,21 @@ class RoleAudience(_ClosedModel):
 
 class SetAccessEffect(_ClosedModel):
     kind: Literal["SET_ACCESS"]
-    access: Literal["VIEW", "WRITE", "MANAGE", "CONNECT", "SPEAK"]
+    access: Literal[
+        "VIEW",
+        "WRITE",
+        "MANAGE",
+        "CONNECT",
+        "SPEAK",
+        "MANAGE_VOICE",
+        "CREATE_THREAD",
+        "PARTICIPATE_THREAD",
+        "REACT",
+        "MENTION_EVERYONE_HERE",
+        "READ_HISTORY",
+        "SEND",
+        "MANAGE_CHANNEL",
+    ]
     decision: Literal["ALLOW", "DENY"]
     audience: RoleAudience | None = None
 
@@ -148,6 +196,11 @@ class PolicyTypeContract:
             if isinstance(condition, RoleMatchCondition):
                 references.extend(
                     PolicyReference(PolicyScopeType.ROLE, role_id) for role_id in condition.role_ids
+                )
+            elif isinstance(condition, BotMatchCondition):
+                references.extend(
+                    PolicyReference(PolicyScopeType.BOT, bot_id)
+                    for bot_id in condition.bot_user_ids
                 )
         for effect in parsed_effects:
             if effect.audience is not None:

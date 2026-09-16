@@ -110,6 +110,34 @@ def test_closed_registry_validates_effect_level_role_audience_and_references() -
     assert tuple(reference.scope_id for reference in validated.references) == ("10",)
 
 
+def test_access_control_v1_additively_validates_new_intents_and_observed_bot_reference() -> None:
+    accesses = (
+        "MANAGE_VOICE",
+        "CREATE_THREAD",
+        "PARTICIPATE_THREAD",
+        "REACT",
+        "MENTION_EVERYONE_HERE",
+        "READ_HISTORY",
+        "SEND",
+        "MANAGE_CHANNEL",
+    )
+    validated = POLICY_TYPE_REGISTRY.validate(
+        policy_type="ACCESS_CONTROL",
+        contract_version=1,
+        scope_type=PolicyScopeType.CHANNEL,
+        conditions=[{"kind": "BOT_MATCH", "bot_user_ids": ["42"]}],
+        effects=[
+            {"kind": "SET_ACCESS", "access": access, "decision": "ALLOW"} for access in accesses
+        ],
+        metadata={"summary": "Minimum bot access"},
+    )
+
+    assert tuple(effect["access"] for effect in validated.effects) == accesses
+    assert [(reference.scope_type, reference.scope_id) for reference in validated.references] == [
+        (PolicyScopeType.BOT, "42")
+    ]
+
+
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [

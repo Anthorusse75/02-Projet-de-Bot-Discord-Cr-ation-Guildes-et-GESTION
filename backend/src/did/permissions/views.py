@@ -12,6 +12,7 @@ from did.domain.read_model import (
     MemberSnapshot,
     OverwriteSnapshot,
 )
+from did.domain.read_model.models import ChannelType
 from did.permissions.calculator import PermissionEvaluator
 from did.permissions.models import PermissionDecision
 from did.permissions.registry import DEFAULT_PERMISSION_REGISTRY, PermissionRegistry
@@ -126,6 +127,17 @@ class SimpleCompilation:
     registry_version: str
 
 
+@dataclass(frozen=True, slots=True)
+class PolicyAccessCompilation:
+    """Canonical intent -> Discord permission translation used by explain and DSG."""
+
+    access: str
+    permission_names: tuple[str, ...]
+    bits: int
+    diagnostics: tuple[str, ...]
+    registry_version: str
+
+
 def compile_simple_permissions(
     concepts: tuple[SimplePermissionConcept, ...],
     *,
@@ -160,6 +172,83 @@ def compile_simple_permissions(
         diagnostics=diagnostics,
         registry_version=registry.version,
     )
+
+
+def compile_policy_access(
+    access: str,
+    *,
+    channel_type: ChannelType | int | None = None,
+    registry: PermissionRegistry = DEFAULT_PERMISSION_REGISTRY,
+) -> PolicyAccessCompilation:
+    """Translate one ACCESS_CONTROL v1 business intent to real Discord flags.
+
+    Thread creation is deliberately distinct from participation. Discord forum/media
+    posts require ``SEND_MESSAGES`` while text/announcement threads use the dedicated
+    create flags. ``@everyone`` and ``@here`` intentionally remain one business intent
+    because Discord exposes a single ``MENTION_EVERYONE`` permission for both.
+    """
+
+    unknown_type_diagnostic: tuple[str, ...] = ()
+    try:
+        normalized_type = ChannelType(channel_type) if channel_type is not None else None
+    except ValueError:
+        normalized_type = None
+        unknown_type_diagnostic = ("policy.translation.channel_type_unknown",)
+    diagnostics: tuple[str, ...] = ()
+    names: tuple[str, ...]
+    if access == "VIEW":
+        names = ("VIEW_CHANNEL",)
+    elif access == "WRITE":
+        names = ("SEND_MESSAGES", "SEND_MESSAGES_IN_THREADS")
+    elif access == "MANAGE":
+        names = ("MANAGE_CHANNELS", "MANAGE_MESSAGES", "MANAGE_THREADS")
+    elif access == "CONNECT":
+        names = ("CONNECT",)
+    elif access == "SPEAK":
+        if normalized_type is ChannelType.GUILD_STAGE_VOICE:
+            names = ("REQUEST_TO_SPEAK",)
+            diagnostics = ("policy.translation.stage_speak_controls_request",)
+        else:
+            names = ("SPEAK",)
+    elif access == "MANAGE_VOICE":
+        names = (
+            ("MANAGE_CHANNELS", "MOVE_MEMBERS", "MUTE_MEMBERS")
+            if normalized_type is ChannelType.GUILD_STAGE_VOICE
+            else ("MANAGE_CHANNELS", "MOVE_MEMBERS", "MUTE_MEMBERS", "DEAFEN_MEMBERS")
+        )
+    elif access == "CREATE_THREAD":
+        if normalized_type in {ChannelType.GUILD_FORUM, ChannelType.GUILD_MEDIA}:
+            names = ("SEND_MESSAGES",)
+            diagnostics = ("policy.translation.thread_forum_uses_send_messages",)
+        elif normalized_type is ChannelType.GUILD_ANNOUNCEMENT:
+            names = ("CREATE_PUBLIC_THREADS",)
+        else:
+            names = ("CREATE_PUBLIC_THREADS", "CREATE_PRIVATE_THREADS")
+    elif access == "PARTICIPATE_THREAD":
+        names = ("SEND_MESSAGES_IN_THREADS",)
+    elif access == "REACT":
+        names = ("ADD_REACTIONS",)
+        diagnostics = ("policy.translation.reactions_existing_emoji_limitation",)
+    elif access == "MENTION_EVERYONE_HERE":
+        names = ("MENTION_EVERYONE",)
+        diagnostics = ("policy.translation.everyone_here_share_discord_permission",)
+    elif access == "READ_HISTORY":
+        names = ("READ_MESSAGE_HISTORY",)
+    elif access == "SEND":
+        names = (
+            ("SEND_MESSAGES_IN_THREADS",)
+            if normalized_type is not None and normalized_type.is_thread
+            else ("SEND_MESSAGES",)
+        )
+    elif access == "MANAGE_CHANNEL":
+        names = ("MANAGE_CHANNELS",)
+    else:
+        raise ValueError(f"unsupported ACCESS_CONTROL intent: {access}")
+    diagnostics = tuple(dict.fromkeys((*diagnostics, *unknown_type_diagnostic)))
+    bits = 0
+    for name in names:
+        bits |= registry.value(name)
+    return PolicyAccessCompilation(access, names, bits, diagnostics, registry.version)
 
 
 class AccessSynthesis(StrEnum):

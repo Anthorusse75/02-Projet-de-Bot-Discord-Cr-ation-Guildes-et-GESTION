@@ -28,7 +28,7 @@ export function analyzeBulkCompatibility(policy: NativePolicy, resources: readon
 }
 
 export function compatibleBulkPolicies(policies: readonly NativePolicy[], resources: readonly MatrixResource[]): NativePolicy[] {
-  return policies.filter((policy) => analyzeBulkCompatibility(policy, resources).compatible.length > 0)
+  return policies.filter((policy) => policy.matrixCompatible !== false && analyzeBulkCompatibility(policy, resources).compatible.length > 0)
 }
 
 export function toggleResourceSelection(current: readonly string[], resourceId: string): string[] {
