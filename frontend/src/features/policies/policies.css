@@ -60,6 +60,18 @@
 .zone-form { display: grid; gap: .75rem; }
 .zone-form .button-row { justify-content: flex-start; }
 
+.preset-panel { padding: 0; }
+.preset-panel > summary { display: flex; align-items: baseline; gap: .5rem; list-style: none; cursor: pointer; padding: 1rem 1.25rem; }
+.preset-panel > summary::-webkit-details-marker { display: none; }
+.preset-panel > summary small { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+.preset-panel[open] > summary { border-bottom: 1px solid var(--line); }
+.preset-panel > .access-help, .preset-panel > .policy-card-list, .preset-panel > .preset-form { margin: 1rem 1.25rem; }
+.preset-panel .policy-card small { display: block; margin-top: .3rem; color: var(--muted); }
+.preset-form { display: grid; gap: .85rem; }
+.preset-form .button-row { justify-content: flex-start; }
+.preset-subrules { display: grid; gap: .4rem; padding: .85rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); }
+.preset-subrules ul { margin: 0; padding-left: 1.1rem; }
+
 @media (max-width: 980px) {
   .policy-target-panel, .policy-layout { grid-template-columns: minmax(0, 1fr); }
   .policy-catalog-panel { max-height: none; }

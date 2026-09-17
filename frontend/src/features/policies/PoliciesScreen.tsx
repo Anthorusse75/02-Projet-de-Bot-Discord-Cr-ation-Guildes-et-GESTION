@@ -24,6 +24,11 @@ import {
 } from './catalog'
 import { buildPolicyTargets, targetKey } from './targets'
 import { findPairedZones, useCreatePairedZone, zoneResourceLabel } from './zones'
+import {
+  announcementSubRules, compatiblePresets, confidentialSubRules, createAnnouncementDefinitions, createConfidentialDefinitions,
+  createSupportZoneDefinitions, emptyAnnouncementConfig, emptyConfidentialConfig, emptySupportZoneConfig, supportZoneSubRules,
+  type AnnouncementConfig, type ConfidentialConfig, type PresetId, type SupportZoneConfig,
+} from './presets'
 
 type Selection = { kind: 'NATIVE'; native: NativePolicy } | { kind: 'CUSTOM'; policy: Policy }
 type EditorState = {
@@ -148,6 +153,15 @@ export function PoliciesScreen() {
   const [zoneStaffValue, setZoneStaffValue] = useState('')
   const [zoneBusy, setZoneBusy] = useState(false)
   const [zoneProblem, setZoneProblem] = useState<string | null>(null)
+  const [presetOpen, setPresetOpen] = useState<PresetId | null>(null)
+  const [presetName, setPresetName] = useState('')
+  const [presetDescription, setPresetDescription] = useState('')
+  const [confidentialConfig, setConfidentialConfig] = useState<ConfidentialConfig>(emptyConfidentialConfig)
+  const [announcementConfig, setAnnouncementConfig] = useState<AnnouncementConfig>(emptyAnnouncementConfig)
+  const [supportZoneConfig, setSupportZoneConfig] = useState<SupportZoneConfig>(emptySupportZoneConfig)
+  const [presetBusy, setPresetBusy] = useState(false)
+  const [presetProblem, setPresetProblem] = useState<string | null>(null)
+  const [presetNotice, setPresetNotice] = useState<string | null>(null)
   const [audienceEditorOpen, setAudienceEditorOpen] = useState(false)
   const [audienceDraftRoleIds, setAudienceDraftRoleIds] = useState<string[]>([])
   const [audienceBusy, setAudienceBusy] = useState(false)
@@ -171,6 +185,23 @@ export function PoliciesScreen() {
   const selectedTarget = targets.find((target) => targetKey(target) === targetValue) ?? targets[0] ?? null
   const zoneableTargets = useMemo(() => targets.filter((target) => target.kind === 'CATEGORY' || target.kind === 'TEXT_CHANNEL' || target.kind === 'VOICE_CHANNEL'), [targets])
   const pairedZones = useMemo(() => findPairedZones(groupsQuery.data?.groups ?? []), [groupsQuery.data])
+  const availablePresets = useMemo(() => compatiblePresets(selectedTarget?.kind ?? null), [selectedTarget])
+  const presetSubRules = presetOpen === 'confidential' ? confidentialSubRules(confidentialConfig)
+    : presetOpen === 'announcement_channel' ? announcementSubRules(announcementConfig)
+      : presetOpen === 'support_zone' ? supportZoneSubRules(supportZoneConfig)
+        : []
+  function roleNames(roleIds: readonly string[] | undefined): string {
+    if (!roleIds?.length) return ''
+    return roleIds.map((id) => roles.find((role) => role.id === id)?.name ?? id).join(', ')
+  }
+
+  function presetRolePicker(labelKey: string, selected: readonly string[], onChange: (roleIds: string[]) => void) {
+    return <label className="field"><span>{t(labelKey)}</span>
+      <div className="policy-role-picker" role="group" aria-label={t(labelKey)}>
+        {roles.map((role) => <label key={role.id}><input type="checkbox" checked={selected.includes(role.id)} onChange={(event) => onChange(event.target.checked ? [...selected, role.id] : selected.filter((id) => id !== role.id))} /><span>{role.name}</span></label>)}
+      </div>
+    </label>
+  }
   const channelTypes = useMemo(() => new Map(targets.filter((target) => target.scopeType === 'CHANNEL' && target.scopeId).map((target) => [target.scopeId as string, target.kind === 'VOICE_CHANNEL' ? 2 : 0])), [targets])
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
   const availableNatives = compatibleNativePolicies(selectedTarget?.kind ?? null)
@@ -216,6 +247,29 @@ export function PoliciesScreen() {
       setZoneName(''); setZonePublicValue(''); setZoneStaffValue(''); setZoneFormOpen(false)
     } catch (error) { setZoneProblem(apiProblem(error, t)) }
     finally { setZoneBusy(false) }
+  }
+
+  function resetPresetForm() {
+    setPresetOpen(null); setPresetName(''); setPresetDescription(''); setPresetProblem(null)
+    setConfidentialConfig(emptyConfidentialConfig()); setAnnouncementConfig(emptyAnnouncementConfig()); setSupportZoneConfig(emptySupportZoneConfig())
+  }
+
+  async function createPresetDrafts() {
+    if (!selectedTarget || !presetOpen || !presetName.trim()) return
+    const definitions = presetOpen === 'confidential' ? createConfidentialDefinitions(selectedTarget, presetName, presetDescription, confidentialConfig)
+      : presetOpen === 'announcement_channel' ? createAnnouncementDefinitions(selectedTarget, presetName, presetDescription, announcementConfig)
+        : createSupportZoneDefinitions(selectedTarget, presetName, presetDescription, supportZoneConfig)
+    if (definitions.length === 0) return
+    setPresetBusy(true); setPresetProblem(null); setPresetNotice(null)
+    try {
+      for (const definition of definitions) {
+        await apiRequest<Policy>(`/api/v1/guilds/${guild.guild_id}/policies`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: definition })
+      }
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
+      setPresetNotice(t('policies.preset.created', { count: definitions.length }))
+      resetPresetForm()
+    } catch (error) { setPresetProblem(apiProblem(error, t)) }
+    finally { setPresetBusy(false) }
   }
 
   function configureStaffForZone(staffResourceId: string) {
@@ -424,6 +478,68 @@ export function PoliciesScreen() {
             <button type="button" className="button quiet" onClick={() => { setZoneFormOpen(false); setZoneProblem(null) }}>{t('common.cancel')}</button>
           </div>
         </div>}
+    </details>
+
+    <details className="access-panel preset-panel">
+      <summary><small>{t('policies.preset.eyebrow')}</small><strong>{t('policies.preset.title')}</strong></summary>
+      <p className="access-help">{t('policies.preset.help')}</p>
+      {!presetOpen ? <>
+        {availablePresets.length === 0 && <p className="access-help">{t('policies.preset.noneCompatible')}</p>}
+        <div className="policy-card-list">
+          {availablePresets.map((preset) => (
+            <button type="button" className="policy-card" key={preset.id} onClick={() => { setPresetOpen(preset.id); setPresetName(t(preset.titleKey)); setPresetDescription(t(preset.summaryKey)) }}>
+              <span className="policy-card-heading"><strong>{t(preset.titleKey)}</strong><Badge>{t('policies.preset.badge')}</Badge></span>
+              <span>{t(preset.summaryKey)}</span>
+              <small>{t(preset.helpKey)}</small>
+            </button>
+          ))}
+        </div>
+      </> : <div className="preset-form">
+        <label className="field"><span>{t('policies.editor.name')}</span><input value={presetName} onChange={(event) => setPresetName(event.target.value)} /></label>
+        <label className="field"><span>{t('policies.editor.description')}</span><input value={presetDescription} onChange={(event) => setPresetDescription(event.target.value)} /></label>
+
+        {presetOpen === 'confidential' && <>
+          {presetRolePicker('policies.preset.confidential.viewers', confidentialConfig.viewerRoleIds, (roleIds) => setConfidentialConfig((value) => ({ ...value, viewerRoleIds: roleIds })))}
+          {presetRolePicker('policies.preset.confidential.managers', confidentialConfig.managerRoleIds, (roleIds) => setConfidentialConfig((value) => ({ ...value, managerRoleIds: roleIds })))}
+          <label><input type="checkbox" checked={confidentialConfig.blockMentions} onChange={(event) => setConfidentialConfig((value) => ({ ...value, blockMentions: event.target.checked }))} /><span>{t('policies.preset.confidential.blockMentionsLabel')}</span></label>
+          <label><input type="checkbox" checked={confidentialConfig.restrictThreads} onChange={(event) => setConfidentialConfig((value) => ({ ...value, restrictThreads: event.target.checked }))} /><span>{t('policies.preset.confidential.restrictThreadsLabel')}</span></label>
+        </>}
+
+        {presetOpen === 'announcement_channel' && <>
+          {presetRolePicker('policies.preset.announcement.publishers', announcementConfig.publisherRoleIds, (roleIds) => setAnnouncementConfig((value) => ({ ...value, publisherRoleIds: roleIds })))}
+          <label className="field"><span>{t('policies.options.reactions')}</span><select value={announcementConfig.reactionMode} onChange={(event) => setAnnouncementConfig((value) => ({ ...value, reactionMode: event.target.value as PolicyMode }))}>
+            {(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}
+          </select></label>
+          <label className="field"><span>{t('policies.options.threads')}</span><select value={announcementConfig.threadMode} onChange={(event) => setAnnouncementConfig((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>
+            {(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}
+          </select></label>
+        </>}
+
+        {presetOpen === 'support_zone' && <>
+          {presetRolePicker('policies.preset.supportZone.supportGroup', supportZoneConfig.supportRoleIds, (roleIds) => setSupportZoneConfig((value) => ({ ...value, supportRoleIds: roleIds })))}
+          <label className="field"><span>{t('policies.preset.supportZone.visibilityLabel')}</span><select value={supportZoneConfig.visibility} onChange={(event) => setSupportZoneConfig((value) => ({ ...value, visibility: event.target.value as 'OPEN' | 'PRIVATE' }))}>
+            <option value="OPEN">{t('policies.preset.supportZone.visibilityOpenOption')}</option>
+            <option value="PRIVATE">{t('policies.preset.supportZone.visibilityPrivateOption')}</option>
+          </select></label>
+          <label className="field"><span>{t('policies.preset.supportZone.writeLabel')}</span><select value={supportZoneConfig.writeMode} onChange={(event) => setSupportZoneConfig((value) => ({ ...value, writeMode: event.target.value as 'EVERYONE' | 'SUPPORT_ONLY' }))}>
+            <option value="EVERYONE">{t('policies.preset.supportZone.writeEveryoneOption')}</option>
+            <option value="SUPPORT_ONLY">{t('policies.preset.supportZone.writeSupportOnlyOption')}</option>
+          </select></label>
+        </>}
+
+        <div className="preset-subrules">
+          <strong>{t('policies.preset.subRulesTitle')}</strong>
+          {presetSubRules.length === 0 && <p className="access-help">{t('policies.preset.noSubRules')}</p>}
+          <ul>{presetSubRules.map((rule) => <li key={rule.key}>{t(rule.labelKey, { roles: roleNames(rule.roleIds) })}</li>)}</ul>
+        </div>
+
+        {presetProblem && <p className="access-callout danger" role="alert">{presetProblem}</p>}
+        <div className="button-row">
+          <button type="button" className="button primary" disabled={presetBusy || !presetName.trim() || presetSubRules.length === 0} onClick={() => void createPresetDrafts()}>{t('policies.preset.create')}</button>
+          <button type="button" className="button quiet" onClick={resetPresetForm}>{t('common.cancel')}</button>
+        </div>
+      </div>}
+      {presetNotice && <p className="access-callout success" role="status">{presetNotice}</p>}
     </details>
 
     <div className="policy-layout">

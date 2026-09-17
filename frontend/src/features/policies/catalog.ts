@@ -113,18 +113,18 @@ export function nativePolicyByTag(policy: Policy): NativePolicy | undefined {
   return nativePolicies.find((native) => `did-native:${native.id}` === tag)
 }
 
-function audience(roleIds: readonly string[], mode: 'INCLUDE' | 'EXCLUDE', match: 'ANY' | 'ALL' = 'ANY') {
+export function audience(roleIds: readonly string[], mode: 'INCLUDE' | 'EXCLUDE', match: 'ANY' | 'ALL' = 'ANY') {
   return { mode, match, role_ids: [...new Set(roleIds)] }
 }
 
-function whitelist(access: PolicyAccess, roleIds: readonly string[]): PolicyEffect[] {
+export function whitelist(access: PolicyAccess, roleIds: readonly string[]): PolicyEffect[] {
   return [
     { kind: 'SET_ACCESS', access, decision: 'ALLOW', audience: audience(roleIds, 'INCLUDE') },
     { kind: 'SET_ACCESS', access, decision: 'DENY', audience: audience(roleIds, 'EXCLUDE') },
   ]
 }
 
-function modeEffects(access: PolicyAccess, mode: PolicyMode, roleIds: readonly string[]): PolicyEffect[] {
+export function modeEffects(access: PolicyAccess, mode: PolicyMode, roleIds: readonly string[]): PolicyEffect[] {
   if (mode === 'INHERIT') return []
   if (mode === 'EVERYONE') return [{ kind: 'SET_ACCESS', access, decision: 'ALLOW' }]
   if (mode === 'NONE') return [{ kind: 'SET_ACCESS', access, decision: 'DENY' }]
