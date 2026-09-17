@@ -45,6 +45,21 @@
 .policy-preview-entries details { margin-top: .65rem; }
 .policy-preview-entries summary { cursor: pointer; color: var(--muted); }
 
+.zone-panel { padding: 0; }
+.zone-panel > summary { display: flex; align-items: baseline; gap: .5rem; list-style: none; cursor: pointer; padding: 1rem 1.25rem; }
+.zone-panel > summary::-webkit-details-marker { display: none; }
+.zone-panel > summary small { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+.zone-panel[open] > summary { border-bottom: 1px solid var(--line); }
+.zone-panel > .access-help, .zone-panel > .zone-list, .zone-panel > .zone-form, .zone-panel > .button { margin: 1rem 1.25rem; }
+.zone-panel > .button:last-child { margin-bottom: 1.25rem; }
+.zone-list { display: grid; gap: .65rem; padding: 0; list-style: none; }
+.zone-card { display: grid; gap: .3rem; padding: .85rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); }
+.zone-card-heading { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
+.zone-side { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: 0; color: var(--muted); }
+.zone-side span { color: var(--text); font-weight: 600; }
+.zone-form { display: grid; gap: .75rem; }
+.zone-form .button-row { justify-content: flex-start; }
+
 @media (max-width: 980px) {
   .policy-target-panel, .policy-layout { grid-template-columns: minmax(0, 1fr); }
   .policy-catalog-panel { max-height: none; }

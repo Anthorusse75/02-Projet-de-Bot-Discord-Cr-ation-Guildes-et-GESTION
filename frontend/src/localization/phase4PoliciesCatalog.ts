@@ -69,6 +69,9 @@ const en = {
   'policies.bot.function.READ': 'Read', 'policies.bot.function.WRITE': 'Write', 'policies.bot.function.MANAGE': 'Manage', 'policies.bot.function.THREADS': 'Threads', 'policies.bot.function.VOCAL': 'Voice',
   'policies.bot.checking': 'Checking current access…', 'policies.bot.missing': 'Missing permissions: {{permissions}}', 'policies.bot.sufficient': 'The bot already has the minimum requested access here.', 'policies.bot.unknownCause': 'The cached Discord data is incomplete or stale, so DID cannot confirm this access.', 'policies.bot.unknownRemediation': 'Refresh the Discord read model, then check again before preparing a plan.', 'policies.bot.grantRemediation': 'Grant only the listed permissions on this target, then check again.',
   'policies.expert.discordDetails': 'Discord details',
+  'policies.zone.eyebrow': 'Advanced', 'policies.zone.title': 'Public zone + staff space', 'policies.zone.help': 'Link an existing public category or channel with an existing staff-only one. DID never creates a fake Discord sub-category — this only labels two real resources as belonging together.',
+  'policies.zone.didGrouping': 'DID grouping, not a Discord structure', 'policies.zone.publicSide': 'Public side', 'policies.zone.staffSide': 'Staff side', 'policies.zone.unknownResource': 'Resource no longer found',
+  'policies.zone.configureStaff': 'Apply "Staff only" here', 'policies.zone.link': 'Link a public + staff space', 'policies.zone.name': 'Pairing name', 'policies.zone.pick': 'Choose a resource…', 'policies.zone.create': 'Create the pairing',
 } as const
 
 const fr: Record<keyof typeof en, string> = {
@@ -143,6 +146,9 @@ const fr: Record<keyof typeof en, string> = {
   'policies.audience.example.at_least_one_role': 'Exemple : un membre avec {{roles}} a accès.', 'policies.audience.example.all_roles_required': 'Exemple : un membre a besoin de {{roles}} ensemble pour avoir accès.', 'policies.audience.example.role_but_not_role': 'Exemple : un membre avec {{roles}} perd l’accès à cause du second rôle.',
   'policies.conflict.blacklistBypassed': 'Le membre {{member}} a quand même accès via {{roles}}.', 'policies.conflict.blacklistExcludedBy': '{{policy}} exclut ce membre à cause de {{roles}}.', 'policies.conflict.blacklistRegrantedBy': '{{policy}} redonne l’accès indépendamment.',
   'policies.conflict.exceptionVoulue': 'Exception voulue', 'policies.conflict.acceptException': 'Accepter cette exception', 'policies.conflict.roleCause': 'Accordé via le(s) rôle(s) : {{roles}}.', 'policies.conflict.exceptionAccepted': 'Exception documentée. Elle n’apparaîtra plus comme un conflit silencieux.',
+  'policies.zone.eyebrow': 'Avancé', 'policies.zone.title': 'Zone publique + espace staff associé', 'policies.zone.help': 'Reliez une catégorie ou un salon public existant à un espace staff existant. DID ne crée jamais de fausse sous-catégorie Discord : ceci indique seulement que deux ressources réelles vont ensemble.',
+  'policies.zone.didGrouping': 'Regroupement DID, pas une structure Discord', 'policies.zone.publicSide': 'Côté public', 'policies.zone.staffSide': 'Côté staff', 'policies.zone.unknownResource': 'Ressource introuvable',
+  'policies.zone.configureStaff': 'Appliquer « Staff uniquement » ici', 'policies.zone.link': 'Lier un espace public + staff', 'policies.zone.name': 'Nom de la liaison', 'policies.zone.pick': 'Choisir une ressource…', 'policies.zone.create': 'Créer la liaison',
 }
 
 const de: Record<keyof typeof en, string> = {
@@ -194,6 +200,9 @@ const de: Record<keyof typeof en, string> = {
   'policies.audience.example.at_least_one_role': 'Beispiel: Ein Mitglied mit {{roles}} hat Zugriff.', 'policies.audience.example.all_roles_required': 'Beispiel: Ein Mitglied benötigt {{roles}} zusammen, um Zugriff zu haben.', 'policies.audience.example.role_but_not_role': 'Beispiel: Ein Mitglied mit {{roles}} verliert den Zugriff wegen der zweiten Rolle.',
   'policies.conflict.blacklistBypassed': 'Mitglied {{member}} hat weiterhin Zugriff über {{roles}}.', 'policies.conflict.blacklistExcludedBy': '{{policy}} schließt dieses Mitglied wegen {{roles}} aus.', 'policies.conflict.blacklistRegrantedBy': '{{policy}} gewährt den Zugriff unabhängig davon zurück.',
   'policies.conflict.exceptionVoulue': 'Gewollte Ausnahme', 'policies.conflict.acceptException': 'Diese Ausnahme akzeptieren', 'policies.conflict.roleCause': 'Gewährt über Rolle(n): {{roles}}.', 'policies.conflict.exceptionAccepted': 'Ausnahme dokumentiert. Sie erscheint nicht mehr als stiller Konflikt.',
+  'policies.zone.eyebrow': 'Erweitert', 'policies.zone.title': 'Öffentlicher Bereich + zugehöriger Staff-Bereich', 'policies.zone.help': 'Verknüpfen Sie eine bestehende öffentliche Kategorie/Kanal mit einem bestehenden Nur-Staff-Bereich. DID erstellt niemals eine falsche Discord-Unterkategorie — dies kennzeichnet nur zwei reale Ressourcen als zusammengehörig.',
+  'policies.zone.didGrouping': 'DID-Gruppierung, keine Discord-Struktur', 'policies.zone.publicSide': 'Öffentliche Seite', 'policies.zone.staffSide': 'Staff-Seite', 'policies.zone.unknownResource': 'Ressource nicht mehr gefunden',
+  'policies.zone.configureStaff': '„Nur Staff“ hier anwenden', 'policies.zone.link': 'Öffentlichen + Staff-Bereich verknüpfen', 'policies.zone.name': 'Name der Verknüpfung', 'policies.zone.pick': 'Ressource wählen…', 'policies.zone.create': 'Verknüpfung erstellen',
 }
 
 const es: Record<keyof typeof en, string> = {
@@ -240,6 +249,9 @@ const es: Record<keyof typeof en, string> = {
   'policies.audience.example.at_least_one_role': 'Ejemplo: un miembro con {{roles}} tiene acceso.', 'policies.audience.example.all_roles_required': 'Ejemplo: un miembro necesita {{roles}} juntos para tener acceso.', 'policies.audience.example.role_but_not_role': 'Ejemplo: un miembro con {{roles}} pierde el acceso por el segundo rol.',
   'policies.conflict.blacklistBypassed': 'El miembro {{member}} sigue teniendo acceso mediante {{roles}}.', 'policies.conflict.blacklistExcludedBy': '{{policy}} excluye a este miembro por {{roles}}.', 'policies.conflict.blacklistRegrantedBy': '{{policy}} concede el acceso de nuevo de forma independiente.',
   'policies.conflict.exceptionVoulue': 'Excepción intencionada', 'policies.conflict.acceptException': 'Aceptar esta excepción', 'policies.conflict.roleCause': 'Concedido mediante el/los rol(es): {{roles}}.', 'policies.conflict.exceptionAccepted': 'Excepción documentada. Ya no aparecerá como un conflicto silencioso.',
+  'policies.zone.eyebrow': 'Avanzado', 'policies.zone.title': 'Zona pública + espacio de personal asociado', 'policies.zone.help': 'Vincule una categoría o canal público existente con un espacio exclusivo para el personal ya existente. DID nunca crea una subcategoría falsa de Discord: esto solo indica que dos recursos reales van juntos.',
+  'policies.zone.didGrouping': 'Agrupación de DID, no una estructura de Discord', 'policies.zone.publicSide': 'Lado público', 'policies.zone.staffSide': 'Lado del personal', 'policies.zone.unknownResource': 'Recurso ya no encontrado',
+  'policies.zone.configureStaff': 'Aplicar «Solo personal» aquí', 'policies.zone.link': 'Vincular un espacio público + de personal', 'policies.zone.name': 'Nombre de la vinculación', 'policies.zone.pick': 'Elegir un recurso…', 'policies.zone.create': 'Crear la vinculación',
 }
 
 export const phase4PoliciesPacks = { en, fr, de, es } as const

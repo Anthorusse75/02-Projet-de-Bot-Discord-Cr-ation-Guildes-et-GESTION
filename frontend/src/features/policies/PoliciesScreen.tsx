@@ -23,6 +23,7 @@ import {
   type PolicyTarget,
 } from './catalog'
 import { buildPolicyTargets, targetKey } from './targets'
+import { findPairedZones, useCreatePairedZone, zoneResourceLabel } from './zones'
 
 type Selection = { kind: 'NATIVE'; native: NativePolicy } | { kind: 'CUSTOM'; policy: Policy }
 type EditorState = {
@@ -140,6 +141,13 @@ export function PoliciesScreen() {
   })
   const visibilityScopesQuery = useVisibilityScopes(me.user.discord_user_id, guild.guild_id, policyWorkspaceEnabled)
   const saveNamedAudience = useSaveNamedAudience(me.user.discord_user_id, guild.guild_id)
+  const createPairedZone = useCreatePairedZone(me.user.discord_user_id, guild.guild_id)
+  const [zoneFormOpen, setZoneFormOpen] = useState(false)
+  const [zoneName, setZoneName] = useState('')
+  const [zonePublicValue, setZonePublicValue] = useState('')
+  const [zoneStaffValue, setZoneStaffValue] = useState('')
+  const [zoneBusy, setZoneBusy] = useState(false)
+  const [zoneProblem, setZoneProblem] = useState<string | null>(null)
   const [audienceEditorOpen, setAudienceEditorOpen] = useState(false)
   const [audienceDraftRoleIds, setAudienceDraftRoleIds] = useState<string[]>([])
   const [audienceBusy, setAudienceBusy] = useState(false)
@@ -161,6 +169,8 @@ export function PoliciesScreen() {
     [groupsQuery.data, guild, roles, structureQuery.data],
   )
   const selectedTarget = targets.find((target) => targetKey(target) === targetValue) ?? targets[0] ?? null
+  const zoneableTargets = useMemo(() => targets.filter((target) => target.kind === 'CATEGORY' || target.kind === 'TEXT_CHANNEL' || target.kind === 'VOICE_CHANNEL'), [targets])
+  const pairedZones = useMemo(() => findPairedZones(groupsQuery.data?.groups ?? []), [groupsQuery.data])
   const channelTypes = useMemo(() => new Map(targets.filter((target) => target.scopeType === 'CHANNEL' && target.scopeId).map((target) => [target.scopeId as string, target.kind === 'VOICE_CHANNEL' ? 2 : 0])), [targets])
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
   const availableNatives = compatibleNativePolicies(selectedTarget?.kind ?? null)
@@ -194,6 +204,26 @@ export function PoliciesScreen() {
     setEditor({ ...emptyEditor(), name: t(native.titleKey), description: t(native.summaryKey), botFunctions: native.id === 'bot_minimal' ? ['READ'] : [], roleIds: [...audienceRoleIds] })
     setAudienceEditorOpen(false)
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
+  }
+
+  async function createPairedZoneFromForm() {
+    const publicTarget = zoneableTargets.find((target) => targetKey(target) === zonePublicValue)
+    const staffTarget = zoneableTargets.find((target) => targetKey(target) === zoneStaffValue)
+    if (!zoneName.trim() || !publicTarget || !staffTarget || publicTarget === staffTarget) return
+    setZoneBusy(true); setZoneProblem(null)
+    try {
+      await createPairedZone(zoneName.trim(), publicTarget, staffTarget)
+      setZoneName(''); setZonePublicValue(''); setZoneStaffValue(''); setZoneFormOpen(false)
+    } catch (error) { setZoneProblem(apiProblem(error, t)) }
+    finally { setZoneBusy(false) }
+  }
+
+  function configureStaffForZone(staffResourceId: string) {
+    const target = targets.find((item) => item.scopeId === staffResourceId)
+    const staffNative = nativePolicies.find((native) => native.id === 'staff_only')
+    if (!target || !staffNative) return
+    setTargetValue(targetKey(target))
+    chooseNative(staffNative)
   }
 
   function chooseCustom(policy: Policy) {
@@ -360,6 +390,41 @@ export function PoliciesScreen() {
         {targets.map((target) => <option key={targetKey(target)} value={targetKey(target)}>{t(`policies.target.kind.${target.kind}`)} · {target.label}</option>)}
       </select></label>
     </article>
+
+    <details className="access-panel zone-panel">
+      <summary><small>{t('policies.zone.eyebrow')}</small><strong>{t('policies.zone.title')}</strong></summary>
+      <p className="access-help">{t('policies.zone.help')}</p>
+      {pairedZones.length > 0 && <ul className="zone-list">
+        {pairedZones.map(({ group, publicResource, staffResource }) => (
+          <li key={group.id} className="zone-card">
+            <div className="zone-card-heading"><strong>{group.name}</strong><Badge>{t('policies.zone.didGrouping')}</Badge></div>
+            <p className="zone-side"><span>{t('policies.zone.publicSide')}</span>{zoneResourceLabel(publicResource, targets) ?? t('policies.zone.unknownResource')}</p>
+            <p className="zone-side">
+              <span>{t('policies.zone.staffSide')}</span>{zoneResourceLabel(staffResource, targets) ?? t('policies.zone.unknownResource')}
+              {staffResource.discord_channel_id && <button type="button" className="button quiet" onClick={() => configureStaffForZone(staffResource.discord_channel_id as string)}>{t('policies.zone.configureStaff')}</button>}
+            </p>
+          </li>
+        ))}
+      </ul>}
+      {!zoneFormOpen
+        ? <button type="button" className="button" onClick={() => setZoneFormOpen(true)}>{t('policies.zone.link')}</button>
+        : <div className="zone-form">
+          <label className="field"><span>{t('policies.zone.name')}</span><input value={zoneName} maxLength={128} onChange={(event) => setZoneName(event.target.value)} /></label>
+          <label className="field"><span>{t('policies.zone.publicSide')}</span><select value={zonePublicValue} onChange={(event) => setZonePublicValue(event.target.value)}>
+            <option value="">{t('policies.zone.pick')}</option>
+            {zoneableTargets.map((target) => <option key={targetKey(target)} value={targetKey(target)}>{t(`policies.target.kind.${target.kind}`)} · {target.label}</option>)}
+          </select></label>
+          <label className="field"><span>{t('policies.zone.staffSide')}</span><select value={zoneStaffValue} onChange={(event) => setZoneStaffValue(event.target.value)}>
+            <option value="">{t('policies.zone.pick')}</option>
+            {zoneableTargets.map((target) => <option key={targetKey(target)} value={targetKey(target)}>{t(`policies.target.kind.${target.kind}`)} · {target.label}</option>)}
+          </select></label>
+          {zoneProblem && <p className="access-callout danger" role="alert">{zoneProblem}</p>}
+          <div className="button-row">
+            <button type="button" className="button primary" disabled={zoneBusy || !zoneName.trim() || !zonePublicValue || !zoneStaffValue || zonePublicValue === zoneStaffValue} onClick={() => void createPairedZoneFromForm()}>{t('policies.zone.create')}</button>
+            <button type="button" className="button quiet" onClick={() => { setZoneFormOpen(false); setZoneProblem(null) }}>{t('common.cancel')}</button>
+          </div>
+        </div>}
+    </details>
 
     <div className="policy-layout">
       <article className="access-panel policy-catalog-panel">
