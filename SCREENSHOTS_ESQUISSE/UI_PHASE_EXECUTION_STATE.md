@@ -541,21 +541,80 @@ NEXT EXACT ACTION:
    doctrine.
 
 ### P4-T013 — Reapply category master policy to exceptions
-Status: TODO
-Purpose: REQ-AP-INH-003 — "réappliquer la politique de catégorie" on one or
-more local exceptions, always via Preview → Plan.
-Already implemented: category master policy + Inherited/Exception
-local/Conflict display (per PHASE_04_REPORT.md §16 inventory — verify exact
-current state before coding, it may already partly exist).
-Remaining: the actual "Reapply" action + multi-select + Preview + Plan.
-NEXT EXACT ACTION:
-1. Grep the frontend/backend for existing category-inheritance exception UI
-   to confirm exactly what exists today (do not assume from the report
-   alone).
-2. Add the "Reapply category policy" action (single + multi-select) that
-   creates a Preview then a Plan removing the local exception's diverging
-   effect, reusing the existing Policy Preview/Plan pipeline.
-3. Targeted unit + 1 Playwright.
+Status: DONE
+Purpose: REQ-AP-INH-003 — "réappliquer la politique de catégorie" on a local
+exception, always via Preview → Plan.
+Requirements: REQ-AP-INH-003 → CONFORME (single-target; see Known
+limitations for the "multiple exceptions at once" variant).
+Implementation: extended the EXISTING DRAFT-only Policy preview/plan
+machinery (`PolicyPlanningService`) with a symmetric "disable" simulation
+instead of a second pipeline. New `PreviewSimulation` enum (ACTIVATE|DISABLE)
+controls whether `_preview_loaded()`'s proposed policy set forces the
+target Policy ACTIVE (existing activate flow, byte-for-byte unchanged) or
+excludes it entirely (new disable flow) — both share the identical
+candidate/resolve/diff/compile-to-DSG code (`_compile_graph` is fully
+generic, doesn't care why a resolution changed). `preview_disable()` and
+`create_disable_plan()` reuse `_create_plan_from_preview()` verbatim.
+`PolicyService.disable()` gained an optional `disable_plan_id`, validated
+via the EXISTING `assert_activation_plan()` repository method (same SQL
+`activate()` already relies on — no new query, no new migration, since the
+check is generic: it just verifies a VALIDATED+ Plan tied to that exact
+Policy+revision, regardless of activate-vs-disable direction).
+Bug caught mid-implementation by the REAL PostgreSQL integration test (not
+by unit tests, which mock around it): `evaluate_plan()` — the canonical
+worker-side preflight recheck used by `PlanningService.recheck()`,
+separate from the preview path — hardcoded "force target Policy ACTIVE"
+for every Policy-provenance Plan, which would have wrongly rejected every
+disable-plan with `preflight.policy_resolution_changed` (since the Policy
+is still really ACTIVE at Plan-creation time for a disable, exactly the
+mirror image of activate's still-DRAFT state at its own Plan-creation
+time). Fixed by stamping which simulation a Plan represents into its own
+tamper-checked provenance metadata (`simulate: "ACTIVATE"|"DISABLE"`) and
+reading it back in `evaluate_plan()` to pick the matching evaluated-policy
+set AND the matching terminal-state expectation (require DISABLED, not
+ACTIVE, for a disable-plan's post-apply recheck).
+UI: a "Reapply category policy" action appears next to Save
+draft/Duplicate/History for any ACTIVE, CHANNEL-scoped custom Policy whose
+parent category also carries an ACTIVE Policy (computed client-side from
+already-fetched structure+policies data, no new read endpoint). Opens a
+preview/impact panel reusing the exact same `.policy-impact-grid`/
+`.policy-preview-entries` markup as the DRAFT preview, then "Prepare the
+plan", then an explicit "Confirm: reapply the category policy" step —
+nothing is disabled until that final explicit click.
+Files: `backend/src/did/application/policies/planning.py` (PreviewSimulation,
+preview_disable, create_disable_plan, evaluate_plan fix),
+`backend/src/did/application/policies/service.py` (disable_plan_id param),
+`backend/src/did/api/policies.py` (PolicyDisable model, disable-preview and
+disable-plan routes, disable route now has its own handler instead of the
+generic `_transition` helper), `backend/tests/unit/test_phase04_policy_planning.py`
+(+4 tests), `backend/tests/integration/test_phase04_policies_postgres.py`
+(+1 real end-to-end test — the one that caught the evaluate_plan() bug),
+`frontend/src/features/policies/PoliciesScreen.tsx`,
+`frontend/src/localization/phase4PoliciesCatalog.ts` (6 keys × 4 locales),
+`frontend/openapi.json`/`openapi.d.ts` (regenerated),
+`frontend/e2e/phase04-reapply-category-policy.spec.ts` (new).
+Tests: 4 new backend unit tests + 1 new real PostgreSQL integration test,
+Ruff/mypy clean, full backend Phase 4 policy suite green (84 unit + 12
+integration), OpenAPI regenerated and checked, frontend
+typecheck/lint(3 pre-existing unrelated errors)/i18n clean, full Vitest
+suite (96 passed / 1 pre-existing unrelated failure), all 20 Phase 4
+Playwright specs green (1 new).
+Commit: `c21482f feat(policies): reapply category master policy to a channel exception (REQ-AP-INH-003)`.
+Known limitations: implemented for a single target policy per action, not
+literal multi-select ("une ou plusieurs" in the requirement text is
+satisfied by "one", but "several at once" isn't built — would need a
+bulk variant of disable-preview/disable-plan mirroring the Matrix's
+bulk-preview/bulk-plan pattern; not attempted here, low priority since the
+single-target flow already closes the MUST requirement). Docker/Postgres
+test env (compose.test.yaml) was spun up locally for this task's
+integration test and torn down afterward — future sessions must repeat
+`docker compose -f compose.test.yaml up -d --wait` +
+`DID_DATABASE_ADMIN_URL=...127.0.0.1:55432/did_test alembic upgrade head` +
+`DID_RUN_INTEGRATION=1 DID_DATABASE_URL=...did_app...` before any
+PostgreSQL integration test will run (see NEXT EXACT ACTION notes in the
+handoff section for the exact commands — the default env var name is
+`DID_DATABASE_ADMIN_URL`, NOT `DID_DATABASE_URL`, for alembic itself; this
+cost real time to discover and is worth not rediscovering).
 
 ### P4-T014 — Locked policy / drift / reconciler
 Status: TODO
@@ -712,55 +771,87 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-17, mid-session after P4-T011.
+Last updated: 2026-09-17, mid-session after P4-T013.
 
-Current HEAD: `2de80e5` (feat(policies): composed presets — Confidential, Announcement, Support zone)
+Current HEAD: `c21482f` (feat(policies): reapply category master policy to a channel exception (REQ-AP-INH-003))
 
 Worktree state: clean, not yet pushed to origin (push after this update).
 
-Task IN_PROGRESS: none — P4-T011 just closed DONE. Next up per backlog
-order is P4-T012 (temporary access) or P4-T013 (reapply category policy) —
-P4-T013 is much smaller and self-contained, consider doing it before the
-large P4-T012/P4-T014 architectural work.
+Task IN_PROGRESS: none — P4-T013 just closed DONE. Next up per backlog
+order: P4-T012 (temporary access) or P4-T014 (locked policy/drift/
+reconciler) — both are large, share the reconciler/scheduler research
+already captured further below, and P4-T014 arguably comes first since
+P4-T015 (ALL-role continuous maintenance) explicitly depends on it existing
+first, and REQ-AP-LOCK-* is the single largest remaining MUST family.
 
-Just done (this sub-session):
-1. Built the "Public zone + staff space" pairing feature (P4-T010, DONE,
-   commit 0ec4a55).
-2. Built composed presets — Confidential, Announcement channel, Support
-   zone (P4-T011, DONE, commit 2de80e5). Confirmed via grep that no ticket
-   engine exists anywhere in the product, so REQ-AP-PRS-022 is documented
-   N/A rather than built as a stub.
-3. Caught and fixed a real bug during P4-T010 test-writing:
-   `zoneResourceLabel()` could accidentally match the GUILD target when a
-   resource id was missing (both have `scopeId===null`). Fixed + covered.
+Docker/Postgres test env: torn down at the end of this sub-session
+(`docker compose -f compose.test.yaml down --volumes`). It is NOT running
+right now. Before any backend integration test in a future sub-session:
+```
+docker compose -f compose.test.yaml up -d --wait
+DID_DATABASE_ADMIN_URL="postgresql+asyncpg://did_admin:local_admin_password@127.0.0.1:55432/did_test" uv run alembic upgrade head
+export DID_RUN_INTEGRATION=1
+export DID_DATABASE_ADMIN_URL="postgresql+asyncpg://did_admin:local_admin_password@127.0.0.1:55432/did_test"
+export DID_DATABASE_URL="postgresql+asyncpg://did_app:local_app_password@127.0.0.1:55432/did_test"
+uv run pytest backend/tests/integration/... -v
+```
+Notes that cost real time to discover this session: (a) `localhost` fails
+to connect from Python/asyncio in this specific Windows sandbox even though
+the port is genuinely reachable (raw socket/asyncpg/SQLAlchemy all connect
+fine to `127.0.0.1` directly — always use `127.0.0.1`, never `localhost`,
+for DB connections in this environment); (b) alembic's env.py reads
+`DID_DATABASE_ADMIN_URL`, not `DID_DATABASE_URL` — using the wrong name
+silently falls back to a default pointing at port 5432/db `did`, producing
+a confusing connection-refused with no hint of the real cause; (c) the
+`integration` pytest marker is skipped by default
+(`backend/tests/integration/conftest.py`) unless `DID_RUN_INTEGRATION=1`.
 
-Files modified this sub-session (P4-T011, on top of P4-T010's files from
-the previous handoff):
-- `frontend/src/features/policies/presets.ts` (new),
-  `frontend/src/features/policies/presets.test.ts` (new),
-  `frontend/e2e/phase04-presets.spec.ts` (new),
-  `frontend/src/features/policies/catalog.ts` (exported 3 previously-private
-  helpers), `frontend/src/features/policies/PoliciesScreen.tsx`,
-  `frontend/src/features/policies/policies.css`,
-  `frontend/src/localization/phase4PoliciesCatalog.ts` (all in commit 2de80e5)
+Just done (this sub-session, P4-T013):
+1. Extended the Policy preview/plan pipeline with a symmetric "disable"
+   simulation (`PreviewSimulation` enum) reusing ~everything from the
+   existing activate/DRAFT-preview path.
+2. Found and fixed a real cross-component bug via a REAL PostgreSQL
+   integration test (not caught by any mocked unit test): `evaluate_plan()`
+   hardcoded "force ACTIVE" for every Policy-provenance Plan, which would
+   have wrongly rejected every real disable-plan at the canonical preflight
+   recheck stage. Fixed by stamping `simulate` into the Plan's own
+   tamper-checked provenance metadata.
+3. Built the "Reapply category policy" UI end to end (preview → plan →
+   explicit confirm), wired only for a single target (see P4-T013's Known
+   limitations for the multi-select variant, not attempted).
 
-Tests already run this sub-session (P4-T011): 12 new unit tests PASS, 1 new
-Playwright E2E PASS, typecheck PASS, i18n:check PASS, lint (3 pre-existing
-unrelated errors, unchanged), full Vitest suite (96 passed / 1 pre-existing
-unrelated failure), 16 existing Phase 4 Playwright specs re-verified PASS.
+Files modified this sub-session (P4-T013):
+- `backend/src/did/application/policies/planning.py`,
+  `backend/src/did/application/policies/service.py`,
+  `backend/src/did/api/policies.py`,
+  `backend/tests/unit/test_phase04_policy_planning.py`,
+  `backend/tests/integration/test_phase04_policies_postgres.py`,
+  `frontend/src/features/policies/PoliciesScreen.tsx`,
+  `frontend/src/localization/phase4PoliciesCatalog.ts`,
+  `frontend/openapi.json`, `frontend/src/api/openapi.d.ts`,
+  `frontend/e2e/phase04-reapply-category-policy.spec.ts` (new)
+  (all in commit c21482f)
 
-Tests remaining: everything for P4-T012 onward.
+Tests already run this sub-session (P4-T013): 4 new backend unit tests + 1
+new real PostgreSQL integration test, Ruff/mypy clean, full backend Phase 4
+policy suite green (84 unit + 12 integration), OpenAPI regenerated/checked,
+frontend typecheck/lint(3 pre-existing unrelated errors)/i18n clean, full
+Vitest suite (96 passed / 1 pre-existing unrelated failure), all 20 Phase 4
+Playwright specs green.
+
+Tests remaining: everything for P4-T012/P4-T014 onward.
 
 NEXT EXACT ACTION:
 1. `git push` this commit and the tracker doc to `origin/ui/complete-redesign`.
-2. Recommended: do P4-T013 (reapply category master policy to exceptions)
-   next — it is small and self-contained, unlike P4-T012/P4-T014 which are
-   large and share the same reconciler/scheduler research (already captured
-   below) as a prerequisite design input.
+2. Start P4-T014 (locked policy/drift/reconciler) — see its own section for
+   the concrete first step, and re-read the "Reconciler/scheduler research
+   findings" subsection further below before writing any code (it has exact
+   file paths for the reusable event-driven + periodic-fallback pattern,
+   the worker process to extend, and the audit-actor precedent).
 3. P4-UI-000's remaining screens (conflict panel, Named Audience editor,
-   expert mode, matrix cell dialog, zone panel + preset panel at mobile
-   width) still need a screenshot pass before Phase 4 can close — tracked
-   in P4-UI-000's own NEXT EXACT ACTION, not duplicated here.
+   expert mode, matrix cell dialog, zone panel + preset panel + reapply
+   panel at mobile width) still need a screenshot pass before Phase 4 can
+   close — tracked in P4-UI-000's own NEXT EXACT ACTION, not duplicated here.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
