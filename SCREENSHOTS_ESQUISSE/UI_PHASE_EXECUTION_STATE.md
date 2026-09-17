@@ -399,34 +399,52 @@ pre-existing test failure were NOT fixed — out of scope (unrelated files,
 not touched by this task).
 
 ### P4-T010 — Zone publique + espace staff associé (Logical Group link)
-Status: TODO
+Status: DONE
 Purpose: REQ-AP-ZONE-001/002/003 — let an admin declare "this public space
 has an associated staff space" using the existing Stage04 `logical_groups`
 primitive, never a fake Discord sub-category.
-Requirements: REQ-AP-ZONE-001 (MUST, no fake Discord subcategory — already
-true by construction if we only ever compose existing resources),
-REQ-AP-ZONE-002 (MUST, two valid Discord structures + a clearly identified
-DID logical-group abstraction), REQ-AP-ZONE-003 (MUST, public part follows
-its own policy, staff part follows Staff-only).
-Already implemented (reusable): `logical_groups` (Stage04), Staff named
-audience (P4-T009), Policies/Plan pipeline.
-Remaining: no UI exists to (a) pick/create a logical group linking a public
-category/channel to a staff category/channel, (b) show the pair together
-with "Public: <policy>" / "Staff: Staff uniquement" summary, (c) make the
-DID-grouping-vs-real-Discord-structure distinction visually unambiguous
-(REQ-UXN-004 territory).
-Files likely touched: `frontend/src/features/policies/` (or a small
-dedicated `zones/` UI module), Stage04 logical_groups API (read/link only,
-reuse existing endpoints — check before adding any route).
-Tests already executed: none yet.
-NEXT EXACT ACTION:
-1. Re-confirm Stage04 logical_groups CRUD/link API surface (endpoint names)
-   via Explore or Grep before writing any UI.
-2. Design the minimal "Public + Staff pairing" panel: pick an existing
-   logical group OR create one from two existing resources, apply "Staff
-   uniquement" to the staff side, show both under one card.
-3. Wire Preview/Plan through existing Policy pipeline only.
-4. i18n EN/FR/DE/ES, targeted unit test, 1 Playwright happy path.
+Requirements: REQ-AP-ZONE-001/002/003 → CONFORME.
+Implementation: reused the Stage04 `logical_groups` CRUD API as-is (full
+create/read/update/delete already existed, `semantic_role` on a group
+resource is a free-form ≤64-char string, so no backend change was needed).
+Two existing resources get tagged `did-zone-public` / `did-zone-staff`.
+New pure module `frontend/src/features/policies/zones.ts`:
+`findPairedZones()` (identifies groups with both tags present),
+`zoneResourceLabel()` (resolves a resource to its human target label),
+`slugifyZoneName()`, `useCreatePairedZone()` (POST + invalidate). A
+collapsible `<details className="zone-panel">` section on PoliciesScreen
+(placed right after the target picker, before the catalog/editor) lists
+existing pairings with an explicit "DID grouping, not a Discord structure"
+badge (REQ-UXN-004) and a form to create a new one by picking two existing
+CATEGORY/CHANNEL targets from the same target list already used everywhere
+else. "Apply Staff only here" on the staff side jumps straight into the
+existing `staff_only` native policy targeted at that specific resource
+(REQ-AP-ZONE-003: each side keeps its own independent policy, the group
+itself is never used as a policy target for this).
+UI: `PoliciesScreen.tsx`, new `.zone-panel`/`.zone-list`/`.zone-card`/
+`.zone-side`/`.zone-form` styles in `policies.css`, screenshotted and
+visually consistent with the rest of the workspace (dark navy card,
+progressive disclosure, badges).
+Files: `frontend/src/features/policies/zones.ts` (new),
+`frontend/src/api/types.ts` (extended `LogicalGroup` with `resources`, new
+`LogicalGroupResource` type), `frontend/src/features/policies/PoliciesScreen.tsx`,
+`frontend/src/features/policies/policies.css`,
+`frontend/src/localization/phase4PoliciesCatalog.ts` (12 new keys × 4 locales).
+Tests: 9 targeted Vitest unit tests (`zones.test.ts`, including a real bug
+caught mid-implementation — see Known limitations), 1 Playwright E2E
+(`phase04-zones-pairing.spec.ts`: nominal create flow, zero APPLY calls,
+persists across `page.reload()`), typecheck/lint/i18n clean, full Vitest
+suite and existing Phase 4 Playwright specs green (see P4-T021-style
+doctrine — no unrelated regression).
+Commit: `0ec4a55 feat(policies): link a public zone with its staff space (REQ-AP-ZONE-001/002/003)`.
+Known limitations: while writing the Playwright test, found and fixed a
+real edge case in `zoneResourceLabel()` — a resource with a missing/null id
+could accidentally resolve to the GUILD target (whose `scopeId` is also
+`null`), silently showing "Guild A" instead of the real resource or a clear
+"not found" state. Fixed (`id === null` now short-circuits to `null`) and
+covered by a dedicated unit test. No other known gaps for this task's own
+scope; REQ-AP-CFL-005/006 (role optimization) and REQ-AP-PRS-* (composed
+presets) remain separate open tasks below.
 
 ### P4-T011 — Composed presets: Confidentiel, Salon d'annonces, Zone support
 Status: TODO
@@ -673,62 +691,53 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-16, mid-session after P4-T021.
+Last updated: 2026-09-17, mid-session after P4-T010.
 
-Current HEAD: `2ce541f` (fix(ui-phase4): fix mobile overflow, off-canvas nav, and wizard step duplication)
+Current HEAD: `0ec4a55` (feat(policies): link a public zone with its staff space)
 
 Worktree state: clean, not yet pushed to origin (push after this update).
 
-Task IN_PROGRESS: P4-UI-000 (visual acceptance pass, first pass done —
-see its own section for exact remaining screens) is the next thing to
-either finish or consciously postpone in favor of P4-T010+.
+Task IN_PROGRESS: none — P4-T010 just closed DONE. Next up is P4-T011
+(composed presets) per the backlog order below, unless a fresh visual pass
+on the new zone panel + remaining P4-UI-000 screens is done first.
 
-Just done:
-1. Reconstructed full Phase 4 history (P4-T001..P4-T009) from
-   `PHASE_04_REPORT.md`/`UI_REQUIREMENTS_REMEDIATION_MAP.md`/git log.
-2. Drafted the open backlog (P4-T010..P4-T020) from
-   `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
-   cross-referenced against PHASE_04_REPORT.md §16-18 gap lists.
-3. Dispatched and received a background Explore agent's findings on
-   reconciler/worker/scheduler infra — incorporated into P4-T012/P4-T014
-   below (see "Reconciler/scheduler research findings" subsection).
-4. Ran a real visual acceptance pass (screenshots, not just code reading)
-   against Esquisse 1.png for Roles/Permissions/Policies/Matrix/Wizards at
-   desktop + 390px mobile, found and fixed 3 real defects (P4-T021, DONE,
-   commit 2ce541f): body min-width:1180px blocking all responsiveness, 6
-   bare-1fr grid collapse bugs, no mobile nav at all, and duplicated wizard
-   step numbers.
+Just done (this sub-session):
+1. Built the "Public zone + staff space" pairing feature end to end
+   (P4-T010, DONE, commit 0ec4a55) — see its own section for full detail.
+   Reused Stage04 logical_groups with zero backend changes.
+2. Caught and fixed a real bug during test-writing: `zoneResourceLabel()`
+   could accidentally match the GUILD target when a resource id was
+   missing (both have `scopeId===null`). Fixed + covered by a unit test —
+   a concrete example of why "write the test, don't just eyeball it" paid
+   off immediately.
 
-Files modified this session so far:
-- `SCREENSHOTS_ESQUISSE/UI_PHASE_EXECUTION_STATE.md` (new, this file)
-- `frontend/src/app/AppShell.tsx`, `frontend/src/shared/redesign.css`,
-  `frontend/src/shared/phase4-access.css`,
+Files modified this sub-session:
+- `frontend/src/features/policies/zones.ts` (new),
+  `frontend/src/features/policies/zones.test.ts` (new),
+  `frontend/e2e/phase04-zones-pairing.spec.ts` (new),
+  `frontend/src/api/types.ts`, `frontend/src/features/policies/PoliciesScreen.tsx`,
   `frontend/src/features/policies/policies.css`,
-  `frontend/src/features/matrix/matrix.css`,
-  `frontend/src/localization/phase2Catalog.ts`,
-  `frontend/src/localization/phase4WizardCatalog.ts` (all in commit 2ce541f)
+  `frontend/src/localization/phase4PoliciesCatalog.ts` (all in commit 0ec4a55)
 
-Tests already run this session: typecheck PASS, i18n:check PASS, full
-Vitest suite (75 passed / 1 pre-existing unrelated failure), lint (3
-pre-existing unrelated errors in untouched files), all 17 Phase 4 Playwright
-specs PASS.
+Tests already run this sub-session: 9 new unit tests PASS, 1 new Playwright
+E2E PASS, typecheck PASS, i18n:check PASS, lint (3 pre-existing unrelated
+errors, unchanged), full Vitest suite (84 passed / 1 pre-existing unrelated
+failure), existing Phase 4 Policies/Access/Zones-and-conflicts Playwright
+specs all still PASS (13/13 re-run).
 
-Tests remaining: everything for P4-T010 onward — nothing implemented yet
-for the functional backlog.
+Tests remaining: everything for P4-T011 onward — nothing implemented yet
+for composed presets, temporary access, locked policy/drift, etc.
 
 NEXT EXACT ACTION:
 1. `git push` this commit and the tracker doc to `origin/ui/complete-redesign`.
-2. Decide: either finish P4-UI-000's remaining screens now (conflict panel,
-   Named Audience editor, expert mode, matrix cell dialog) or move to
-   P4-T010 (Logical Group public+staff pairing) — given the master rule
-   that visual correctness precedes new functions, prefer finishing
-   P4-UI-000's remaining screens first if time allows, but P4-T010 is also
-   reasonable to start since it's a genuinely new, currently-nonexistent UI
-   surface that will itself need its own visual audit anyway (no point
-   auditing twice).
-3. Start P4-T010 (see its own section for the concrete NEXT EXACT ACTION):
-   confirm the Stage04 logical_groups API surface, then build the
-   public+staff pairing UI.
+2. Move to P4-T011 (composed presets: Confidentiel, Salon d'annonces, Zone
+   support) — see its own section below for the concrete first step (check
+   whether a ticket engine exists before assuming REQ-AP-PRS-022 applies).
+3. P4-UI-000's remaining screens (conflict panel, Named Audience editor,
+   expert mode, matrix cell dialog, and now also the new zone panel at
+   mobile width) still need a screenshot pass before Phase 4 can close —
+   don't forget this at the very end, it's tracked in P4-UI-000's own
+   NEXT EXACT ACTION, not duplicated here.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
