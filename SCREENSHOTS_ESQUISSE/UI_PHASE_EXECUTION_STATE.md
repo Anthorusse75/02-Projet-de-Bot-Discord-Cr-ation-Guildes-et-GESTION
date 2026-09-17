@@ -447,41 +447,62 @@ scope; REQ-AP-CFL-005/006 (role optimization) and REQ-AP-PRS-* (composed
 presets) remain separate open tasks below.
 
 ### P4-T011 — Composed presets: Confidentiel, Salon d'annonces, Zone support
-Status: TODO
+Status: DONE
 Purpose: REQ-AP-PRS-001, 010-013, 020-022. A preset must show its sub-rules
 before Plan (no opaque alias) and must not be offered if its primitives
 aren't real yet.
-Requirements: REQ-AP-PRS-001 (Confidentiel shows every activated sub-rule
-before validation), REQ-AP-PRS-010/011/012 (Salon d'annonces — applicable to
-existing or new channel, persistent by default, separate reader/publisher
-choice), REQ-AP-PRS-013 (SHOULD, reactions/threads options), REQ-AP-PRS-020/021
-(Zone support — persistent or existing zone, visibility/write/support group),
-REQ-AP-PRS-022 (SHOULD, ticket integration as a separate option, only if a
-ticket engine exists — check before assuming one does; if none exists, this
-sub-item is N/A and must be documented as such, not built).
-Already implemented (reusable primitives): visibility/writing policies,
-voice/thread/reaction/mention families (P4-T008), named audiences (P4-T009).
-Remaining: a preset is a *composition* of existing native policies with a
-guided "show sub-rules before Plan" UI — needs a small composition layer
-(likely a list of {catalog_key, params} the Wizard or Policies screen
-resolves into one or more DRAFT Policies with a shared tag, same pattern as
-`createNewcomerAreaDefinitions()` in P4-T009).
-Files likely touched: `features/policies/catalog.ts` (add preset
-definitions), a new `presets.ts` composition helper mirroring
-`createNewcomerAreaDefinitions()`, PoliciesScreen/Wizard UI to show expanded
-sub-rules pre-Plan.
-Tests already executed: none yet.
-NEXT EXACT ACTION:
-1. Check whether a ticket engine exists anywhere in the product (grep
-   "ticket"); if not, document REQ-AP-PRS-022 as N/A in this task, not built.
-2. Implement `presets.ts`: Confidentiel = visibility whitelist + management
-   whitelist + mention control, composed the same way as newcomer-area.
-3. Implement Salon d'annonces and Zone support presets similarly, reusing
-   existing catalog entries — no new PolicyResolver capability.
-4. UI: preset picker expands to show every sub-rule (native policy name +
-   plain-language summary) before "Prepare the plan".
-5. i18n EN/FR/DE/ES, targeted unit tests, 1 Playwright per preset family (or
-   one combined if scenarios overlap defensibly).
+Requirements: REQ-AP-PRS-001/010/011/012/020/021 → CONFORME. REQ-AP-PRS-013
+(SHOULD) → CONFORME for Announcement channel (reactions/threads options
+present). REQ-AP-PRS-022 (SHOULD) → N/A, documented: grepped the entire
+product for "ticket", nothing exists, so the option is deliberately not
+offered rather than being a fake control.
+Implementation: `frontend/src/features/policies/presets.ts` (new, pure
+module) composes each preset from the SAME building-block helpers the
+native catalog itself uses (`whitelist()`, `modeEffects()` — exported from
+`catalog.ts`, previously module-private) into 1-4 independent DRAFT
+`PolicyDraftDefinition`s sharing one `preset-group:<uuid>` tag, exactly the
+`createNewcomerAreaDefinitions()` pattern from P4-T009. No new
+PolicyResolver capability, no new endpoint, no bulk-mutation path — each
+sub-rule becomes an ordinary Policy findable individually afterward in
+"Custom policies". Confidential = visibility whitelist + management
+whitelist + mention block + thread restriction (each independently
+toggleable, only emitted if its audience is non-empty except the
+always-meaningful mention block). Announcement channel = writer whitelist
++ optional reaction mode + optional thread mode — deliberately NEVER emits
+a VIEW effect (REQ-AP-PRS-012, tested). Support zone = optional visibility
+whitelist (OPEN by default) + optional writer whitelist (EVERYONE by
+default) for a chosen support-group audience.
+UI: third collapsible `<details className="preset-panel">` section on
+PoliciesScreen (after the zone panel, before the catalog/editor). Selecting
+a preset opens its specific config form (role-picker toggles reused from
+existing `.policy-role-picker` pattern, mode selects reusing existing
+`policies.mode.*` i18n). A live "Sub-rules this preset will activate" list
+(pure `confidentialSubRules()`/`announcementSubRules()`/`supportZoneSubRules()`
+functions) updates as the admin configures options, BEFORE any policy is
+created — satisfies REQ-AP-PRS-001 literally, confirmed by a Playwright
+assertion that the list is empty until roles are chosen. "Create the preset
+policies" issues one POST per activated sub-rule sequentially, then
+invalidates the policies query so all of them appear in Custom policies.
+Files: `frontend/src/features/policies/presets.ts` (new),
+`frontend/src/features/policies/presets.test.ts` (new),
+`frontend/e2e/phase04-presets.spec.ts` (new),
+`frontend/src/features/policies/catalog.ts` (exported `whitelist`/
+`modeEffects`/`audience`, previously private),
+`frontend/src/features/policies/PoliciesScreen.tsx`,
+`frontend/src/features/policies/policies.css`,
+`frontend/src/localization/phase4PoliciesCatalog.ts` (~35 keys × 4 locales).
+Tests: 12 targeted Vitest unit tests (sub-rule activation logic + DRAFT
+composition, all three presets, including "never emits VIEW" for
+Announcement and "creates nothing when everything is off" for Confidential),
+1 Playwright E2E (live sub-rule preview, 4 POST calls sharing one
+preset-group tag, zero APPLY, all 4 created policies visible afterward).
+Typecheck/lint(3 pre-existing unrelated errors, unchanged)/i18n clean, full
+Vitest suite 96/97 (1 pre-existing unrelated failure), 16 existing Phase 4
+Playwright specs re-verified green.
+Commit: `2de80e5 feat(policies): composed presets — Confidential, Announcement, Support zone`.
+Known limitations: none for this task's own declared scope beyond the
+documented REQ-AP-PRS-022 N/A. Not yet screenshotted at mobile width — add
+to P4-UI-000's remaining screens list.
 
 ### P4-T012 — Temporary access (grant until date/duration)
 Status: TODO
@@ -691,53 +712,55 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-17, mid-session after P4-T010.
+Last updated: 2026-09-17, mid-session after P4-T011.
 
-Current HEAD: `0ec4a55` (feat(policies): link a public zone with its staff space)
+Current HEAD: `2de80e5` (feat(policies): composed presets — Confidential, Announcement, Support zone)
 
 Worktree state: clean, not yet pushed to origin (push after this update).
 
-Task IN_PROGRESS: none — P4-T010 just closed DONE. Next up is P4-T011
-(composed presets) per the backlog order below, unless a fresh visual pass
-on the new zone panel + remaining P4-UI-000 screens is done first.
+Task IN_PROGRESS: none — P4-T011 just closed DONE. Next up per backlog
+order is P4-T012 (temporary access) or P4-T013 (reapply category policy) —
+P4-T013 is much smaller and self-contained, consider doing it before the
+large P4-T012/P4-T014 architectural work.
 
 Just done (this sub-session):
-1. Built the "Public zone + staff space" pairing feature end to end
-   (P4-T010, DONE, commit 0ec4a55) — see its own section for full detail.
-   Reused Stage04 logical_groups with zero backend changes.
-2. Caught and fixed a real bug during test-writing: `zoneResourceLabel()`
-   could accidentally match the GUILD target when a resource id was
-   missing (both have `scopeId===null`). Fixed + covered by a unit test —
-   a concrete example of why "write the test, don't just eyeball it" paid
-   off immediately.
+1. Built the "Public zone + staff space" pairing feature (P4-T010, DONE,
+   commit 0ec4a55).
+2. Built composed presets — Confidential, Announcement channel, Support
+   zone (P4-T011, DONE, commit 2de80e5). Confirmed via grep that no ticket
+   engine exists anywhere in the product, so REQ-AP-PRS-022 is documented
+   N/A rather than built as a stub.
+3. Caught and fixed a real bug during P4-T010 test-writing:
+   `zoneResourceLabel()` could accidentally match the GUILD target when a
+   resource id was missing (both have `scopeId===null`). Fixed + covered.
 
-Files modified this sub-session:
-- `frontend/src/features/policies/zones.ts` (new),
-  `frontend/src/features/policies/zones.test.ts` (new),
-  `frontend/e2e/phase04-zones-pairing.spec.ts` (new),
-  `frontend/src/api/types.ts`, `frontend/src/features/policies/PoliciesScreen.tsx`,
+Files modified this sub-session (P4-T011, on top of P4-T010's files from
+the previous handoff):
+- `frontend/src/features/policies/presets.ts` (new),
+  `frontend/src/features/policies/presets.test.ts` (new),
+  `frontend/e2e/phase04-presets.spec.ts` (new),
+  `frontend/src/features/policies/catalog.ts` (exported 3 previously-private
+  helpers), `frontend/src/features/policies/PoliciesScreen.tsx`,
   `frontend/src/features/policies/policies.css`,
-  `frontend/src/localization/phase4PoliciesCatalog.ts` (all in commit 0ec4a55)
+  `frontend/src/localization/phase4PoliciesCatalog.ts` (all in commit 2de80e5)
 
-Tests already run this sub-session: 9 new unit tests PASS, 1 new Playwright
-E2E PASS, typecheck PASS, i18n:check PASS, lint (3 pre-existing unrelated
-errors, unchanged), full Vitest suite (84 passed / 1 pre-existing unrelated
-failure), existing Phase 4 Policies/Access/Zones-and-conflicts Playwright
-specs all still PASS (13/13 re-run).
+Tests already run this sub-session (P4-T011): 12 new unit tests PASS, 1 new
+Playwright E2E PASS, typecheck PASS, i18n:check PASS, lint (3 pre-existing
+unrelated errors, unchanged), full Vitest suite (96 passed / 1 pre-existing
+unrelated failure), 16 existing Phase 4 Playwright specs re-verified PASS.
 
-Tests remaining: everything for P4-T011 onward — nothing implemented yet
-for composed presets, temporary access, locked policy/drift, etc.
+Tests remaining: everything for P4-T012 onward.
 
 NEXT EXACT ACTION:
 1. `git push` this commit and the tracker doc to `origin/ui/complete-redesign`.
-2. Move to P4-T011 (composed presets: Confidentiel, Salon d'annonces, Zone
-   support) — see its own section below for the concrete first step (check
-   whether a ticket engine exists before assuming REQ-AP-PRS-022 applies).
+2. Recommended: do P4-T013 (reapply category master policy to exceptions)
+   next — it is small and self-contained, unlike P4-T012/P4-T014 which are
+   large and share the same reconciler/scheduler research (already captured
+   below) as a prerequisite design input.
 3. P4-UI-000's remaining screens (conflict panel, Named Audience editor,
-   expert mode, matrix cell dialog, and now also the new zone panel at
-   mobile width) still need a screenshot pass before Phase 4 can close —
-   don't forget this at the very end, it's tracked in P4-UI-000's own
-   NEXT EXACT ACTION, not duplicated here.
+   expert mode, matrix cell dialog, zone panel + preset panel at mobile
+   width) still need a screenshot pass before Phase 4 can close — tracked
+   in P4-UI-000's own NEXT EXACT ACTION, not duplicated here.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
