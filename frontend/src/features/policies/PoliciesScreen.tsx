@@ -162,6 +162,12 @@ export function PoliciesScreen() {
   const [presetBusy, setPresetBusy] = useState(false)
   const [presetProblem, setPresetProblem] = useState<string | null>(null)
   const [presetNotice, setPresetNotice] = useState<string | null>(null)
+  const [reapplyOpen, setReapplyOpen] = useState(false)
+  const [reapplyPreview, setReapplyPreview] = useState<PolicyPreview | null>(null)
+  const [reapplyPlan, setReapplyPlan] = useState<{ id: string; status: string } | null>(null)
+  const [reapplyBusy, setReapplyBusy] = useState(false)
+  const [reapplyProblem, setReapplyProblem] = useState<string | null>(null)
+  const [reapplyNotice, setReapplyNotice] = useState<string | null>(null)
   const [audienceEditorOpen, setAudienceEditorOpen] = useState(false)
   const [audienceDraftRoleIds, setAudienceDraftRoleIds] = useState<string[]>([])
   const [audienceBusy, setAudienceBusy] = useState(false)
@@ -207,6 +213,13 @@ export function PoliciesScreen() {
   const availableNatives = compatibleNativePolicies(selectedTarget?.kind ?? null)
   const selectedPolicy = selection?.kind === 'CUSTOM' ? selection.policy : null
   const activeNative = selection?.kind === 'NATIVE' ? selection.native : selectedPolicy ? nativePolicyByTag(selectedPolicy) : undefined
+  const parentCategoryId = selectedPolicy?.scope_type === 'CHANNEL'
+    ? structureQuery.data?.categories.find((category) => category.channels.some((channel) => channel.id === selectedPolicy.scope_id))?.id ?? null
+    : null
+  const canReapplyCategoryPolicy = Boolean(
+    selectedPolicy && selectedPolicy.lifecycle_state === 'ACTIVE' && parentCategoryId
+    && (policiesQuery.data?.policies ?? []).some((policy) => policy.lifecycle_state === 'ACTIVE' && policy.scope_type === 'CATEGORY' && policy.scope_id === parentCategoryId),
+  )
   const scopes = visibilityScopesQuery.data?.scopes ?? []
   const existingAudienceScope = activeNative?.requiresNamedAudience
     ? scopes.find((scope) => (activeNative.requiresNamedAudience === 'STAFF' ? scope.scope_type === 'STAFF' : scope.scope_type === 'CUSTOM' && scope.scope_key === 'confirmed_member'))
@@ -235,6 +248,7 @@ export function PoliciesScreen() {
     setEditor({ ...emptyEditor(), name: t(native.titleKey), description: t(native.summaryKey), botFunctions: native.id === 'bot_minimal' ? ['READ'] : [], roleIds: [...audienceRoleIds] })
     setAudienceEditorOpen(false)
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
+    resetReapply()
   }
 
   async function createPairedZoneFromForm() {
@@ -286,6 +300,7 @@ export function PoliciesScreen() {
     setSelection({ kind: 'CUSTOM', policy })
     setEditor(editorFromPolicy(policy))
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
+    resetReapply()
   }
 
   async function createDraft(definition: PolicyDraftDefinition, noticeKey: string) {
@@ -393,6 +408,47 @@ export function PoliciesScreen() {
       navigate(`/guild/${guild.guild_id}/plans`)
     } catch (error) { setProblem(apiProblem(error, t)) }
     finally { setBusy(false) }
+  }
+
+  function resetReapply() {
+    setReapplyOpen(false); setReapplyPreview(null); setReapplyPlan(null); setReapplyProblem(null); setReapplyNotice(null)
+  }
+
+  async function loadReapplyPreview() {
+    if (!selectedPolicy) return
+    setReapplyBusy(true); setReapplyProblem(null); setReapplyPlan(null)
+    try {
+      const result = await apiRequest<PolicyPreview>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/disable-preview`, { method: 'POST' })
+      setReapplyPreview(result)
+    } catch (error) { setReapplyProblem(apiProblem(error, t)) }
+    finally { setReapplyBusy(false) }
+  }
+
+  async function prepareReapplyPlan() {
+    if (!selectedPolicy || !reapplyPreview) return
+    setReapplyBusy(true); setReapplyProblem(null)
+    try {
+      const result = await apiRequest<{ plan: { id: string; status: string } }>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/disable-plan`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: { expected_revision: selectedPolicy.revision },
+      })
+      setReapplyPlan(result.plan)
+    } catch (error) { setReapplyProblem(apiProblem(error, t)) }
+    finally { setReapplyBusy(false) }
+  }
+
+  async function confirmReapply() {
+    if (!selectedPolicy || !reapplyPlan) return
+    setReapplyBusy(true); setReapplyProblem(null)
+    try {
+      await apiRequest(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/disable`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { expected_revision: selectedPolicy.revision, plan_id: reapplyPlan.id },
+      })
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
+      resetReapply()
+      setReapplyNotice(t('policies.reapply.done'))
+    } catch (error) { setReapplyProblem(apiProblem(error, t)) }
+    finally { setReapplyBusy(false) }
   }
 
   function policyName(id: string): string {
@@ -617,8 +673,10 @@ export function PoliciesScreen() {
             <button type="button" className="button primary" disabled={busy || !canSave} title={!canSave ? t('policies.error.editDenied') : undefined} onClick={() => void save()}>{selection.kind === 'NATIVE' ? t('policies.createDraft') : t('policies.saveDraft')}</button>
             {selectedPolicy && <button type="button" className="button quiet" disabled={busy || canCreate !== 'CAN'} onClick={() => void duplicate(selectedPolicy)}>{t('policies.duplicate')}</button>}
             {selectedPolicy && <button type="button" className="button quiet" onClick={() => setHistoryOpen((value) => !value)}>{t('policies.history')}</button>}
+            {canReapplyCategoryPolicy && <button type="button" className="button quiet" onClick={() => { setReapplyOpen(true); void loadReapplyPreview() }}>{t('policies.reapply.action')}</button>}
           </div>
           {selectedPolicy?.lifecycle_state === 'DRAFT' && <div className="draft-safety"><Badge tone="warning">{t('policies.lifecycle.DRAFT')}</Badge><span>{t('policies.draft.safety')}</span></div>}
+          {reapplyNotice && <p className="access-callout success" role="status">{reapplyNotice}</p>}
         </>}
         {problem && <p className="access-callout danger" role="alert">{problem}</p>}{notice && <p className="access-callout success" role="status">{notice}</p>}
       </article>
@@ -627,6 +685,22 @@ export function PoliciesScreen() {
     {historyOpen && selectedPolicy && <article className="access-panel policy-history-panel"><div className="access-panel-heading"><div><small>{selectedPolicy.name}</small><strong>{t('policies.history.title')}</strong></div></div>
       {versionsQuery.isLoading ? <Skeleton /> : versionsQuery.isError ? <ErrorState retry={() => void versionsQuery.refetch()} /> : <ol>{(versionsQuery.data?.versions ?? []).map((version) => <li key={version.version_id}><div><strong>{t('policies.revision', { revision: version.revision })}</strong><span>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(version.created_at))}</span><small>{t(`policies.change.${version.change_kind}`, { kind: version.change_kind })} · {t('policies.history.author', { author: partialMember(version.author_user_id) })}</small></div><button type="button" className="button quiet" disabled={busy || canCreate !== 'CAN'} onClick={() => void draftFromVersion(version)}>{t('policies.history.createDraft')}</button></li>)}</ol>}
       <p className="access-help">{t('policies.history.safety')}</p>
+    </article>}
+
+    {reapplyOpen && selectedPolicy && <article className="access-panel policy-preview-panel">
+      <div className="access-panel-heading"><div><small>{t('policies.reapply.eyebrow')}</small><strong>{t('policies.reapply.title')}</strong></div>{reapplyPreview && <Badge tone={reapplyPreview.impact.accuracy === 'EXACT' ? 'ok' : 'warning'}>{t(`policies.accuracy.${reapplyPreview.impact.accuracy}`)}</Badge>}</div>
+      <p className="access-help">{t('policies.reapply.help')}</p>
+      {reapplyBusy && !reapplyPreview ? <Skeleton /> : reapplyPreview && <>
+        <div className="policy-impact-grid"><div><strong>{reapplyPreview.impact.access_gains}</strong><span>{t('policies.impact.gains')}</span></div><div><strong>{reapplyPreview.impact.access_losses}</strong><span>{t('policies.impact.losses')}</span></div><div><strong>{reapplyPreview.impact.affected_members}</strong><span>{t('policies.impact.members')}</span></div><div><strong>{reapplyPreview.impact.affected_roles}</strong><span>{t('policies.impact.roles')}</span></div><div><strong>{reapplyPreview.impact.affected_resources}</strong><span>{t('policies.impact.resources')}</span></div><div><strong>{reapplyPreview.impact.conflicts}</strong><span>{t('policies.impact.conflicts')}</span></div></div>
+        {reapplyPreview.impact.diagnostics.map((diagnostic) => <p className="access-callout warning" key={diagnostic}>{t(`policies.diagnostic.${diagnostic}`, { diagnostic })}</p>)}
+      </>}
+      {reapplyProblem && <p className="access-callout danger" role="alert">{reapplyProblem}</p>}
+      <div className="button-row">
+        {!reapplyPlan
+          ? <button type="button" className="button primary" disabled={reapplyBusy || !reapplyPreview || reapplyPreview.impact.accuracy !== 'EXACT'} onClick={() => void prepareReapplyPlan()}>{t('policies.reapply.preparePlan')}</button>
+          : <button type="button" className="button primary" disabled={reapplyBusy} onClick={() => void confirmReapply()}>{t('policies.reapply.confirm')}</button>}
+        <button type="button" className="button quiet" onClick={resetReapply}>{t('common.cancel')}</button>
+      </div>
     </article>}
 
     {selectedPolicy?.lifecycle_state === 'DRAFT' && <article className="access-panel policy-preview-panel"><div className="access-panel-heading"><div><small>{t('policies.step.preview')}</small><strong>{t('policies.preview.title')}</strong></div>{preview && <Badge tone={preview.impact.accuracy === 'EXACT' ? 'ok' : 'warning'}>{t(`policies.accuracy.${preview.impact.accuracy}`)}</Badge>}</div>

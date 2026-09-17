@@ -336,10 +336,23 @@ class PolicyService:
         actor_id: int,
         expected_revision: int,
         idempotency_key: str,
+        disable_plan_id: UUID | None = None,
     ) -> Policy:
         current = await self._repository.get(guild_id, policy_id)
         if current.lifecycle_state is PolicyLifecycleState.DISABLED:
             return current
+        if disable_plan_id is not None:
+            # REQ-AP-INH-003 "reapply category policy": when the caller supplies
+            # a Plan (built from preview_disable()'s simulation of removing this
+            # Policy), require it to be a real, preflight-validated canonical
+            # Plan for this exact Policy/revision -- the same guarantee
+            # activate() already requires, reusing the same repository check.
+            await self._repository.assert_activation_plan(
+                guild_id=guild_id,
+                policy_id=policy_id,
+                policy_revision=expected_revision,
+                plan_id=disable_plan_id,
+            )
         return await self._transition(
             current,
             actor_id,

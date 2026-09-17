@@ -322,6 +322,87 @@ async def test_activation_and_disable_are_idempotent_and_audited(policies_contex
 
 
 @pytest.mark.asyncio
+async def test_disable_requires_a_real_validated_plan_for_this_exact_policy_and_revision(
+    policies_context,
+) -> None:
+    """REQ-AP-INH-003 'reapply category policy': disabling an ACTIVE Policy
+    with a plan_id must be gated on a REAL, preflight-validated canonical
+    Plan for this exact Policy/revision -- the same guarantee activate()
+    already has, reusing the same repository check (assert_activation_plan)
+    against a real database row, not a mock."""
+
+    repository, _ = policies_context
+    factory = object.__getattribute__(repository, "_factory")
+    read_models = Stage04Repository(factory)
+    policy_service = PolicyService(repository, read_models=read_models)
+    policy_planning = PolicyPlanningService(policies=policy_service, read_models=read_models)
+    plans = PlanningRepository(factory)
+    planning = PlanningService(plans, read_models, policy_preflight=policy_planning)
+    policy_planning.bind_planning(planning)
+
+    draft = await _create(policy_service, GUILD_A, ACTOR_A, "disable-plan-chain")
+    repository.assert_activation_plan = AsyncMock(return_value={"id": uuid4()})  # type: ignore[method-assign]
+    active = await policy_service.activate(
+        GUILD_A, draft.policy_id, ACTOR_A, 1, "disable-plan-chain-activate", uuid4()
+    )
+    assert active.lifecycle_state is PolicyLifecycleState.ACTIVE
+    del repository.assert_activation_plan  # restore the real, unmocked method
+
+    preview = await policy_planning.preview_disable(
+        guild_id=GUILD_A, policy_id=active.policy_id, actor_user_id=ACTOR_A
+    )
+    assert preview.lifecycle_state is PolicyLifecycleState.ACTIVE
+
+    _, disable_plan, created, preflight = await policy_planning.create_disable_plan(
+        guild_id=GUILD_A,
+        policy_id=active.policy_id,
+        actor_user_id=ACTOR_A,
+        idempotency_key="disable-plan-once",
+        correlation_id=uuid4(),
+        expected_revision=2,
+    )
+    assert created and preflight.allowed
+    assert disable_plan["status"] == "VALIDATED"
+    assert disable_plan["source_policy_id"] == active.policy_id
+    assert int(disable_plan["source_policy_revision"]) == 2
+
+    with pytest.raises(PolicyLifecycleError):
+        await policy_service.disable(
+            GUILD_A, active.policy_id, ACTOR_A, 2, "reject-disable-unrelated-plan", uuid4()
+        )
+
+    disabled = await policy_service.disable(
+        GUILD_A,
+        active.policy_id,
+        ACTOR_A,
+        2,
+        "disable-from-validated-plan",
+        UUID(str(disable_plan["id"])),
+    )
+    assert disabled.lifecycle_state is PolicyLifecycleState.DISABLED
+    versions = await repository.versions(GUILD_A, active.policy_id)
+    assert [(value.revision, value.change_kind) for value in versions] == [
+        (1, "CREATE"),
+        (2, "ACTIVATE"),
+        (3, "DISABLE"),
+    ]
+
+    # Disabling without a plan_id at all remains supported (backward
+    # compatible): an ACTIVE policy can still be disabled unconditionally,
+    # exactly like before REQ-AP-INH-003 existed.
+    other = await _create(policy_service, GUILD_A, ACTOR_A, "disable-without-plan")
+    repository.assert_activation_plan = AsyncMock(return_value={"id": uuid4()})  # type: ignore[method-assign]
+    other_active = await policy_service.activate(
+        GUILD_A, other.policy_id, ACTOR_A, 1, "disable-without-plan-activate", uuid4()
+    )
+    del repository.assert_activation_plan
+    disabled_without_plan = await policy_service.disable(
+        GUILD_A, other_active.policy_id, ACTOR_A, 2, "disable-without-plan-once"
+    )
+    assert disabled_without_plan.lifecycle_state is PolicyLifecycleState.DISABLED
+
+
+@pytest.mark.asyncio
 async def test_accept_exception_persists_a_new_metadata_only_revision(policies_context) -> None:
     repository, service = policies_context
     created = await _create(service, GUILD_A, ACTOR_A, "exception-create")

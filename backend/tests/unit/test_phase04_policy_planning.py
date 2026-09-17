@@ -16,7 +16,7 @@ from did.application.policies.planning import (
 )
 from did.application.policies.service import PolicyService
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
-from did.domain.policies import Policy, PolicyLifecycleState, PolicyScopeType
+from did.domain.policies import Policy, PolicyLifecycleError, PolicyLifecycleState, PolicyScopeType
 from did.domain.read_model import (
     ChannelSnapshot,
     CoverageSnapshot,
@@ -245,6 +245,96 @@ async def test_preview_marks_critical_incomplete_member_facts_unknown() -> None:
     assert preview.entries[0].proposed.outcome is PolicyResolutionOutcome.UNKNOWN
     assert preview.impact.accuracy is ImpactAccuracy.INCOMPLETE
     assert "policy.member_roles_incomplete" in preview.entries[0].diagnostics
+
+
+@pytest.mark.asyncio
+async def test_preview_disable_requires_an_active_policy() -> None:
+    draft = _policy(70)  # DRAFT by default
+    orchestration, _, _ = _services((draft,))
+
+    with pytest.raises(PolicyLifecycleError):
+        await orchestration.preview_disable(
+            guild_id=GUILD, policy_id=draft.policy_id, actor_user_id=ACTOR
+        )
+
+
+@pytest.mark.asyncio
+async def test_preview_disable_reveals_the_inherited_policy_reasserting_itself() -> None:
+    # REQ-AP-INH-003: an ACTIVE, lower-priority "category" policy that ALLOWs,
+    # overridden by an ACTIVE, higher-priority "channel exception" that DENYs.
+    # Disabling the exception should let the category policy win again.
+    category_allow = _policy(71, state=PolicyLifecycleState.ACTIVE, decision="ALLOW", priority=0)
+    exception_deny = _policy(72, state=PolicyLifecycleState.ACTIVE, decision="DENY", priority=5)
+    orchestration, _, _ = _services((category_allow, exception_deny))
+
+    preview = await orchestration.preview_disable(
+        guild_id=GUILD, policy_id=exception_deny.policy_id, actor_user_id=ACTOR
+    )
+
+    entry = preview.entries[0]
+    assert entry.current.outcome is PolicyResolutionOutcome.CANNOT
+    assert entry.proposed.outcome is PolicyResolutionOutcome.CAN
+    assert entry.access_change is AccessChange.GAINED
+    assert preview.lifecycle_state is PolicyLifecycleState.ACTIVE
+    assert preview.persisted is False and preview.discord_mutations == 0
+
+
+@pytest.mark.asyncio
+async def test_preview_disable_of_the_only_policy_leaves_nothing_to_fall_back_to() -> None:
+    only_policy = _policy(73, state=PolicyLifecycleState.ACTIVE, decision="ALLOW")
+    orchestration, _, _ = _services((only_policy,))
+
+    preview = await orchestration.preview_disable(
+        guild_id=GUILD, policy_id=only_policy.policy_id, actor_user_id=ACTOR
+    )
+
+    entry = preview.entries[0]
+    assert entry.current.outcome is PolicyResolutionOutcome.CAN
+    assert entry.proposed.outcome is PolicyResolutionOutcome.CANNOT
+    assert entry.access_change is AccessChange.LOST
+
+
+@pytest.mark.asyncio
+async def test_create_disable_plan_compiles_through_the_same_canonical_pipeline() -> None:
+    category_allow = _policy(74, state=PolicyLifecycleState.ACTIVE, decision="ALLOW", priority=0)
+    exception_deny = _policy(75, state=PolicyLifecycleState.ACTIVE, decision="DENY", priority=5)
+    plan_id = uuid4()
+    captured: dict[str, object] = {}
+
+    async def create(**kwargs: object):
+        captured.update(kwargs)
+        return {"id": plan_id, "status": "DRAFT", "state_version": 1}, True
+
+    planning = SimpleNamespace(
+        create=AsyncMock(side_effect=create),
+        validate=AsyncMock(
+            return_value=(
+                {"id": plan_id, "status": "VALIDATED", "state_version": 2},
+                PreflightResult(True),
+            )
+        ),
+    )
+    orchestration, _, _ = _services((category_allow, exception_deny), planning=planning)
+
+    preview, plan, created, preflight = await orchestration.create_disable_plan(
+        guild_id=GUILD,
+        policy_id=exception_deny.policy_id,
+        actor_user_id=ACTOR,
+        idempotency_key="policy-disable-plan",
+        correlation_id=uuid4(),
+        expected_revision=1,
+    )
+
+    graph = captured["graph"]
+    provenance = captured["provenance"]
+    assert isinstance(graph, DesiredStateGraph)
+    assert graph.nodes[0].resource_type is ResourceType.OVERWRITE
+    assert isinstance(provenance, PlanProvenance)
+    # Provenance still points at the Policy being disabled, not the one it
+    # falls back to -- assert_activation_plan() keys on exactly this pair.
+    assert provenance.policy_id == exception_deny.policy_id and provenance.policy_revision == 1
+    assert plan["status"] == "VALIDATED" and created and preflight.allowed
+    assert preview.entries[0].access_change is AccessChange.GAINED
 
 
 @pytest.mark.asyncio

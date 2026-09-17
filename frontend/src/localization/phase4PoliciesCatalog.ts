@@ -86,6 +86,9 @@ const en = {
   'policies.preset.supportZone.supportGroup': 'Which roles form the support group?', 'policies.preset.supportZone.visibilityLabel': 'Who can see this zone?', 'policies.preset.supportZone.visibilityOpenOption': 'Everyone (open, default)', 'policies.preset.supportZone.visibilityPrivateOption': 'Only the support group',
   'policies.preset.supportZone.writeLabel': 'Who can write here?', 'policies.preset.supportZone.writeEveryoneOption': 'Everyone (default)', 'policies.preset.supportZone.writeSupportOnlyOption': 'Only the support group',
   'policies.preset.supportZone.rule.visibilityOpen': 'Visible to everyone', 'policies.preset.supportZone.rule.visibilityPrivate': 'Visible only to the support group: {{roles}}', 'policies.preset.supportZone.rule.writeEveryone': 'Everyone can write here', 'policies.preset.supportZone.rule.writeSupportOnly': 'Only the support group can write: {{roles}}',
+  'policies.reapply.action': 'Reapply category policy', 'policies.reapply.eyebrow': 'Category inheritance', 'policies.reapply.title': 'Reapply the category policy',
+  'policies.reapply.help': 'This channel-level policy currently overrides its category. Disabling it lets the category policy apply again — nothing changes until you confirm.',
+  'policies.reapply.preparePlan': 'Prepare the plan', 'policies.reapply.confirm': 'Confirm: reapply the category policy', 'policies.reapply.done': 'The category policy has been reapplied.',
 } as const
 
 const fr: Record<keyof typeof en, string> = {
@@ -177,6 +180,9 @@ const fr: Record<keyof typeof en, string> = {
   'policies.preset.supportZone.supportGroup': 'Quels rôles forment le groupe support ?', 'policies.preset.supportZone.visibilityLabel': 'Qui peut voir cette zone ?', 'policies.preset.supportZone.visibilityOpenOption': 'Tout le monde (ouvert, par défaut)', 'policies.preset.supportZone.visibilityPrivateOption': 'Uniquement le groupe support',
   'policies.preset.supportZone.writeLabel': 'Qui peut écrire ici ?', 'policies.preset.supportZone.writeEveryoneOption': 'Tout le monde (par défaut)', 'policies.preset.supportZone.writeSupportOnlyOption': 'Uniquement le groupe support',
   'policies.preset.supportZone.rule.visibilityOpen': 'Visible par tout le monde', 'policies.preset.supportZone.rule.visibilityPrivate': 'Visible uniquement par le groupe support : {{roles}}', 'policies.preset.supportZone.rule.writeEveryone': 'Tout le monde peut écrire ici', 'policies.preset.supportZone.rule.writeSupportOnly': 'Seul le groupe support peut écrire : {{roles}}',
+  'policies.reapply.action': 'Réappliquer la politique de catégorie', 'policies.reapply.eyebrow': 'Héritage de catégorie', 'policies.reapply.title': 'Réappliquer la politique de catégorie',
+  'policies.reapply.help': 'Cette politique au niveau du salon remplace actuellement celle de sa catégorie. La désactiver permet à la politique de catégorie de s’appliquer à nouveau — rien ne change avant votre confirmation.',
+  'policies.reapply.preparePlan': 'Préparer le plan', 'policies.reapply.confirm': 'Confirmer : réappliquer la politique de catégorie', 'policies.reapply.done': 'La politique de catégorie a été réappliquée.',
 }
 
 const de: Record<keyof typeof en, string> = {
@@ -245,6 +251,9 @@ const de: Record<keyof typeof en, string> = {
   'policies.preset.supportZone.supportGroup': 'Welche Rollen bilden die Support-Gruppe?', 'policies.preset.supportZone.visibilityLabel': 'Wer kann diesen Bereich sehen?', 'policies.preset.supportZone.visibilityOpenOption': 'Alle (offen, Standard)', 'policies.preset.supportZone.visibilityPrivateOption': 'Nur die Support-Gruppe',
   'policies.preset.supportZone.writeLabel': 'Wer darf hier schreiben?', 'policies.preset.supportZone.writeEveryoneOption': 'Alle (Standard)', 'policies.preset.supportZone.writeSupportOnlyOption': 'Nur die Support-Gruppe',
   'policies.preset.supportZone.rule.visibilityOpen': 'Für alle sichtbar', 'policies.preset.supportZone.rule.visibilityPrivate': 'Nur sichtbar für die Support-Gruppe: {{roles}}', 'policies.preset.supportZone.rule.writeEveryone': 'Alle dürfen hier schreiben', 'policies.preset.supportZone.rule.writeSupportOnly': 'Nur die Support-Gruppe darf schreiben: {{roles}}',
+  'policies.reapply.action': 'Kategorie-Richtlinie erneut anwenden', 'policies.reapply.eyebrow': 'Kategorie-Vererbung', 'policies.reapply.title': 'Die Kategorie-Richtlinie erneut anwenden',
+  'policies.reapply.help': 'Diese Richtlinie auf Kanalebene überschreibt derzeit die ihrer Kategorie. Wird sie deaktiviert, gilt die Kategorie-Richtlinie wieder — nichts ändert sich vor Ihrer Bestätigung.',
+  'policies.reapply.preparePlan': 'Plan vorbereiten', 'policies.reapply.confirm': 'Bestätigen: Kategorie-Richtlinie erneut anwenden', 'policies.reapply.done': 'Die Kategorie-Richtlinie wurde erneut angewendet.',
 }
 
 const es: Record<keyof typeof en, string> = {
@@ -308,6 +317,9 @@ const es: Record<keyof typeof en, string> = {
   'policies.preset.supportZone.supportGroup': '¿Qué roles forman el grupo de soporte?', 'policies.preset.supportZone.visibilityLabel': '¿Quién puede ver esta zona?', 'policies.preset.supportZone.visibilityOpenOption': 'Todos (abierto, por defecto)', 'policies.preset.supportZone.visibilityPrivateOption': 'Solo el grupo de soporte',
   'policies.preset.supportZone.writeLabel': '¿Quién puede escribir aquí?', 'policies.preset.supportZone.writeEveryoneOption': 'Todos (por defecto)', 'policies.preset.supportZone.writeSupportOnlyOption': 'Solo el grupo de soporte',
   'policies.preset.supportZone.rule.visibilityOpen': 'Visible para todos', 'policies.preset.supportZone.rule.visibilityPrivate': 'Visible solo para el grupo de soporte: {{roles}}', 'policies.preset.supportZone.rule.writeEveryone': 'Todos pueden escribir aquí', 'policies.preset.supportZone.rule.writeSupportOnly': 'Solo el grupo de soporte puede escribir: {{roles}}',
+  'policies.reapply.action': 'Reaplicar la política de categoría', 'policies.reapply.eyebrow': 'Herencia de categoría', 'policies.reapply.title': 'Reaplicar la política de categoría',
+  'policies.reapply.help': 'Esta política a nivel de canal anula actualmente la de su categoría. Al desactivarla, la política de categoría vuelve a aplicarse — nada cambia hasta que confirme.',
+  'policies.reapply.preparePlan': 'Preparar el plan', 'policies.reapply.confirm': 'Confirmar: reaplicar la política de categoría', 'policies.reapply.done': 'La política de categoría se ha reaplicado.',
 }
 
 export const phase4PoliciesPacks = { en, fr, de, es } as const

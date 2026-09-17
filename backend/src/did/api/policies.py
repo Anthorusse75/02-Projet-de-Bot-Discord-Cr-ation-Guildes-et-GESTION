@@ -56,6 +56,14 @@ class PolicyActivation(PolicyTransition):
     plan_id: UUID
 
 
+class PolicyDisable(PolicyTransition):
+    # REQ-AP-INH-003: optional -- when provided, must be a preflight-validated
+    # canonical Plan built from preview_disable()/disable-plan for this exact
+    # Policy/revision (see PolicyService.disable). Omitted, disable behaves
+    # exactly as before this requirement existed.
+    plan_id: UUID | None = None
+
+
 class PolicyAcceptException(PolicyTransition):
     other_policy_id: UUID
     reason: str | None = Field(default=None, max_length=500)
@@ -578,21 +586,87 @@ async def activate_policy(
 async def disable_policy(
     guild_id: str,
     policy_id: UUID,
-    body: PolicyTransition,
+    body: PolicyDisable,
     idempotency_key: IdempotencyKey,
     session: CsrfSessionDep,
     container: ServicesDep,
 ) -> dict[str, Any]:
-    return await _transition(
-        guild_id,
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
+    policy = await container.policies.disable(
+        parsed,
         policy_id,
-        body,
+        session.discord_user_id,
+        body.expected_revision,
         idempotency_key,
-        session,
-        container,
-        "disable",
-        Capability.POLICIES_ACTIVATE,
+        body.plan_id,
     )
+    return _policy(policy)
+
+
+@router.post("/{guild_id}/policies/{policy_id}/disable-preview")
+async def preview_policy_disable(
+    guild_id: str,
+    policy_id: UUID,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-INH-003: simulate disabling this ACTIVE Policy (e.g. a channel
+    exception) without persisting or mutating anything -- typically reveals
+    the inherited category policy that would apply once it is gone."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    preview = await container.policy_planning.preview_disable(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+    )
+    encoded = jsonable_encoder(preview)
+    assert isinstance(encoded, dict)
+    return encoded
+
+
+@router.post("/{guild_id}/policies/{policy_id}/disable-plan", status_code=status.HTTP_201_CREATED)
+async def plan_policy_disable(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyPlanRequest,
+    request: Request,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-INH-003: compile the disable simulation to the canonical
+    DSG/Plan and run canonical preflight -- the Policy itself is only
+    disabled afterwards, once this exact Plan is preflight-validated."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    preview, plan, created, preflight = await container.policy_planning.create_disable_plan(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+        idempotency_key=idempotency_key,
+        correlation_id=UUID(str(request.state.correlation_id)),
+        expected_revision=body.expected_revision,
+    )
+    encoded_preview = jsonable_encoder(preview)
+    assert isinstance(encoded_preview, dict)
+    return {
+        "created": created,
+        "preview": encoded_preview,
+        "plan": _plan_response(plan),
+        "preflight": {
+            "allowed": preflight.allowed,
+            "errors": list(preflight.errors),
+            "warnings": list(preflight.warnings),
+            "checked_capabilities": list(preflight.checked_capabilities),
+            "limits_version": preflight.limits_version,
+            "policy_explanations": list(preflight.policy_explanations),
+        },
+    }
 
 
 @router.post("/{guild_id}/policies/{policy_id}/accept-exception")

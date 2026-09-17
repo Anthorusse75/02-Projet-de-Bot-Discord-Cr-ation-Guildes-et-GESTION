@@ -45,6 +45,23 @@ class AccessChange(StrEnum):
     RESOLUTION_CHANGED = "RESOLUTION_CHANGED"
 
 
+class PreviewSimulation(StrEnum):
+    """What the proposed side of a preview simulates for the target Policy.
+
+    ACTIVATE (the historical, only behaviour before REQ-AP-INH-003): the
+    target Policy is forced ACTIVE in the proposed policy set, simulating
+    what happens once a DRAFT is activated.
+
+    DISABLE (REQ-AP-INH-003 "reapply category policy"): the target Policy is
+    entirely removed from the proposed policy set, simulating what happens
+    once an already-ACTIVE Policy is disabled -- typically revealing the
+    inherited category policy a channel-level exception was overriding.
+    """
+
+    ACTIVATE = "ACTIVATE"
+    DISABLE = "DISABLE"
+
+
 @dataclass(frozen=True, slots=True)
 class PolicyPreviewTarget:
     subject_id: int
@@ -164,6 +181,32 @@ class PolicyPlanningService:
             ]
         )
 
+    async def preview_disable(
+        self, *, guild_id: int, policy_id: UUID, actor_user_id: int
+    ) -> PolicyPreview:
+        """REQ-AP-INH-003: preview disabling an ACTIVE Policy (e.g. a channel
+        exception) so the admin sees exactly what falls back to an inherited
+        category policy before anything is changed. Reuses the same
+        candidate/resolve/diff machinery as the DRAFT preview -- only the
+        proposed policy set differs (this Policy removed, not forced ACTIVE)."""
+
+        current_policy = await self._policies.get(guild_id, policy_id)
+        if current_policy.lifecycle_state is not PolicyLifecycleState.ACTIVE:
+            raise PolicyLifecycleError("only an ACTIVE Policy can be previewed for disable")
+        policies, seed_pair, groups, cached_members = await self._load(
+            guild_id=guild_id, actor_user_id=actor_user_id
+        )
+        guild, seed_member = seed_pair
+        return await self._preview_loaded(
+            draft=current_policy,
+            policies=policies,
+            guild=guild,
+            seed_member=seed_member,
+            groups=groups,
+            cached_members=cached_members,
+            simulate=PreviewSimulation.DISABLE,
+        )
+
     async def _preview_loaded(
         self,
         *,
@@ -173,6 +216,7 @@ class PolicyPlanningService:
         seed_member: MemberSnapshot,
         groups: list[dict[str, Any]],
         cached_members: tuple[MemberSnapshot, ...],
+        simulate: PreviewSimulation = PreviewSimulation.ACTIVATE,
     ) -> PolicyPreview:
         members = await self._candidate_members(draft, cached_members, seed_member)
         resources = self._candidate_resources(draft, guild, groups)
@@ -186,14 +230,19 @@ class PolicyPlanningService:
         ]
         truncated = len(contexts) > MAX_POLICY_PREVIEW_CONTEXTS
         contexts = contexts[:MAX_POLICY_PREVIEW_CONTEXTS]
-        proposed_policies = tuple(
-            replace(policy, lifecycle_state=PolicyLifecycleState.ACTIVE)
-            if policy.policy_id == draft.policy_id
-            else policy
-            for policy in policies
-        )
-        if not any(policy.policy_id == draft.policy_id for policy in policies):
-            proposed_policies += (replace(draft, lifecycle_state=PolicyLifecycleState.ACTIVE),)
+        if simulate is PreviewSimulation.DISABLE:
+            proposed_policies = tuple(
+                policy for policy in policies if policy.policy_id != draft.policy_id
+            )
+        else:
+            proposed_policies = tuple(
+                replace(policy, lifecycle_state=PolicyLifecycleState.ACTIVE)
+                if policy.policy_id == draft.policy_id
+                else policy
+                for policy in policies
+            )
+            if not any(policy.policy_id == draft.policy_id for policy in policies):
+                proposed_policies += (replace(draft, lifecycle_state=PolicyLifecycleState.ACTIVE),)
         entries = tuple(
             self._entry(
                 current=self._policies.resolve_loaded(
@@ -315,6 +364,39 @@ class PolicyPlanningService:
             idempotency_key=idempotency_key,
             correlation_id=correlation_id,
             expected_revision=expected_revision,
+            simulate=PreviewSimulation.ACTIVATE,
+        )
+
+    async def create_disable_plan(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        idempotency_key: str,
+        correlation_id: UUID,
+        expected_revision: int,
+    ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
+        """REQ-AP-INH-003: compile preview_disable()'s simulation to the same
+        canonical DSG/Plan/preflight pipeline as any other Policy Plan --
+        disabling the Policy itself only happens afterwards, gated on this
+        exact Plan being preflight-validated (see PolicyService.disable)."""
+
+        if self._planning is None:
+            raise RuntimeError("canonical PlanningService is not configured")
+        preview = await self.preview_disable(
+            guild_id=guild_id, policy_id=policy_id, actor_user_id=actor_user_id
+        )
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        return await self._create_plan_from_preview(
+            guild_id=guild_id,
+            actor_user_id=actor_user_id,
+            preview=preview,
+            guild=guild,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
+            expected_revision=expected_revision,
+            simulate=PreviewSimulation.DISABLE,
         )
 
     async def create_plans(
@@ -358,6 +440,7 @@ class PolicyPlanningService:
         idempotency_key: str,
         correlation_id: UUID,
         expected_revision: int,
+        simulate: PreviewSimulation = PreviewSimulation.ACTIVATE,
     ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         if preview.policy_revision != expected_revision:
             raise PolicyLifecycleError("Policy revision changed before Plan creation")
@@ -378,6 +461,7 @@ class PolicyPlanningService:
             "preview_accuracy": preview.impact.accuracy.value,
             "preview_contexts": list(context_rows),
             "source_versions": list(preview.source_versions),
+            "simulate": simulate.value,
         }
         metadata["preview_fingerprint"] = canonical_hash(metadata)
         provenance = PlanProvenance.policy(
@@ -421,6 +505,7 @@ class PolicyPlanningService:
             return PolicyPreflightResult(True)
         assert provenance.policy_id is not None and provenance.policy_revision is not None
         metadata = provenance.metadata_map()
+        simulate = PreviewSimulation(metadata.get("simulate", PreviewSimulation.ACTIVATE.value))
         errors: set[str] = set()
         warnings: set[str] = set()
         if metadata.get("preview_accuracy") != ImpactAccuracy.EXACT.value:
@@ -431,13 +516,26 @@ class PolicyPlanningService:
         current = await self._policies.get(guild_id, provenance.policy_id)
         if not self._same_definition(source, current):
             errors.add("preflight.policy_revision_changed")
-        if require_active and current.lifecycle_state is not PolicyLifecycleState.ACTIVE:
-            errors.add("preflight.policy_not_active")
-        if not require_active and current.lifecycle_state not in {
-            PolicyLifecycleState.DRAFT,
-            PolicyLifecycleState.ACTIVE,
-        }:
-            errors.add("preflight.policy_not_eligible")
+        if simulate is PreviewSimulation.DISABLE:
+            # REQ-AP-INH-003: the terminal state a disable-Plan expects at
+            # apply-time is DISABLED, the mirror image of an activate-Plan
+            # expecting ACTIVE -- disable() already flipped the lifecycle
+            # before this Plan is ever applied.
+            if require_active and current.lifecycle_state is not PolicyLifecycleState.DISABLED:
+                errors.add("preflight.policy_not_disabled")
+            if not require_active and current.lifecycle_state not in {
+                PolicyLifecycleState.ACTIVE,
+                PolicyLifecycleState.DISABLED,
+            }:
+                errors.add("preflight.policy_not_eligible")
+        else:
+            if require_active and current.lifecycle_state is not PolicyLifecycleState.ACTIVE:
+                errors.add("preflight.policy_not_active")
+            if not require_active and current.lifecycle_state not in {
+                PolicyLifecycleState.DRAFT,
+                PolicyLifecycleState.ACTIVE,
+            }:
+                errors.add("preflight.policy_not_eligible")
         raw_contexts = metadata.get("preview_contexts", [])
         if not isinstance(raw_contexts, list) or len(raw_contexts) > MAX_POLICY_PREVIEW_CONTEXTS:
             return PolicyPreflightResult(False, ("preflight.policy_context_invalid",))
@@ -450,10 +548,15 @@ class PolicyPlanningService:
         guild, _ = seed_pair
         members = await self._read_models.member_snapshots(guild_id, subject_ids)
         members_by_id = {member.user_id: member for member in members}
-        evaluated_policies = (
-            *(policy for policy in policies if policy.policy_id != provenance.policy_id),
-            replace(source, lifecycle_state=PolicyLifecycleState.ACTIVE),
-        )
+        if simulate is PreviewSimulation.DISABLE:
+            evaluated_policies = tuple(
+                policy for policy in policies if policy.policy_id != provenance.policy_id
+            )
+        else:
+            evaluated_policies = (
+                *(policy for policy in policies if policy.policy_id != provenance.policy_id),
+                replace(source, lifecycle_state=PolicyLifecycleState.ACTIVE),
+            )
         explanations: list[dict[str, Any]] = []
         for item in raw_contexts:
             member = members_by_id.get(int(item["subject_id"]))

@@ -1301,6 +1301,30 @@ export interface paths {
         patch: operations["update_policy_api_v1_guilds__guild_id__policies__policy_id__patch"];
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-exception": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Policy Exception
+         * @description Document an intentional exception (REQ-AP-VIS-017) on this Policy's metadata.
+         *
+         *     No mutation of conditions/effects/scope/lifecycle: only a new, audited
+         *     metadata revision so the conflict this Policy has with ``other_policy_id``
+         *     shows up as "exception voulue" instead of a silent conflict.
+         */
+        post: operations["accept_policy_exception_api_v1_guilds__guild_id__policies__policy_id__accept_exception_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/activate": {
         parameters: {
             query?: never;
@@ -1329,6 +1353,50 @@ export interface paths {
         put?: never;
         /** Disable Policy */
         post: operations["disable_policy_api_v1_guilds__guild_id__policies__policy_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Policy Disable
+         * @description REQ-AP-INH-003: compile the disable simulation to the canonical
+         *     DSG/Plan and run canonical preflight -- the Policy itself is only
+         *     disabled afterwards, once this exact Plan is preflight-validated.
+         */
+        post: operations["plan_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Policy Disable
+         * @description REQ-AP-INH-003: simulate disabling this ACTIVE Policy (e.g. a channel
+         *     exception) without persisting or mutating anything -- typically reveals
+         *     the inherited category policy that would apply once it is gone.
+         */
+        post: operations["preview_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2861,6 +2929,18 @@ export interface components {
          * @enum {string}
          */
         PlatformRole: "OWNER" | "TENANT_ADMIN" | "READ_ONLY";
+        /** PolicyAcceptException */
+        PolicyAcceptException: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Other Policy Id
+             * Format: uuid
+             */
+            other_policy_id: string;
+            /** Reason */
+            reason?: string | null;
+        };
         /** PolicyActivation */
         PolicyActivation: {
             /** Expected Revision */
@@ -2904,6 +2984,13 @@ export interface components {
             /** Scope Id */
             scope_id?: string | null;
             scope_type: components["schemas"]["PolicyScopeType"];
+        };
+        /** PolicyDisable */
+        PolicyDisable: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Plan Id */
+            plan_id?: string | null;
         };
         /** PolicyPatch */
         PolicyPatch: {
@@ -6566,6 +6653,46 @@ export interface operations {
             };
         };
     };
+    accept_policy_exception_api_v1_guilds__guild_id__policies__policy_id__accept_exception_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyAcceptException"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     activate_policy_api_v1_guilds__guild_id__policies__policy_id__activate_post: {
         parameters: {
             query?: never;
@@ -6620,9 +6747,83 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PolicyTransition"];
+                "application/json": components["schemas"]["PolicyDisable"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_plan_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

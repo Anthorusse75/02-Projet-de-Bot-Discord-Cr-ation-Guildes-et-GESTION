@@ -1405,6 +1405,39 @@
         "title": "PlatformRole",
         "type": "string"
       },
+      "PolicyAcceptException": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "other_policy_id": {
+            "format": "uuid",
+            "title": "Other Policy Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "other_policy_id"
+        ],
+        "title": "PolicyAcceptException",
+        "type": "object"
+      },
       "PolicyActivation": {
         "additionalProperties": false,
         "properties": {
@@ -1508,6 +1541,33 @@
           "contract_version"
         ],
         "title": "PolicyCreate",
+        "type": "object"
+      },
+      "PolicyDisable": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "PolicyDisable",
         "type": "object"
       },
       "PolicyPatch": {
@@ -8004,6 +8064,82 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-exception": {
+      "post": {
+        "description": "Document an intentional exception (REQ-AP-VIS-017) on this Policy's metadata.\n\nNo mutation of conditions/effects/scope/lifecycle: only a new, audited\nmetadata revision so the conflict this Policy has with ``other_policy_id``\nshows up as \"exception voulue\" instead of a silent conflict.",
+        "operationId": "accept_policy_exception_api_v1_guilds__guild_id__policies__policy_id__accept_exception_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyAcceptException"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Accept Policy Exception Api V1 Guilds  Guild Id  Policies  Policy Id  Accept Exception Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Policy Exception",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/activate": {
       "post": {
         "operationId": "activate_policy_api_v1_guilds__guild_id__policies__policy_id__activate_post",
@@ -8118,7 +8254,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PolicyTransition"
+                "$ref": "#/components/schemas/PolicyDisable"
               }
             }
           },
@@ -8149,6 +8285,137 @@
           }
         },
         "summary": "Disable Policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable-plan": {
+      "post": {
+        "description": "REQ-AP-INH-003: compile the disable simulation to the canonical\nDSG/Plan and run canonical preflight -- the Policy itself is only\ndisabled afterwards, once this exact Plan is preflight-validated.",
+        "operationId": "plan_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Plan Policy Disable Api V1 Guilds  Guild Id  Policies  Policy Id  Disable Plan Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Policy Disable",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable-preview": {
+      "post": {
+        "description": "REQ-AP-INH-003: simulate disabling this ACTIVE Policy (e.g. a channel\nexception) without persisting or mutating anything -- typically reveals\nthe inherited category policy that would apply once it is gone.",
+        "operationId": "preview_policy_disable_api_v1_guilds__guild_id__policies__policy_id__disable_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Policy Disable Api V1 Guilds  Guild Id  Policies  Policy Id  Disable Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Policy Disable",
         "tags": [
           "policies"
         ]
