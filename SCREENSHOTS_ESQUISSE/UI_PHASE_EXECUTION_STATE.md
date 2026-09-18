@@ -23,9 +23,14 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current verified SHA: 80c1535b4e2c0fc4dcf21c418b3d2a6622ced91f
+Current HEAD: 04e4c8c0173e92736a19ef528344bbe3d6e8b60c
 
-Session start: 2026-09-16, working tree clean, HEAD == expected SHA.
+Current independently verified SHA: db5c880 (P4-T013 tracker handoff). The
+P4-T014 checkpoint at current HEAD is committed and pushed but still requires
+the targeted revalidation and UI completion recorded below.
+
+Session resumed: 2026-09-18, working tree clean, branch and HEAD match the
+handoff (`ui/complete-redesign` / `04e4c8c`).
 
 ## Allowed task statuses
 
@@ -617,32 +622,59 @@ handoff section for the exact commands — the default env var name is
 cost real time to discover and is worth not rediscovering).
 
 ### P4-T014 — Locked policy / drift / reconciler
-Status: TODO
+Status: IN_PROGRESS
 Purpose: REQ-AP-LOCK-001..006 — the largest remaining architectural piece.
-Depends on: reconciler/worker Explore agent findings (in progress).
-Remaining: everything — "locked" flag on Policy, event-driven drift
-detection (Discord gateway event → check locked policies affected → auto
-repair via canonical Plan/Apply, no manual confirmation needed as long as
-capabilities remain valid), periodic reconciliation as a safety net, audit
-with initiator `POLICY_RECONCILER`, fail-closed "needs intervention" state
-when auto-repair impossible, and for NON-locked policies: drift shown with
-"Repair" / "Accept exception" actions.
+Checkpoint commit: `04e4c8c wip(phase4): checkpoint locked policy reconciler`.
+Already implemented in that checkpoint:
+- migration `0040_ui_phase4_policy_lock.py` and persisted `Policy.locked`;
+- lock/unlock application service and HTTP routes;
+- desired Policy versus observed Discord drift detection, drift-preview and
+  drift-plan routes;
+- `PolicyPlanningService` REASSERT simulation, compiled through the existing
+  DSG/Plan pipeline;
+- `PolicyReconcilerService`, runtime/worker wiring and integration with the
+  existing `RECONCILE_STRUCTURE` job;
+- automatic repair orchestration for locked Policies, reconciler audit and
+  Policy annotation, including `POLICY_RECONCILER` attribution;
+- fail-closed handling for incomplete member inventories (a defect found and
+  fixed while exercising the real integration path);
+- unit coverage, real PostgreSQL integration coverage and regenerated
+  OpenAPI/TypeScript types.
+Files in checkpoint: `backend/alembic/versions/0040_ui_phase4_policy_lock.py`,
+`backend/src/did/api/policies.py`,
+`backend/src/did/application/policies/{planning,reconciler,service}.py`,
+`backend/src/did/domain/policies.py`,
+`backend/src/did/infrastructure/policies_repository.py`,
+`backend/src/did/policies/drift.py`, `backend/src/did/runtime.py`,
+`backend/src/did/worker/io/worker.py`,
+`backend/tests/{unit,integration}/test_phase04_policy_*`,
+`backend/tests/unit/test_stage03_worker_scheduler.py`, `frontend/openapi.json`,
+`frontend/src/api/openapi.d.ts`.
+Tests reported green at checkpoint creation (not yet independently rerun by
+the resumed session): 20 targeted drift/reconciler unit tests; 2 real
+PostgreSQL reconciler tests; 12 existing real PostgreSQL Policy tests; Ruff;
+targeted mypy.
+Remaining before DONE:
+- inspect the implementation against every REQ-AP-LOCK-001..006 criterion,
+  especially the real event-driven trigger versus the existing
+  `RECONCILE_STRUCTURE` path, periodic fallback, locked-only auto-repair,
+  impossible-repair `INTERVENTION_REQUIRED`, and absence of Discord mutation
+  outside canonical Plan execution;
+- implement the missing Policies UI: prominent locked state and lock/unlock,
+  compliance/drift state and human cause, Repair/Accept exception for unlocked
+  Policies, actionable intervention state, automatic-repair status for locked
+  Policies, with Discord details secondary/collapsible;
+- add/adjust focused UI tests and rerun the targeted backend/PostgreSQL checks;
+- perform the required desktop/mobile visual inspection against Esquisse 1.
 NEXT EXACT ACTION:
-1. Read the findings from the backgrounded Explore agent on existing
-   gateway-event/reconciliation-loop/worker infrastructure before designing
-   anything.
-2. Add `locked: bool` to the Policy aggregate (migration) if not already
-   representable.
-3. Reuse the existing Discord gateway event pipeline (if one exists) to
-   trigger a targeted re-resolution of affected locked Policies; compile any
-   drift-correcting effect through the canonical Plan/Apply path with
-   initiator `POLICY_RECONCILER`.
-4. Add the periodic safety-net job on the existing worker/scheduler (not a
-   new one).
-5. UI: locked badge, drift banner, "Repair"/"Accept exception" for unlocked,
-   "Needs intervention" actionable state for failed auto-repair on locked.
-6. Tests per REQ-AP-TST-005: mutation externe → détection → remise en
-   conformité, and a reconciliation-failure test.
+1. Inspect the checkpoint implementation and tests line by line against
+   REQ-AP-LOCK-001..006; record/fix only concrete backend gaps.
+2. Build the Policies UI on the existing endpoints/types, including every
+   state listed above and EN/FR/DE/ES copy; keep raw Discord details folded.
+3. Add focused Vitest/Playwright coverage for lock/unlock, unlocked drift
+   Repair/Accept exception, locked automatic repair and intervention.
+4. Rerun targeted unit/PostgreSQL/lint/type/i18n checks, then run the visual
+   desktop/mobile pass before deciding whether P4-T014 is DONE.
 
 ### P4-T015 — ALL-role continuous maintenance (depends on P4-T014)
 Status: DEFERRED
@@ -771,18 +803,18 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-17, mid-session after P4-T013.
+Last updated: 2026-09-18, resumed after the P4-T014 WIP checkpoint.
 
-Current HEAD: `c21482f` (feat(policies): reapply category master policy to a channel exception (REQ-AP-INH-003))
+Current HEAD: `04e4c8c0173e92736a19ef528344bbe3d6e8b60c`
+(`wip(phase4): checkpoint locked policy reconciler`).
 
-Worktree state: clean, not yet pushed to origin (push after this update).
+Worktree state at resumption: clean; branch is up to date with
+`origin/ui/complete-redesign`. This tracker reconciliation is the first local
+change after resumption.
 
-Task IN_PROGRESS: none — P4-T013 just closed DONE. Next up per backlog
-order: P4-T012 (temporary access) or P4-T014 (locked policy/drift/
-reconciler) — both are large, share the reconciler/scheduler research
-already captured further below, and P4-T014 arguably comes first since
-P4-T015 (ALL-role continuous maintenance) explicitly depends on it existing
-first, and REQ-AP-LOCK-* is the single largest remaining MUST family.
+Task IN_PROGRESS: P4-T014 — backend/runtime/API checkpoint exists at
+`04e4c8c`; UI completion, criterion-by-criterion inspection and independent
+targeted revalidation remain. Do not restart the task or remove the checkpoint.
 
 Docker/Postgres test env: torn down at the end of this sub-session
 (`docker compose -f compose.test.yaml down --volumes`). It is NOT running
@@ -806,52 +838,24 @@ a confusing connection-refused with no hint of the real cause; (c) the
 `integration` pytest marker is skipped by default
 (`backend/tests/integration/conftest.py`) unless `DID_RUN_INTEGRATION=1`.
 
-Just done (this sub-session, P4-T013):
-1. Extended the Policy preview/plan pipeline with a symmetric "disable"
-   simulation (`PreviewSimulation` enum) reusing ~everything from the
-   existing activate/DRAFT-preview path.
-2. Found and fixed a real cross-component bug via a REAL PostgreSQL
-   integration test (not caught by any mocked unit test): `evaluate_plan()`
-   hardcoded "force ACTIVE" for every Policy-provenance Plan, which would
-   have wrongly rejected every real disable-plan at the canonical preflight
-   recheck stage. Fixed by stamping `simulate` into the Plan's own
-   tamper-checked provenance metadata.
-3. Built the "Reapply category policy" UI end to end (preview → plan →
-   explicit confirm), wired only for a single target (see P4-T013's Known
-   limitations for the multi-select variant, not attempted).
+Already implemented at current checkpoint: see P4-T014's dedicated section
+above for the exact backend/runtime/API/files/tests inventory.
 
-Files modified this sub-session (P4-T013):
-- `backend/src/did/application/policies/planning.py`,
-  `backend/src/did/application/policies/service.py`,
-  `backend/src/did/api/policies.py`,
-  `backend/tests/unit/test_phase04_policy_planning.py`,
-  `backend/tests/integration/test_phase04_policies_postgres.py`,
-  `frontend/src/features/policies/PoliciesScreen.tsx`,
-  `frontend/src/localization/phase4PoliciesCatalog.ts`,
-  `frontend/openapi.json`, `frontend/src/api/openapi.d.ts`,
-  `frontend/e2e/phase04-reapply-category-policy.spec.ts` (new)
-  (all in commit c21482f)
+Tests already reported by the interrupted session: 20 targeted unit tests,
+2 real PostgreSQL reconciler tests, 12 existing PostgreSQL Policy tests,
+Ruff and targeted mypy — all PASS. These are handoff evidence, not yet an
+independent rerun by this resumed session.
 
-Tests already run this sub-session (P4-T013): 4 new backend unit tests + 1
-new real PostgreSQL integration test, Ruff/mypy clean, full backend Phase 4
-policy suite green (84 unit + 12 integration), OpenAPI regenerated/checked,
-frontend typecheck/lint(3 pre-existing unrelated errors)/i18n clean, full
-Vitest suite (96 passed / 1 pre-existing unrelated failure), all 20 Phase 4
-Playwright specs green.
-
-Tests remaining: everything for P4-T012/P4-T014 onward.
+Tests remaining: focused frontend unit/E2E and visual tests for the complete
+locked/drift experience, followed by the targeted backend/PostgreSQL rerun.
 
 NEXT EXACT ACTION:
-1. `git push` this commit and the tracker doc to `origin/ui/complete-redesign`.
-2. Start P4-T014 (locked policy/drift/reconciler) — see its own section for
-   the concrete first step, and re-read the "Reconciler/scheduler research
-   findings" subsection further below before writing any code (it has exact
-   file paths for the reusable event-driven + periodic-fallback pattern,
-   the worker process to extend, and the audit-actor precedent).
-3. P4-UI-000's remaining screens (conflict panel, Named Audience editor,
-   expert mode, matrix cell dialog, zone panel + preset panel + reapply
-   panel at mobile width) still need a screenshot pass before Phase 4 can
-   close — tracked in P4-UI-000's own NEXT EXACT ACTION, not duplicated here.
+1. Review `drift.py`, `reconciler.py`, the REASSERT planning path, worker and
+   runtime wiring, routes and tests against REQ-AP-LOCK-001..006.
+2. Implement the missing UI in `PoliciesScreen.tsx` and Phase 4 localization,
+   using the existing checkpoint endpoints and generated types.
+3. Validate lock/unlock/drift/Repair/Accept exception/automatic repair/
+   intervention and verify no Discord mutation path bypasses canonical Plans.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
