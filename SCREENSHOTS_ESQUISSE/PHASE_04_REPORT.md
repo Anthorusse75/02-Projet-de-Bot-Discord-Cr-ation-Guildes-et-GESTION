@@ -939,3 +939,33 @@ resolve_access_explained), `infrastructure/policies_repository.py` (annotate),
 `PoliciesScreen.tsx`, `api/types.ts`, `localization/phase4PoliciesCatalog.ts`,
 nouveau `e2e/phase04-zones-and-conflicts.spec.ts`. Une seule migration réelle
 (`0039`, élargissement d'un `CHECK` existant) ; aucun secret.
+
+## 19. Lot « Policy verrouillée, drift et réconciliation » — 2026-09-18
+
+`REQ-AP-LOCK-001..006` est livré. Une Policy ACTIVE peut être verrouillée ou
+déverrouillée ; son intention est comparée à l’état Discord observé, sans
+lecture directe Discord dans le frontend. Un changement externe de salon,
+rôle ou membre reçu par Gateway coalesce durablement un job
+`RECONCILE_STRUCTURE`; le scheduler adaptatif conserve le rôle de filet de
+sécurité périodique, et les événements attendus d’un Plan DID sont exclus pour
+éviter une boucle.
+
+Une dérive verrouillée crée, confirme puis met en file un Plan `REASSERT`
+canonique. Le worker existant reste le seul chemin de mutation : governor,
+préflight final, adaptateur Discord et post-vérification sont conservés. Le
+marquage `repaired` n’est écrit qu’après succès terminal vérifié ; une erreur
+terminale ou des données incomplètes donnent `intervention_required`. Le
+préflight échoue fermé si la Policy a été déverrouillée entre-temps. Une
+Policy non verrouillée propose soit un Plan de réparation à confirmer dans
+Plans, soit l’acceptation auditée de la dérive exacte par empreinte.
+
+L’écran Policies expose l’état verrouillé, la conformité, la cause humaine de
+la dérive, la réparation automatique ou l’intervention requise. Les détails
+Discord bruts restent repliés. Les actions et états sont traduits en
+EN/FR/DE/ES et ont été inspectés à 1440x900 et 390x844 contre Esquisse 1.
+
+Preuves : 31 tests unitaires ciblés, 16 intégrations PostgreSQL réelles et 9
+scénarios Playwright passent, ainsi que Ruff, mypy, TypeScript, ESLint, i18n et
+la vérification OpenAPI. L’intégration couvre le chemin événement Gateway →
+job durable → Plan canonique réellement exécuté → annotation terminale. Aucun
+APPLY Discord live n’a été lancé.
