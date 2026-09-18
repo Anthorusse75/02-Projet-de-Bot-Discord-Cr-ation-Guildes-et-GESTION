@@ -23,11 +23,11 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: 1eeb85588e644b978be9407e0a4fe5ca96be92ae
+Current HEAD: a97c896a9e930936ed1fad22d2ebed175bc2f0bb
 
-Current independently verified SHA: `1eeb855` (P4-T014 implementation). The
-tracker/report completion commit is the only pending local documentation at
-the time of this update.
+Current independently verified SHA: `a97c896` (P4-T014 completion tracker).
+P4-T015 implementation evidence and documentation are pending in the current
+worktree.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -238,15 +238,13 @@ allow accepting a blacklist bypass as a documented exception.
 Requirements covered: REQ-AP-ZONE-010/011/012, REQ-AP-ZONE-020/021/022/023,
 REQ-AP-ZONE-040/041, REQ-AP-ZONE-060/061, REQ-AP-VIS-011/012/013,
 REQ-AP-VIS-017, REQ-AP-WRI-011 → CONFORME.
-Partial (documented, not over-claimed): REQ-AP-ZONE-030/031/032 (real OR
-composition + live re-evaluation; no continuous re-verification of an
-already-generated Plan without a reconciler), REQ-AP-ZONE-050 (covered),
-REQ-AP-ZONE-051/052 (exact translation only at Plan-generation time; no
-continuously-maintained combination role — deliberately not built to avoid
-prohibited unmaintained hacks; needs the future reconciler, see P4-T014/T015),
-REQ-AP-VIS-004 (role-vs-role cause covered; ADMINISTRATOR/raw member
-overwrite/category inheritance not yet unified in the same explanation — see
-P4-T016).
+The former P4-T009 limitation on `REQ-AP-ZONE-051/052` is closed by P4-T015:
+fresh member-role Gateway projection plus locked-Policy reconciliation
+regenerates the exact per-member overwrite Plan for ALL. No combination role
+is needed. `REQ-AP-ZONE-030/031/032` benefits from the same reconciler path.
+Still partial: REQ-AP-VIS-004 (role-vs-role cause covered;
+ADMINISTRATOR/raw member overwrite/category inheritance not yet unified in
+the same explanation — see P4-T016).
 Still open, not attempted this lot: REQ-AP-ZONE-001/002/003 (public zone +
 linked staff space via Logical Group — see P4-T010), REQ-AP-PRS-*
 (composed presets — see P4-T011), REQ-AP-CFL-005/006 (role optimization —
@@ -669,16 +667,33 @@ Evidence:
   P4-UI-000. No Discord live APPLY was run.
 
 ### P4-T015 — ALL-role continuous maintenance (depends on P4-T014)
-Status: IN_PROGRESS
+Status: DONE
 Purpose: REQ-AP-ZONE-051/052 — once the reconciler exists, re-evaluate
 whether a continuously-maintained technical combination role is actually
 needed, or whether periodic Plan regeneration via the reconciler is enough.
 Depends on: P4-T014 is DONE at `1eeb855`.
-NEXT EXACT ACTION: prove whether `GUILD_MEMBER_UPDATE` triggers the same
-durable reconciliation path and whether REASSERT recompiles ALL from the
-fresh complete member-role inventory. If both hold, close as "technical role
-not needed; reconciler + Plan regeneration suffices" with focused tests. If
-either does not hold, implement the missing canonical Plan behavior only.
+Decision: a technical combination role is not needed. `GUILD_MEMBER_UPDATE`
+is projected into the canonical member-role cache before it coalesces the
+durable reconciliation job. REASSERT then evaluates ALL against that fresh,
+complete inventory and compiles the existing exact per-member overwrite Plan.
+Adding a shadow role would duplicate membership state, require a second role
+assignment reconciler and add Discord hierarchy/capability failure modes
+without improving the supported result. The periodic scheduler remains the
+lost-event fallback. If the inventory is incomplete or the exact preview is
+bounded, the existing lock reconciler fails closed to intervention rather
+than guessing or creating an unmaintained role.
+UI/diagnostic consequence: none; because no technical role is created, there
+is no hidden artifact to expose in expert diagnostics. The ordinary Policy
+and Plan diagnostics remain the truthful source.
+Evidence:
+- real PostgreSQL integration projects an external `GUILD_MEMBER_UPDATE`,
+  verifies the two-role cache value and durable `RECONCILE_STRUCTURE` job,
+  then proves the locked ALL Policy schedules a canonical Plan containing
+  only the target member overwrite;
+- focused unit proof covers both directions: gaining the last required role
+  produces `GAINED/CAN`, losing one required role produces `LOST/CANNOT`;
+- 32 targeted reconciliation unit tests and 17 real PostgreSQL
+  Policy/reconciler tests PASS; Ruff and `git diff --check` PASS.
 
 ### P4-T016 — Complete conflict resolution (CFL family + VIS-004 unification)
 Status: TODO
@@ -794,18 +809,18 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-18, after P4-T014 completion.
+Last updated: 2026-09-18, after P4-T015 completion.
 
-Current HEAD: `1eeb85588e644b978be9407e0a4fe5ca96be92ae`
-(`feat(policies): complete locked policy reconciliation`).
+Current HEAD: `a97c896a9e930936ed1fad22d2ebed175bc2f0bb`
+(`docs(ui-phase4): record P4-T014 completion`).
 
-Worktree state: only this tracker/report completion update is pending after
-the P4-T014 implementation commit.
+Worktree state: P4-T015 focused tests and this tracker/report update are
+pending as one atomic task commit.
 
-Task DONE: P4-T014. Next task IN_PROGRESS: P4-T015 — reassess ALL-role
-continuous maintenance now that the reconciler exists.
+Tasks DONE: P4-T014 and P4-T015. Next exact backlog task: P4-T016 — complete
+conflict resolution and VIS-004 cause unification.
 
-Docker/Postgres test env: currently running for the P4-T015 follow-on. Before
+Docker/Postgres test env: currently running for the P4-T016 follow-on. Before
 any future integration test if it has been torn down:
 ```
 docker compose -f compose.test.yaml up -d --wait
@@ -830,9 +845,13 @@ P4-T014 evidence: 31 targeted unit tests, 16 real PostgreSQL integration
 tests, 9 Playwright tests, Ruff, mypy, TypeScript, ESLint, i18n and OpenAPI all
 PASS. Visual desktop/mobile pass also complete. See its dedicated section.
 
-NEXT EXACT ACTION: execute P4-T015's focused proof for member-role-change
-events and ALL-role REASSERT compilation; then record the architecture
-decision and evidence before moving to P4-T016.
+P4-T015 evidence: 32 targeted reconciliation unit tests and 17 real
+PostgreSQL Policy/reconciler integration tests PASS. The technical-role
+decision and exact behavior are recorded in its dedicated section.
+
+NEXT EXACT ACTION: start P4-T016 from its listed cause-unification step;
+preserve the single canonical resolver and keep optimization as a separate
+previewable Plan-only flow.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 

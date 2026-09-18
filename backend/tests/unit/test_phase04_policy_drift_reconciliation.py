@@ -36,6 +36,7 @@ GUILD = 996_001
 ACTOR = 996_011
 MEMBER = 996_021
 ROLE = 996_031
+ROLE_B = 996_032
 CHANNEL = 996_101
 NOW = datetime(2026, 9, 17, tzinfo=UTC)
 VIEW_BIT = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
@@ -175,6 +176,52 @@ async def test_detect_drift_reveals_an_externally_removed_overwrite() -> None:
     assert entry.proposed.outcome is PolicyResolutionOutcome.CAN
     assert entry.access_change is AccessChange.GAINED
     assert preview.impact.access_gains == 1
+
+
+@pytest.mark.asyncio
+async def test_all_role_drift_tracks_both_membership_gain_and_loss_without_shadow_role() -> None:
+    policy = replace(
+        _policy(locked=True),
+        conditions=(
+            {
+                "kind": "ROLE_MATCH",
+                "match": "ALL",
+                "role_ids": [str(ROLE), str(ROLE_B)],
+            },
+        ),
+    )
+
+    gained_guild, gained_member = _facts(real_overwrite_allow=0)
+    gained_guild = replace(
+        gained_guild,
+        roles=(
+            *gained_guild.roles,
+            RoleSnapshot(GUILD, ROLE_B, "reviewers", 2, 0, False, gained_guild.freshness),
+        ),
+        coverage=replace(gained_guild.coverage, known_roles=3),
+    )
+    gained_member = replace(gained_member, role_ids=(ROLE, ROLE_B))
+    gained = await _services(policy, gained_guild, gained_member).detect_drift(
+        guild_id=GUILD, policy_id=policy.policy_id, actor_user_id=ACTOR
+    )
+
+    lost_guild, lost_member = _facts(real_overwrite_allow=VIEW_BIT)
+    lost_guild = replace(
+        lost_guild,
+        roles=(
+            *lost_guild.roles,
+            RoleSnapshot(GUILD, ROLE_B, "reviewers", 2, 0, False, lost_guild.freshness),
+        ),
+        coverage=replace(lost_guild.coverage, known_roles=3),
+    )
+    lost = await _services(policy, lost_guild, lost_member).detect_drift(
+        guild_id=GUILD, policy_id=policy.policy_id, actor_user_id=ACTOR
+    )
+
+    assert gained.entries[0].access_change is AccessChange.GAINED
+    assert gained.entries[0].proposed.outcome is PolicyResolutionOutcome.CAN
+    assert lost.entries[0].access_change is AccessChange.LOST
+    assert lost.entries[0].proposed.outcome is PolicyResolutionOutcome.CANNOT
 
 
 @pytest.mark.asyncio

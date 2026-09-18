@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from did.application.discord_runtime import normalize_gateway_dispatch
-from did.application.planning.service import PlanningService
+from did.application.planning.service import PlanningService, graph_from_json
 from did.application.policies.planning import PolicyPlanningService
 from did.application.policies.reconciler import PolicyReconcilerService, ReconcileOutcome
 from did.application.policies.service import POLICY_RECONCILER_ACTOR_ID, PolicyService
@@ -35,7 +35,7 @@ from did.infrastructure.policies_repository import PoliciesRepository
 from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
-from did.planning.models import PlanState
+from did.planning.models import PlanState, ResourceType
 from did.tenancy import TenantContext
 from did.worker.io.plan_executor import ApplyPlanExecutor
 
@@ -53,6 +53,7 @@ GUILD = 884_005_001
 ACTOR = 884_005_011
 BOT = 884_005_021
 ROLE = 884_005_031
+ROLE_B = 884_005_032
 MEMBER = 884_005_041
 CHANNEL = 884_005_101
 BOT_ROLE = 884_005_061
@@ -105,7 +106,7 @@ async def reconciler_context() -> AsyncIterator[_ReconcilerContext]:
                     "INSERT INTO discord_cache_coverage "
                     "(guild_id,coverage_mode,freshness_state,known_channels,"
                     "visible_channels,known_roles,members_complete) "
-                    "VALUES (:guild_id,'FULL','FRESH',1,1,3,true)"
+                    "VALUES (:guild_id,'FULL','FRESH',1,1,4,true)"
                 ),
                 {"guild_id": GUILD},
             )
@@ -118,12 +119,15 @@ async def reconciler_context() -> AsyncIterator[_ReconcilerContext]:
                     "CAST('{}' AS jsonb),now()),"
                     "(:guild_id,:role_id,'managers',1,0,false,0,false,false,"
                     "CAST('{}' AS jsonb),now()),"
-                    "(:guild_id,:bot_role_id,'bot',2,:bot_permissions,false,0,false,false,"
+                    "(:guild_id,:role_b,'reviewers',2,0,false,0,false,false,"
+                    "CAST('{}' AS jsonb),now()),"
+                    "(:guild_id,:bot_role_id,'bot',3,:bot_permissions,false,0,false,false,"
                     "CAST('{}' AS jsonb),now())"
                 ),
                 {
                     "guild_id": GUILD,
                     "role_id": ROLE,
+                    "role_b": ROLE_B,
                     "bot_role_id": BOT_ROLE,
                     # A dedicated bot-only role (never @everyone/managers, which
                     # must stay at 0 -- MEMBER's VIEW must come solely from the
@@ -199,7 +203,13 @@ async def reconciler_context() -> AsyncIterator[_ReconcilerContext]:
         await admin_engine.dispose()
 
 
-async def _create_active_locked_policy(repository: PoliciesRepository, service: PolicyService):
+async def _create_active_locked_policy(
+    repository: PoliciesRepository,
+    service: PolicyService,
+    *,
+    match: str = "ANY",
+    role_ids: tuple[int, ...] = (ROLE,),
+):
     draft = await service.create_draft(
         guild_id=GUILD,
         actor_id=ACTOR,
@@ -209,7 +219,9 @@ async def _create_active_locked_policy(repository: PoliciesRepository, service: 
         description="",
         scope_type=PolicyScopeType.CHANNEL,
         scope_id=str(CHANNEL),
-        conditions=[{"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [str(ROLE)]}],
+        conditions=[
+            {"kind": "ROLE_MATCH", "match": match, "role_ids": [str(value) for value in role_ids]}
+        ],
         effects=[{"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"}],
         metadata={"summary": "Locked board visibility"},
         idempotency_key=f"reconciler-create-{uuid4()}",
@@ -299,6 +311,92 @@ async def test_external_gateway_access_change_enqueues_event_driven_reconcile(
         )
     assert job["logical_key"] == "reconcile:structure"
     assert job["payload"]["reason"] == "gateway-external-change"
+
+
+@pytest.mark.asyncio
+async def test_all_role_policy_recompiles_from_fresh_member_roles_after_gateway_update(
+    reconciler_context,
+) -> None:
+    """REQ-AP-ZONE-051/052: no shadow combination role is required.
+
+    The Gateway projection updates the canonical member-role inventory first,
+    then schedules reconciliation. REASSERT resolves ALL from that fresh
+    inventory and emits the existing member-overwrite Plan representation.
+    """
+
+    repository, service, reconciler, planning_repository, _planning_service = reconciler_context
+    policy = await _create_active_locked_policy(
+        repository, service, match="ALL", role_ids=(ROLE, ROLE_B)
+    )
+    factory = object.__getattribute__(repository, "_factory")
+    runtime = RuntimeRepository(factory)
+
+    # Before the role change the member has only ROLE, so ALL is false and
+    # the absence of a member overwrite is already compliant.
+    before = await reconciler.reconcile_guild(GUILD)
+    assert before[0].outcome is ReconcileOutcome.COMPLIANT
+
+    envelope = normalize_gateway_dispatch(
+        {
+            "op": 0,
+            "s": 43,
+            "t": "GUILD_MEMBER_UPDATE",
+            "d": {
+                "guild_id": str(GUILD),
+                "user": {"id": str(MEMBER), "username": "all-role-member"},
+                "roles": [str(ROLE), str(ROLE_B)],
+            },
+        },
+        discord_session_id="policy-all-role-gateway",
+        received_at=datetime.now(UTC),
+    )
+    assert envelope is not None and await runtime.ingest_gateway_event(envelope)
+
+    async with tenant_transaction(factory, TenantContext(GUILD)) as session:
+        member_roles = await session.scalar(
+            text(
+                "SELECT role_ids FROM discord_member_authorization_cache "
+                "WHERE guild_id=:g AND discord_user_id=:m"
+            ),
+            {"g": GUILD, "m": MEMBER},
+        )
+        reconcile_job = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT payload FROM discord_io_jobs WHERE guild_id=:g "
+                        "AND workload_type='RECONCILE_STRUCTURE'"
+                    ),
+                    {"g": GUILD},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert tuple(member_roles) == (ROLE, ROLE_B)
+    assert reconcile_job["payload"]["reason"] == "gateway-external-change"
+
+    result = await reconciler.reconcile_guild(GUILD)
+    assert result[0].outcome is ReconcileOutcome.REPAIR_SCHEDULED
+
+    async with tenant_transaction(factory, TenantContext(GUILD)) as session:
+        plan_id = await session.scalar(
+            text(
+                "SELECT id FROM plans WHERE guild_id=:g AND origin_type='POLICY' "
+                "AND source_policy_id=:p ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"g": GUILD, "p": policy.policy_id},
+        )
+    assert plan_id is not None
+    plan = await planning_repository.get_plan(GUILD, plan_id)
+    graph = graph_from_json(dict(plan["desired_graph"]))
+    assert {node.resource_type for node in graph.nodes} == {ResourceType.OVERWRITE}
+    subject_refs = tuple(node.relation("subject") for node in graph.nodes)
+    assert all(reference is not None for reference in subject_refs)
+    assert {reference.value for reference in subject_refs if reference is not None} == {
+        str(MEMBER)
+    }
+    assert all(node.property_map()["target_type"] == 1 for node in graph.nodes)
 
 
 @pytest.mark.asyncio

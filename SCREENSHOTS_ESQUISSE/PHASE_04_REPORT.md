@@ -969,3 +969,26 @@ scénarios Playwright passent, ainsi que Ruff, mypy, TypeScript, ESLint, i18n et
 la vérification OpenAPI. L’intégration couvre le chemin événement Gateway →
 job durable → Plan canonique réellement exécuté → annotation terminale. Aucun
 APPLY Discord live n’a été lancé.
+
+## 20. Décision « ALL sans rôle technique de combinaison » — 2026-09-18
+
+Le suivi P4-T015 ferme `REQ-AP-ZONE-051/052` sans créer de rôle technique.
+La traduction existante par overwrite membre est exacte, et le reconciler de
+P4-T014 la maintient : un `GUILD_MEMBER_UPDATE` est d’abord projeté dans le
+cache canonique des rôles du membre, puis coalesce un job durable
+`RECONCILE_STRUCTURE`. REASSERT réévalue ensuite la condition ALL sur cet
+inventaire frais et compile un Plan canonique d’overwrite membre. Le scheduler
+périodique couvre la perte d’un événement.
+
+Créer un rôle de combinaison ajouterait un second état d’appartenance à
+synchroniser ainsi que des contraintes de hiérarchie/capacité Discord, sans
+améliorer ce résultat. Aucun artefact caché n’est donc nécessaire dans le
+diagnostic expert. Si l’inventaire membres/rôles n’est pas complet ou si la
+prévisualisation exacte dépasse ses bornes, le reconciler échoue fermé vers
+`intervention_required` au lieu de deviner ou de créer un rôle non maintenu.
+
+Preuves : un test PostgreSQL réel couvre Gateway → projection des deux rôles
+→ job durable → détection de dérive → Plan d’overwrite membre ; un test
+unitaire couvre symétriquement le gain du dernier rôle requis et la perte
+d’un rôle. La passe complète donne 32 tests unitaires ciblés et 17 tests
+PostgreSQL Policy/reconciler, tous verts, avec Ruff et `git diff --check`.
