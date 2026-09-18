@@ -162,6 +162,7 @@ def _policy(value: Policy) -> dict[str, Any]:
         "lifecycle_state": value.lifecycle_state.value,
         "revision": value.revision,
         "priority": value.priority,
+        "locked": value.locked,
         "scope_type": value.scope_type.value,
         "scope_id": value.scope_id,
         "conditions": list(value.conditions),
@@ -645,6 +646,125 @@ async def plan_policy_disable(
     await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
     await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
     preview, plan, created, preflight = await container.policy_planning.create_disable_plan(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+        idempotency_key=idempotency_key,
+        correlation_id=UUID(str(request.state.correlation_id)),
+        expected_revision=body.expected_revision,
+    )
+    encoded_preview = jsonable_encoder(preview)
+    assert isinstance(encoded_preview, dict)
+    return {
+        "created": created,
+        "preview": encoded_preview,
+        "plan": _plan_response(plan),
+        "preflight": {
+            "allowed": preflight.allowed,
+            "errors": list(preflight.errors),
+            "warnings": list(preflight.warnings),
+            "checked_capabilities": list(preflight.checked_capabilities),
+            "limits_version": preflight.limits_version,
+            "policy_explanations": list(preflight.policy_explanations),
+        },
+    }
+
+
+@router.post("/{guild_id}/policies/{policy_id}/lock")
+async def lock_policy(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyTransition,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-LOCK-001: mark an ACTIVE Policy locked -- Discord drift against
+    it is auto-reconciled without a manual confirmation step."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_UPDATE, sensitive=True)
+    policy = await container.policies.set_locked(
+        parsed,
+        policy_id,
+        session.discord_user_id,
+        locked=True,
+        expected_revision=body.expected_revision,
+        idempotency_key=idempotency_key,
+    )
+    return _policy(policy)
+
+
+@router.post("/{guild_id}/policies/{policy_id}/unlock")
+async def unlock_policy(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyTransition,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-LOCK-001/006: unlock a Policy -- future drift is shown but no
+    longer auto-repaired; the admin chooses Repair or Accept exception."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_UPDATE, sensitive=True)
+    policy = await container.policies.set_locked(
+        parsed,
+        policy_id,
+        session.discord_user_id,
+        locked=False,
+        expected_revision=body.expected_revision,
+        idempotency_key=idempotency_key,
+    )
+    return _policy(policy)
+
+
+@router.post("/{guild_id}/policies/{policy_id}/drift-preview")
+async def preview_policy_drift(
+    guild_id: str,
+    policy_id: UUID,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-LOCK-002/003/006: compare what this ACTIVE Policy says Discord
+    should grant against what Discord's cached read model actually has right
+    now. Works for locked and unlocked Policies alike; the UI decides
+    whether to offer "reconcile now" (locked) or "Repair"/"Accept exception"
+    (unlocked) from the same result."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    preview = await container.policy_planning.detect_drift(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+    )
+    encoded = jsonable_encoder(preview)
+    assert isinstance(encoded, dict)
+    return encoded
+
+
+@router.post("/{guild_id}/policies/{policy_id}/drift-plan", status_code=status.HTTP_201_CREATED)
+async def plan_policy_drift(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyPlanRequest,
+    request: Request,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-LOCK-006: compile a real drift correction into the canonical
+    DSG/Plan/preflight pipeline for a manual "Repair" on an UNLOCKED Policy
+    (a LOCKED Policy is reconciled automatically -- see
+    PolicyReconcilerService -- this endpoint is for the human-confirmed
+    path only)."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    preview, plan, created, preflight = await container.policy_planning.create_drift_plan(
         guild_id=parsed,
         policy_id=policy_id,
         actor_user_id=session.discord_user_id,

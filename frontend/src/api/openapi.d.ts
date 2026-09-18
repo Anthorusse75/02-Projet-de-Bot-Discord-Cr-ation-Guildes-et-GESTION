@@ -1403,6 +1403,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/drift-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Policy Drift
+         * @description REQ-AP-LOCK-006: compile a real drift correction into the canonical
+         *     DSG/Plan/preflight pipeline for a manual "Repair" on an UNLOCKED Policy
+         *     (a LOCKED Policy is reconciled automatically -- see
+         *     PolicyReconcilerService -- this endpoint is for the human-confirmed
+         *     path only).
+         */
+        post: operations["plan_policy_drift_api_v1_guilds__guild_id__policies__policy_id__drift_plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/drift-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Policy Drift
+         * @description REQ-AP-LOCK-002/003/006: compare what this ACTIVE Policy says Discord
+         *     should grant against what Discord's cached read model actually has right
+         *     now. Works for locked and unlocked Policies alike; the UI decides
+         *     whether to offer "reconcile now" (locked) or "Repair"/"Accept exception"
+         *     (unlocked) from the same result.
+         */
+        post: operations["preview_policy_drift_api_v1_guilds__guild_id__policies__policy_id__drift_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lock Policy
+         * @description REQ-AP-LOCK-001: mark an ACTIVE Policy locked -- Discord drift against
+         *     it is auto-reconciled without a manual confirmation step.
+         */
+        post: operations["lock_policy_api_v1_guilds__guild_id__policies__policy_id__lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/plan": {
         parameters: {
             query?: never;
@@ -1454,6 +1523,27 @@ export interface paths {
         put?: never;
         /** Retire Policy */
         post: operations["retire_policy_api_v1_guilds__guild_id__policies__policy_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unlock Policy
+         * @description REQ-AP-LOCK-001/006: unlock a Policy -- future drift is shown but no
+         *     longer auto-repaired; the admin chooses Repair or Accept exception.
+         */
+        post: operations["unlock_policy_api_v1_guilds__guild_id__policies__policy_id__unlock_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6847,6 +6937,120 @@ export interface operations {
             };
         };
     };
+    plan_policy_drift_api_v1_guilds__guild_id__policies__policy_id__drift_plan_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_policy_drift_api_v1_guilds__guild_id__policies__policy_id__drift_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lock_policy_api_v1_guilds__guild_id__policies__policy_id__lock_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTransition"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     plan_policy_api_v1_guilds__guild_id__policies__policy_id__plan_post: {
         parameters: {
             query?: never;
@@ -6922,6 +7126,46 @@ export interface operations {
         };
     };
     retire_policy_api_v1_guilds__guild_id__policies__policy_id__retire_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTransition"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlock_policy_api_v1_guilds__guild_id__policies__policy_id__unlock_post: {
         parameters: {
             query?: never;
             header: {

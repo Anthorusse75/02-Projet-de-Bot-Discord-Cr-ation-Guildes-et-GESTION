@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
@@ -37,6 +38,16 @@ class CampaignDeliveryPort(Protocol):
     async def execute_leased(self, guild_id: int, leased: dict[str, Any]) -> None: ...
 
 
+class PolicyReconcilerPort(Protocol):
+    """REQ-AP-LOCK-002/003: called after every RECONCILE_STRUCTURE job (both
+    the event-driven urgent path and the periodic safety-net path already
+    funnel through this one job type -- see PolicyReconcilerService's own
+    module docstring), so a LOCKED Policy's drift is corrected without a
+    second scheduler or Gateway hook of its own."""
+
+    async def reconcile_guild(self, guild_id: int) -> tuple[Any, ...]: ...
+
+
 class UnsupportedWorkloadError(RuntimeError):
     pass
 
@@ -57,6 +68,7 @@ class DurableDiscordIOWorker:
         lease_seconds: float = 30.0,
         plan_executor: ApplyPlanPort | None = None,
         campaign_delivery_executor: CampaignDeliveryPort | None = None,
+        policy_reconciler: PolicyReconcilerPort | None = None,
     ) -> None:
         if not worker_id or len(worker_id) > 128:
             raise ValueError("worker_id must be present and bounded")
@@ -65,6 +77,8 @@ class DurableDiscordIOWorker:
         self._worker_id = worker_id
         self._plan_executor = plan_executor
         self._campaign_delivery_executor = campaign_delivery_executor
+        self._policy_reconciler = policy_reconciler
+        self._logger = logging.getLogger(__name__)
         if lease_seconds < 0.05:
             raise ValueError("lease_seconds must be at least 50ms")
         self._lease_seconds = lease_seconds
@@ -227,6 +241,23 @@ class DurableDiscordIOWorker:
                 await self._sync.refresh_channels(guild_id)
             elif workload_type in {"INITIAL_SYNC", "RECONCILE_STRUCTURE"}:
                 await self._sync.initial_sync(guild_id)
+                if workload_type == "RECONCILE_STRUCTURE" and self._policy_reconciler is not None:
+                    # REQ-AP-LOCK-002/003: this one job type already covers
+                    # both the event-driven urgent path (a Gateway
+                    # continuity gap makes ReconcileScheduler enqueue it
+                    # near-immediately) and the periodic safety net (the
+                    # adaptive scheduler's normal polling) -- see
+                    # PolicyReconcilerPort's docstring. A reconciliation
+                    # failure must never fail the structure sync that just
+                    # succeeded; each Policy already fails closed on its
+                    # own inside reconcile_guild().
+                    try:
+                        await self._policy_reconciler.reconcile_guild(guild_id)
+                    except Exception:
+                        self._logger.exception(
+                            "policy reconciler: guild sweep failed",
+                            extra={"guild_id": guild_id},
+                        )
             elif workload_type == "APPLY_PLAN" and self._plan_executor is not None:
                 await self._plan_executor.execute_leased(guild_id, leased, governor)
             elif (

@@ -62,6 +62,7 @@ class Policy:
     created_by_user_id: int
     modified_by_user_id: int
     priority: int = 0
+    locked: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
     activated_at: datetime | None = None

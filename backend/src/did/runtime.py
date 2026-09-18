@@ -11,6 +11,7 @@ from did.application.auth import AuthorizationService
 from did.application.lifecycle import run_until_stopped
 from did.application.planning import ApplyActorAuthorizer, PlanningService
 from did.application.policies.planning import PolicyPlanningService
+from did.application.policies.reconciler import PolicyReconcilerService
 from did.application.policies.service import PolicyService
 from did.application.reconciliation import (
     AdaptiveReconcilePolicy,
@@ -183,6 +184,12 @@ async def run_process(
                     stage04_repository,
                     policy_preflight=policy_preflight,
                 )
+                # Complete the same circular wiring api/main.py already does:
+                # PolicyPlanningService needs the canonical PlanningService to
+                # compile a Policy preview into a real Plan (create_plan/
+                # create_disable_plan/create_drift_plan), which the worker's
+                # own PolicyReconcilerService now relies on for REQ-AP-LOCK-*.
+                policy_preflight.bind_planning(planning_service)
                 campaigns_repository = CampaignsRepository(session_factory)
                 message_sender = DiscordPyMessageSender(rest_client)
                 worker = DurableDiscordIOWorker(
@@ -208,6 +215,11 @@ async def run_process(
                         campaigns_repository,
                         message_sender,
                         worker_id=worker_id,
+                    ),
+                    policy_reconciler=PolicyReconcilerService(
+                        policies=policy_service,
+                        policy_planning=policy_preflight,
+                        planning=planning_service,
                     ),
                 )
                 runtime = DiscordWorkerRuntime(

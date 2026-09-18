@@ -92,6 +92,18 @@ class BulkPolicyDraftDefinition:
     priority: int = 0
 
 
+# REQ-AP-LOCK-004: the system actor recorded for every automatic
+# reconciliation revision/Plan-confirm/apply, so the existing Policy
+# version history and Plan/Operations audit trail already show exactly who
+# (or what) made the change -- no new audit table needed. Real Discord user
+# snowflakes are always vastly larger than this (Discord's snowflake epoch
+# alone puts the smallest real ID in the trillions), so this sentinel can
+# never collide with a real actor.
+POLICY_RECONCILER_ACTOR_ID = 1
+
+RECONCILE_STATUS_TAG_PREFIX = "reconciler:"
+
+
 class PolicyService:
     """Validate, persist and explain declarations without applying Discord changes."""
 
@@ -437,6 +449,109 @@ class PolicyService:
                 "expected_revision": expected_revision,
                 "other_policy_id": str(other_policy_id),
                 "reason": reason,
+            }
+        )
+        return await self._repository.annotate(
+            changed,
+            expected_revision=expected_revision,
+            expected_state=current.lifecycle_state,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=uuid4(),
+        )
+
+    async def set_locked(
+        self,
+        guild_id: int,
+        policy_id: UUID,
+        actor_id: int,
+        *,
+        locked: bool,
+        expected_revision: int,
+        idempotency_key: str,
+    ) -> Policy:
+        """REQ-AP-LOCK-001: mark a Policy locked/unlocked.
+
+        A locked ACTIVE Policy is auto-reconciled by ``PolicyReconcilerService``
+        whenever Discord drifts from what it requires (REQ-AP-LOCK-002/003),
+        without a manual confirmation step. Locking/unlocking itself is a
+        metadata-only-shaped change (conditions/effects/scope untouched), so
+        it reuses the same ``annotate`` append-only revision path as
+        ``accept_exception`` -- no new mutation primitive.
+        """
+        current = await self._repository.get(guild_id, policy_id)
+        if current.lifecycle_state is not PolicyLifecycleState.ACTIVE:
+            raise PolicyLifecycleError("only an ACTIVE Policy can be locked or unlocked")
+        if current.locked == locked:
+            return current
+        changed = replace(
+            current,
+            locked=locked,
+            modified_by_user_id=actor_id,
+            revision=expected_revision + 1,
+        )
+        request_hash = self._hash(
+            {
+                "guild_id": current.guild_id,
+                "policy_id": str(current.policy_id),
+                "actor_id": actor_id,
+                "expected_revision": expected_revision,
+                "locked": locked,
+            }
+        )
+        return await self._repository.annotate(
+            changed,
+            expected_revision=expected_revision,
+            expected_state=current.lifecycle_state,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=uuid4(),
+        )
+
+    async def annotate_reconcile_status(
+        self,
+        guild_id: int,
+        policy_id: UUID,
+        *,
+        status: str,
+        expected_revision: int,
+        idempotency_key: str,
+    ) -> Policy:
+        """REQ-AP-LOCK-004/005/006: document the outcome of a drift check or
+        reconciliation attempt as a `reconciler:<status>` metadata tag, the
+        same audited ANNOTATE revision pattern as `accept_exception`/
+        `set_locked`. ``status`` is one of "intervention_required" or
+        "repaired"; a "compliant" (nothing to do) outcome never calls this --
+        it would just be a noisy no-op revision.
+        """
+        current = await self._repository.get(guild_id, policy_id)
+        raw_tags = current.metadata.get("tags", ())
+        existing_tags: tuple[str, ...] = (
+            tuple(str(value) for value in raw_tags) if isinstance(raw_tags, list | tuple) else ()
+        )
+        tag = f"{RECONCILE_STATUS_TAG_PREFIX}{status}"
+        remaining = tuple(
+            value for value in existing_tags if not value.startswith(RECONCILE_STATUS_TAG_PREFIX)
+        )
+        new_tags = (*remaining, tag)
+        if new_tags == existing_tags:
+            return current
+        new_metadata = {**current.metadata, "tags": new_tags}
+        contract = self._registry.get(current.policy_type, current.contract_version)
+        validated_metadata = contract.metadata_adapter.validate_python(new_metadata)
+        changed = replace(
+            current,
+            metadata=validated_metadata.model_dump(mode="json"),
+            modified_by_user_id=POLICY_RECONCILER_ACTOR_ID,
+            revision=expected_revision + 1,
+        )
+        request_hash = self._hash(
+            {
+                "guild_id": current.guild_id,
+                "policy_id": str(current.policy_id),
+                "actor_id": POLICY_RECONCILER_ACTOR_ID,
+                "expected_revision": expected_revision,
+                "status": status,
             }
         )
         return await self._repository.annotate(

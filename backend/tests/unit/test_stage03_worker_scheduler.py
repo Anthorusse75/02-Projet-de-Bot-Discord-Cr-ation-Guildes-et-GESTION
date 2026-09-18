@@ -124,6 +124,65 @@ async def test_worker_does_not_retry_403_or_unknown_workload_blindly() -> None:
     assert unsupported_repository.calls[-1] == "retry-terminal-True"
 
 
+class PolicyReconcilerProbe:
+    def __init__(self, *, failure: Exception | None = None) -> None:
+        self.calls: list[int] = []
+        self.failure = failure
+
+    async def reconcile_guild(self, guild_id: int) -> tuple[object, ...]:
+        self.calls.append(guild_id)
+        if self.failure is not None:
+            raise self.failure
+        return ()
+
+
+async def test_reconcile_structure_triggers_the_policy_reconciler_after_sync() -> None:
+    repository = WorkerRepositoryProbe("RECONCILE_STRUCTURE")
+    reconciler = PolicyReconcilerProbe()
+    worker = DurableDiscordIOWorker(
+        repository,
+        SyncProbe(repository),
+        worker_id="stage03-worker",  # type: ignore[arg-type]
+        policy_reconciler=reconciler,
+    )
+
+    assert await worker.run_guild_once(GUILD) is True
+
+    assert reconciler.calls == [GUILD]
+    assert repository.calls[-1] == "ack-transaction"
+
+
+async def test_a_failing_policy_reconciler_never_fails_the_structure_sync_job() -> None:
+    repository = WorkerRepositoryProbe("RECONCILE_STRUCTURE")
+    reconciler = PolicyReconcilerProbe(failure=RuntimeError("reconciler unavailable"))
+    worker = DurableDiscordIOWorker(
+        repository,
+        SyncProbe(repository),
+        worker_id="stage03-worker",  # type: ignore[arg-type]
+        policy_reconciler=reconciler,
+    )
+
+    assert await worker.run_guild_once(GUILD) is True
+
+    assert reconciler.calls == [GUILD]
+    assert repository.calls[-1] == "ack-transaction"
+
+
+async def test_initial_sync_never_invokes_the_policy_reconciler() -> None:
+    repository = WorkerRepositoryProbe("INITIAL_SYNC")
+    reconciler = PolicyReconcilerProbe()
+    worker = DurableDiscordIOWorker(
+        repository,
+        SyncProbe(repository),
+        worker_id="stage03-worker",  # type: ignore[arg-type]
+        policy_reconciler=reconciler,
+    )
+
+    assert await worker.run_guild_once(GUILD) is True
+
+    assert reconciler.calls == []
+
+
 class SchedulerRepositoryProbe:
     def __init__(self) -> None:
         self.guilds: list[int] = []

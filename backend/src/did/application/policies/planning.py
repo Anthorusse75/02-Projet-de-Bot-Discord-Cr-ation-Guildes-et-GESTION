@@ -11,7 +11,7 @@ from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import Policy, PolicyLifecycleError, PolicyLifecycleState, PolicyScopeType
 from did.domain.read_model import GuildSnapshot, MemberSnapshot
 from did.domain.read_model.models import ChannelType
-from did.permissions import DEFAULT_PERMISSION_REGISTRY
+from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
 from did.permissions.views import SimplePermissionConcept, compile_simple_permissions
 from did.planning.canonical import canonical_hash
 from did.planning.models import (
@@ -25,6 +25,7 @@ from did.planning.models import (
     ResourceType,
 )
 from did.planning.preflight import PolicyPreflightResult, PreflightResult
+from did.policies.drift import discord_currently_satisfies, real_state_resolution
 from did.policies.resolver import PolicyResolution, PolicyResolutionOutcome
 
 MAX_POLICY_PREVIEW_CONTEXTS = 2_000
@@ -60,6 +61,11 @@ class PreviewSimulation(StrEnum):
 
     ACTIVATE = "ACTIVATE"
     DISABLE = "DISABLE"
+    REASSERT = "REASSERT"
+    """REQ-AP-LOCK-*: the target Policy's own lifecycle is untouched (it stays
+    ACTIVE throughout); only Discord's drifted state is being corrected back
+    to what this already-ACTIVE Policy already says. ``evaluated_policies``
+    is the loaded policy set completely unmodified -- no add, no remove."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,6 +405,164 @@ class PolicyPlanningService:
             simulate=PreviewSimulation.DISABLE,
         )
 
+    async def detect_drift(
+        self, *, guild_id: int, policy_id: UUID, actor_user_id: int
+    ) -> PolicyPreview:
+        """REQ-AP-LOCK-002/003/006: compare what this ACTIVE Policy says
+        Discord should grant against what Discord's cached read model
+        actually has right now, reusing the same ``PermissionEvaluator`` the
+        Access Matrix already uses -- never a second permission engine.
+        Works identically for locked and unlocked Policies; the caller (a
+        periodic sweep for locked Policies, or a manual "check" for
+        unlocked ones) decides what to do with a drifted result.
+        """
+        policy = await self._policies.get(guild_id, policy_id)
+        if policy.lifecycle_state is not PolicyLifecycleState.ACTIVE:
+            raise PolicyLifecycleError("only an ACTIVE Policy can be checked for drift")
+        policies, seed_pair, groups, cached_members = await self._load(
+            guild_id=guild_id, actor_user_id=actor_user_id
+        )
+        guild, seed_member = seed_pair
+        members = await self._candidate_members(policy, cached_members, seed_member)
+        resources = self._candidate_resources(policy, guild, groups)
+        accesses = tuple(sorted({str(effect["access"]) for effect in policy.effects}))
+        candidate_contexts = len(members) * len(resources) * len(accesses)
+        contexts = [
+            (member, scope_type, scope_id, access)
+            for member in members
+            for scope_type, scope_id in resources
+            for access in accesses
+        ]
+        truncated = len(contexts) > MAX_POLICY_PREVIEW_CONTEXTS
+        contexts = contexts[:MAX_POLICY_PREVIEW_CONTEXTS]
+        requires_complete_member_inventory = policy.scope_type not in {
+            PolicyScopeType.MEMBER,
+            PolicyScopeType.BOT,
+        }
+        incomplete_member_inventory = requires_complete_member_inventory and not (
+            guild.coverage.members_complete
+            and all(
+                member.roles_complete
+                and member.freshness.state not in {FreshnessState.STALE, FreshnessState.UNKNOWN}
+                for member in members
+            )
+        )
+        evaluator = PermissionEvaluator()
+        entries = []
+        any_unknown = False
+        for member, scope_type, scope_id, access in contexts:
+            proposed = self._policies.resolve_loaded(
+                policies=policies,
+                guild=guild,
+                member=member,
+                logical_groups=groups,
+                target_scope_type=scope_type,
+                target_scope_id=scope_id,
+                requested_access=access,
+            )
+            channel = guild.channel(int(scope_id)) if scope_id is not None else None
+            if channel is None or proposed.outcome not in {
+                PolicyResolutionOutcome.CAN,
+                PolicyResolutionOutcome.CANNOT,
+            }:
+                # No concrete Discord resource to compare against, or the
+                # Policy itself is already BLOCKED/UNKNOWN -- fail closed
+                # rather than guessing at a drift verdict.
+                any_unknown = True
+                current = real_state_resolution(proposed, satisfied=False, unknown=True)
+            else:
+                satisfied, unknown = discord_currently_satisfies(
+                    proposed, guild=guild, member=member, channel=channel, evaluator=evaluator
+                )
+                any_unknown = any_unknown or unknown
+                current = real_state_resolution(proposed, satisfied=satisfied, unknown=unknown)
+            entries.append(self._entry(current=current, proposed=proposed))
+        changed = tuple(
+            entry for entry in entries if entry.access_change is not AccessChange.UNCHANGED
+        )
+        if (
+            guild.coverage.mode is not CoverageMode.FULL
+            or any_unknown
+            or incomplete_member_inventory
+        ):
+            accuracy = ImpactAccuracy.INCOMPLETE
+        elif truncated:
+            accuracy = ImpactAccuracy.BOUNDED
+        else:
+            accuracy = ImpactAccuracy.EXACT
+        diagnostics = set()
+        if incomplete_member_inventory:
+            diagnostics.add("policy.drift.member_coverage_incomplete")
+        if truncated:
+            diagnostics.add("policy.drift.context_limit_reached")
+        diagnostics.update(reason for entry in entries for reason in entry.diagnostics)
+        impact = PolicyImpact(
+            accuracy=accuracy,
+            candidate_contexts=candidate_contexts,
+            evaluated_contexts=len(entries),
+            affected_resources=len(
+                {(entry.target.scope_type, entry.target.scope_id) for entry in changed}
+            ),
+            affected_roles=0,
+            affected_members=len({entry.target.subject_id for entry in changed}),
+            access_gains=sum(entry.access_change is AccessChange.GAINED for entry in entries),
+            access_losses=sum(entry.access_change is AccessChange.LOST for entry in entries),
+            conflicts=sum(len(entry.proposed.conflicts) for entry in entries),
+            impossible_or_incomplete_targets=sum(
+                entry.current.outcome is PolicyResolutionOutcome.UNKNOWN for entry in entries
+            ),
+            lower_bound_only=accuracy is not ImpactAccuracy.EXACT,
+            diagnostics=tuple(sorted(diagnostics)),
+        )
+        warnings = set(impact.diagnostics)
+        warnings.update(warning for entry in entries for warning in entry.warnings)
+        return PolicyPreview(
+            policy_id=policy.policy_id,
+            policy_revision=policy.revision,
+            lifecycle_state=policy.lifecycle_state,
+            scope_type=policy.scope_type,
+            scope_id=policy.scope_id,
+            entries=tuple(entries),
+            impact=impact,
+            freshness=guild.freshness.state,
+            coverage=guild.coverage.mode,
+            source_versions=guild.source_versions,
+            warnings=tuple(sorted(warnings)),
+        )
+
+    async def create_drift_plan(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        idempotency_key: str,
+        correlation_id: UUID,
+        expected_revision: int,
+    ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
+        """REQ-AP-LOCK-*: compile a real drift check into the same canonical
+        DSG/Plan/preflight pipeline as any other Policy Plan. The target
+        Policy's own lifecycle never changes here (see
+        ``PreviewSimulation.REASSERT``) -- only Discord's drifted overwrites
+        do, once this Plan is confirmed and applied."""
+
+        if self._planning is None:
+            raise RuntimeError("canonical PlanningService is not configured")
+        preview = await self.detect_drift(
+            guild_id=guild_id, policy_id=policy_id, actor_user_id=actor_user_id
+        )
+        guild, _ = await self._read_models.guild_snapshot(guild_id, actor_user_id)
+        return await self._create_plan_from_preview(
+            guild_id=guild_id,
+            actor_user_id=actor_user_id,
+            preview=preview,
+            guild=guild,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
+            expected_revision=expected_revision,
+            simulate=PreviewSimulation.REASSERT,
+        )
+
     async def create_plans(
         self,
         *,
@@ -552,6 +716,8 @@ class PolicyPlanningService:
             evaluated_policies = tuple(
                 policy for policy in policies if policy.policy_id != provenance.policy_id
             )
+        elif simulate is PreviewSimulation.REASSERT:
+            evaluated_policies = policies
         else:
             evaluated_policies = (
                 *(policy for policy in policies if policy.policy_id != provenance.policy_id),

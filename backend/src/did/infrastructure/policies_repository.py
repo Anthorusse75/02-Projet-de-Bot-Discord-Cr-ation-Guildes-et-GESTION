@@ -20,7 +20,8 @@ from did.tenancy import TenantContext
 
 _UPDATE_POLICY_SQL = (
     "UPDATE policies SET name=:name,description=:description,"
-    "lifecycle_state=:lifecycle_state,revision=:revision,priority=:priority,scope_type=:scope_type,"
+    "lifecycle_state=:lifecycle_state,revision=:revision,priority=:priority,locked=:locked,"
+    "scope_type=:scope_type,"
     "scope_id=:scope_id,conditions_json=CAST(:conditions AS jsonb),"
     "effects_json=CAST(:effects AS jsonb),metadata_json=CAST(:metadata AS jsonb),"
     "modified_by_user_id=:modified_by,updated_at=:now "
@@ -167,12 +168,12 @@ class PoliciesRepository:
                         text(
                             "INSERT INTO policies (policy_id,guild_id,policy_type,contract_version,"
                             "name,description,lifecycle_state,revision,scope_type,scope_id,"
-                            "priority,"
+                            "priority,locked,"
                             "conditions_json,effects_json,metadata_json,created_by_user_id,"
                             "modified_by_user_id,create_idempotency_key,create_request_hash,"
                             "created_at,updated_at) VALUES (:policy_id,:guild_id,:policy_type,"
                             ":contract_version,:name,:description,:lifecycle_state,:revision,"
-                            ":scope_type,:scope_id,:priority,CAST(:conditions AS jsonb),"
+                            ":scope_type,:scope_id,:priority,:locked,CAST(:conditions AS jsonb),"
                             "CAST(:effects AS jsonb),"
                             "CAST(:metadata AS jsonb),:created_by,:modified_by,:idempotency_key,"
                             ":request_hash,:now,:now) ON CONFLICT "
@@ -566,6 +567,7 @@ class PoliciesRepository:
             "scope_type": policy.scope_type.value,
             "scope_id": policy.scope_id,
             "priority": policy.priority,
+            "locked": policy.locked,
             "conditions": json.dumps(policy.conditions, separators=(",", ":")),
             "effects": json.dumps(policy.effects, separators=(",", ":")),
             "metadata": json.dumps(policy.metadata, separators=(",", ":")),
@@ -585,6 +587,7 @@ class PoliciesRepository:
             "lifecycle_state": policy.lifecycle_state.value,
             "revision": policy.revision,
             "priority": policy.priority,
+            "locked": policy.locked,
             "scope_type": policy.scope_type.value,
             "scope_id": policy.scope_id,
             "conditions": list(policy.conditions),
@@ -606,6 +609,7 @@ class PoliciesRepository:
             lifecycle_state=PolicyLifecycleState(str(row["lifecycle_state"])),
             revision=int(row["revision"]),
             priority=int(row["priority"]),
+            locked=bool(row["locked"]),
             scope_type=PolicyScopeType(str(row["scope_type"])),
             scope_id=str(row["scope_id"]) if row["scope_id"] is not None else None,
             conditions=tuple(dict(item) for item in row["conditions_json"]),
@@ -647,6 +651,7 @@ class PoliciesRepository:
             lifecycle_state=PolicyLifecycleState(str(value["lifecycle_state"])),
             revision=int(value["revision"]),
             priority=int(value.get("priority", 0)),
+            locked=bool(value.get("locked", False)),
             scope_type=PolicyScopeType(str(value["scope_type"])),
             scope_id=str(value["scope_id"]) if value.get("scope_id") is not None else None,
             conditions=tuple(dict(item) for item in value["conditions"]),
