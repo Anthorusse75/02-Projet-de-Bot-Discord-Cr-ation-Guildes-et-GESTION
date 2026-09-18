@@ -23,11 +23,10 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: a97c896a9e930936ed1fad22d2ebed175bc2f0bb
+Current HEAD: 0c6bef4df765b99a301d747ec3b4adbd1b5d6d0e
 
-Current independently verified SHA: `a97c896` (P4-T014 completion tracker).
-P4-T015 implementation evidence and documentation are pending in the current
-worktree.
+Current independently verified SHA: `0c6bef4` (P4-T015 completion).
+P4-T016 is the active atomic task.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -696,7 +695,7 @@ Evidence:
   Policy/reconciler tests PASS; Ruff and `git diff --check` PASS.
 
 ### P4-T016 — Complete conflict resolution (CFL family + VIS-004 unification)
-Status: TODO
+Status: IN_PROGRESS
 Purpose: Close REQ-AP-CFL-001..006 and finish REQ-AP-VIS-004 (currently
 role-vs-role only; ADMINISTRATOR/raw overwrite/category inheritance not
 unified in the same explanation).
@@ -811,13 +810,13 @@ P4-T014 designs before writing code for those two tasks.
 
 Last updated: 2026-09-18, after P4-T015 completion.
 
-Current HEAD: `a97c896a9e930936ed1fad22d2ebed175bc2f0bb`
-(`docs(ui-phase4): record P4-T014 completion`).
+Current HEAD: `0c6bef4df765b99a301d747ec3b4adbd1b5d6d0e`
+(`test(policies): prove ALL-role continuous reconciliation`).
 
-Worktree state: P4-T015 focused tests and this tracker/report update are
-pending as one atomic task commit.
+Worktree state: clean at P4-T016 start; this tracker transition is the first
+pending change.
 
-Tasks DONE: P4-T014 and P4-T015. Next exact backlog task: P4-T016 — complete
+Tasks DONE: P4-T014 and P4-T015. Task IN_PROGRESS: P4-T016 — complete
 conflict resolution and VIS-004 cause unification.
 
 Docker/Postgres test env: currently running for the P4-T016 follow-on. Before
