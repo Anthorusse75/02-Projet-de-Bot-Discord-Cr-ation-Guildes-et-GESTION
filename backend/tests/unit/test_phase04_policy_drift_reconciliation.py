@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -7,7 +8,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from did.application.policies.planning import AccessChange, ImpactAccuracy, PolicyPlanningService
+from did.application.policies.planning import (
+    AccessChange,
+    ImpactAccuracy,
+    PolicyPlanningService,
+    drift_fingerprint,
+)
 from did.application.policies.service import PolicyService
 from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.policies import Policy, PolicyLifecycleError, PolicyLifecycleState, PolicyScopeType
@@ -38,9 +44,16 @@ VIEW_BIT = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
 def _facts(*, real_overwrite_allow: int = 0) -> tuple[GuildSnapshot, MemberSnapshot]:
     fresh = FreshnessSnapshot(FreshnessState.FRESH, "CACHE", 1, NOW, NOW, NOW)
     coverage = CoverageSnapshot(
-        GUILD, CoverageMode.FULL, FreshnessState.FRESH, "CACHE", 1,
-        known_channels=1, visible_channels=1, known_roles=2,
-        members_complete=True, overwrites_complete=True,
+        GUILD,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "CACHE",
+        1,
+        known_channels=1,
+        visible_channels=1,
+        known_roles=2,
+        members_complete=True,
+        overwrites_complete=True,
     )
     overwrites = (
         (OverwriteSnapshot(GUILD, CHANNEL, MEMBER, 1, real_overwrite_allow, 0),)
@@ -48,18 +61,29 @@ def _facts(*, real_overwrite_allow: int = 0) -> tuple[GuildSnapshot, MemberSnaps
         else ()
     )
     guild = GuildSnapshot(
-        GUILD, ACTOR,
+        GUILD,
+        ACTOR,
         (
             RoleSnapshot(GUILD, GUILD, "@everyone", 0, 0, False, fresh),
             RoleSnapshot(GUILD, ROLE, "managers", 1, 0, False, fresh),
         ),
         (
             ChannelSnapshot(
-                GUILD, CHANNEL, ChannelType.GUILD_TEXT, 0, None, "board",
-                overwrites, True, ObservabilityState.VISIBLE, fresh,
+                GUILD,
+                CHANNEL,
+                ChannelType.GUILD_TEXT,
+                0,
+                None,
+                "board",
+                overwrites,
+                True,
+                ObservabilityState.VISIBLE,
+                fresh,
             ),
         ),
-        coverage, fresh, source_versions=("guild:1",),
+        coverage,
+        fresh,
+        source_versions=("guild:1",),
     )
     member = MemberSnapshot(GUILD, MEMBER, (ROLE,), True, fresh)
     return guild, member
@@ -69,11 +93,23 @@ def _policy(
     *, locked: bool = False, state: PolicyLifecycleState = PolicyLifecycleState.ACTIVE
 ) -> Policy:
     return Policy(
-        UUID(int=1), GUILD, "ACCESS_CONTROL", 1, "Locked visibility", "", state, 2,
-        PolicyScopeType.CHANNEL, str(CHANNEL),
+        UUID(int=1),
+        GUILD,
+        "ACCESS_CONTROL",
+        1,
+        "Locked visibility",
+        "",
+        state,
+        2,
+        PolicyScopeType.CHANNEL,
+        str(CHANNEL),
         ({"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [str(ROLE)]},),
         ({"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},),
-        {"summary": "Locked visibility"}, ACTOR, ACTOR, priority=0, locked=locked,
+        {"summary": "Locked visibility"},
+        ACTOR,
+        ACTOR,
+        priority=0,
+        locked=locked,
     )
 
 
@@ -142,6 +178,29 @@ async def test_detect_drift_reveals_an_externally_removed_overwrite() -> None:
 
 
 @pytest.mark.asyncio
+async def test_only_the_exact_accepted_drift_fingerprint_is_marked_documented() -> None:
+    guild, member = _facts(real_overwrite_allow=0)
+    policy = _policy(locked=False)
+    initial = await _services(policy, guild, member).detect_drift(
+        guild_id=GUILD, policy_id=policy.policy_id, actor_user_id=ACTOR
+    )
+    accepted = replace(
+        policy,
+        revision=policy.revision + 1,
+        metadata={
+            **policy.metadata,
+            "tags": [f"drift-exception:{drift_fingerprint(initial)[:40]}"],
+        },
+    )
+
+    documented = await _services(accepted, guild, member).detect_drift(
+        guild_id=GUILD, policy_id=accepted.policy_id, actor_user_id=ACTOR
+    )
+
+    assert "policy.drift.exception_accepted" in documented.warnings
+
+
+@pytest.mark.asyncio
 async def test_create_drift_plan_compiles_the_correction_through_the_canonical_pipeline() -> None:
     guild, member = _facts(real_overwrite_allow=0)
     policy = _policy(locked=True)
@@ -164,8 +223,13 @@ async def test_create_drift_plan_compiles_the_correction_through_the_canonical_p
     orchestration = _services(policy, guild, member, planning=planning)
 
     preview, plan, created, preflight = await orchestration.create_drift_plan(
-        guild_id=GUILD, policy_id=policy.policy_id, actor_user_id=ACTOR,
-        idempotency_key="drift-plan-once", correlation_id=uuid4(), expected_revision=2,
+        guild_id=GUILD,
+        policy_id=policy.policy_id,
+        actor_user_id=ACTOR,
+        idempotency_key="drift-plan-once",
+        correlation_id=uuid4(),
+        expected_revision=2,
+        auto_reconcile=True,
     )
 
     graph = captured["graph"]
@@ -174,5 +238,32 @@ async def test_create_drift_plan_compiles_the_correction_through_the_canonical_p
     assert graph.nodes[0].resource_type is ResourceType.OVERWRITE
     assert isinstance(provenance, PlanProvenance)
     assert provenance.policy_id == policy.policy_id and provenance.policy_revision == 2
+    assert provenance.metadata_map()["auto_reconcile"] is True
     assert plan["status"] == "VALIDATED" and created and preflight.allowed
     assert preview.entries[0].access_change is AccessChange.GAINED
+
+
+@pytest.mark.asyncio
+async def test_system_reassert_final_preflight_fails_closed_after_policy_is_unlocked() -> None:
+    guild, member = _facts(real_overwrite_allow=0)
+    policy = _policy(locked=False)
+    orchestration = _services(policy, guild, member)
+    provenance = PlanProvenance.policy(
+        policy_id=policy.policy_id,
+        policy_revision=policy.revision,
+        metadata={
+            "preview_accuracy": "EXACT",
+            "preview_contexts": [],
+            "simulate": "REASSERT",
+            "auto_reconcile": True,
+        },
+    )
+
+    result = await orchestration.evaluate_plan(
+        guild_id=GUILD,
+        provenance=provenance,
+        require_active=True,
+    )
+
+    assert result.allowed is False
+    assert "preflight.policy_not_locked" in result.errors

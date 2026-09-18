@@ -10,7 +10,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from did.domain.discord_runtime import EventEnvelope, ObservabilityState, WorkloadJob
+from did.domain.discord_runtime import (
+    EventEnvelope,
+    ObservabilityState,
+    WorkloadJob,
+    WorkloadPriority,
+)
 from did.infrastructure.auth_repository import InstallationIdentityMismatch
 from did.infrastructure.database import tenant_transaction
 from did.infrastructure.runtime_metrics import RuntimeMetrics
@@ -145,6 +150,7 @@ class RuntimeRepository:
                 return False
             self.metrics.gateway_signal("dispatch")
             applied = await self._project(session, envelope)
+            policy_reconcile_signal = False
             if applied and envelope.event_type in {
                 "CHANNEL_CREATE",
                 "CHANNEL_UPDATE",
@@ -154,7 +160,9 @@ class RuntimeRepository:
                 "GUILD_ROLE_DELETE",
                 "GUILD_MEMBER_UPDATE",
             }:
-                await self._classify_plan_gateway_event(session, envelope)
+                policy_reconcile_signal = await self._classify_plan_gateway_event(session, envelope)
+            if policy_reconcile_signal:
+                await self._enqueue_event_reconcile(session, envelope)
             await session.execute(
                 text(
                     "UPDATE discord_gateway_inbox SET status='PROJECTED', projected_at=now() "
@@ -180,8 +188,13 @@ class RuntimeRepository:
 
     async def _classify_plan_gateway_event(
         self, session: AsyncSession, envelope: EventEnvelope
-    ) -> None:
-        """Match inferred own events conservatively; never claim native plan correlation."""
+    ) -> bool:
+        """Match inferred own events conservatively.
+
+        Returns True only for an externally-originated structural/access
+        change.  Locked-Policy reconciliation uses that durable signal;
+        expected events emitted by DID's own Plan must not cause a loop.
+        """
         resource_id = int(
             envelope.payload.get("channel_id")
             or envelope.payload.get("role_id")
@@ -189,7 +202,7 @@ class RuntimeRepository:
             or 0
         )
         if resource_id <= 0:
-            return
+            return False
         observed = self._plan_event_payload(envelope, resource_id)
         candidates = (
             (
@@ -232,7 +245,7 @@ class RuntimeRepository:
                 ),
                 {"guild_id": envelope.guild_id, "id": exact[0]["id"]},
             )
-            return
+            return False
 
         # Gateway may beat the REST response/DB commit for a CREATE.  A unique
         # in-flight operation with a matching desired subset is inferred as own,
@@ -270,7 +283,7 @@ class RuntimeRepository:
             )
         ]
         if len(inferred) == 1:
-            return
+            return False
 
         stale = (
             (
@@ -328,6 +341,57 @@ class RuntimeRepository:
                 target_id=resource_id,
                 result_state="INTERVENTION_REQUIRED" if interrupted else "STALE",
             )
+        return True
+
+    async def _enqueue_event_reconcile(
+        self, session: AsyncSession, envelope: EventEnvelope
+    ) -> None:
+        """Durably coalesce the Gateway-triggered locked-Policy sweep.
+
+        The existing worker first refreshes the Guild read model for this
+        RECONCILE_STRUCTURE job, then runs PolicyReconcilerService.  The same
+        logical key is used by the periodic scheduler, so event and fallback
+        paths cannot fan out duplicate active jobs.
+        """
+
+        job_id = uuid4()
+        inserted = await session.scalar(
+            text(
+                "INSERT INTO discord_io_jobs "
+                "(job_id,guild_id,workload_type,logical_key,priority,payload,"
+                "requested_by,correlation_id,available_at) VALUES "
+                "(:job_id,:guild_id,'RECONCILE_STRUCTURE','reconcile:structure',"
+                ":priority,CAST(:payload AS jsonb),NULL,:correlation_id,:available_at) "
+                "ON CONFLICT (guild_id,logical_key) WHERE status IN ('PENDING','LEASED') "
+                "DO NOTHING RETURNING job_id"
+            ),
+            {
+                "job_id": job_id,
+                "guild_id": envelope.guild_id,
+                "priority": int(WorkloadPriority.BACKGROUND_RECONCILE),
+                "payload": json.dumps(
+                    {
+                        "reason": "gateway-external-change",
+                        "gateway_event_id": str(envelope.event_id),
+                        "gateway_event_type": envelope.event_type,
+                    },
+                    separators=(",", ":"),
+                ),
+                "correlation_id": envelope.correlation_id,
+                "available_at": envelope.received_at,
+            },
+        )
+        if inserted is None:
+            return
+        self.metrics.job_submitted(WorkloadPriority.BACKGROUND_RECONCILE)
+        await self._append_outbox(
+            session,
+            guild_id=envelope.guild_id,
+            topic="discord.io.job.enqueued",
+            payload={"job_id": str(job_id), "guild_id": str(envelope.guild_id)},
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.event_id,
+        )
 
     @staticmethod
     def _plan_event_payload(envelope: EventEnvelope, resource_id: int) -> dict[str, Any]:

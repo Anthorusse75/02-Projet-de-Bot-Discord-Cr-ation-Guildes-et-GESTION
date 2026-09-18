@@ -182,6 +182,9 @@ export function PoliciesScreen() {
   const [busy, setBusy] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [remediationKey, setRemediationKey] = useState<string | null>(null)
+  const [driftBusy, setDriftBusy] = useState(false)
+  const [driftProblem, setDriftProblem] = useState<string | null>(null)
+  const [driftNotice, setDriftNotice] = useState<string | null>(null)
 
   const roles = useMemo(() => [...(rolesQuery.data?.roles ?? [])].filter((role) => !role.managed).sort((a, b) => b.position - a.position), [rolesQuery.data])
   const targets = useMemo<PolicyTarget[]>(
@@ -241,6 +244,11 @@ export function PoliciesScreen() {
     queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy?.policy_id ?? 'none', 'versions'],
     queryFn: () => apiRequest<{versions:PolicyVersion[]}>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy?.policy_id}/versions`),
   })
+  const driftQuery = useQuery({
+    enabled: Boolean(selectedPolicy?.lifecycle_state === 'ACTIVE'),
+    queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy?.policy_id ?? 'none', 'drift', selectedPolicy?.revision ?? 0],
+    queryFn: () => apiRequest<PolicyPreview>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy?.policy_id}/drift-preview`, { method: 'POST' }),
+  })
 
   function chooseNative(native: NativePolicy) {
     setSelection({ kind: 'NATIVE', native })
@@ -248,6 +256,7 @@ export function PoliciesScreen() {
     setEditor({ ...emptyEditor(), name: t(native.titleKey), description: t(native.summaryKey), botFunctions: native.id === 'bot_minimal' ? ['READ'] : [], roleIds: [...audienceRoleIds] })
     setAudienceEditorOpen(false)
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
+    setDriftProblem(null); setDriftNotice(null)
     resetReapply()
   }
 
@@ -300,6 +309,7 @@ export function PoliciesScreen() {
     setSelection({ kind: 'CUSTOM', policy })
     setEditor(editorFromPolicy(policy))
     setPreview(null); setExplanation(null); setProblem(null); setNotice(null); setHistoryOpen(false)
+    setDriftProblem(null); setDriftNotice(null)
     resetReapply()
   }
 
@@ -471,6 +481,53 @@ export function PoliciesScreen() {
     finally { setBusy(false) }
   }
 
+  async function setPolicyLock(locked: boolean) {
+    if (!selectedPolicy) return
+    setDriftBusy(true); setDriftProblem(null); setDriftNotice(null)
+    try {
+      const updated = await apiRequest<Policy>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/${locked ? 'lock' : 'unlock'}`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { expected_revision: selectedPolicy.revision },
+      })
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
+      chooseCustom(updated)
+      setDriftNotice(t(locked ? 'policies.drift.lockedNotice' : 'policies.drift.unlockedNotice'))
+    } catch (error) { setDriftProblem(apiProblem(error, t)) }
+    finally { setDriftBusy(false) }
+  }
+
+  async function repairDrift() {
+    if (!selectedPolicy || selectedPolicy.locked) return
+    setDriftBusy(true); setDriftProblem(null); setDriftNotice(null)
+    try {
+      const result = await apiRequest<{ preflight: { allowed: boolean; errors: string[] } }>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/drift-plan`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { expected_revision: selectedPolicy.revision },
+      })
+      if (!result.preflight.allowed) {
+        setDriftProblem(t('policies.drift.repairBlocked', { reason: result.preflight.errors.join(', ') || '—' }))
+        return
+      }
+      navigate(`/guild/${guild.guild_id}/plans`)
+    } catch (error) { setDriftProblem(apiProblem(error, t)) }
+    finally { setDriftBusy(false) }
+  }
+
+  async function acceptDrift() {
+    if (!selectedPolicy || selectedPolicy.locked) return
+    setDriftBusy(true); setDriftProblem(null); setDriftNotice(null)
+    try {
+      const updated = await apiRequest<Policy>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/accept-drift`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { expected_revision: selectedPolicy.revision },
+      })
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
+      chooseCustom(updated)
+      setDriftNotice(t('policies.drift.acceptedNotice'))
+    } catch (error) { setDriftProblem(apiProblem(error, t)) }
+    finally { setDriftBusy(false) }
+  }
+
   if (!capabilities) return <Skeleton />
   if (!policyWorkspaceEnabled) return <section className="access-page"><header className="access-hero"><div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('policies.title')}</h1></div></header><p className="access-callout danger" role="alert">{t('policies.error.denied')}</p></section>
   if (policiesQuery.isLoading || rolesQuery.isLoading || structureQuery.isLoading) return <Skeleton />
@@ -484,6 +541,12 @@ export function PoliciesScreen() {
   const blocker = planBlocker()
   const botMinimum = botAccessQuery.data?.channels.find((channel) => channel.channel_id === selectedTarget?.scopeId)?.minimum
   const editorDisabled = selectedPolicy?.lifecycle_state !== 'DRAFT' && selection?.kind === 'CUSTOM'
+  const drift = driftQuery.data
+  const driftedEntries = drift?.entries.filter((entry) => entry.access_change !== 'UNCHANGED') ?? []
+  const driftAccepted = drift?.warnings.includes('policy.drift.exception_accepted') ?? false
+  const interventionRequired = selectedPolicy?.metadata.tags.includes('reconciler:intervention_required') ?? false
+  const lastRepairVerified = selectedPolicy?.metadata.tags.includes('reconciler:repaired') ?? false
+  const driftUnknown = Boolean(drift && (drift.impact.accuracy !== 'EXACT' || driftedEntries.some((entry) => entry.current.outcome === 'UNKNOWN' || entry.proposed.outcome === 'UNKNOWN' || entry.proposed.outcome === 'BLOCKED')))
 
   return <section className="access-page policies-workbench">
     <header className="access-hero">
@@ -609,7 +672,7 @@ export function PoliciesScreen() {
         <section aria-labelledby="custom-policy-title"><h2 id="custom-policy-title">{t('policies.custom.title')}</h2><div className="policy-card-list">
           {customPolicies.length === 0 && <p className="access-help">{t('policies.custom.empty')}</p>}
           {customPolicies.map((policy) => <button type="button" className={selectedPolicy?.policy_id === policy.policy_id ? 'policy-card selected' : 'policy-card'} key={policy.policy_id} onClick={() => chooseCustom(policy)}>
-            <span className="policy-card-heading"><strong>{policy.name}</strong><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge></span><span>{policy.metadata.summary}</span><small>{t(`policies.family.${policyFamily(policy)}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''}</small><small>{t('policies.origin.custom')} · {t('policies.revision', { revision: policy.revision })}</small>
+            <span className="policy-card-heading"><strong>{policy.name}</strong><span className="policy-card-badges"><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge>{policy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span></span><span>{policy.metadata.summary}</span><small>{t(`policies.family.${policyFamily(policy)}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''}</small><small>{t('policies.origin.custom')} · {t('policies.revision', { revision: policy.revision })}</small>
             <small>{sourcePolicyId(policy) ? t('policies.inherited.source') : policy.scope_type === 'CATEGORY' || policy.scope_type === 'LOGICAL_GROUP' ? t('policies.inherited.children') : t('policies.inherited.none')} · {preview?.policy_id === policy.policy_id ? t('policies.conflicts.count', { count: preview.impact.conflicts }) : t('policies.conflicts.notAnalysed')}</small>
           </button>)}
         </div></section>
@@ -617,8 +680,24 @@ export function PoliciesScreen() {
 
       <article className="access-panel policy-editor-panel">
         {!selection ? <div className="access-empty"><span>◇</span><p>{t('policies.editor.empty')}</p></div> : <>
-          <div className="access-panel-heading"><div><small>{selection.kind === 'NATIVE' ? t('policies.origin.did') : t('policies.origin.custom')}</small><strong>{editor.name || t('policies.editor.untitled')}</strong></div>{selectedPolicy && <Badge tone={lifecycleTone[selectedPolicy.lifecycle_state]}>{t(`policies.lifecycle.${selectedPolicy.lifecycle_state}`)}</Badge>}</div>
+          <div className="access-panel-heading"><div><small>{selection.kind === 'NATIVE' ? t('policies.origin.did') : t('policies.origin.custom')}</small><strong>{editor.name || t('policies.editor.untitled')}</strong></div>{selectedPolicy && <span className="policy-card-badges"><Badge tone={lifecycleTone[selectedPolicy.lifecycle_state]}>{t(`policies.lifecycle.${selectedPolicy.lifecycle_state}`)}</Badge>{selectedPolicy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span>}</div>
           {selectedPolicy?.lifecycle_state !== 'DRAFT' && <p className="access-callout warning">{t('policies.editor.immutable')}</p>}
+          {selectedPolicy?.lifecycle_state === 'ACTIVE' && <section className={`policy-compliance ${interventionRequired || driftUnknown ? 'danger' : driftedEntries.length ? 'warning' : 'ok'}`} aria-labelledby="policy-compliance-title">
+            <div className="policy-compliance-heading"><div><small>{t('policies.drift.eyebrow')}</small><h2 id="policy-compliance-title">{t(interventionRequired || driftUnknown ? 'policies.drift.interventionTitle' : driftedEntries.length ? selectedPolicy.locked ? 'policies.drift.autoRepairTitle' : driftAccepted ? 'policies.drift.acceptedTitle' : 'policies.drift.detectedTitle' : 'policies.drift.compliantTitle')}</h2></div><Badge tone={interventionRequired || driftUnknown ? 'danger' : driftedEntries.length ? 'warning' : 'ok'}>{t(interventionRequired || driftUnknown ? 'policies.drift.interventionBadge' : driftedEntries.length ? 'policies.drift.driftBadge' : 'policies.drift.compliantBadge')}</Badge></div>
+            {driftQuery.isLoading ? <p>{t('policies.drift.checking')}</p> : driftQuery.isError ? <p className="access-callout danger" role="alert">{t('policies.drift.checkFailed')}</p> : <>
+              <p>{t(interventionRequired || driftUnknown ? 'policies.drift.interventionHelp' : driftedEntries.length ? selectedPolicy.locked ? 'policies.drift.autoRepairHelp' : driftAccepted ? 'policies.drift.acceptedHelp' : 'policies.drift.detectedHelp' : lastRepairVerified ? 'policies.drift.repairedHelp' : 'policies.drift.compliantHelp')}</p>
+              {driftedEntries.length > 0 && <ul className="policy-drift-causes">{driftedEntries.slice(0, 6).map((entry, index) => <li key={`${entry.target.subject_id}-${entry.target.scope_id}-${entry.target.requested_access}-${index}`}>{t('policies.drift.cause', { member: partialMember(entry.target.subject_id), access: t(`policies.access.${entry.target.requested_access}`), current: t(`policies.outcome.${entry.current.outcome}`), expected: t(`policies.outcome.${entry.proposed.outcome}`) })}</li>)}</ul>}
+              {driftedEntries.length > 6 && <p className="access-help">{t('policies.drift.moreCauses', { count: driftedEntries.length - 6 })}</p>}
+              {driftedEntries.length > 0 && <details><summary>{t('policies.expert.discordDetails')}</summary>{driftedEntries.map((entry, index) => <div key={`discord-drift-${index}`}><p>{entry.proposed.discord_permissions.join(', ') || '—'}</p><code>allow={entry.proposed.discord_allow_bits} · deny={entry.proposed.discord_deny_bits}</code></div>)}</details>}
+            </>}
+            {driftProblem && <p className="access-callout danger" role="alert">{driftProblem}</p>}
+            {driftNotice && <p className="access-callout success" role="status">{driftNotice}</p>}
+            <div className="button-row">
+              <button type="button" className={selectedPolicy.locked ? 'button quiet' : 'button primary'} disabled={driftBusy || canUpdate !== 'CAN'} onClick={() => void setPolicyLock(!selectedPolicy.locked)}>{t(selectedPolicy.locked ? 'policies.drift.unlock' : 'policies.drift.lock')}</button>
+              {!selectedPolicy.locked && driftedEntries.length > 0 && !driftAccepted && !driftUnknown && <><button type="button" className="button primary" disabled={driftBusy || !canPrepare} onClick={() => void repairDrift()}>{t('policies.drift.repair')}</button><button type="button" className="button quiet" disabled={driftBusy || canUpdate !== 'CAN'} onClick={() => void acceptDrift()}>{t('policies.drift.accept')}</button></>}
+              {driftQuery.isError && <button type="button" className="button quiet" onClick={() => void driftQuery.refetch()}>{t('common.retry')}</button>}
+            </div>
+          </section>}
           <div className="access-form-grid">
             <label className="field"><span>{t('policies.editor.name')}</span><input value={editor.name} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, name: event.target.value }))} /></label>
             <label className="field"><span>{t('policies.editor.description')}</span><textarea value={editor.description} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, description: event.target.value }))} /></label>

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from did.api.dependencies import ApiProblem, CsrfSessionDep, CurrentSessionDep, ServicesDep
 from did.api.guilds import parse_snowflake
 from did.api.stage05 import _plan_response
+from did.application.policies.planning import drift_fingerprint
 from did.application.policies.service import BulkPolicyDraftDefinition, PolicyService
 from did.domain.auth import AuthorizationScope, Capability
 from did.domain.policies import Policy, PolicyScopeType, PolicyVersion
@@ -787,6 +788,43 @@ async def plan_policy_drift(
             "policy_explanations": list(preflight.policy_explanations),
         },
     }
+
+
+@router.post("/{guild_id}/policies/{policy_id}/accept-drift")
+async def accept_policy_drift(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyTransition,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """REQ-AP-LOCK-006: document the exact current Discord drift as an
+    accepted exception for an ACTIVE, unlocked Policy.  No Discord mutation
+    occurs and a materially different later drift is surfaced again."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_UPDATE, sensitive=True)
+    preview = await container.policy_planning.detect_drift(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+    )
+    if not any(entry.access_change.value != "UNCHANGED" for entry in preview.entries):
+        raise ApiProblem(
+            status_code=status.HTTP_409_CONFLICT,
+            code="POLICY_NOT_DRIFTED",
+            message_key="errors.policy.conflict",
+        )
+    policy = await container.policies.accept_drift_exception(
+        parsed,
+        policy_id,
+        session.discord_user_id,
+        drift_fingerprint=drift_fingerprint(preview),
+        expected_revision=body.expected_revision,
+        idempotency_key=idempotency_key,
+    )
+    return _policy(policy)
 
 
 @router.post("/{guild_id}/policies/{policy_id}/accept-exception")

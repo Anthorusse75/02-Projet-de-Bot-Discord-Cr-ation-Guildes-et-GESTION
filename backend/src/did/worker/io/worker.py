@@ -40,7 +40,7 @@ class CampaignDeliveryPort(Protocol):
 
 class PolicyReconcilerPort(Protocol):
     """REQ-AP-LOCK-002/003: called after every RECONCILE_STRUCTURE job (both
-    the event-driven urgent path and the periodic safety-net path already
+    the Gateway-triggered path and the periodic safety-net path already
     funnel through this one job type -- see PolicyReconcilerService's own
     module docstring), so a LOCKED Policy's drift is corrected without a
     second scheduler or Gateway hook of its own."""
@@ -243,10 +243,10 @@ class DurableDiscordIOWorker:
                 await self._sync.initial_sync(guild_id)
                 if workload_type == "RECONCILE_STRUCTURE" and self._policy_reconciler is not None:
                     # REQ-AP-LOCK-002/003: this one job type already covers
-                    # both the event-driven urgent path (a Gateway
-                    # continuity gap makes ReconcileScheduler enqueue it
-                    # near-immediately) and the periodic safety net (the
-                    # adaptive scheduler's normal polling) -- see
+                    # both the event-driven path (an external Gateway
+                    # channel/role/member change enqueues it durably) and
+                    # the periodic safety net (the adaptive scheduler's
+                    # normal polling) -- see
                     # PolicyReconcilerPort's docstring. A reconciliation
                     # failure must never fail the structure sync that just
                     # succeeded; each Policy already fails closed on its

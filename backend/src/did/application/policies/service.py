@@ -102,6 +102,7 @@ class BulkPolicyDraftDefinition:
 POLICY_RECONCILER_ACTOR_ID = 1
 
 RECONCILE_STATUS_TAG_PREFIX = "reconciler:"
+DRIFT_EXCEPTION_TAG_PREFIX = "drift-exception:"
 
 
 class PolicyService:
@@ -558,6 +559,65 @@ class PolicyService:
             changed,
             expected_revision=expected_revision,
             expected_state=current.lifecycle_state,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=uuid4(),
+        )
+
+    async def accept_drift_exception(
+        self,
+        guild_id: int,
+        policy_id: UUID,
+        actor_id: int,
+        *,
+        drift_fingerprint: str,
+        expected_revision: int,
+        idempotency_key: str,
+    ) -> Policy:
+        """Document one exact observed drift without changing Discord.
+
+        The fingerprint excludes the Policy revision, so the annotation
+        itself does not immediately invalidate the accepted observation.  A
+        later, materially different Discord state produces another
+        fingerprint and is surfaced again.
+        """
+
+        current = await self._repository.get(guild_id, policy_id)
+        if current.lifecycle_state is not PolicyLifecycleState.ACTIVE or current.locked:
+            raise PolicyLifecycleError(
+                "only an ACTIVE, unlocked Policy can accept a drift exception"
+            )
+        raw_tags = current.metadata.get("tags", ())
+        existing_tags = (
+            tuple(str(value) for value in raw_tags) if isinstance(raw_tags, list | tuple) else ()
+        )
+        tag = f"{DRIFT_EXCEPTION_TAG_PREFIX}{drift_fingerprint[:40]}"
+        remaining = tuple(
+            value for value in existing_tags if not value.startswith(DRIFT_EXCEPTION_TAG_PREFIX)
+        )
+        contract = self._registry.get(current.policy_type, current.contract_version)
+        validated_metadata = contract.metadata_adapter.validate_python(
+            {**current.metadata, "tags": (*remaining, tag)}
+        )
+        changed = replace(
+            current,
+            metadata=validated_metadata.model_dump(mode="json"),
+            modified_by_user_id=actor_id,
+            revision=expected_revision + 1,
+        )
+        request_hash = self._hash(
+            {
+                "guild_id": guild_id,
+                "policy_id": str(policy_id),
+                "actor_id": actor_id,
+                "expected_revision": expected_revision,
+                "drift_fingerprint": drift_fingerprint,
+            }
+        )
+        return await self._repository.annotate(
+            changed,
+            expected_revision=expected_revision,
+            expected_state=PolicyLifecycleState.ACTIVE,
             idempotency_key=idempotency_key,
             request_hash=request_hash,
             correlation_id=uuid4(),

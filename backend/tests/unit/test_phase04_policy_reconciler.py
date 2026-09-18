@@ -24,11 +24,23 @@ CHANNEL = 997_101
 
 def _policy(number: int, *, locked: bool = True, revision: int = 3) -> Policy:
     return Policy(
-        UUID(int=number), GUILD, "ACCESS_CONTROL", 1, "Locked", "",
-        PolicyLifecycleState.ACTIVE, revision,
-        PolicyScopeType.CHANNEL, str(CHANNEL), ({"kind": "ALWAYS"},),
+        UUID(int=number),
+        GUILD,
+        "ACCESS_CONTROL",
+        1,
+        "Locked",
+        "",
+        PolicyLifecycleState.ACTIVE,
+        revision,
+        PolicyScopeType.CHANNEL,
+        str(CHANNEL),
+        ({"kind": "ALWAYS"},),
         ({"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},),
-        {"summary": "Locked", "tags": []}, ACTOR, ACTOR, priority=0, locked=locked,
+        {"summary": "Locked", "tags": []},
+        ACTOR,
+        ACTOR,
+        priority=0,
+        locked=locked,
     )
 
 
@@ -39,6 +51,12 @@ def _entry(
     current_outcome: PolicyResolutionOutcome = PolicyResolutionOutcome.CANNOT,
 ) -> SimpleNamespace:
     return SimpleNamespace(
+        target=SimpleNamespace(
+            subject_id=ACTOR,
+            scope_type=PolicyScopeType.CHANNEL,
+            scope_id=str(CHANNEL),
+            requested_access="VIEW",
+        ),
         access_change=change,
         proposed=SimpleNamespace(outcome=proposed_outcome),
         current=SimpleNamespace(outcome=current_outcome),
@@ -48,7 +66,11 @@ def _entry(
 def _preview(
     entries: tuple[SimpleNamespace, ...], *, accuracy: ImpactAccuracy = ImpactAccuracy.EXACT
 ) -> SimpleNamespace:
-    return SimpleNamespace(entries=entries, impact=SimpleNamespace(accuracy=accuracy))
+    return SimpleNamespace(
+        entries=entries,
+        impact=SimpleNamespace(accuracy=accuracy),
+        source_versions=("cache-v1",),
+    )
 
 
 def _services(
@@ -56,6 +78,7 @@ def _services(
 ) -> tuple[PolicyReconcilerService, SimpleNamespace, SimpleNamespace, SimpleNamespace]:
     policies = SimpleNamespace(
         list=AsyncMock(return_value=(policy,)),
+        get=AsyncMock(return_value=policy),
         annotate_reconcile_status=AsyncMock(return_value=policy),
     )
     policy_planning = SimpleNamespace(
@@ -63,13 +86,28 @@ def _services(
         create_drift_plan=AsyncMock(
             return_value=(
                 preview,
-                {"id": uuid4(), "state_version": 2, "plan_hash": "hash"},
+                {
+                    "id": uuid4(),
+                    "status": "VALIDATED",
+                    "state_version": 2,
+                    "plan_hash": "hash",
+                },
                 True,
                 PreflightResult(True),
             )
         ),
     )
-    planning = SimpleNamespace(confirm=AsyncMock(), apply=AsyncMock())
+    planning = SimpleNamespace(
+        confirm=AsyncMock(
+            side_effect=lambda **kwargs: {
+                "id": kwargs["plan_id"],
+                "status": "CONFIRMED",
+                "state_version": kwargs["expected_version"] + 1,
+                "plan_hash": kwargs["supplied_plan_hash"],
+            }
+        ),
+        apply=AsyncMock(),
+    )
     service = PolicyReconcilerService(
         policies=policies, policy_planning=policy_planning, planning=planning
     )  # type: ignore[arg-type]
@@ -98,7 +136,7 @@ async def test_drifted_policy_is_auto_repaired_via_the_canonical_plan_pipeline()
 
     result = await service.reconcile_policy(GUILD, policy)
 
-    assert result.outcome is ReconcileOutcome.REPAIRED
+    assert result.outcome is ReconcileOutcome.REPAIR_SCHEDULED
     policy_planning.create_drift_plan.assert_awaited_once()
     call = policy_planning.create_drift_plan.await_args
     assert call.kwargs["actor_user_id"] == POLICY_RECONCILER_ACTOR_ID
@@ -107,8 +145,37 @@ async def test_drifted_policy_is_auto_repaired_via_the_canonical_plan_pipeline()
     assert confirm_call.kwargs["actor_user_id"] == POLICY_RECONCILER_ACTOR_ID
     assert confirm_call.kwargs["reinforced_acknowledgement"] is True
     planning.apply.assert_awaited_once()
+    policies.annotate_reconcile_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal", "annotation"),
+    [("SUCCEEDED", "repaired"), ("FAILED", "intervention_required")],
+)
+async def test_terminal_worker_outcome_is_annotated_only_after_plan_finalization(
+    terminal: str, annotation: str
+) -> None:
+    from did.planning.models import PlanState
+
+    policy = _policy(11)
+    service, policies, _policy_planning, _planning = _services(policy, _preview(()))
+
+    await service.record_plan_outcome(
+        guild_id=GUILD,
+        plan={
+            "origin_type": "POLICY",
+            "origin_metadata": {"simulate": "REASSERT", "auto_reconcile": True},
+            "actor_user_id": POLICY_RECONCILER_ACTOR_ID,
+            "source_policy_id": policy.policy_id,
+            "source_policy_revision": policy.revision,
+        },
+        status=PlanState(terminal),
+        correlation_id=uuid4(),
+    )
+
     policies.annotate_reconcile_status.assert_awaited_once()
-    assert policies.annotate_reconcile_status.await_args.kwargs["status"] == "repaired"
+    assert policies.annotate_reconcile_status.await_args.kwargs["status"] == annotation
 
 
 @pytest.mark.asyncio

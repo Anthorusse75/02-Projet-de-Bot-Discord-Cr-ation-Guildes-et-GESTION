@@ -190,6 +190,11 @@ async def run_process(
                 # create_disable_plan/create_drift_plan), which the worker's
                 # own PolicyReconcilerService now relies on for REQ-AP-LOCK-*.
                 policy_preflight.bind_planning(planning_service)
+                policy_reconciler = PolicyReconcilerService(
+                    policies=policy_service,
+                    policy_planning=policy_preflight,
+                    planning=planning_service,
+                )
                 campaigns_repository = CampaignsRepository(session_factory)
                 message_sender = DiscordPyMessageSender(rest_client)
                 worker = DurableDiscordIOWorker(
@@ -207,6 +212,7 @@ async def run_process(
                         worker_id=worker_id,
                         authorization=ApplyActorAuthorizer(worker_authorization),
                         preflight=planning_service,
+                        completion=policy_reconciler,
                         post_verification=Stage08PostVerificationMaterializer(
                             Stage08LifecycleRepository(session_factory)
                         ),
@@ -216,11 +222,7 @@ async def run_process(
                         message_sender,
                         worker_id=worker_id,
                     ),
-                    policy_reconciler=PolicyReconcilerService(
-                        policies=policy_service,
-                        policy_planning=policy_preflight,
-                        planning=planning_service,
-                    ),
+                    policy_reconciler=policy_reconciler,
                 )
                 runtime = DiscordWorkerRuntime(
                     repository=repository,

@@ -10,6 +10,7 @@
 .policy-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 .policy-card > span:not(.policy-card-heading), .policy-card small { color: var(--muted); line-height: 1.35; }
 .policy-card-heading { display: flex; justify-content: space-between; gap: .75rem; align-items: flex-start; }
+.policy-card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
 .policy-editor-panel { min-height: 24rem; }
 .policy-editor-panel textarea { min-height: 5.5rem; resize: vertical; }
 .policy-simple-editor, .policy-expert-editor { margin-top: 1rem; padding: 1rem 1.25rem 0; border-top: 1px solid var(--line); }
@@ -44,6 +45,21 @@
 .policy-conflict ul { margin-bottom: 0; color: var(--muted); }
 .policy-preview-entries details { margin-top: .65rem; }
 .policy-preview-entries summary { cursor: pointer; color: var(--muted); }
+
+.policy-compliance { display: grid; gap: .75rem; margin: 1rem 1.25rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: .8rem; background: color-mix(in srgb, var(--panel-2) 92%, transparent); }
+.policy-compliance.ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.policy-compliance.warning { border-color: color-mix(in srgb, var(--warning) 65%, var(--line)); }
+.policy-compliance.danger { border-color: color-mix(in srgb, var(--danger) 70%, var(--line)); }
+.policy-compliance-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.policy-compliance-heading small { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+.policy-compliance-heading h2 { margin: .2rem 0 0; font-size: 1rem; }
+.policy-compliance > p { margin: 0; color: var(--muted); line-height: 1.5; }
+.policy-compliance details { padding-top: .7rem; border-top: 1px solid var(--line); }
+.policy-compliance summary { cursor: pointer; color: var(--muted); }
+.policy-compliance details > div { margin-top: .6rem; padding: .65rem; border-radius: .6rem; background: #080f1e; overflow-wrap: anywhere; }
+.policy-compliance details p { margin: 0 0 .35rem; }
+.policy-drift-causes { display: grid; gap: .4rem; margin: 0; padding-left: 1.2rem; color: var(--text); }
+.policy-compliance .button-row { justify-content: flex-start; }
 
 .zone-panel { padding: 0; }
 .zone-panel > summary { display: flex; align-items: baseline; gap: .5rem; list-style: none; cursor: pointer; padding: 1rem 1.25rem; }
@@ -81,4 +97,6 @@
   .policy-impact-grid { grid-template-columns: repeat(2, 1fr); }
   .policy-preview-empty, .policy-history-panel li { align-items: stretch; flex-direction: column; }
   .policy-expert-editor dl > div, .policy-explain-panel dl > div { grid-template-columns: 1fr; gap: .2rem; }
+  .policy-compliance-heading { align-items: stretch; flex-direction: column; }
+  .policy-card-badges { justify-content: flex-start; }
 }

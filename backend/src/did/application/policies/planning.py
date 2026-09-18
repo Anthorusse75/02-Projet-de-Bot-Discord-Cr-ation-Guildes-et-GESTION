@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
 
-from did.application.policies.service import PolicyService
+from did.application.policies.service import DRIFT_EXCEPTION_TAG_PREFIX, PolicyService
 from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import Policy, PolicyLifecycleError, PolicyLifecycleState, PolicyScopeType
 from did.domain.read_model import GuildSnapshot, MemberSnapshot
@@ -122,6 +122,33 @@ class PolicyPreview:
     warnings: tuple[str, ...]
     persisted: bool = False
     discord_mutations: int = 0
+
+
+def drift_fingerprint(preview: PolicyPreview) -> str:
+    """Stable identity for the exact observed Discord/Policy delta.
+
+    Policy revision is deliberately excluded: accepting the exception is an
+    audited annotation that increments that revision but does not itself
+    change the desired rule or the observed Discord state.
+    """
+
+    material = {
+        "source_versions": list(preview.source_versions),
+        "entries": [
+            {
+                "subject_id": str(entry.target.subject_id),
+                "scope_type": entry.target.scope_type.value,
+                "scope_id": entry.target.scope_id,
+                "access": entry.target.requested_access,
+                "change": entry.access_change.value,
+                "current": entry.current.outcome.value,
+                "proposed": entry.proposed.outcome.value,
+            }
+            for entry in preview.entries
+            if entry.access_change is not AccessChange.UNCHANGED
+        ],
+    }
+    return canonical_hash(material)
 
 
 class PolicyPlanningService:
@@ -516,7 +543,7 @@ class PolicyPlanningService:
         )
         warnings = set(impact.diagnostics)
         warnings.update(warning for entry in entries for warning in entry.warnings)
-        return PolicyPreview(
+        preview = PolicyPreview(
             policy_id=policy.policy_id,
             policy_revision=policy.revision,
             lifecycle_state=policy.lifecycle_state,
@@ -529,6 +556,15 @@ class PolicyPlanningService:
             source_versions=guild.source_versions,
             warnings=tuple(sorted(warnings)),
         )
+        accepted_tag = f"{DRIFT_EXCEPTION_TAG_PREFIX}{drift_fingerprint(preview)[:40]}"
+        raw_tags = policy.metadata.get("tags", ())
+        tags = tuple(str(value) for value in raw_tags) if isinstance(raw_tags, list | tuple) else ()
+        if changed and accepted_tag in tags:
+            preview = replace(
+                preview,
+                warnings=tuple(sorted({*preview.warnings, "policy.drift.exception_accepted"})),
+            )
+        return preview
 
     async def create_drift_plan(
         self,
@@ -539,6 +575,7 @@ class PolicyPlanningService:
         idempotency_key: str,
         correlation_id: UUID,
         expected_revision: int,
+        auto_reconcile: bool = False,
     ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         """REQ-AP-LOCK-*: compile a real drift check into the same canonical
         DSG/Plan/preflight pipeline as any other Policy Plan. The target
@@ -561,6 +598,7 @@ class PolicyPlanningService:
             correlation_id=correlation_id,
             expected_revision=expected_revision,
             simulate=PreviewSimulation.REASSERT,
+            auto_reconcile=auto_reconcile,
         )
 
     async def create_plans(
@@ -605,6 +643,7 @@ class PolicyPlanningService:
         correlation_id: UUID,
         expected_revision: int,
         simulate: PreviewSimulation = PreviewSimulation.ACTIVATE,
+        auto_reconcile: bool = False,
     ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         if preview.policy_revision != expected_revision:
             raise PolicyLifecycleError("Policy revision changed before Plan creation")
@@ -626,6 +665,7 @@ class PolicyPlanningService:
             "preview_contexts": list(context_rows),
             "source_versions": list(preview.source_versions),
             "simulate": simulate.value,
+            "auto_reconcile": auto_reconcile,
         }
         metadata["preview_fingerprint"] = canonical_hash(metadata)
         provenance = PlanProvenance.policy(
@@ -678,6 +718,11 @@ class PolicyPlanningService:
             guild_id, provenance.policy_id, provenance.policy_revision
         )
         current = await self._policies.get(guild_id, provenance.policy_id)
+        if metadata.get("auto_reconcile") is True and not current.locked:
+            # A system-initiated REASSERT is authorized by the administrator's
+            # durable Policy lock, not by a synthetic Discord user.  Recheck
+            # that opt-in at the last possible preflight boundary.
+            errors.add("preflight.policy_not_locked")
         if not self._same_definition(source, current):
             errors.add("preflight.policy_revision_changed")
         if simulate is PreviewSimulation.DISABLE:

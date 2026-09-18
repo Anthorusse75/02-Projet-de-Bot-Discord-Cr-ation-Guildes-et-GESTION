@@ -13,7 +13,7 @@ const BOT_DENIED = '700000000000000401'
 const BOT_UNKNOWN = '700000000000000402'
 const POLICY = '11111111-1111-4111-8111-111111111111'
 
-type Harness = { policies: Record<string, unknown>[]; requests: Array<{path:string;method:string;body:unknown}>; conflict?: boolean; denied?: boolean; family?: 'voice'|'mentions'|'bot' }
+type Harness = { policies: Record<string, unknown>[]; requests: Array<{path:string;method:string;body:unknown}>; conflict?: boolean; denied?: boolean; family?: 'voice'|'mentions'|'bot'; drift?: 'DRIFT'|'UNKNOWN'|'COMPLIANT'; driftAccepted?: boolean }
 const can = () => ({ outcome: 'CAN', causes: [], remediations: [] })
 
 function capabilities(denied = false) {
@@ -31,7 +31,7 @@ function roles() { return { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest
 
 function structure() { const base = { guild_id: GUILD, position: 0, resource_kind: 'CHANNEL', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }; return { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ ...base, id: CAT, type: 4, name: 'Direction', parent_id: null, channels: [{ ...base, id: CHANNEL, type: 0, name: 'board', parent_id: CAT }, { ...base, id: VOICE, type: 2, name: 'briefing', parent_id: CAT }] }], root_channels: [] } }
 
-function policy(overrides: Record<string, unknown> = {}) { return { policy_id: POLICY, guild_id: GUILD, policy_type: 'ACCESS_CONTROL', contract_version: 1, name: 'Board access', description: 'Managers only', lifecycle_state: 'DRAFT', revision: 1, priority: 0, scope_type: 'CHANNEL', scope_id: CHANNEL, conditions: [{ kind: 'ROLE_MATCH', match: 'ANY', role_ids: [ROLE] }], effects: [{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }], metadata: { summary: 'Managers only', tags: ['did-native:visible_only', 'audience:include'], reason: null }, created_by_user_id: USER, modified_by_user_id: USER, created_at: '2026-09-15T08:00:00Z', updated_at: '2026-09-15T08:00:00Z', activated_at: null, disabled_at: null, retired_at: null, ...overrides } }
+function policy(overrides: Record<string, unknown> = {}) { return { policy_id: POLICY, guild_id: GUILD, policy_type: 'ACCESS_CONTROL', contract_version: 1, name: 'Board access', description: 'Managers only', lifecycle_state: 'DRAFT', revision: 1, priority: 0, locked: false, scope_type: 'CHANNEL', scope_id: CHANNEL, conditions: [{ kind: 'ROLE_MATCH', match: 'ANY', role_ids: [ROLE] }], effects: [{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }], metadata: { summary: 'Managers only', tags: ['did-native:visible_only', 'audience:include'], reason: null }, created_by_user_id: USER, modified_by_user_id: USER, created_at: '2026-09-15T08:00:00Z', updated_at: '2026-09-15T08:00:00Z', activated_at: null, disabled_at: null, retired_at: null, ...overrides } }
 
 function resolution(outcome: 'CAN'|'CANNOT'|'BLOCKED'|'UNKNOWN', conflicts: Record<string, unknown>[] = [], access = 'VIEW', permissions = ['VIEW_CHANNEL'], inherited = false) { return { guild_id: GUILD, subject_id: MEMBER, decision: `ACCESS_CONTROL:${access}`, outcome, target_scope_type: 'CHANNEL', target_scope_id: CHANNEL, target_state: 'CURRENT', target_freshness: 'FRESH', coverage: 'FULL', applicable_policies: [{ policy_id: POLICY, revision: 1, priority: 0, scope_type: inherited ? 'GUILD' : 'CHANNEL', scope_id: inherited ? null : CHANNEL, inherited, specificity: inherited ? 0 : 3 }], contributions: [{ policy_id: POLICY, revision: 1, effect_index: 0, priority: 0, scope_type: inherited ? 'GUILD' : 'CHANNEL', scope_id: inherited ? null : CHANNEL, family: 'RESOURCE', specificity: inherited ? 0 : 3, inherited, access, decision: outcome === 'CAN' ? 'ALLOW' : 'DENY', condition_outcome: 'TRUE', selected: outcome === 'CAN' || outcome === 'CANNOT', disposition: outcome === 'BLOCKED' ? 'CONFLICT_UNRESOLVED' : 'SELECTED' }], conflicts, source_scopes: [{ policy_id: POLICY, revision: 1, scope_type: inherited ? 'GUILD' : 'CHANNEL', scope_id: inherited ? null : CHANNEL, family: 'RESOURCE', specificity: inherited ? 0 : 3, inherited }], priority_trace: [], conditions: [], incomplete_reasons: outcome === 'UNKNOWN' ? ['policy.member_roles_incomplete'] : [], warnings: [], source_versions: ['cache-v1'], discord_permissions: permissions, discord_allow_bits: outcome === 'CAN' ? '1' : '0', discord_deny_bits: outcome === 'CAN' ? '0' : '1', discord_translation_diagnostics: [] } }
 
@@ -42,6 +42,13 @@ function preview(conflict = false, family?: Harness['family']) {
        { target: { subject_id: '700000000000000302', scope_type: 'CHANNEL', scope_id: CHANNEL, requested_access: 'VIEW' }, current: resolution('CANNOT'), proposed: resolution('UNKNOWN'), access_change: 'UNKNOWN', gained_contributions: [], lost_contributions: [], conflicts_created: [], conflicts_resolved: [], diagnostics: ['policy.member_roles_incomplete'], warnings: [], remediations: [] }]
     : [{ target: { subject_id: MEMBER, scope_type: 'CHANNEL', scope_id: family === 'voice' ? VOICE : CHANNEL, requested_access: family === 'voice' ? 'CONNECT' : family === 'mentions' ? 'MENTION_EVERYONE_HERE' : 'VIEW' }, current: resolution('CANNOT'), proposed: family === 'voice' ? resolution('CAN', [], 'CONNECT', ['CONNECT']) : family === 'mentions' ? resolution('CAN', [], 'MENTION_EVERYONE_HERE', ['MENTION_EVERYONE'], true) : resolution('CAN'), access_change: 'GAINED', gained_contributions: ['new'], lost_contributions: [], conflicts_created: [], conflicts_resolved: [], diagnostics: [], warnings: [], remediations: [] }]
   return { policy_id: POLICY, policy_revision: 1, lifecycle_state: 'DRAFT', scope_type: 'CHANNEL', scope_id: CHANNEL, entries, impact: { accuracy: 'EXACT', candidate_contexts: entries.length, evaluated_contexts: entries.length, affected_resources: 1, affected_roles: conflict ? 2 : 1, affected_members: entries.length, access_gains: conflict ? 0 : 1, access_losses: 0, conflicts: conflict ? 1 : 0, impossible_or_incomplete_targets: conflict ? 2 : 0, lower_bound_only: false, diagnostics: [] }, freshness: 'FRESH', coverage: 'FULL', source_versions: ['cache-v1'], warnings: [], persisted: false, discord_mutations: 0 }
+}
+
+function driftPreview(mode: NonNullable<Harness['drift']>, accepted = false) {
+  const unknown = mode === 'UNKNOWN'
+  const changed = mode !== 'COMPLIANT'
+  const entry = { target: { subject_id: MEMBER, scope_type: 'CHANNEL', scope_id: CHANNEL, requested_access: 'VIEW' }, current: resolution(unknown ? 'UNKNOWN' : changed ? 'CANNOT' : 'CAN'), proposed: resolution('CAN'), access_change: unknown ? 'UNKNOWN' : changed ? 'GAINED' : 'UNCHANGED', gained_contributions: changed ? ['policy'] : [], lost_contributions: [], conflicts_created: [], conflicts_resolved: [], diagnostics: unknown ? ['policy.drift.discord_state_unknown'] : [], warnings: [], remediations: [] }
+  return { policy_id: POLICY, policy_revision: 3, lifecycle_state: 'ACTIVE', scope_type: 'CHANNEL', scope_id: CHANNEL, entries: [entry], impact: { accuracy: unknown ? 'INCOMPLETE' : 'EXACT', candidate_contexts: 1, evaluated_contexts: 1, affected_resources: changed ? 1 : 0, affected_roles: 0, affected_members: changed ? 1 : 0, access_gains: changed ? 1 : 0, access_losses: 0, conflicts: 0, impossible_or_incomplete_targets: unknown ? 1 : 0, lower_bound_only: unknown, diagnostics: unknown ? ['policy.drift.member_coverage_incomplete'] : [] }, freshness: unknown ? 'STALE' : 'FRESH', coverage: unknown ? 'DEGRADED' : 'FULL', source_versions: ['cache-v2'], warnings: accepted ? ['policy.drift.exception_accepted'] : [], persisted: false, discord_mutations: 0 }
 }
 
 async function install(page: Page, harness: Harness) {
@@ -60,6 +67,10 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/logical-groups')) return route.fulfill({ json: { guild_id: GUILD, groups: [] } })
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') { const created = policy({ ...(body as Record<string, unknown>), policy_id: harness.policies.length ? '66666666-6666-4666-8666-666666666666' : POLICY }); harness.policies.push(created); return route.fulfill({ status: 201, json: created }) }
+    if (path.endsWith(`/policies/${POLICY}/drift-preview`)) return route.fulfill({ json: driftPreview(harness.drift ?? 'COMPLIANT', harness.driftAccepted) })
+    if (path.endsWith(`/policies/${POLICY}/lock`) || path.endsWith(`/policies/${POLICY}/unlock`)) { const locked = path.endsWith('/lock'); const current = harness.policies[0]; const updated = { ...current, locked, revision: Number(current.revision) + 1 }; harness.policies[0] = updated; return route.fulfill({ json: updated }) }
+    if (path.endsWith(`/policies/${POLICY}/accept-drift`)) { harness.driftAccepted = true; const current = harness.policies[0]; const metadata = current.metadata as { summary:string; tags:string[]; reason:null }; const updated = { ...current, revision: Number(current.revision) + 1, metadata: { ...metadata, tags: [...metadata.tags, 'drift-exception:test'] } }; harness.policies[0] = updated; return route.fulfill({ json: updated }) }
+    if (path.endsWith(`/policies/${POLICY}/drift-plan`)) return route.fulfill({ status: 201, json: { created: true, preview: driftPreview('DRIFT'), plan: { id: '55555555-5555-4555-8555-555555555555', status: 'VALIDATED', state_version: 2 }, preflight: { allowed: true, errors: [], warnings: [] } } })
     if (/\/policies\/[^/]+\/preview$/.test(path)) return route.fulfill({ json: preview(Boolean(harness.conflict), harness.family) })
     if (path.endsWith(`/policies/${POLICY}/versions`)) return route.fulfill({ json: { guild_id: GUILD, policy_id: POLICY, versions: [{ version_id: '33333333-3333-4333-8333-333333333333', guild_id: GUILD, policy_id: POLICY, revision: 1, change_kind: 'CREATE', snapshot: policy(), author_user_id: USER, correlation_id: '44444444-4444-4444-8444-444444444444', idempotency_key: null, created_at: '2026-09-15T08:00:00Z' }] } })
     if (path.endsWith('/bots/audit')) return route.fulfill({ json: { bots: [{ user_id: BOT_DENIED, status: 'ACTIVE', incomplete_reasons: [] }, { user_id: BOT_UNKNOWN, status: 'STALE', incomplete_reasons: ['cache.stale'] }] } })
@@ -179,4 +190,52 @@ test('@families minimal bot access explains CANNOT and UNKNOWN before preparing 
   await page.getByRole('button', { name: 'Preview impact' }).click()
   await page.getByRole('button', { name: 'Prepare plan' }).click()
   await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/plans$`))
+})
+
+test('@a11y locked Policy UI shows drift cause and persists lock/unlock/accepted exception actions', async ({ page }) => {
+  const harness: Harness = { policies: [policy({ lifecycle_state: 'ACTIVE', revision: 3, activated_at: '2026-09-15T09:00:00Z' })], requests: [], drift: 'DRIFT' }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByRole('button', { name: /Board access/ }).click()
+  await expect(page.getByRole('heading', { name: 'A Discord change no longer matches' })).toBeVisible()
+  await expect(page.getByText(/Discord is Denied, policy expects Allowed/)).toBeVisible()
+  await expect(page.getByText('allow=1 · deny=0')).toBeHidden()
+
+  await page.getByRole('button', { name: 'Lock policy' }).click()
+  await expect(page.getByText('Policy locked. Future external drift is repaired automatically through the Plan worker.')).toBeVisible()
+  await expect(page.getByText('Locked', { exact: true }).first()).toBeVisible()
+  const automaticRepairHeading = page.getByRole('heading', { name: 'Automatic repair in progress' })
+  await expect(automaticRepairHeading).toBeVisible()
+
+  await page.getByRole('button', { name: 'Unlock policy' }).click()
+  await page.getByRole('button', { name: 'Accept this exception' }).click()
+  await expect(page.getByText('This exact exception was documented; Discord was not changed.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Documented exception' })).toBeVisible()
+  const accessibility = await new AxeBuilder({ page }).include('#main').analyze()
+  expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
+test('unlocked drift Repair creates only a canonical Plan and opens Plans', async ({ page }) => {
+  const harness: Harness = { policies: [policy({ lifecycle_state: 'ACTIVE', revision: 3, activated_at: '2026-09-15T09:00:00Z' })], requests: [], drift: 'DRIFT' }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: 'Repair with a Plan' }).click()
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/plans$`))
+  expect(harness.requests.some((item) => item.path.endsWith(`/policies/${POLICY}/drift-plan`))).toBe(true)
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
+})
+
+test('locked Policy with incomplete data is actionable Intervention required, never Compliant', async ({ page }) => {
+  const harness: Harness = { policies: [policy({ lifecycle_state: 'ACTIVE', revision: 3, locked: true, activated_at: '2026-09-15T09:00:00Z', metadata: { summary: 'Managers only', tags: ['did-native:visible_only', 'reconciler:intervention_required'], reason: null } })], requests: [], drift: 'UNKNOWN' }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByRole('button', { name: /Board access/ }).click()
+  await expect(page.getByRole('heading', { name: 'Intervention required' })).toBeVisible()
+  await expect(page.getByText(/cannot safely prove or apply/)).toBeVisible()
+  await expect(page.getByText('Compliant', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Repair with a Plan' })).toHaveCount(0)
 })

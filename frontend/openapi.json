@@ -8064,6 +8064,82 @@
         ]
       }
     },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-drift": {
+      "post": {
+        "description": "REQ-AP-LOCK-006: document the exact current Discord drift as an\naccepted exception for an ACTIVE, unlocked Policy.  No Discord mutation\noccurs and a materially different later drift is surfaced again.",
+        "operationId": "accept_policy_drift_api_v1_guilds__guild_id__policies__policy_id__accept_drift_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyTransition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Accept Policy Drift Api V1 Guilds  Guild Id  Policies  Policy Id  Accept Drift Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Policy Drift",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-exception": {
       "post": {
         "description": "Document an intentional exception (REQ-AP-VIS-017) on this Policy's metadata.\n\nNo mutation of conditions/effects/scope/lifecycle: only a new, audited\nmetadata revision so the conflict this Policy has with ``other_policy_id``\nshows up as \"exception voulue\" instead of a silent conflict.",

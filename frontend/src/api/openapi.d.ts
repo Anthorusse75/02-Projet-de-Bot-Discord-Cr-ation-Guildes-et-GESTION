@@ -1301,6 +1301,28 @@ export interface paths {
         patch: operations["update_policy_api_v1_guilds__guild_id__policies__policy_id__patch"];
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Policy Drift
+         * @description REQ-AP-LOCK-006: document the exact current Discord drift as an
+         *     accepted exception for an ACTIVE, unlocked Policy.  No Discord mutation
+         *     occurs and a materially different later drift is surfaced again.
+         */
+        post: operations["accept_policy_drift_api_v1_guilds__guild_id__policies__policy_id__accept_drift_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/accept-exception": {
         parameters: {
             query?: never;
@@ -6718,6 +6740,46 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_policy_drift_api_v1_guilds__guild_id__policies__policy_id__accept_drift_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTransition"];
             };
         };
         responses: {

@@ -89,6 +89,15 @@ const en = {
   'policies.reapply.action': 'Reapply category policy', 'policies.reapply.eyebrow': 'Category inheritance', 'policies.reapply.title': 'Reapply the category policy',
   'policies.reapply.help': 'This channel-level policy currently overrides its category. Disabling it lets the category policy apply again — nothing changes until you confirm.',
   'policies.reapply.preparePlan': 'Prepare the plan', 'policies.reapply.confirm': 'Confirm: reapply the category policy', 'policies.reapply.done': 'The category policy has been reapplied.',
+  'policies.drift.eyebrow': 'Policy compliance', 'policies.drift.lockedBadge': 'Locked', 'policies.drift.compliantTitle': 'Discord matches this policy', 'policies.drift.compliantBadge': 'Compliant', 'policies.drift.compliantHelp': 'The observed Discord access matches the declared intention.',
+  'policies.drift.detectedTitle': 'A Discord change no longer matches', 'policies.drift.driftBadge': 'Drift detected', 'policies.drift.detectedHelp': 'DID found an external access change. Review the human-readable cause, then prepare a repair Plan or document this exact exception.',
+  'policies.drift.autoRepairTitle': 'Automatic repair in progress', 'policies.drift.autoRepairHelp': 'This policy is locked. DID has detected the change and uses the canonical Plan worker to restore it without another manual confirmation.',
+  'policies.drift.acceptedTitle': 'Documented exception', 'policies.drift.acceptedHelp': 'This exact observed difference was accepted. A materially different later change will be surfaced again.',
+  'policies.drift.interventionTitle': 'Intervention required', 'policies.drift.interventionBadge': 'To correct', 'policies.drift.interventionHelp': 'DID cannot safely prove or apply the automatic correction. Refresh the Discord data and review capabilities or the blocked Plan.',
+  'policies.drift.checking': 'Checking the observed Discord state…', 'policies.drift.checkFailed': 'The compliance state could not be loaded.', 'policies.drift.repairedHelp': 'The last automatic repair completed and was verified. Discord currently matches the policy.',
+  'policies.drift.cause': 'Member {{member}} · {{access}}: Discord is {{current}}, policy expects {{expected}}.', 'policies.drift.moreCauses': '+ {{count}} other affected case(s)',
+  'policies.drift.lock': 'Lock policy', 'policies.drift.unlock': 'Unlock policy', 'policies.drift.repair': 'Repair with a Plan', 'policies.drift.accept': 'Accept this exception',
+  'policies.drift.lockedNotice': 'Policy locked. Future external drift is repaired automatically through the Plan worker.', 'policies.drift.unlockedNotice': 'Policy unlocked. Future drift remains visible and requires a decision.', 'policies.drift.acceptedNotice': 'This exact exception was documented; Discord was not changed.', 'policies.drift.repairBlocked': 'The repair Plan is blocked: {{reason}}',
 } as const
 
 const fr: Record<keyof typeof en, string> = {
@@ -183,6 +192,15 @@ const fr: Record<keyof typeof en, string> = {
   'policies.reapply.action': 'Réappliquer la politique de catégorie', 'policies.reapply.eyebrow': 'Héritage de catégorie', 'policies.reapply.title': 'Réappliquer la politique de catégorie',
   'policies.reapply.help': 'Cette politique au niveau du salon remplace actuellement celle de sa catégorie. La désactiver permet à la politique de catégorie de s’appliquer à nouveau — rien ne change avant votre confirmation.',
   'policies.reapply.preparePlan': 'Préparer le plan', 'policies.reapply.confirm': 'Confirmer : réappliquer la politique de catégorie', 'policies.reapply.done': 'La politique de catégorie a été réappliquée.',
+  'policies.drift.eyebrow': 'Conformité de la politique', 'policies.drift.lockedBadge': 'Verrouillée', 'policies.drift.compliantTitle': 'Discord respecte cette politique', 'policies.drift.compliantBadge': 'Conforme', 'policies.drift.compliantHelp': 'Les accès observés dans Discord correspondent à l’intention déclarée.',
+  'policies.drift.detectedTitle': 'Un changement Discord ne correspond plus', 'policies.drift.driftBadge': 'Écart détecté', 'policies.drift.detectedHelp': 'DID a détecté un changement d’accès externe. Vérifiez sa cause compréhensible, puis préparez un Plan de réparation ou documentez cette exception exacte.',
+  'policies.drift.autoRepairTitle': 'Réparation automatique en cours', 'policies.drift.autoRepairHelp': 'Cette politique est verrouillée. DID a détecté le changement et utilise le worker de Plans canonique pour la rétablir sans nouvelle confirmation manuelle.',
+  'policies.drift.acceptedTitle': 'Exception documentée', 'policies.drift.acceptedHelp': 'Cette différence observée exacte a été acceptée. Un changement ultérieur matériellement différent sera signalé à nouveau.',
+  'policies.drift.interventionTitle': 'Intervention requise', 'policies.drift.interventionBadge': 'À corriger', 'policies.drift.interventionHelp': 'DID ne peut pas prouver ou appliquer la correction automatique en sécurité. Actualisez les données Discord et vérifiez les capacités ou le Plan bloqué.',
+  'policies.drift.checking': 'Vérification de l’état Discord observé…', 'policies.drift.checkFailed': 'L’état de conformité n’a pas pu être chargé.', 'policies.drift.repairedHelp': 'La dernière réparation automatique est terminée et vérifiée. Discord respecte actuellement la politique.',
+  'policies.drift.cause': 'Membre {{member}} · {{access}} : Discord indique {{current}}, la politique attend {{expected}}.', 'policies.drift.moreCauses': '+ {{count}} autre(s) cas affecté(s)',
+  'policies.drift.lock': 'Verrouiller la politique', 'policies.drift.unlock': 'Déverrouiller la politique', 'policies.drift.repair': 'Réparer avec un Plan', 'policies.drift.accept': 'Accepter cette exception',
+  'policies.drift.lockedNotice': 'Politique verrouillée. Tout futur écart externe sera réparé automatiquement par le worker de Plans.', 'policies.drift.unlockedNotice': 'Politique déverrouillée. Tout futur écart restera visible et demandera une décision.', 'policies.drift.acceptedNotice': 'Cette exception exacte est documentée ; Discord n’a pas été modifié.', 'policies.drift.repairBlocked': 'Le Plan de réparation est bloqué : {{reason}}',
 }
 
 const de: Record<keyof typeof en, string> = {
@@ -254,6 +272,15 @@ const de: Record<keyof typeof en, string> = {
   'policies.reapply.action': 'Kategorie-Richtlinie erneut anwenden', 'policies.reapply.eyebrow': 'Kategorie-Vererbung', 'policies.reapply.title': 'Die Kategorie-Richtlinie erneut anwenden',
   'policies.reapply.help': 'Diese Richtlinie auf Kanalebene überschreibt derzeit die ihrer Kategorie. Wird sie deaktiviert, gilt die Kategorie-Richtlinie wieder — nichts ändert sich vor Ihrer Bestätigung.',
   'policies.reapply.preparePlan': 'Plan vorbereiten', 'policies.reapply.confirm': 'Bestätigen: Kategorie-Richtlinie erneut anwenden', 'policies.reapply.done': 'Die Kategorie-Richtlinie wurde erneut angewendet.',
+  'policies.drift.eyebrow': 'Richtlinienkonformität', 'policies.drift.lockedBadge': 'Gesperrt', 'policies.drift.compliantTitle': 'Discord entspricht dieser Richtlinie', 'policies.drift.compliantBadge': 'Konform', 'policies.drift.compliantHelp': 'Die beobachteten Discord-Zugriffe entsprechen der festgelegten Absicht.',
+  'policies.drift.detectedTitle': 'Eine Discord-Änderung weicht ab', 'policies.drift.driftBadge': 'Abweichung erkannt', 'policies.drift.detectedHelp': 'DID hat eine externe Zugriffsänderung erkannt. Prüfen Sie die verständliche Ursache und erstellen Sie dann einen Reparaturplan oder dokumentieren Sie diese genaue Ausnahme.',
+  'policies.drift.autoRepairTitle': 'Automatische Reparatur läuft', 'policies.drift.autoRepairHelp': 'Diese Richtlinie ist gesperrt. DID stellt sie über den kanonischen Plan-Worker ohne weitere manuelle Bestätigung wieder her.',
+  'policies.drift.acceptedTitle': 'Dokumentierte Ausnahme', 'policies.drift.acceptedHelp': 'Diese genaue Abweichung wurde akzeptiert. Eine später wesentlich andere Änderung wird erneut angezeigt.',
+  'policies.drift.interventionTitle': 'Eingriff erforderlich', 'policies.drift.interventionBadge': 'Zu korrigieren', 'policies.drift.interventionHelp': 'DID kann die automatische Korrektur nicht sicher nachweisen oder anwenden. Aktualisieren Sie die Discord-Daten und prüfen Sie Fähigkeiten oder den blockierten Plan.',
+  'policies.drift.checking': 'Beobachteten Discord-Stand prüfen…', 'policies.drift.checkFailed': 'Der Konformitätsstatus konnte nicht geladen werden.', 'policies.drift.repairedHelp': 'Die letzte automatische Reparatur wurde abgeschlossen und geprüft. Discord entspricht derzeit der Richtlinie.',
+  'policies.drift.cause': 'Mitglied {{member}} · {{access}}: Discord ist {{current}}, erwartet ist {{expected}}.', 'policies.drift.moreCauses': '+ {{count}} weitere betroffene Fälle',
+  'policies.drift.lock': 'Richtlinie sperren', 'policies.drift.unlock': 'Richtlinie entsperren', 'policies.drift.repair': 'Mit einem Plan reparieren', 'policies.drift.accept': 'Diese Ausnahme akzeptieren',
+  'policies.drift.lockedNotice': 'Richtlinie gesperrt. Künftige externe Abweichungen werden automatisch über den Plan-Worker repariert.', 'policies.drift.unlockedNotice': 'Richtlinie entsperrt. Künftige Abweichungen bleiben sichtbar und erfordern eine Entscheidung.', 'policies.drift.acceptedNotice': 'Diese genaue Ausnahme wurde dokumentiert; Discord wurde nicht geändert.', 'policies.drift.repairBlocked': 'Der Reparaturplan ist blockiert: {{reason}}',
 }
 
 const es: Record<keyof typeof en, string> = {
@@ -320,6 +347,15 @@ const es: Record<keyof typeof en, string> = {
   'policies.reapply.action': 'Reaplicar la política de categoría', 'policies.reapply.eyebrow': 'Herencia de categoría', 'policies.reapply.title': 'Reaplicar la política de categoría',
   'policies.reapply.help': 'Esta política a nivel de canal anula actualmente la de su categoría. Al desactivarla, la política de categoría vuelve a aplicarse — nada cambia hasta que confirme.',
   'policies.reapply.preparePlan': 'Preparar el plan', 'policies.reapply.confirm': 'Confirmar: reaplicar la política de categoría', 'policies.reapply.done': 'La política de categoría se ha reaplicado.',
+  'policies.drift.eyebrow': 'Conformidad de la política', 'policies.drift.lockedBadge': 'Bloqueada', 'policies.drift.compliantTitle': 'Discord cumple esta política', 'policies.drift.compliantBadge': 'Conforme', 'policies.drift.compliantHelp': 'Los accesos observados en Discord coinciden con la intención declarada.',
+  'policies.drift.detectedTitle': 'Un cambio de Discord ya no coincide', 'policies.drift.driftBadge': 'Desviación detectada', 'policies.drift.detectedHelp': 'DID detectó un cambio de acceso externo. Revise la causa comprensible y prepare un Plan de reparación o documente esta excepción exacta.',
+  'policies.drift.autoRepairTitle': 'Reparación automática en curso', 'policies.drift.autoRepairHelp': 'Esta política está bloqueada. DID la restaura mediante el worker de Planes canónico sin otra confirmación manual.',
+  'policies.drift.acceptedTitle': 'Excepción documentada', 'policies.drift.acceptedHelp': 'Se aceptó esta diferencia observada exacta. Un cambio posterior materialmente distinto volverá a mostrarse.',
+  'policies.drift.interventionTitle': 'Intervención requerida', 'policies.drift.interventionBadge': 'Por corregir', 'policies.drift.interventionHelp': 'DID no puede demostrar ni aplicar la corrección automática con seguridad. Actualice los datos de Discord y revise las capacidades o el Plan bloqueado.',
+  'policies.drift.checking': 'Comprobando el estado observado de Discord…', 'policies.drift.checkFailed': 'No se pudo cargar el estado de conformidad.', 'policies.drift.repairedHelp': 'La última reparación automática terminó y fue verificada. Discord cumple actualmente la política.',
+  'policies.drift.cause': 'Miembro {{member}} · {{access}}: Discord está {{current}}; la política espera {{expected}}.', 'policies.drift.moreCauses': '+ {{count}} caso(s) afectado(s) más',
+  'policies.drift.lock': 'Bloquear política', 'policies.drift.unlock': 'Desbloquear política', 'policies.drift.repair': 'Reparar con un Plan', 'policies.drift.accept': 'Aceptar esta excepción',
+  'policies.drift.lockedNotice': 'Política bloqueada. Las futuras desviaciones externas se repararán automáticamente mediante el worker de Planes.', 'policies.drift.unlockedNotice': 'Política desbloqueada. Las futuras desviaciones seguirán visibles y requerirán una decisión.', 'policies.drift.acceptedNotice': 'Esta excepción exacta quedó documentada; Discord no fue modificado.', 'policies.drift.repairBlocked': 'El Plan de reparación está bloqueado: {{reason}}',
 }
 
 export const phase4PoliciesPacks = { en, fr, de, es } as const

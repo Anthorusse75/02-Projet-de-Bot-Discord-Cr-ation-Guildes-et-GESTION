@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Protocol
 from uuid import UUID
 
 from did.application.auth.service import AuthorizationDenied
+from did.application.policies.service import POLICY_RECONCILER_ACTOR_ID
 from did.infrastructure.discord.mutations import (
     MutableDiscordError,
     MutableDiscordPort,
@@ -41,6 +43,17 @@ class PostVerificationPort(Protocol):
     ) -> PostVerificationOutcome: ...
 
 
+class PlanCompletionPort(Protocol):
+    async def record_plan_outcome(
+        self,
+        *,
+        guild_id: int,
+        plan: dict[str, Any],
+        status: PlanState,
+        correlation_id: UUID,
+    ) -> None: ...
+
+
 class NoFaults:
     async def checkpoint(self, name: str) -> None:
         del name
@@ -60,6 +73,7 @@ class ApplyPlanExecutor:
         faults: FaultInjector | None = None,
         preflight: ApplyPreflightPort | None = None,
         post_verification: PostVerificationPort | None = None,
+        completion: PlanCompletionPort | None = None,
     ) -> None:
         self._repository = repository
         self._adapter = adapter
@@ -69,6 +83,8 @@ class ApplyPlanExecutor:
         self._faults = faults or NoFaults()
         self._preflight = preflight
         self._post_verification = post_verification
+        self._completion = completion
+        self._logger = logging.getLogger(__name__)
 
     async def execute_leased(
         self,
@@ -131,6 +147,14 @@ class ApplyPlanExecutor:
             actor_user_id=actor_user_id,
             correlation_id=correlation_id,
         )
+        plan = await self._repository.get_plan(guild_id, plan_id)
+        origin_metadata = dict(plan.get("origin_metadata") or {})
+        automatic_policy_repair = (
+            actor_user_id == POLICY_RECONCILER_ACTOR_ID
+            and str(plan.get("origin_type")) == "POLICY"
+            and origin_metadata.get("simulate") == "REASSERT"
+            and origin_metadata.get("auto_reconcile") is True
+        )
         try:
 
             async def authorize_actor() -> None:
@@ -138,15 +162,17 @@ class ApplyPlanExecutor:
                     guild_id=guild_id, actor_user_id=actor_user_id
                 )
 
-            (
-                await governor.run_distributed(guild_id, authorize_actor)
-                if governor is not None
-                else await authorize_actor()
-            )
+            if not automatic_policy_repair:
+                (
+                    await governor.run_distributed(guild_id, authorize_actor)
+                    if governor is not None
+                    else await authorize_actor()
+                )
         except AuthorizationDenied as exc:
-            await self._repository.finalize_plan(
+            await self._finalize_terminal(
                 guild_id=guild_id,
                 plan_id=plan_id,
+                plan=plan,
                 status=PlanState.FAILED,
                 verification_summary={
                     "strategy": "ACTOR_AUTHORIZATION_RECHECK",
@@ -164,9 +190,10 @@ class ApplyPlanExecutor:
                 actor_authorization_fresh=True,
             )
             if not result.allowed:
-                await self._repository.finalize_plan(
+                await self._finalize_terminal(
                     guild_id=guild_id,
                     plan_id=plan_id,
+                    plan=plan,
                     status=PlanState.FAILED,
                     verification_summary={
                         "strategy": "FINAL_PREFLIGHT",
@@ -386,9 +413,10 @@ class ApplyPlanExecutor:
                 terminal = PlanState.SUCCEEDED
                 error = None
         await self._faults.checkpoint("I_BEFORE_FINALIZE")
-        await self._repository.finalize_plan(
+        await self._finalize_terminal(
             guild_id=guild_id,
             plan_id=plan_id,
+            plan=plan,
             status=terminal,
             verification_summary={
                 "strategy": "TARGETED_REST",
@@ -403,6 +431,44 @@ class ApplyPlanExecutor:
             error_code=error,
             correlation_id=correlation_id,
         )
+
+    async def _finalize_terminal(
+        self,
+        *,
+        guild_id: int,
+        plan_id: UUID,
+        plan: dict[str, Any],
+        status: PlanState,
+        verification_summary: dict[str, Any],
+        error_code: str | None,
+        correlation_id: UUID,
+    ) -> None:
+        await self._repository.finalize_plan(
+            guild_id=guild_id,
+            plan_id=plan_id,
+            status=status,
+            verification_summary=verification_summary,
+            error_code=error_code,
+            correlation_id=correlation_id,
+        )
+        if self._completion is None:
+            return
+        try:
+            await self._completion.record_plan_outcome(
+                guild_id=guild_id,
+                plan=plan,
+                status=status,
+                correlation_id=correlation_id,
+            )
+        except Exception:
+            # The Plan is already durably terminal.  A Policy status
+            # annotation is secondary and the next reconciliation sweep can
+            # safely retry/recover it; never turn a verified Plan into a job
+            # retry that could duplicate Discord mutations.
+            self._logger.exception(
+                "policy reconciler: terminal Plan annotation failed",
+                extra={"guild_id": guild_id, "plan_id": str(plan_id)},
+            )
 
     async def _verify(
         self,

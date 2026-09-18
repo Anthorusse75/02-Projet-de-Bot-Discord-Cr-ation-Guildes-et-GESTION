@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -15,17 +17,27 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from did.application.discord_runtime import normalize_gateway_dispatch
 from did.application.planning.service import PlanningService
 from did.application.policies.planning import PolicyPlanningService
 from did.application.policies.reconciler import PolicyReconcilerService, ReconcileOutcome
 from did.application.policies.service import POLICY_RECONCILER_ACTOR_ID, PolicyService
 from did.domain.policies import PolicyScopeType
 from did.infrastructure.database import create_database_engine, tenant_transaction
+from did.infrastructure.discord.mutations import (
+    MutationResult,
+    PreconditionOutcome,
+    RecoveryOutcome,
+    RecoveryResult,
+)
 from did.infrastructure.planning_repository import PlanningRepository
 from did.infrastructure.policies_repository import PoliciesRepository
+from did.infrastructure.runtime_repository import RuntimeRepository
 from did.infrastructure.stage04_repository import Stage04Repository
 from did.permissions import DEFAULT_PERMISSION_REGISTRY
+from did.planning.models import PlanState
 from did.tenancy import TenantContext
+from did.worker.io.plan_executor import ApplyPlanExecutor
 
 pytestmark = [pytest.mark.integration, pytest.mark.security, pytest.mark.failure_injection]
 
@@ -47,7 +59,13 @@ BOT_ROLE = 884_005_061
 VIEW_BIT = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
 
 
-_ReconcilerContext = tuple[PoliciesRepository, PolicyService, PolicyReconcilerService]
+_ReconcilerContext = tuple[
+    PoliciesRepository,
+    PolicyService,
+    PolicyReconcilerService,
+    PlanningRepository,
+    PlanningService,
+]
 
 
 @pytest.fixture
@@ -165,7 +183,7 @@ async def reconciler_context() -> AsyncIterator[_ReconcilerContext]:
         reconciler = PolicyReconcilerService(
             policies=policy_service, policy_planning=policy_planning, planning=planning_service
         )
-        yield policies_repository, policy_service, reconciler
+        yield policies_repository, policy_service, reconciler, planning_repository, planning_service
     finally:
         async with admin_engine.begin() as connection:
             await connection.execute(
@@ -234,8 +252,58 @@ async def _set_real_overwrite(factory, *, allow: int) -> None:
 
 
 @pytest.mark.asyncio
+async def test_external_gateway_access_change_enqueues_event_driven_reconcile(
+    reconciler_context,
+) -> None:
+    repository, _service, _reconciler, _planning_repository, _planning_service = reconciler_context
+    factory = object.__getattribute__(repository, "_factory")
+    runtime = RuntimeRepository(factory)
+    envelope = normalize_gateway_dispatch(
+        {
+            "op": 0,
+            "s": 42,
+            "t": "CHANNEL_UPDATE",
+            "d": {
+                "guild_id": str(GUILD),
+                "id": str(CHANNEL),
+                "type": 0,
+                "position": 0,
+                "parent_id": None,
+                "name": "board",
+                "topic": None,
+                "nsfw": False,
+                "flags": 0,
+                "permission_overwrites": [],
+            },
+        },
+        discord_session_id="policy-reconcile-gateway",
+        received_at=datetime.now(UTC),
+    )
+    assert envelope is not None
+
+    assert await runtime.ingest_gateway_event(envelope) is True
+
+    async with tenant_transaction(factory, TenantContext(GUILD)) as session:
+        job = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT workload_type,logical_key,payload FROM discord_io_jobs "
+                        "WHERE guild_id=:g AND workload_type='RECONCILE_STRUCTURE'"
+                    ),
+                    {"g": GUILD},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert job["logical_key"] == "reconcile:structure"
+    assert job["payload"]["reason"] == "gateway-external-change"
+
+
+@pytest.mark.asyncio
 async def test_locked_policy_drift_is_detected_and_auto_repaired(reconciler_context) -> None:
-    repository, service, reconciler = reconciler_context
+    repository, service, reconciler, planning_repository, planning_service = reconciler_context
     policy = await _create_active_locked_policy(repository, service)
     factory = object.__getattribute__(repository, "_factory")
 
@@ -254,22 +322,50 @@ async def test_locked_policy_drift_is_detected_and_auto_repaired(reconciler_cont
     await _set_real_overwrite(factory, allow=0)
     repaired_results = await reconciler.reconcile_guild(GUILD)
     assert len(repaired_results) == 1
-    assert repaired_results[0].outcome is ReconcileOutcome.REPAIRED
+    assert repaired_results[0].outcome is ReconcileOutcome.REPAIR_SCHEDULED
 
-    # REQ-AP-LOCK-004: audited with initiator POLICY_RECONCILER, before/after
-    # visible in the Policy's own (already-existing) version history.
+    # Enqueueing alone is deliberately not called "repaired" and does not
+    # increment the Policy revision before final worker preflight.
+    versions_scheduled = await repository.versions(GUILD, policy.policy_id)
+    assert [value.change_kind for value in versions_scheduled] == [
+        "CREATE",
+        "ACTIVATE",
+        "ANNOTATE",
+    ]
+
+    # Execute the real canonical Plan worker against the persisted Plan/job.
+    # The adapter boundary is fake, but Plan fencing, final preflight,
+    # operation persistence, verification and completion annotation are real.
+    runtime = RuntimeRepository(factory)
+    leased = await runtime.lease_next_job(
+        GUILD, lease_owner="policy-reconciler-test", lease_seconds=30
+    )
+    assert leased is not None and leased["workload_type"] == "APPLY_PLAN"
+    executor = ApplyPlanExecutor(
+        planning_repository,
+        _SuccessfulOverwriteAdapter(),  # type: ignore[arg-type]
+        _PassLock(),  # type: ignore[arg-type]
+        worker_id="policy-reconciler-test",
+        authorization=_RejectSyntheticActorAuthorization(),
+        preflight=planning_service,
+        completion=reconciler,
+    )
+    await executor.execute_leased(GUILD, leased, None)
+
+    # REQ-AP-LOCK-004: only verified completion is annotated as repaired,
+    # with initiator POLICY_RECONCILER and the Plan's before/desired state in
+    # the canonical Plan/operation audit.
     versions_after = await repository.versions(GUILD, policy.policy_id)
     assert [value.change_kind for value in versions_after] == [
-        "CREATE", "ACTIVATE", "ANNOTATE", "ANNOTATE",
+        "CREATE",
+        "ACTIVATE",
+        "ANNOTATE",
+        "ANNOTATE",
     ]
     repaired_version = versions_after[-1]
     assert repaired_version.author_user_id == POLICY_RECONCILER_ACTOR_ID
     assert "reconciler:repaired" in repaired_version.snapshot["metadata"]["tags"]
 
-    # The correction went through the canonical Plan pipeline: a real,
-    # CONFIRMED Plan now exists with POLICY provenance for this Policy, and
-    # a real APPLY_PLAN job was enqueued for the (separate, Phase 5) worker
-    # to actually apply -- never a direct/parallel mutation.
     async with tenant_transaction(factory, TenantContext(GUILD)) as session:
         plan_row = (
             (
@@ -284,7 +380,7 @@ async def test_locked_policy_drift_is_detected_and_auto_repaired(reconciler_cont
             .mappings()
             .one()
         )
-        assert plan_row["status"] == "CONFIRMED"
+        assert plan_row["status"] == PlanState.SUCCEEDED.value
         job_row = (
             (
                 await session.execute(
@@ -305,7 +401,7 @@ async def test_locked_policy_drift_is_detected_and_auto_repaired(reconciler_cont
 async def test_reconciliation_failure_marks_intervention_required_not_compliant(
     reconciler_context,
 ) -> None:
-    repository, service, reconciler = reconciler_context
+    repository, service, reconciler, _planning_repository, _planning_service = reconciler_context
     policy = await _create_active_locked_policy(repository, service)
     factory = object.__getattribute__(repository, "_factory")
     await _set_real_overwrite(factory, allow=0)
@@ -315,10 +411,7 @@ async def test_reconciliation_failure_marks_intervention_required_not_compliant(
     # incomplete right before the sweep -- detect_drift() must fail closed.
     async with tenant_transaction(factory, TenantContext(GUILD)) as session:
         await session.execute(
-            text(
-                "UPDATE discord_cache_coverage SET members_complete=false "
-                "WHERE guild_id=:g"
-            ),
+            text("UPDATE discord_cache_coverage SET members_complete=false WHERE guild_id=:g"),
             {"g": GUILD},
         )
 
@@ -332,3 +425,65 @@ async def test_reconciliation_failure_marks_intervention_required_not_compliant(
     # REQ-AP-LOCK-005: never silently "compliant" or "repaired" when the
     # comparison itself could not be trusted.
     assert "reconciler:repaired" not in tags
+
+
+@pytest.mark.asyncio
+async def test_unlocked_drift_exception_is_persisted_as_an_audited_annotation(
+    reconciler_context,
+) -> None:
+    repository, service, _reconciler, _planning_repository, _planning_service = reconciler_context
+    locked = await _create_active_locked_policy(repository, service)
+    unlocked = await service.set_locked(
+        GUILD,
+        locked.policy_id,
+        ACTOR,
+        locked=False,
+        expected_revision=locked.revision,
+        idempotency_key=f"reconciler-unlock-{uuid4()}",
+    )
+
+    accepted = await service.accept_drift_exception(
+        GUILD,
+        unlocked.policy_id,
+        ACTOR,
+        drift_fingerprint="f" * 64,
+        expected_revision=unlocked.revision,
+        idempotency_key=f"accept-drift-{uuid4()}",
+    )
+
+    assert accepted.locked is False
+    assert "drift-exception:" + "f" * 40 in accepted.metadata["tags"]
+    versions = await repository.versions(GUILD, accepted.policy_id)
+    assert versions[-1].change_kind == "ANNOTATE"
+    assert versions[-1].author_user_id == ACTOR
+
+
+class _PassLock:
+    async def run(self, guild_id: int, operation: Any) -> Any:
+        assert guild_id == GUILD
+        return await operation()
+
+
+class _RejectSyntheticActorAuthorization:
+    async def authorize_apply(self, *, guild_id: int, actor_user_id: int) -> None:
+        raise AssertionError(
+            f"automatic repair must use locked-Policy authorization, got {guild_id}/{actor_user_id}"
+        )
+
+
+class _SuccessfulOverwriteAdapter:
+    async def check_preconditions(self, **kwargs: Any) -> PreconditionOutcome:
+        del kwargs
+        return PreconditionOutcome.SATISFIED
+
+    async def execute(self, **kwargs: Any) -> MutationResult:
+        payload = dict(kwargs["payload"])
+        return MutationResult(204, payload, "d" * 64)
+
+    async def recover(self, **kwargs: Any) -> RecoveryResult:
+        del kwargs
+        return RecoveryResult(RecoveryOutcome.PROVED_APPLIED, None)
+
+    async def verify(self, **kwargs: Any) -> bool:
+        del kwargs
+        return True
