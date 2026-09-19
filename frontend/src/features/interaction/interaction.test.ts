@@ -21,7 +21,7 @@ const languageTarget: ResourceRef = { id: '11111111-1111-4111-8111-111111111111'
 const guildTarget: ResourceRef = { id: guildB, name: 'Beta', type: 'GUILD', guildId: guildB }
 const context = (source = [channel], destination?: ResourceRef): ActionContext => ({
   source, ...(destination ? { destination } : {}),
-  sourceUserCapabilities: { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'permissions.read': { outcome: 'CAN', causes: [], remediations: [] } },
+  sourceUserCapabilities: { 'structure.read': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] }, 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'permissions.read': { outcome: 'CAN', causes: [], remediations: [] }, 'policies.read': { outcome: 'CAN', causes: [], remediations: [] } },
   sourceBotCapabilities: { REORDER_CHANNELS: { outcome: 'CAN', causes: [], remediations: [] }, CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
   destinationUserCapabilities: { 'plans.create': { outcome: 'CAN', causes: [], remediations: [] }, 'structure.write': { outcome: 'CAN', causes: [], remediations: [] } },
   destinationBotCapabilities: { CREATE_CHANNEL: { outcome: 'CAN', causes: [], remediations: [] } },
@@ -30,14 +30,25 @@ const context = (source = [channel], destination?: ResourceRef): ActionContext =
 
 describe('STAGE 07 shared interaction model', () => {
   it('filters actions by cardinality, capability and tenant mode', () => {
-    expect(resolveActions(context()).map((item) => item.action.id)).toContain('open')
+    expect(resolveActions(context()).map((item) => item.action.id)).toEqual(expect.arrayContaining(['manage_access', 'open']))
+    expect(resolveActions(context())[0]).toMatchObject({ action: { id: 'manage_access' }, enabled: true })
     expect(resolveActions(context([channel, { ...channel, id: 'c2' }])).map((item) => item.action.id)).toContain('bulk')
+    expect(resolveActions(context([categoryA, channel])).map((item) => item.action.id)).toEqual(['manage_access_bulk'])
     expect(resolveDropTarget(context([channel], categoryA)).actions.map((item) => item.action.id)).toContain('move')
     const cross = resolveDropTarget(context([channel], categoryB))
     expect(cross.crossGuild).toBe(true)
     expect(cross.actions.map((item) => item.action.id)).toContain('copy')
     const unknown = resolveDropTarget({ ...context([channel], categoryA), sourceBotCapabilities: {} })
     expect(unknown.actions.find((item) => item.action.id === 'move')).toMatchObject({ enabled: false, reasonKey: 'actions.disabled.unknown' })
+  })
+
+  it('routes access actions with exact single and mixed bulk resource scopes', async () => {
+    await expect(dispatchAction(createActionIntent('manage_access', [channel]), guildA)).resolves.toEqual({
+      kind: 'ROUTE', path: `/guild/${guildA}/policies?targetType=CHANNEL&targetId=c1`,
+    })
+    await expect(dispatchAction(createActionIntent('manage_access_bulk', [categoryA, channel]), guildA)).resolves.toEqual({
+      kind: 'ROUTE', path: `/guild/${guildA}/matrix?resources=ca%2Cc1`,
+    })
   })
 
   it('preserves exact cross-Guild selection in the portable payload', () => {

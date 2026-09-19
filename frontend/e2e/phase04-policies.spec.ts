@@ -150,6 +150,12 @@ test('refuses the policy workspace when policies.read capability is missing', as
   await expect(page.getByRole('button', { name: 'Create draft' })).toHaveCount(0)
 })
 
+test('preselects the exact policy target provided by the Structure action', async ({ page }) => {
+  const harness: Harness = { policies: [], requests: [] }; await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies?targetType=CHANNEL&targetId=${CHANNEL}`)
+  await expect(page.getByLabel('Target resource')).toHaveValue(`TEXT_CHANNEL:${CHANNEL}`)
+})
+
 test('@families private voice selects roles, previews Discord details and prepares a Plan', async ({ page }) => {
   const harness: Harness = { policies: [], requests: [], family: 'voice' }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)

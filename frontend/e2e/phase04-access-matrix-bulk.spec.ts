@@ -84,3 +84,11 @@ test('bulk selection excludes incompatible resources, previews every compatible 
   expect(requests.filter((item) => item.path.endsWith('/policies/bulk-plan'))).toHaveLength(1)
   expect(requests.some((item) => /apply/i.test(item.path))).toBe(false)
 })
+
+test('preseeds the exact category and channel selection provided by the Structure bulk action', async ({ page }) => {
+  const requests: RequestLog[] = []; await install(page, requests)
+  await page.goto(`/guild/${GUILD}/matrix?resources=${CAT}%2C${CHANNEL}`)
+  await expect(page.getByRole('checkbox', { name: /Direction/ })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: /board/ })).toBeChecked()
+  await expect(page.getByText('2 selected', { exact: true }).last()).toBeVisible()
+})

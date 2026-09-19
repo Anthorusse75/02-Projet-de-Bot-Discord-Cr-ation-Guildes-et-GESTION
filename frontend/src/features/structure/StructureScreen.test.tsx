@@ -30,7 +30,7 @@ describe('mounted STAGE 07 drag lifecycle', () => {
   it('requests hidden and deleted resources only after explicit opt-in', () => {
     render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
     expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, false)
-    fireEvent.click(screen.getByRole('checkbox', { name: 'structure.includeHiddenDeleted' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'structure.showHiddenShort' }))
     expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, true)
   })
   it('opens a real move intent only after a valid mounted left drop', () => {

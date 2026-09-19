@@ -56,7 +56,7 @@ function capabilities(guildId: string, denyMove = false) {
     guild_id: guildId,
     source: 'AUTHORIZATION_AND_LOCAL_CACHE',
     discord_rest_calls: 0,
-    user_capabilities: { 'structure.read': can, 'structure.write': denyMove ? cannot : can, 'plans.create': can, 'permissions.read': can },
+    user_capabilities: { 'structure.read': can, 'structure.write': denyMove ? cannot : can, 'plans.create': can, 'permissions.read': can, 'policies.read': can },
     scoped_capabilities: { scope_kind: 'GUILD', scope_id: '*', capabilities: { 'structure.write': denyMove ? cannot : can } },
     bot_operations: {
       REORDER_CHANNELS: { ...can, operation: 'REORDER_CHANNELS', required_permissions: [] },
@@ -243,6 +243,34 @@ test('context-menu Rename starts the same inline rename and plan compiler path',
   await page.getByLabel('Discord resource name').press('Enter')
 
   expect(captured.plans[0]?.nodes?.[0]).toMatchObject({ discord_id: CHANNEL_WELCOME, properties: { name: 'welcome-desk' } })
+})
+
+test('single-resource context menu prioritizes Manage access and preserves the exact scope', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  await resourceRow(page, 'welcome').click({ button: 'right' })
+  const menu = page.getByRole('menu', { name: 'Available actions' })
+  await expect(menu.getByRole('menuitem').first()).toHaveText('Manage access')
+  await menu.getByRole('menuitem', { name: 'Manage access' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD_A}/policies\\?targetType=CHANNEL&targetId=${CHANNEL_WELCOME}$`))
+})
+
+test('mixed category and channel selection offers only the preseeded bulk access action', async ({ page }) => {
+  const captured = { plans: [] as CapturedPlan[] }
+  await installRoutes(page, captured)
+  await page.goto(`/guild/${GUILD_A}/structure`)
+
+  await resourceRow(page, 'General').click()
+  await resourceRow(page, 'welcome').click({ modifiers: ['Control'] })
+  await page.locator('.structure-action-button').click()
+  const menu = page.getByRole('menu', { name: 'Available actions' })
+  await expect(menu.getByRole('menuitem')).toHaveCount(1)
+  await menu.getByRole('menuitem', { name: 'Manage selected access' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD_A}/matrix\\?resources=${CAT_GENERAL}%2C${CHANNEL_WELCOME}$`))
 })
 
 test('emoji picker and Unicode name round-trip unchanged into the validated plan', async ({ page }) => {

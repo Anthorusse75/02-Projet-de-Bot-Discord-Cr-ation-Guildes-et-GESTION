@@ -1,6 +1,6 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, useRoles, useStructure } from '../../api/queries'
@@ -44,6 +44,7 @@ export function MatrixScreen() {
   const { t } = useTranslation()
   const { me, guild, capabilities } = useOutletContext<DashboardContext>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const client = useQueryClient()
   const canRead = capabilities?.user_capabilities['policies.read']?.outcome === 'CAN'
     && capabilities?.user_capabilities['permissions.read']?.outcome === 'CAN'
@@ -85,6 +86,20 @@ export function MatrixScreen() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkDraftKey, setBulkDraftKey] = useState(() => crypto.randomUUID())
   const [bulkPlanKey, setBulkPlanKey] = useState(() => crypto.randomUUID())
+  const appliedResourceRequest = useRef<string | null>(null)
+
+  const requestedResources = searchParams.get('resources') ?? ''
+  const requestedResourceIds = useMemo(() => [...new Set(requestedResources.split(',').filter(Boolean))], [requestedResources])
+  useEffect(() => {
+    if (requestedResourceIds.length < 2 || resources.length === 0) return
+    const validIds = requestedResourceIds.filter((id) => resources.some((resource) => resource.id === id))
+    if (validIds.length < 2) return
+    const requestKey = `${guild.guild_id}:${validIds.join(',')}`
+    if (appliedResourceRequest.current === requestKey) return
+    appliedResourceRequest.current = requestKey
+    setSelectedResourceIds(validIds); setBulkResult(null); setBulkPlan(null); setBulkProblem(null)
+    setBulkDraftKey(crypto.randomUUID()); setBulkPlanKey(crypto.randomUUID())
+  }, [guild.guild_id, requestedResourceIds, resources])
 
   const cells = useMemo(() => new Map((matrixQuery.data?.cells ?? []).map((cell) => [cellKey(cell.role_id, cell.resource_id), cell])), [matrixQuery.data])
   const privateIds = useMemo(() => computePrivateResourceIds(policiesQuery.data?.policies ?? [], resources), [policiesQuery.data, resources])

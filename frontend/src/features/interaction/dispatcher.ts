@@ -25,7 +25,7 @@ export type DispatchResult =
   | { kind: 'LINK'; variantId: string; path: string }
   | { kind: 'PREVIEW'; group: Record<string, unknown>; path: string }
 
-export const handledActionIds = new Set<ActionId>(['open','rename','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
+export const handledActionIds = new Set<ActionId>(['manage_access','manage_access_bulk','open','rename','move','copy','clone','export','explain','bulk','CREATE_VARIANT','LINK_EXISTING_VARIANT','CLONE_UNLINKED','PREVIEW'])
 
 export function createActionIntent(actionId: string, source: ResourceRef[], destination?: ResourceRef, translation?: ActionIntent['translation']): ActionIntent {
   if (!actions.some((action) => action.id === actionId)) throw new Error('ACTION_UNKNOWN')
@@ -113,6 +113,17 @@ async function createAndValidatePlan(intent: ActionIntent, guildId: DiscordSnowf
 
 export async function dispatchAction(intent: ActionIntent, activeGuildId: DiscordSnowflake, phase: 'PREVIEW'|'EXECUTE' = 'EXECUTE'): Promise<DispatchResult> {
   switch (intent.actionId) {
+    case 'manage_access': {
+      const source = intent.source[0]
+      if (!source || source.guildId !== activeGuildId || !['CATEGORY', 'CHANNEL'].includes(source.type)) throw new Error('ACCESS_RESOURCE_REQUIRED')
+      const query = new URLSearchParams({ targetType: source.type, targetId: source.id })
+      return { kind: 'ROUTE', path: `/guild/${activeGuildId}/policies?${query}` }
+    }
+    case 'manage_access_bulk': {
+      if (intent.source.length < 2 || intent.source.some((source) => source.guildId !== activeGuildId || !['CATEGORY', 'CHANNEL'].includes(source.type))) throw new Error('ACCESS_RESOURCES_REQUIRED')
+      const query = new URLSearchParams({ resources: intent.source.map((source) => source.id).join(',') })
+      return { kind: 'ROUTE', path: `/guild/${activeGuildId}/matrix?${query}` }
+    }
     case 'PREVIEW': {
       const source = intent.source[0]
       if (!source || source.type !== 'TRANSLATION_GROUP') throw new Error('TRANSLATION_GROUP_REQUIRED')

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, useRoles, useStructure } from '../../api/queries'
@@ -129,6 +129,7 @@ export function PoliciesScreen() {
   const { t, i18n } = useTranslation()
   const { me, guild, capabilities } = useOutletContext<DashboardContext>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const client = useQueryClient()
   const canRead = capabilities?.user_capabilities['policies.read']?.outcome ?? 'UNKNOWN'
   const canCreate = capabilities?.user_capabilities['policies.create']?.outcome ?? 'UNKNOWN'
@@ -193,6 +194,7 @@ export function PoliciesScreen() {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
   const deleteDialogRef = useRef<HTMLDialogElement>(null)
+  const appliedTargetRequest = useRef<string | null>(null)
 
   useEffect(() => {
     const dialog = deleteDialogRef.current
@@ -206,6 +208,19 @@ export function PoliciesScreen() {
     () => buildPolicyTargets(guild, roles, groupsQuery.data?.groups, structureQuery.data),
     [groupsQuery.data, guild, roles, structureQuery.data],
   )
+  const requestedTargetType = searchParams.get('targetType')
+  const requestedTargetId = searchParams.get('targetId')
+  const requestedTarget = requestedTargetType && requestedTargetId
+    ? targets.find((target) => target.scopeType === requestedTargetType && target.scopeId === requestedTargetId)
+    : undefined
+  useEffect(() => {
+    if (!requestedTarget) return
+    const requestKey = `${guild.guild_id}:${requestedTarget.scopeType}:${requestedTarget.scopeId}`
+    if (appliedTargetRequest.current === requestKey) return
+    appliedTargetRequest.current = requestKey
+    setTargetValue(targetKey(requestedTarget))
+    setSelection(null); setPreview(null); setExplanation(null)
+  }, [guild.guild_id, requestedTarget])
   const selectedTarget = targets.find((target) => targetKey(target) === targetValue) ?? targets[0] ?? null
   const zoneableTargets = useMemo(() => targets.filter((target) => target.kind === 'CATEGORY' || target.kind === 'TEXT_CHANNEL' || target.kind === 'VOICE_CHANNEL'), [targets])
   const pairedZones = useMemo(() => findPairedZones(groupsQuery.data?.groups ?? []), [groupsQuery.data])

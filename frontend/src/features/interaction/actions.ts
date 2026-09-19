@@ -14,7 +14,7 @@ export type ActionContext = {
   destinationInstallationStatus?: string | null
   providerCapabilities?: Readonly<Record<string, CapabilityDecision | undefined>>
 }
-export type ActionId = 'open' | 'rename' | 'move' | 'copy' | 'clone' | 'export' | 'explain' | 'bulk' | 'CREATE_VARIANT' | 'LINK_EXISTING_VARIANT' | 'CLONE_UNLINKED' | 'PREVIEW'
+export type ActionId = 'manage_access' | 'manage_access_bulk' | 'open' | 'rename' | 'move' | 'copy' | 'clone' | 'export' | 'explain' | 'bulk' | 'CREATE_VARIANT' | 'LINK_EXISTING_VARIANT' | 'CLONE_UNLINKED' | 'PREVIEW'
 export type AppAction = {
   id: ActionId
   sourceTypes: readonly ResourceType[]
@@ -36,6 +36,8 @@ export type AppAction = {
 }
 
 export const actions: readonly AppAction[] = [
+  { id: 'manage_access', sourceTypes: ['CATEGORY','CHANNEL'], min: 1, max: 1, guildMode: 'SAME', sourceUserCapabilities: ['policies.read'], risk: 'LOW', labelKey: 'actions.manageAccess', descriptionKey: 'actions.manageAccess.description', tooltipKey: 'actions.manageAccess.tooltip', intention: 'READ' },
+  { id: 'manage_access_bulk', sourceTypes: ['CATEGORY','CHANNEL'], min: 2, max: 150, guildMode: 'SAME', sourceUserCapabilities: ['policies.read','permissions.read'], risk: 'LOW', labelKey: 'actions.manageAccessBulk', descriptionKey: 'actions.manageAccessBulk.description', tooltipKey: 'actions.manageAccessBulk.tooltip', intention: 'READ' },
   { id: 'open', sourceTypes: ['GUILD','CATEGORY','CHANNEL','THREAD','ROLE','ARTIFACT','TEMPLATE'], min: 1, max: 1, guildMode: 'ANY', risk: 'LOW', labelKey: 'actions.open', descriptionKey: 'actions.open.description', tooltipKey: 'actions.open.tooltip', intention: 'READ' },
   { id: 'rename', sourceTypes: ['CATEGORY','CHANNEL'], min: 1, max: 1, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['MANAGE_CHANNEL'], risk: 'MEDIUM', labelKey: 'actions.rename', descriptionKey: 'actions.rename.description', tooltipKey: 'actions.rename.tooltip', intention: 'PLAN' },
   { id: 'move', sourceTypes: ['CATEGORY','CHANNEL'], targetTypes: ['GUILD','CATEGORY','CHANNEL'], requiresTarget: true, min: 1, max: 100, guildMode: 'SAME', sourceUserCapabilities: ['plans.create','structure.write'], sourceBotCapabilities: ['REORDER_CHANNELS'], risk: 'MEDIUM', labelKey: 'actions.move', descriptionKey: 'actions.move.description', tooltipKey: 'actions.move.tooltip', intention: 'PLAN' },
@@ -73,12 +75,23 @@ function structurallyCompatible(action: AppAction, sourceType: ResourceType, con
 
 export function resolveActions(context: ActionContext): Availability[] {
   const sourceType = context.source[0]?.type
-  if (!sourceType || context.source.some((item) => item.type !== sourceType)) return []
+  if (!sourceType) return []
+  const sourceGuildCount = new Set(context.source.map((item) => item.guildId)).size
+  const mixedSourceTypes = context.source.some((item) => item.type !== sourceType)
+  const mixedAccessResources = context.source.every((item) => item.type === 'CATEGORY' || item.type === 'CHANNEL')
+  if (mixedSourceTypes && !mixedAccessResources) return []
   return actions.flatMap((action) => {
+    if (mixedSourceTypes) {
+      if (action.id !== 'manage_access_bulk' || context.source.length < action.min || context.source.length > action.max) return []
+      if (sourceGuildCount !== 1) return []
+      const accessCheck = outcome(action.sourceUserCapabilities, context.sourceUserCapabilities)
+      return [accessCheck === 'CAN' ? { action, enabled: true } : { action, enabled: false, reasonKey: accessCheck === 'CANNOT' ? 'actions.disabled.capability' : 'actions.disabled.unknown' }]
+    }
     if (!action.sourceTypes.includes(sourceType) || context.source.length < action.min || context.source.length > action.max) return []
     if (context.destination && !action.targetTypes?.includes(context.destination.type)) return []
     if (context.destination?.type === 'LANGUAGE_TARGET' && context.destination.parentId !== context.source[0]?.id) return []
     const cross = Boolean(context.destination && context.source.some((item) => item.guildId !== context.destination?.guildId))
+    if (action.guildMode === 'SAME' && sourceGuildCount !== 1) return []
     if ((action.guildMode === 'CROSS' && context.destination && !cross) || (action.guildMode === 'SAME' && cross)) return []
     if (!structurallyCompatible(action, sourceType, context, cross)) return []
     const checks: CapabilityOutcome[] = [

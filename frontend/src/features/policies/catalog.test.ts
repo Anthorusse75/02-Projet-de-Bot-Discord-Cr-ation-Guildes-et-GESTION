@@ -132,7 +132,9 @@ describe('Phase 4 access policy catalogue', () => {
     expect(withStaff[1]?.conditions).toEqual([{ kind: 'ALWAYS' }])
     expect(withStaff[1]?.effects).toEqual([{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW', audience: { mode: 'INCLUDE', match: 'ANY', role_ids: [staffRoleId] } }])
     const groupTagOf = (definition: { metadata: { tags: string[] } }) => definition.metadata.tags.find((tag) => tag.startsWith('newcomer-area:') && tag !== 'newcomer-area:base' && tag !== 'newcomer-area:staff')
-    expect(groupTagOf(withStaff[0]!)).toBe(groupTagOf(withStaff[1]!))
+    const [baseDefinition, staffDefinition] = withStaff
+    if (!baseDefinition || !staffDefinition) throw new Error('NEWCOMER_AREA_DEFINITIONS_INCOMPLETE')
+    expect(groupTagOf(baseDefinition)).toBe(groupTagOf(staffDefinition))
   })
 
   it('keeps the Phase 4 policy catalogue structurally complete in EN/FR/DE/ES', () => {

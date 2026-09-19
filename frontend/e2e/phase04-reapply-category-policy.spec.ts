@@ -24,11 +24,11 @@ function policy(overrides: Record<string, unknown>) {
 }
 
 function resolution(outcome: 'CAN' | 'CANNOT') {
-  return { guild_id: GUILD, subject_id: 700000000000000301, decision: 'ACCESS_CONTROL:VIEW', outcome, target_scope_type: 'CHANNEL', target_scope_id: CHANNEL, target_state: 'CURRENT', target_freshness: 'FRESH', coverage: 'FULL', applicable_policies: [], contributions: [], conflicts: [], source_scopes: [], priority_trace: [], conditions: [], incomplete_reasons: [], warnings: [], source_versions: ['cache-v1'], discord_permissions: [], discord_allow_bits: '0', discord_deny_bits: '0', discord_translation_diagnostics: [] }
+  return { guild_id: GUILD, subject_id: '700000000000000301', decision: 'ACCESS_CONTROL:VIEW', outcome, target_scope_type: 'CHANNEL', target_scope_id: CHANNEL, target_state: 'CURRENT', target_freshness: 'FRESH', coverage: 'FULL', applicable_policies: [], contributions: [], conflicts: [], source_scopes: [], priority_trace: [], conditions: [], incomplete_reasons: [], warnings: [], source_versions: ['cache-v1'], discord_permissions: [], discord_allow_bits: '0', discord_deny_bits: '0', discord_translation_diagnostics: [] }
 }
 
 function disablePreview() {
-  const entries = [{ target: { subject_id: 700000000000000301, scope_type: 'CHANNEL', scope_id: CHANNEL, requested_access: 'VIEW' }, current: resolution('CANNOT'), proposed: resolution('CAN'), access_change: 'GAINED', gained_contributions: ['cat'], lost_contributions: [], conflicts_created: [], conflicts_resolved: [], diagnostics: [], warnings: [], remediations: [] }]
+  const entries = [{ target: { subject_id: '700000000000000301', scope_type: 'CHANNEL', scope_id: CHANNEL, requested_access: 'VIEW' }, current: resolution('CANNOT'), proposed: resolution('CAN'), access_change: 'GAINED', gained_contributions: ['cat'], lost_contributions: [], conflicts_created: [], conflicts_resolved: [], diagnostics: [], warnings: [], remediations: [] }]
   return { policy_id: CHANNEL_POLICY, policy_revision: 2, lifecycle_state: 'ACTIVE', scope_type: 'CHANNEL', scope_id: CHANNEL, entries, impact: { accuracy: 'EXACT', candidate_contexts: 1, evaluated_contexts: 1, affected_resources: 1, affected_roles: 1, affected_members: 1, access_gains: 1, access_losses: 0, conflicts: 0, impossible_or_incomplete_targets: 0, lower_bound_only: false, diagnostics: [] }, freshness: 'FRESH', coverage: 'FULL', source_versions: ['cache-v1'], warnings: [], persisted: false, discord_mutations: 0 }
 }
 

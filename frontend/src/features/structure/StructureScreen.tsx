@@ -223,7 +223,7 @@ export function StructureScreen() {
     }
     const intent = createActionIntent(actionId, context.source, context.destination)
     setContext(null)
-    if (actionId === 'open' || actionId === 'explain') void execute(intent)
+    if (actionId === 'open' || actionId === 'explain' || actionId === 'manage_access' || actionId === 'manage_access_bulk') void execute(intent)
     else setPreview(intent)
   }
 
