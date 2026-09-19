@@ -730,7 +730,10 @@ class PolicyPlanningService:
             # apply-time is DISABLED, the mirror image of an activate-Plan
             # expecting ACTIVE -- disable() already flipped the lifecycle
             # before this Plan is ever applied.
-            if require_active and current.lifecycle_state is not PolicyLifecycleState.DISABLED:
+            if require_active and current.lifecycle_state not in {
+                PolicyLifecycleState.DISABLED,
+                PolicyLifecycleState.RETIRED,
+            }:
                 errors.add("preflight.policy_not_disabled")
             if not require_active and current.lifecycle_state not in {
                 PolicyLifecycleState.ACTIVE,

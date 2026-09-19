@@ -95,6 +95,16 @@ class BulkPolicyDraftDefinition:
     priority: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class PolicyDeletionDependencies:
+    policy: Policy
+    plans: tuple[dict[str, Any], ...]
+    referencing_policies: tuple[dict[str, Any], ...]
+    bulk_operation_ids: tuple[str, ...]
+    scope_binding_count: int
+    available_replacements: tuple[dict[str, Any], ...]
+
+
 # REQ-AP-LOCK-004: the system actor recorded for every automatic
 # reconciliation revision/Plan-confirm/apply, so the existing Policy
 # version history and Plan/Operations audit trail already show exactly who
@@ -396,6 +406,153 @@ class PolicyService:
             PolicyLifecycleState.RETIRED,
             "RETIRE",
             idempotency_key,
+        )
+
+    async def deletion_dependencies(
+        self, guild_id: int, policy_id: UUID
+    ) -> PolicyDeletionDependencies:
+        """Inspect real tenant-local references; Plans remain immutable history."""
+
+        current, policies, plans = await asyncio.gather(
+            self._repository.get(guild_id, policy_id),
+            self._repository.list(guild_id),
+            self._repository.plan_dependencies(guild_id, policy_id),
+        )
+        source_tag = f"source-policy:{policy_id}"
+        exception_tag = f"exception_accepted:{policy_id}"
+        references: list[dict[str, Any]] = []
+        replacements: list[dict[str, Any]] = []
+        for policy in policies:
+            tags = tuple(
+                str(value)
+                for value in policy.metadata.get("tags", ())
+                if isinstance(value, str)
+            )
+            kinds = tuple(
+                kind
+                for kind, tag in (("SOURCE", source_tag), ("EXCEPTION", exception_tag))
+                if tag in tags
+            )
+            if kinds:
+                references.append(
+                    {
+                        "policy_id": policy.policy_id,
+                        "name": policy.name,
+                        "lifecycle_state": policy.lifecycle_state.value,
+                        "reference_kinds": kinds,
+                    }
+                )
+            if (
+                policy.policy_id != policy_id
+                and policy.lifecycle_state is PolicyLifecycleState.ACTIVE
+                and policy.policy_type == current.policy_type
+                and policy.contract_version == current.contract_version
+                and policy.scope_type is current.scope_type
+                and policy.scope_id == current.scope_id
+            ):
+                replacements.append({"policy_id": policy.policy_id, "name": policy.name})
+        own_tags = tuple(
+            str(value)
+            for value in current.metadata.get("tags", ())
+            if isinstance(value, str)
+        )
+        return PolicyDeletionDependencies(
+            policy=current,
+            plans=plans,
+            referencing_policies=tuple(references),
+            bulk_operation_ids=tuple(tag for tag in own_tags if tag.startswith("bulk-operation:")),
+            scope_binding_count=int(current.lifecycle_state is PolicyLifecycleState.ACTIVE),
+            available_replacements=tuple(replacements),
+        )
+
+    async def delete_with_strategy(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_id: int,
+        expected_revision: int,
+        strategy: str,
+        idempotency_key: str,
+        replacement_policy_id: UUID | None = None,
+        plan_id: UUID | None = None,
+    ) -> Policy:
+        """Soft-delete a custom Policy after an explicit, auditable strategy."""
+
+        if strategy not in {"DETACH", "REPLACE", "DELETE_BINDINGS"}:
+            raise PolicyLifecycleError("unknown Policy deletion strategy")
+        current = await self._repository.get(guild_id, policy_id)
+        if current.lifecycle_state is PolicyLifecycleState.RETIRED:
+            return current
+        if current.revision != expected_revision:
+            raise PolicyLifecycleError("Policy revision changed before deletion")
+        if strategy == "REPLACE":
+            if replacement_policy_id is None or replacement_policy_id == policy_id:
+                raise PolicyLifecycleError("replacement Policy is required")
+            replacement_policy = await self._repository.get(guild_id, replacement_policy_id)
+            if (
+                replacement_policy.lifecycle_state is not PolicyLifecycleState.ACTIVE
+                or replacement_policy.policy_type != current.policy_type
+                or replacement_policy.contract_version != current.contract_version
+                or replacement_policy.scope_type is not current.scope_type
+                or replacement_policy.scope_id != current.scope_id
+            ):
+                raise PolicyLifecycleError("replacement Policy is not an active compatible binding")
+        elif replacement_policy_id is not None:
+            raise PolicyLifecycleError("replacement Policy is only valid for REPLACE")
+        if current.lifecycle_state is PolicyLifecycleState.ACTIVE and strategy != "DETACH":
+            if plan_id is None:
+                raise PolicyLifecycleError("active Policy deletion requires a DISABLE Plan")
+            await self._repository.assert_deletion_plan(
+                guild_id=guild_id,
+                policy_id=policy_id,
+                policy_revision=expected_revision,
+                plan_id=plan_id,
+            )
+        elif plan_id is not None:
+            raise PolicyLifecycleError("a deletion Plan is not valid for this strategy or state")
+        metadata = dict(current.metadata)
+        raw_tags = metadata.get("tags", ())
+        deletion_tags = [
+            str(value)
+            for value in raw_tags
+            if isinstance(value, str) and not value.startswith("deletion-")
+        ] if isinstance(raw_tags, list | tuple) else []
+        deletion_tags.append(f"deletion-strategy:{strategy}")
+        if replacement_policy_id is not None:
+            deletion_tags.append(f"deletion-replacement:{replacement_policy_id}")
+        if plan_id is not None:
+            deletion_tags.append(f"deletion-plan:{plan_id}")
+        metadata["tags"] = deletion_tags
+        changed = replace(
+            current,
+            lifecycle_state=PolicyLifecycleState.RETIRED,
+            revision=expected_revision + 1,
+            modified_by_user_id=actor_id,
+            locked=False,
+            metadata=metadata,
+        )
+        request_hash = self._hash(
+            {
+                "guild_id": guild_id,
+                "policy_id": str(policy_id),
+                "actor_id": actor_id,
+                "expected_revision": expected_revision,
+                "strategy": strategy,
+                "replacement_policy_id": str(replacement_policy_id)
+                if replacement_policy_id is not None
+                else None,
+                "plan_id": str(plan_id) if plan_id is not None else None,
+            }
+        )
+        return await self._repository.transition(
+            changed,
+            expected_revision=expected_revision,
+            expected_state=current.lifecycle_state,
+            change_kind="RETIRE",
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            correlation_id=uuid4(),
         )
 
     async def accept_exception(

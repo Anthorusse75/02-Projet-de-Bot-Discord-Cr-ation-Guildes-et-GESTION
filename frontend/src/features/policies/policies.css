@@ -97,6 +97,22 @@
 .preset-subrules { display: grid; gap: .4rem; padding: .85rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); }
 .preset-subrules ul { margin: 0; padding-left: 1.1rem; }
 
+.policy-delete-dialog { width: min(46rem, calc(100% - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; gap: 1rem; color: var(--text); border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); box-shadow: 0 1.5rem 5rem #000b; }
+.policy-delete-dialog[open] { display: grid; }
+.policy-delete-dialog::backdrop { background: #05070cdd; }
+.policy-delete-dialog > p { margin: 0; color: var(--muted); }
+.policy-delete-dependencies { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem; }
+.policy-delete-dependencies > div { display: grid; gap: .2rem; padding: .7rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--panel-2); }
+.policy-delete-dependencies strong { font-size: 1.25rem; }
+.policy-delete-dependencies span { color: var(--muted); font-size: .8rem; }
+.policy-delete-strategies { display: grid; gap: .55rem; margin: 0; padding: .85rem; border: 1px solid var(--line); border-radius: .7rem; }
+.policy-delete-strategies legend { padding: 0 .35rem; color: var(--muted); }
+.policy-delete-strategies label { display: flex; align-items: flex-start; gap: .65rem; padding: .7rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--panel-2); cursor: pointer; }
+.policy-delete-strategies label.disabled { opacity: .5; cursor: not-allowed; }
+.policy-delete-strategies input { margin-top: .2rem; }
+.policy-delete-strategies span { display: grid; gap: .2rem; }
+.policy-delete-strategies small { color: var(--muted); line-height: 1.4; }
+
 @media (max-width: 980px) {
   .policy-target-panel, .policy-layout { grid-template-columns: minmax(0, 1fr); }
   .policy-catalog-panel { max-height: none; }
@@ -109,4 +125,6 @@
   .policy-compliance-heading { align-items: stretch; flex-direction: column; }
   .policy-card-badges { justify-content: flex-start; }
   .observable-conflict .access-panel-heading { align-items: flex-start; flex-direction: column; }
+  .policy-delete-dependencies { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .policy-delete-dialog .policy-impact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

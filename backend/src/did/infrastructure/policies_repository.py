@@ -152,6 +152,67 @@ class PoliciesRepository:
             )
         return dict(row)
 
+    async def assert_deletion_plan(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        policy_revision: int,
+        plan_id: UUID,
+    ) -> dict[str, Any]:
+        """Require a tenant-local validated DISABLE Plan for this Policy revision."""
+
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id,status,plan_hash FROM plans WHERE guild_id=:guild_id "
+                            "AND id=:plan_id AND origin_type='POLICY' "
+                            "AND source_policy_id=:policy_id "
+                            "AND source_policy_revision=:policy_revision "
+                            "AND origin_metadata->>'simulate'='DISABLE' "
+                            "AND status IN ('VALIDATED','CONFIRMED','APPLYING','SUCCEEDED')"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "plan_id": plan_id,
+                            "policy_id": policy_id,
+                            "policy_revision": policy_revision,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise PolicyLifecycleError(
+                "Policy deletion requires its preflight-validated DISABLE Plan"
+            )
+        return dict(row)
+
+    async def plan_dependencies(
+        self, guild_id: int, policy_id: UUID
+    ) -> tuple[dict[str, Any], ...]:
+        """Return immutable Plan provenance without crossing the active tenant."""
+
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT id,source_policy_revision,status,created_at FROM plans "
+                            "WHERE guild_id=:guild_id AND source_policy_id=:policy_id "
+                            "ORDER BY created_at,id"
+                        ),
+                        {"guild_id": guild_id, "policy_id": policy_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(dict(row) for row in rows)
+
     async def create(
         self,
         policy: Policy,

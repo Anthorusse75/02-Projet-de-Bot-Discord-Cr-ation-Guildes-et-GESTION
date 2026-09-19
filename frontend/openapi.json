@@ -1543,6 +1543,74 @@
         "title": "PolicyCreate",
         "type": "object"
       },
+      "PolicyDeletionPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "replacement_policy_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Policy Id"
+          }
+        },
+        "title": "PolicyDeletionPreviewRequest",
+        "type": "object"
+      },
+      "PolicyDeletionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
+          "replacement_policy_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement Policy Id"
+          },
+          "strategy": {
+            "enum": [
+              "DETACH",
+              "REPLACE",
+              "DELETE_BINDINGS"
+            ],
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "strategy"
+        ],
+        "title": "PolicyDeletionRequest",
+        "type": "object"
+      },
       "PolicyDisable": {
         "additionalProperties": false,
         "properties": {
@@ -8286,6 +8354,147 @@
           }
         },
         "summary": "Activate Policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/delete": {
+      "post": {
+        "description": "Retire a Policy without erasing its versions or immutable Plan history.",
+        "operationId": "delete_policy_api_v1_guilds__guild_id__policies__policy_id__delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Policy Api V1 Guilds  Guild Id  Policies  Policy Id  Delete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/deletion-preview": {
+      "post": {
+        "description": "Read-only dependency and access-impact preview for a soft deletion.",
+        "operationId": "preview_policy_deletion_api_v1_guilds__guild_id__policies__policy_id__deletion_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyDeletionPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Policy Deletion Api V1 Guilds  Guild Id  Policies  Policy Id  Deletion Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Policy Deletion",
         "tags": [
           "policies"
         ]

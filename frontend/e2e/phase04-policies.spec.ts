@@ -17,7 +17,7 @@ type Harness = { policies: Record<string, unknown>[]; requests: Array<{path:stri
 const can = () => ({ outcome: 'CAN', causes: [], remediations: [] })
 
 function capabilities(denied = false) {
-  const userCapabilities: Record<string, ReturnType<typeof can>> = { 'tenant.read': can(), 'policies.create': can(), 'policies.update': can(), 'policies.activate': can(), 'plans.create': can() }
+  const userCapabilities: Record<string, ReturnType<typeof can>> = { 'tenant.read': can(), 'policies.create': can(), 'policies.update': can(), 'policies.activate': can(), 'policies.retire': can(), 'plans.create': can() }
   if (!denied) userCapabilities['policies.read'] = can()
   return { guild_id: GUILD, source: 'AUTHORIZATION_AND_LOCAL_CACHE', discord_rest_calls: 0,
     user_capabilities: userCapabilities,
@@ -71,6 +71,9 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith(`/policies/${POLICY}/lock`) || path.endsWith(`/policies/${POLICY}/unlock`)) { const locked = path.endsWith('/lock'); const current = harness.policies[0]; const updated = { ...current, locked, revision: Number(current.revision) + 1 }; harness.policies[0] = updated; return route.fulfill({ json: updated }) }
     if (path.endsWith(`/policies/${POLICY}/accept-drift`)) { harness.driftAccepted = true; const current = harness.policies[0]; const metadata = current.metadata as { summary:string; tags:string[]; reason:null }; const updated = { ...current, revision: Number(current.revision) + 1, metadata: { ...metadata, tags: [...metadata.tags, 'drift-exception:test'] } }; harness.policies[0] = updated; return route.fulfill({ json: updated }) }
     if (path.endsWith(`/policies/${POLICY}/drift-plan`)) return route.fulfill({ status: 201, json: { created: true, preview: driftPreview('DRIFT'), plan: { id: '55555555-5555-4555-8555-555555555555', status: 'VALIDATED', state_version: 2 }, preflight: { allowed: true, errors: [], warnings: [] } } })
+    if (path.endsWith(`/policies/${POLICY}/deletion-preview`)) return route.fulfill({ json: { policy: harness.policies[0], plans: [{ id: '55555555-5555-4555-8555-555555555555', source_policy_revision: 3, status: 'SUCCEEDED', created_at: '2026-09-15T09:00:00Z' }], referencing_policies: [{ policy_id: '22222222-2222-4222-8222-222222222222', name: 'Derived board rule', lifecycle_state: 'DRAFT', reference_kinds: ['SOURCE'] }], bulk_operation_ids: ['bulk-operation:test'], scope_binding_count: 1, available_replacements: [], access_impact: { ...driftPreview('DRIFT'), impact: { ...driftPreview('DRIFT').impact, access_gains: 0, access_losses: 1 } }, discord_mutations: 0, selected_replacement_valid: true, strategies: [{ strategy: 'DETACH', available: true, requires_plan: false }, { strategy: 'REPLACE', available: false, requires_plan: true }, { strategy: 'DELETE_BINDINGS', available: true, requires_plan: true }] } })
+    if (path.endsWith(`/policies/${POLICY}/disable-plan`)) return route.fulfill({ status: 201, json: { created: true, preview: driftPreview('DRIFT'), plan: { id: '77777777-7777-4777-8777-777777777777', status: 'VALIDATED', state_version: 2 }, preflight: { allowed: true, errors: [], warnings: [] } } })
+    if (path.endsWith(`/policies/${POLICY}/delete`)) { const current = harness.policies[0]; const updated = { ...current, lifecycle_state: 'RETIRED', locked: false, revision: Number(current.revision) + 1 }; harness.policies[0] = updated; return route.fulfill({ json: { ...updated, deletion: { strategy: (body as {strategy:string}).strategy, history_preserved: true, discord_mutations: 0 } } }) }
     if (/\/policies\/[^/]+\/preview$/.test(path)) return route.fulfill({ json: preview(Boolean(harness.conflict), harness.family) })
     if (path.endsWith(`/policies/${POLICY}/versions`)) return route.fulfill({ json: { guild_id: GUILD, policy_id: POLICY, versions: [{ version_id: '33333333-3333-4333-8333-333333333333', guild_id: GUILD, policy_id: POLICY, revision: 1, change_kind: 'CREATE', snapshot: policy(), author_user_id: USER, correlation_id: '44444444-4444-4444-8444-444444444444', idempotency_key: null, created_at: '2026-09-15T08:00:00Z' }] } })
     if (path.endsWith('/bots/audit')) return route.fulfill({ json: { bots: [{ user_id: BOT_DENIED, status: 'ACTIVE', incomplete_reasons: [] }, { user_id: BOT_UNKNOWN, status: 'STALE', incomplete_reasons: ['cache.stale'] }] } })
@@ -247,4 +250,29 @@ test('locked Policy with incomplete data is actionable Intervention required, ne
   await expect(page.getByText(/cannot safely prove or apply/)).toBeVisible()
   await expect(page.getByText('Compliant', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Repair with a Plan' })).toHaveCount(0)
+})
+
+test('@a11y deletion lists dependencies and prepares a separate binding-removal Plan without APPLY', async ({ page }) => {
+  const harness: Harness = { policies: [policy({ lifecycle_state: 'ACTIVE', revision: 3, activated_at: '2026-09-15T09:00:00Z' })], requests: [], drift: 'COMPLIANT' }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: 'Delete' }).click()
+  const dialog = page.getByRole('dialog', { name: /Delete “Board access”/ })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Historical Plans', { exact: true })).toBeVisible()
+  await expect(dialog.getByText(/Derived board rule references this policy/)).toBeVisible()
+  await expect(dialog.getByText(/immutable evidence/)).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await dialog.getByText('Remove managed bindings', { exact: true }).click()
+  await expect(dialog.getByText(/separate previewable Plan/)).toBeVisible()
+  const accessibility = await new AxeBuilder({ page }).include('.policy-delete-dialog').analyze()
+  expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+  await dialog.getByRole('button', { name: 'Confirm deletion strategy' }).click()
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/plans$`))
+  expect(harness.requests.some((item) => item.path.endsWith(`/policies/${POLICY}/disable-plan`))).toBe(true)
+  expect(harness.requests.some((item) => item.path.endsWith(`/policies/${POLICY}/delete`) && (item.body as {strategy:string}).strategy === 'DELETE_BINDINGS')).toBe(true)
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
 })

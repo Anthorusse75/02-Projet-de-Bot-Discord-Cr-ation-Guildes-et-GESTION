@@ -1364,6 +1364,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Policy
+         * @description Retire a Policy without erasing its versions or immutable Plan history.
+         */
+        post: operations["delete_policy_api_v1_guilds__guild_id__policies__policy_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/deletion-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Policy Deletion
+         * @description Read-only dependency and access-impact preview for a soft deletion.
+         */
+        post: operations["preview_policy_deletion_api_v1_guilds__guild_id__policies__policy_id__deletion_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/disable": {
         parameters: {
             query?: never;
@@ -3096,6 +3136,25 @@ export interface components {
             /** Scope Id */
             scope_id?: string | null;
             scope_type: components["schemas"]["PolicyScopeType"];
+        };
+        /** PolicyDeletionPreviewRequest */
+        PolicyDeletionPreviewRequest: {
+            /** Replacement Policy Id */
+            replacement_policy_id?: string | null;
+        };
+        /** PolicyDeletionRequest */
+        PolicyDeletionRequest: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Replacement Policy Id */
+            replacement_policy_id?: string | null;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "DETACH" | "REPLACE" | "DELETE_BINDINGS";
         };
         /** PolicyDisable */
         PolicyDisable: {
@@ -6860,6 +6919,84 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PolicyActivation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_policy_api_v1_guilds__guild_id__policies__policy_id__delete_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDeletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_policy_deletion_api_v1_guilds__guild_id__policies__policy_id__deletion_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyDeletionPreviewRequest"];
             };
         };
         responses: {

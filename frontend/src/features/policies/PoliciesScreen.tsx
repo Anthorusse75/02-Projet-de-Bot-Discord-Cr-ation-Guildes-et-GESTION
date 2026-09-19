@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, useRoles, useStructure } from '../../api/queries'
-import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
+import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
 import { apiProblem } from './errors'
@@ -133,6 +133,7 @@ export function PoliciesScreen() {
   const canRead = capabilities?.user_capabilities['policies.read']?.outcome ?? 'UNKNOWN'
   const canCreate = capabilities?.user_capabilities['policies.create']?.outcome ?? 'UNKNOWN'
   const canUpdate = capabilities?.user_capabilities['policies.update']?.outcome ?? 'UNKNOWN'
+  const canRetire = capabilities?.user_capabilities['policies.retire']?.outcome ?? 'UNKNOWN'
   const canPrepare = capabilities?.user_capabilities['policies.activate']?.outcome === 'CAN'
     && capabilities?.user_capabilities['plans.create']?.outcome === 'CAN'
   const policyWorkspaceEnabled = canRead === 'CAN'
@@ -185,6 +186,20 @@ export function PoliciesScreen() {
   const [driftBusy, setDriftBusy] = useState(false)
   const [driftProblem, setDriftProblem] = useState<string | null>(null)
   const [driftNotice, setDriftNotice] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deletionPreview, setDeletionPreview] = useState<PolicyDeletionPreview | null>(null)
+  const [deletionStrategy, setDeletionStrategy] = useState<PolicyDeletionStrategy>('DETACH')
+  const [replacementPolicyId, setReplacementPolicyId] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
+  const deleteDialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current
+    if (!dialog) return
+    if (deleteOpen && !dialog.open) dialog.showModal()
+    if (!deleteOpen && dialog.open) dialog.close()
+  }, [deleteOpen])
 
   const roles = useMemo(() => [...(rolesQuery.data?.roles ?? [])].filter((role) => !role.managed).sort((a, b) => b.position - a.position), [rolesQuery.data])
   const targets = useMemo<PolicyTarget[]>(
@@ -418,6 +433,48 @@ export function PoliciesScreen() {
       navigate(`/guild/${guild.guild_id}/plans`)
     } catch (error) { setProblem(apiProblem(error, t)) }
     finally { setBusy(false) }
+  }
+
+  async function openDeletion() {
+    if (!selectedPolicy) return
+    setDeleteOpen(true); setDeletionPreview(null); setDeletionStrategy('DETACH'); setReplacementPolicyId(''); setDeleteProblem(null); setDeleteBusy(true)
+    try {
+      const result = await apiRequest<PolicyDeletionPreview>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/deletion-preview`, { method: 'POST', body: {} })
+      setDeletionPreview(result)
+    } catch (error) { setDeleteProblem(apiProblem(error, t)) }
+    finally { setDeleteBusy(false) }
+  }
+
+  function closeDeletion() {
+    setDeleteOpen(false); setDeletionPreview(null); setReplacementPolicyId(''); setDeleteProblem(null)
+  }
+
+  async function confirmDeletion() {
+    if (!selectedPolicy || !deletionPreview) return
+    const selectedStrategy = deletionPreview.strategies.find((value) => value.strategy === deletionStrategy)
+    if (!selectedStrategy?.available || (deletionStrategy === 'REPLACE' && !replacementPolicyId)) return
+    setDeleteBusy(true); setDeleteProblem(null)
+    try {
+      let planId: string | null = null
+      if (selectedStrategy.requires_plan) {
+        if (deletionPreview.access_impact?.impact.accuracy !== 'EXACT') {
+          setDeleteProblem(t('policies.delete.exactRequired')); return
+        }
+        const planned = await apiRequest<{plan:{id:string};preflight:{allowed:boolean;errors:string[]}}>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/disable-plan`, {
+          method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: { expected_revision: selectedPolicy.revision },
+        })
+        if (!planned.preflight.allowed) { setDeleteProblem(t('policies.delete.planBlocked', { reason: planned.preflight.errors.join(', ') || '—' })); return }
+        planId = planned.plan.id
+      }
+      const deleted = await apiRequest<Policy>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/delete`, {
+        method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: { expected_revision: selectedPolicy.revision, strategy: deletionStrategy, replacement_policy_id: deletionStrategy === 'REPLACE' ? replacementPolicyId : null, plan_id: planId },
+      })
+      await client.invalidateQueries({ queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies'] })
+      chooseCustom(deleted); closeDeletion(); setNotice(t('policies.delete.done'))
+      if (planId) navigate(`/guild/${guild.guild_id}/plans`)
+    } catch (error) { setDeleteProblem(apiProblem(error, t)) }
+    finally { setDeleteBusy(false) }
   }
 
   function resetReapply() {
@@ -752,6 +809,7 @@ export function PoliciesScreen() {
             <button type="button" className="button primary" disabled={busy || !canSave} title={!canSave ? t('policies.error.editDenied') : undefined} onClick={() => void save()}>{selection.kind === 'NATIVE' ? t('policies.createDraft') : t('policies.saveDraft')}</button>
             {selectedPolicy && <button type="button" className="button quiet" disabled={busy || canCreate !== 'CAN'} onClick={() => void duplicate(selectedPolicy)}>{t('policies.duplicate')}</button>}
             {selectedPolicy && <button type="button" className="button quiet" onClick={() => setHistoryOpen((value) => !value)}>{t('policies.history')}</button>}
+            {selectedPolicy && selectedPolicy.lifecycle_state !== 'RETIRED' && <button type="button" className="button danger" disabled={busy || canRetire !== 'CAN'} onClick={() => void openDeletion()}>{t('policies.delete.action')}</button>}
             {canReapplyCategoryPolicy && <button type="button" className="button quiet" onClick={() => { setReapplyOpen(true); void loadReapplyPreview() }}>{t('policies.reapply.action')}</button>}
           </div>
           {selectedPolicy?.lifecycle_state === 'DRAFT' && <div className="draft-safety"><Badge tone="warning">{t('policies.lifecycle.DRAFT')}</Badge><span>{t('policies.draft.safety')}</span></div>}
@@ -845,6 +903,26 @@ export function PoliciesScreen() {
       <details><summary>{t('policies.expert.discordDetails')}</summary><p>{explanation.discord_permissions.join(', ') || '—'}</p><code>allow={explanation.discord_allow_bits} · deny={explanation.discord_deny_bits}</code></details>
       {expert && <pre>{JSON.stringify(explanation, null, 2)}</pre>}
     </article>}
+    <dialog ref={deleteDialogRef} className="access-panel policy-delete-dialog" aria-labelledby="policy-delete-title" onCancel={(event) => { event.preventDefault(); closeDeletion() }}>
+      <div className="access-panel-heading"><div><small>{t('policies.delete.eyebrow')}</small><strong id="policy-delete-title">{t('policies.delete.title', { name: selectedPolicy?.name ?? '' })}</strong></div><button type="button" className="button quiet" onClick={closeDeletion}>{t('common.cancel')}</button></div>
+      <p>{t('policies.delete.help')}</p>
+      {deleteBusy && !deletionPreview ? <Skeleton /> : deletionPreview && <>
+        <div className="policy-delete-dependencies">
+          <div><strong>{deletionPreview.plans.length}</strong><span>{t('policies.delete.plans')}</span></div>
+          <div><strong>{deletionPreview.referencing_policies.length}</strong><span>{t('policies.delete.references')}</span></div>
+          <div><strong>{deletionPreview.bulk_operation_ids.length}</strong><span>{t('policies.delete.bulk')}</span></div>
+          <div><strong>{deletionPreview.scope_binding_count}</strong><span>{t('policies.delete.bindings')}</span></div>
+        </div>
+        {deletionPreview.plans.length > 0 && <p className="access-callout warning">{t('policies.delete.historyPreserved')}</p>}
+        {deletionPreview.referencing_policies.map((value) => <p className="access-help" key={value.policy_id}>{t('policies.delete.referenceDetail', { name: value.name, kinds: value.reference_kinds.join(', ') })}</p>)}
+        {deletionPreview.access_impact && <div className="policy-impact-grid"><div><strong>{deletionPreview.access_impact.impact.access_gains}</strong><span>{t('policies.impact.gains')}</span></div><div><strong>{deletionPreview.access_impact.impact.access_losses}</strong><span>{t('policies.impact.losses')}</span></div><div><strong>{deletionPreview.access_impact.impact.affected_members}</strong><span>{t('policies.impact.members')}</span></div><div><strong>{deletionPreview.access_impact.impact.affected_resources}</strong><span>{t('policies.impact.resources')}</span></div></div>}
+        <fieldset className="policy-delete-strategies"><legend>{t('policies.delete.strategy')}</legend>{deletionPreview.strategies.map((value) => <label key={value.strategy} className={!value.available ? 'disabled' : ''}><input type="radio" name="policy-delete-strategy" value={value.strategy} checked={deletionStrategy === value.strategy} disabled={!value.available} onChange={() => setDeletionStrategy(value.strategy)} /><span><strong>{t(`policies.delete.${value.strategy}.title`)}</strong><small>{t(`policies.delete.${value.strategy}.help`)}</small></span></label>)}</fieldset>
+        {deletionStrategy === 'REPLACE' && <label className="field"><span>{t('policies.delete.replacement')}</span><select value={replacementPolicyId} onChange={(event) => setReplacementPolicyId(event.target.value)}><option value="">{t('policies.delete.replacementNone')}</option>{deletionPreview.available_replacements.map((value) => <option value={value.policy_id} key={value.policy_id}>{value.name}</option>)}</select></label>}
+        {deletionPreview.strategies.find((value) => value.strategy === deletionStrategy)?.requires_plan && <p className="access-callout warning">{t('policies.delete.separatePlan')}</p>}
+      </>}
+      {deleteProblem && <p className="access-callout danger" role="alert">{deleteProblem}</p>}
+      <div className="button-row"><button type="button" className="button danger" disabled={deleteBusy || !deletionPreview || deletionStrategy === 'REPLACE' && !replacementPolicyId} onClick={() => void confirmDeletion()}>{t('policies.delete.confirm')}</button><button type="button" className="button quiet" onClick={closeDeletion}>{t('common.cancel')}</button></div>
+    </dialog>
   </section>
 }
 

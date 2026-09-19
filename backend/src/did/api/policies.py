@@ -75,6 +75,20 @@ class PolicyPlanRequest(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+PolicyDeletionStrategy = Literal["DETACH", "REPLACE", "DELETE_BINDINGS"]
+
+
+class PolicyDeletionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    replacement_policy_id: UUID | None = None
+
+
+class PolicyDeletionRequest(PolicyTransition):
+    strategy: PolicyDeletionStrategy
+    replacement_policy_id: UUID | None = None
+    plan_id: UUID | None = None
+
+
 MAX_MATRIX_ROLES = 50
 MAX_MATRIX_RESOURCES = 150
 MAX_BULK_POLICIES = 100
@@ -858,6 +872,95 @@ async def accept_policy_exception(
             reason=body.reason,
         )
     )
+
+
+@router.post("/{guild_id}/policies/{policy_id}/deletion-preview")
+async def preview_policy_deletion(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyDeletionPreviewRequest,
+    session: CurrentSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Read-only dependency and access-impact preview for a soft deletion."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    dependencies = await container.policies.deletion_dependencies(parsed, policy_id)
+    access_impact = None
+    if dependencies.policy.lifecycle_state.value == "ACTIVE":
+        access_impact = await container.policy_planning.preview_disable(
+            guild_id=parsed,
+            policy_id=policy_id,
+            actor_user_id=session.discord_user_id,
+        )
+    replacement_ids = {
+        value["policy_id"] for value in dependencies.available_replacements
+    }
+    selected_replacement_valid = (
+        body.replacement_policy_id is None
+        or body.replacement_policy_id in replacement_ids
+    )
+    encoded = jsonable_encoder(dependencies)
+    assert isinstance(encoded, dict)
+    encoded.update(
+        {
+            "access_impact": jsonable_encoder(access_impact),
+            "discord_mutations": 0,
+            "selected_replacement_valid": selected_replacement_valid,
+            "strategies": [
+                {"strategy": "DETACH", "available": True, "requires_plan": False},
+                {
+                    "strategy": "REPLACE",
+                    "available": dependencies.scope_binding_count > 0
+                    and bool(dependencies.available_replacements),
+                    "requires_plan": dependencies.scope_binding_count > 0,
+                },
+                {
+                    "strategy": "DELETE_BINDINGS",
+                    "available": dependencies.scope_binding_count > 0,
+                    "requires_plan": dependencies.scope_binding_count > 0,
+                },
+            ],
+        }
+    )
+    return encoded
+
+
+@router.post("/{guild_id}/policies/{policy_id}/delete")
+async def delete_policy(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyDeletionRequest,
+    idempotency_key: IdempotencyKey,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    """Retire a Policy without erasing its versions or immutable Plan history."""
+
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_RETIRE, sensitive=True)
+    deleted = await container.policies.delete_with_strategy(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_id=session.discord_user_id,
+        expected_revision=body.expected_revision,
+        strategy=body.strategy,
+        replacement_policy_id=body.replacement_policy_id,
+        plan_id=body.plan_id,
+        idempotency_key=idempotency_key,
+    )
+    response = _policy(deleted)
+    response["deletion"] = {
+        "strategy": body.strategy,
+        "replacement_policy_id": str(body.replacement_policy_id)
+        if body.replacement_policy_id is not None
+        else None,
+        "plan_id": str(body.plan_id) if body.plan_id is not None else None,
+        "history_preserved": True,
+        "discord_mutations": 0,
+    }
+    return response
 
 
 @router.post("/{guild_id}/policies/{policy_id}/retire")

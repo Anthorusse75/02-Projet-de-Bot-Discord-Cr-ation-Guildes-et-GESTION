@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +23,7 @@ from did.api.policies import (
     preview_policy,
     resolve_policy,
 )
-from did.application.policies.service import ExplainedPolicyResolution
+from did.application.policies.service import ExplainedPolicyResolution, PolicyService
 from did.domain.auth import READ_ONLY_CAPABILITIES, Capability
 from did.domain.discord_runtime import CoverageMode, FreshnessState
 from did.domain.policies import (
@@ -198,6 +199,8 @@ def test_policy_api_and_distinct_rbac_capabilities_are_declared() -> None:
     assert "/api/v1/guilds/{guild_id}/policy-resolution" in contract["paths"]
     assert f"{base}/{{policy_id}}/preview" in contract["paths"]
     assert f"{base}/{{policy_id}}/plan" in contract["paths"]
+    assert f"{base}/{{policy_id}}/deletion-preview" in contract["paths"]
+    assert f"{base}/{{policy_id}}/delete" in contract["paths"]
     for action in ("activate", "disable", "retire", "accept-exception"):
         path = f"{base}/{{policy_id}}/{action}"
         assert path in contract["paths"]
@@ -242,6 +245,57 @@ def test_policy_foundations_have_no_discord_mutation_or_expression_execution() -
                 if node.func.id in forbidden_calls:
                     violations.append(f"{path}:{node.lineno}:{node.func.id}")
     assert violations == []
+
+
+@pytest.mark.asyncio
+async def test_policy_deletion_requires_explicit_strategy_and_disable_plan() -> None:
+    current = _policy(PolicyLifecycleState.ACTIVE)
+    current = replace(current, scope_type=PolicyScopeType.CHANNEL, scope_id="999")
+    replacement = replace(current, policy_id=uuid4(), name="Replacement")
+    repository = SimpleNamespace(
+        get=AsyncMock(
+            side_effect=lambda _guild, policy_id: (
+                current if policy_id == current.policy_id else replacement
+            )
+        ),
+        assert_deletion_plan=AsyncMock(return_value={"status": "VALIDATED"}),
+        transition=AsyncMock(),
+    )
+    repository.transition.side_effect = lambda policy, **_kwargs: policy
+    service = PolicyService(repository)
+
+    with pytest.raises(PolicyLifecycleError, match="DISABLE Plan"):
+        await service.delete_with_strategy(
+            guild_id=current.guild_id,
+            policy_id=current.policy_id,
+            actor_id=456,
+            expected_revision=1,
+            strategy="DELETE_BINDINGS",
+            idempotency_key="delete-no-plan",
+        )
+
+    plan_id = uuid4()
+    retired = await service.delete_with_strategy(
+        guild_id=current.guild_id,
+        policy_id=current.policy_id,
+        actor_id=456,
+        expected_revision=1,
+        strategy="REPLACE",
+        replacement_policy_id=replacement.policy_id,
+        plan_id=plan_id,
+        idempotency_key="delete-replace",
+    )
+    assert retired.lifecycle_state is PolicyLifecycleState.RETIRED
+    assert retired.revision == 2 and not retired.locked
+    assert "deletion-strategy:REPLACE" in retired.metadata["tags"]
+    assert f"deletion-replacement:{replacement.policy_id}" in retired.metadata["tags"]
+    assert f"deletion-plan:{plan_id}" in retired.metadata["tags"]
+    repository.assert_deletion_plan.assert_awaited_once_with(
+        guild_id=current.guild_id,
+        policy_id=current.policy_id,
+        policy_revision=1,
+        plan_id=plan_id,
+    )
 
 
 @pytest.mark.asyncio

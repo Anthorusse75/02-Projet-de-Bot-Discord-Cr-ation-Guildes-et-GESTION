@@ -188,6 +188,44 @@ async def test_rls_and_repository_isolate_two_guilds(policies_context) -> None:
     with pytest.raises(PolicyNotFound):
         await repository.get(GUILD_B, policy_a.policy_id)
 
+
+@pytest.mark.asyncio
+async def test_policy_deletion_is_soft_audited_and_cross_tenant_replacement_is_refused(
+    policies_context,
+) -> None:
+    repository, service = policies_context
+    policy_a = await _create(service, GUILD_A, ACTOR_A, "delete-a")
+    policy_b = await _create(service, GUILD_B, ACTOR_B, "delete-b")
+
+    dependencies = await service.deletion_dependencies(GUILD_A, policy_a.policy_id)
+    assert dependencies.policy.policy_id == policy_a.policy_id
+    assert dependencies.plans == () and dependencies.scope_binding_count == 0
+
+    retired = await service.delete_with_strategy(
+        guild_id=GUILD_A,
+        policy_id=policy_a.policy_id,
+        actor_id=ACTOR_A,
+        expected_revision=1,
+        strategy="DETACH",
+        idempotency_key="delete-a-detach",
+    )
+    assert retired.lifecycle_state is PolicyLifecycleState.RETIRED
+    assert retired.revision == 2
+    versions = await repository.versions(GUILD_A, policy_a.policy_id)
+    assert [version.change_kind for version in versions] == ["CREATE", "RETIRE"]
+
+    other_a = await _create(service, GUILD_A, ACTOR_A, "delete-a-cross-tenant")
+    with pytest.raises(PolicyNotFound):
+        await service.delete_with_strategy(
+            guild_id=GUILD_A,
+            policy_id=other_a.policy_id,
+            actor_id=ACTOR_A,
+            expected_revision=1,
+            strategy="REPLACE",
+            replacement_policy_id=policy_b.policy_id,
+            idempotency_key="delete-a-replace-b",
+        )
+
     engine = create_database_engine(APP_URL, pool_size=1)
     try:
         factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -365,6 +403,13 @@ async def test_disable_requires_a_real_validated_plan_for_this_exact_policy_and_
     assert disable_plan["status"] == "VALIDATED"
     assert disable_plan["source_policy_id"] == active.policy_id
     assert int(disable_plan["source_policy_revision"]) == 2
+    deletion_plan = await repository.assert_deletion_plan(
+        guild_id=GUILD_A,
+        policy_id=active.policy_id,
+        policy_revision=2,
+        plan_id=UUID(str(disable_plan["id"])),
+    )
+    assert deletion_plan["id"] == disable_plan["id"]
 
     with pytest.raises(PolicyLifecycleError):
         await policy_service.disable(
@@ -540,6 +585,10 @@ async def test_policy_preview_preflight_plan_idempotency_and_provenance_chain(
     assert first["source_policy_id"] == draft.policy_id
     assert int(first["source_policy_revision"]) == 1
     assert first["origin_type"] == "POLICY"
+    dependencies = await policy_service.deletion_dependencies(GUILD_A, draft.policy_id)
+    assert [(row["id"], row["status"]) for row in dependencies.plans] == [
+        (first["id"], "VALIDATED")
+    ]
     operations = await plans.operations(GUILD_A, UUID(str(first["id"])))
     assert operations and all(row["plan_id"] == first["id"] for row in operations)
     async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
