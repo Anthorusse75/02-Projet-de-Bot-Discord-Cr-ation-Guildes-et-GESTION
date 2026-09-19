@@ -23,7 +23,9 @@ from did.permissions.views import AccessSynthesis, synthesize_access, view_as_ro
 from did.policies.conflict_explanations import (
     BlacklistRegrant,
     ConflictExplanation,
+    ObservableAccessConflict,
     explain_conflicts,
+    explain_observable_access_conflict,
     find_blacklist_regrants,
 )
 from did.policies.registry import (
@@ -46,6 +48,7 @@ class ExplainedPolicyResolution:
     resolution: PolicyResolution
     conflict_explanations: tuple[ConflictExplanation, ...]
     blacklist_regrants: tuple[BlacklistRegrant, ...]
+    observable_access_conflict: ObservableAccessConflict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,14 +733,40 @@ class PolicyService:
         )
         policies_by_id = {policy.policy_id: policy for policy in policies}
         member_role_ids = tuple(sorted(str(role_id) for role_id in member.role_ids))
+        channel = (
+            guild.channel(int(normalized_target_id))
+            if normalized_target_id is not None
+            and target_scope_type in {PolicyScopeType.CATEGORY, PolicyScopeType.CHANNEL}
+            else None
+        )
+        observable_access_conflict = None
+        if channel is not None:
+            permission_decision = PermissionEvaluator().evaluate(
+                guild=guild,
+                member=member,
+                resource=channel,
+                parent=guild.channel(channel.parent_id) if channel.is_thread else None,
+            )
+            observable_access_conflict = explain_observable_access_conflict(
+                resolution,
+                guild=guild,
+                member=member,
+                channel=channel,
+                permission_decision=permission_decision,
+            )
         return ExplainedPolicyResolution(
             resolution=resolution,
             conflict_explanations=explain_conflicts(
-                resolution, policies_by_id=policies_by_id, member_role_ids=member_role_ids
+                resolution,
+                policies_by_id=policies_by_id,
+                member_role_ids=member_role_ids,
+                guild=guild,
+                member=member,
             ),
             blacklist_regrants=find_blacklist_regrants(
                 resolution, policies_by_id=policies_by_id, member_role_ids=member_role_ids
             ),
+            observable_access_conflict=observable_access_conflict,
         )
 
     def resolve_loaded(

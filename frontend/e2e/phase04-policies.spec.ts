@@ -75,7 +75,13 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith(`/policies/${POLICY}/versions`)) return route.fulfill({ json: { guild_id: GUILD, policy_id: POLICY, versions: [{ version_id: '33333333-3333-4333-8333-333333333333', guild_id: GUILD, policy_id: POLICY, revision: 1, change_kind: 'CREATE', snapshot: policy(), author_user_id: USER, correlation_id: '44444444-4444-4444-8444-444444444444', idempotency_key: null, created_at: '2026-09-15T08:00:00Z' }] } })
     if (path.endsWith('/bots/audit')) return route.fulfill({ json: { bots: [{ user_id: BOT_DENIED, status: 'ACTIVE', incomplete_reasons: [] }, { user_id: BOT_UNKNOWN, status: 'STALE', incomplete_reasons: ['cache.stale'] }] } })
     if (path.includes('/bots/') && path.endsWith('/access-map')) { const unknown = path.includes(BOT_UNKNOWN); return route.fulfill({ json: { channels: [{ channel_id: CHANNEL, status: 'VISIBLE', minimum: { functions: ['READ', 'WRITE', 'THREADS'], outcome: unknown ? 'UNKNOWN' : 'CANNOT', required_permissions: ['VIEW_CHANNEL', 'READ_MESSAGE_HISTORY', 'SEND_MESSAGES', 'CREATE_PUBLIC_THREADS', 'CREATE_PRIVATE_THREADS', 'SEND_MESSAGES_IN_THREADS'], missing_permissions: unknown ? [] : ['SEND_MESSAGES', 'CREATE_PUBLIC_THREADS'], causes: [unknown ? 'capability.cache.stale' : 'capability.permission_missing.SEND_MESSAGES'], remediations: [unknown ? 'capability.refresh_required' : 'capability.grant_minimum_permissions'], warnings: [] } }] } }) }
-    if (path.endsWith('/policy-resolution')) return route.fulfill({ json: harness.family === 'mentions' ? resolution('CAN', [], 'MENTION_EVERYONE_HERE', ['MENTION_EVERYONE'], true) : resolution('CAN') })
+    if (path.endsWith('/policy-resolution')) {
+      if (harness.conflict) {
+        const conflict = { policy_ids: [POLICY, '22222222-2222-4222-8222-222222222222'], revisions: [1, 2], source_scopes: [`CHANNEL:${CHANNEL}`, `ROLE:${OTHER_ROLE}`], effects: ['ALLOW VIEW', 'DENY VIEW'], resolution_rule: null, outcome: 'BLOCKED', winning_policy_ids: [] }
+        return route.fulfill({ json: { ...resolution('BLOCKED', [conflict]), conflict_explanations: [{ conflict, accepted: false, causing_roles: [{ role_id: ROLE, source_policy_id: POLICY, source: 'CONDITION' }, { role_id: OTHER_ROLE, source_policy_id: '22222222-2222-4222-8222-222222222222', source: 'CONDITION' }], reason_key: 'policy.conflict.blocked', remediations: [{ kind: 'REMOVE_MEMBER_ROLE', target_id: ROLE, route: 'roles', requires_separate_plan: true, collateral_losses: ['MANAGE_CHANNELS', 'VIEW_CHANNEL'], collateral_scope: [CHANNEL], reason_key: 'policy.conflict.remediation.remove_role' }, { kind: 'EDIT_POLICY_DRAFT', target_id: POLICY, route: 'policies', requires_separate_plan: true, collateral_losses: [], collateral_scope: [POLICY], reason_key: 'policy.conflict.remediation.edit_policy_draft' }] }], blacklist_regrants: [], observable_access_conflict: null } })
+      }
+      return route.fulfill({ json: harness.family === 'mentions' ? resolution('CAN', [], 'MENTION_EVERYONE_HERE', ['MENTION_EVERYONE'], true) : resolution('CAN') })
+    }
     if (/\/policies\/[^/]+\/plan$/.test(path)) return route.fulfill({ status: 201, json: { created: true, preview: preview(false, harness.family), plan: { id: '55555555-5555-4555-8555-555555555555', status: 'VALIDATED', state_version: 2 }, preflight: { allowed: true, errors: [], warnings: [] } } })
     if (path.endsWith('/plans')) return route.fulfill({ json: { guild_id: GUILD, plans: [] } })
     return route.fulfill({ status: 404, json: {} })
@@ -122,10 +128,13 @@ test('shows multi-role conflict causes, BLOCKED/UNKNOWN outcomes, explain and sa
   await expect(page.getByText('Unknown', { exact: true })).toBeVisible()
   await expect(page.getByText(/Exception for member/)).toBeVisible()
   await page.getByRole('button', { name: 'Resolve this conflict' }).click()
-  await expect(page.getByText('No member role is removed automatically.', { exact: false })).toBeVisible()
+  await expect(page.getByText(/load only validated remediations/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Prepare plan' })).toBeDisabled()
   await page.getByRole('button', { name: 'Why this result?' }).first().click()
   await expect(page.getByText('Why is this access allowed or denied?')).toBeVisible()
+  await expect(page.getByText(/Granted through role\(s\): Managers, Guests/)).toBeVisible()
+  await expect(page.getByText(/MANAGE_CHANNELS, VIEW_CHANNEL/)).toBeVisible()
+  await expect(page.getByText(/separate Plan/).first()).toBeVisible()
   await page.getByRole('button', { name: 'History' }).click()
   await page.getByRole('button', { name: 'Create a new draft from this revision' }).click()
   expect(harness.requests.filter((item) => item.path.endsWith('/policies') && item.method === 'POST')).toHaveLength(1)

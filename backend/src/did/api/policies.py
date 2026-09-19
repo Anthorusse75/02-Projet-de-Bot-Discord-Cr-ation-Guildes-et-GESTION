@@ -325,6 +325,9 @@ async def resolve_policy(
     assert isinstance(encoded, dict)
     encoded["conflict_explanations"] = jsonable_encoder(explained.conflict_explanations)
     encoded["blacklist_regrants"] = jsonable_encoder(explained.blacklist_regrants)
+    encoded["observable_access_conflict"] = jsonable_encoder(
+        explained.observable_access_conflict
+    )
     return encoded
 
 

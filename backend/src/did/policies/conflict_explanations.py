@@ -23,12 +23,11 @@ Two distinct situations are covered:
   own sense (nothing here competed), but from the Guild admin's perspective
   the blacklist plainly did not do what they expected.
 
-Scope: both explanations attribute causes to Policy role conditions/audiences
-only (REQ-AP-VIS-011/012/013 core case). Attributing a cause to
-ADMINISTRATOR, a raw Discord member overwrite, or category inheritance is
-intentionally left to the existing, separate Discord-effective evaluation
-path (``AccessMatrixCell``/``PermissionEvaluator``); unifying every cause
-family into one explanation is left open for a future lot.
+The observable Discord layer is also explained here, but never recalculated:
+``explain_observable_access_conflict`` consumes the canonical
+``PermissionDecision`` and its trace. It unifies role permissions,
+ADMINISTRATOR/owner bypass, role/member/everyone overwrites and category
+inheritance in the same response shape (REQ-AP-VIS-004/CFL-001..004).
 """
 
 from __future__ import annotations
@@ -37,6 +36,10 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from did.domain.policies import Policy
+from did.domain.read_model import ChannelSnapshot, GuildSnapshot, MemberSnapshot
+from did.permissions.models import DecisionStatus, PermissionDecision
+from did.permissions.registry import DEFAULT_PERMISSION_REGISTRY
+from did.permissions.views import CategorySyncState, category_sync_state
 from did.policies.resolver import PolicyConflict, PolicyConflictOutcome, PolicyResolution
 
 _ROLE_CONDITION_KINDS = frozenset({"ROLE_MATCH", "ROLE_EXCLUDE"})
@@ -55,6 +58,7 @@ class ConflictExplanation:
     accepted: bool
     causing_roles: tuple[ConflictCauseRole, ...]
     reason_key: str
+    remediations: tuple[ConflictRemediation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +69,40 @@ class BlacklistRegrant:
     regranting_role_ids: tuple[ConflictCauseRole, ...]
     accepted: bool
     reason_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ObservableConflictCause:
+    kind: str
+    source_id: str | None
+    source_name: str | None
+    decision: str
+    permission_names: tuple[str, ...]
+    inherited_from_category_id: str | None
+    reason_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConflictRemediation:
+    kind: str
+    target_id: str
+    route: str
+    requires_separate_plan: bool
+    collateral_losses: tuple[str, ...]
+    collateral_scope: tuple[str, ...]
+    reason_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ObservableAccessConflict:
+    member_id: str
+    resource_id: str
+    policy_ids: tuple[UUID, ...]
+    expected_outcome: str
+    actual_outcome: str
+    granting_causes: tuple[ObservableConflictCause, ...]
+    denying_causes: tuple[ObservableConflictCause, ...]
+    remediations: tuple[ConflictRemediation, ...]
 
 
 def _string_tuple(value: object) -> tuple[str, ...]:
@@ -121,6 +159,8 @@ def explain_conflicts(
     *,
     policies_by_id: dict[UUID, Policy],
     member_role_ids: tuple[str, ...],
+    guild: GuildSnapshot | None = None,
+    member: MemberSnapshot | None = None,
 ) -> tuple[ConflictExplanation, ...]:
     """Explain each resolver-detected :class:`PolicyConflict` using the member's roles."""
 
@@ -149,6 +189,12 @@ def explain_conflicts(
                 accepted=accepted,
                 causing_roles=tuple(causes),
                 reason_key=reason_key,
+                remediations=_policy_conflict_remediations(
+                    conflict,
+                    tuple(causes),
+                    guild=guild,
+                    member=member,
+                ),
             )
         )
     return tuple(explanations)
@@ -220,10 +266,360 @@ def find_blacklist_regrants(
     return tuple(regrants)
 
 
+def explain_observable_access_conflict(
+    resolution: PolicyResolution,
+    *,
+    guild: GuildSnapshot,
+    member: MemberSnapshot,
+    channel: ChannelSnapshot,
+    permission_decision: PermissionDecision,
+) -> ObservableAccessConflict | None:
+    """Explain a concrete Policy-vs-Discord mismatch from canonical facts.
+
+    This function deliberately performs no permission resolution. It only
+    attributes bits in an already computed ``PermissionDecision`` to the
+    cached roles/overwrites that supplied them, and offers bounded navigation
+    to existing Plan-producing workspaces. No remediation mutates Discord.
+    """
+
+    if (
+        permission_decision.status is not DecisionStatus.COMPLETE
+        or resolution.outcome.value not in {"CAN", "CANNOT"}
+    ):
+        return None
+    allow_bits = int(resolution.discord_allow_bits)
+    deny_bits = int(resolution.discord_deny_bits)
+    if resolution.outcome.value == "CAN":
+        mismatch_bits = allow_bits & ~permission_decision.effective_bits
+        if mismatch_bits == 0:
+            return None
+        actual_outcome = "DENIED"
+        granting: tuple[ObservableConflictCause, ...] = ()
+        denying = _overwrite_causes(
+            guild, member, channel, mismatch_bits=mismatch_bits, decision="DENY"
+        )
+        if not denying:
+            denying = (
+                _cause(
+                    "IMPLICIT_DENIAL",
+                    None,
+                    None,
+                    "DENY",
+                    mismatch_bits,
+                    None,
+                    "policy.conflict.cause.implicit_denial",
+                ),
+            )
+    else:
+        mismatch_bits = deny_bits & permission_decision.effective_bits
+        if mismatch_bits == 0:
+            return None
+        actual_outcome = "ALLOWED"
+        denying = ()
+        granting = _granting_causes(guild, member, channel, mismatch_bits)
+
+    causes = (*granting, *denying)
+    inherited_category = next(
+        (
+            cause.inherited_from_category_id
+            for cause in causes
+            if cause.inherited_from_category_id is not None
+        ),
+        None,
+    )
+    return ObservableAccessConflict(
+        member_id=str(member.user_id),
+        resource_id=str(channel.channel_id),
+        policy_ids=tuple(
+            dict.fromkeys(
+                item.policy_id
+                for item in resolution.contributions
+                if item.selected or item.disposition == "CONFLICT_UNRESOLVED"
+            )
+        ),
+        expected_outcome=resolution.outcome.value,
+        actual_outcome=actual_outcome,
+        granting_causes=granting,
+        denying_causes=denying,
+        remediations=_remediations(
+            guild,
+            member,
+            channel,
+            causes,
+            inherited_category_id=inherited_category,
+        ),
+    )
+
+
+def _granting_causes(
+    guild: GuildSnapshot,
+    member: MemberSnapshot,
+    channel: ChannelSnapshot,
+    mismatch_bits: int,
+) -> tuple[ObservableConflictCause, ...]:
+    if member.user_id == guild.owner_id:
+        return (
+            _cause(
+                "OWNER",
+                str(member.user_id),
+                None,
+                "ALLOW",
+                mismatch_bits,
+                None,
+                "policy.conflict.cause.owner",
+            ),
+        )
+    administrator = DEFAULT_PERMISSION_REGISTRY.value("ADMINISTRATOR")
+    admin_roles = tuple(
+        role
+        for role in guild.roles
+        if role.role_id in member.role_ids and role.permissions & administrator
+    )
+    if admin_roles:
+        return tuple(
+            _cause(
+                "ADMINISTRATOR",
+                str(role.role_id),
+                role.name,
+                "ALLOW",
+                mismatch_bits,
+                None,
+                "policy.conflict.cause.administrator",
+            )
+            for role in admin_roles
+        )
+
+    causes = list(
+        _overwrite_causes(guild, member, channel, mismatch_bits=mismatch_bits, decision="ALLOW")
+    )
+    for role in guild.roles:
+        matching = role.role_id == guild.guild_id or role.role_id in member.role_ids
+        supplied = role.permissions & mismatch_bits
+        if matching and supplied:
+            causes.append(
+                _cause(
+                    "BASE_ROLE",
+                    str(role.role_id),
+                    role.name,
+                    "ALLOW",
+                    supplied,
+                    None,
+                    "policy.conflict.cause.base_role",
+                )
+            )
+    return tuple(dict.fromkeys(causes))
+
+
+def _overwrite_causes(
+    guild: GuildSnapshot,
+    member: MemberSnapshot,
+    channel: ChannelSnapshot,
+    *,
+    mismatch_bits: int,
+    decision: str,
+) -> tuple[ObservableConflictCause, ...]:
+    parent = guild.channel(channel.parent_id) if channel.parent_id is not None else None
+    inherited_category_id = (
+        str(parent.channel_id)
+        if parent is not None and category_sync_state(channel, parent) is CategorySyncState.SYNCED
+        else None
+    )
+    causes: list[ObservableConflictCause] = []
+    for overwrite in channel.overwrites:
+        if overwrite.target_type == 1 and overwrite.target_id != member.user_id:
+            continue
+        if overwrite.target_type == 0 and overwrite.target_id not in {
+            guild.guild_id,
+            *member.role_ids,
+        }:
+            continue
+        bits = (overwrite.allow if decision == "ALLOW" else overwrite.deny) & mismatch_bits
+        if not bits:
+            continue
+        if overwrite.target_type == 1:
+            kind = "MEMBER_OVERWRITE"
+            name = None
+        elif overwrite.target_id == guild.guild_id:
+            kind = "EVERYONE_OVERWRITE"
+            name = "@everyone"
+        else:
+            kind = "ROLE_OVERWRITE"
+            role = guild.role(overwrite.target_id)
+            name = role.name if role is not None else None
+        causes.append(
+            _cause(
+                kind,
+                str(overwrite.target_id),
+                name,
+                decision,
+                bits,
+                inherited_category_id,
+                f"policy.conflict.cause.{kind.lower()}",
+            )
+        )
+    return tuple(causes)
+
+
+def _cause(
+    kind: str,
+    source_id: str | None,
+    source_name: str | None,
+    decision: str,
+    bits: int,
+    inherited_from_category_id: str | None,
+    reason_key: str,
+) -> ObservableConflictCause:
+    return ObservableConflictCause(
+        kind=kind,
+        source_id=source_id,
+        source_name=source_name,
+        decision=decision,
+        permission_names=DEFAULT_PERMISSION_REGISTRY.names(bits),
+        inherited_from_category_id=inherited_from_category_id,
+        reason_key=reason_key,
+    )
+
+
+def _remediations(
+    guild: GuildSnapshot,
+    member: MemberSnapshot,
+    channel: ChannelSnapshot,
+    causes: tuple[ObservableConflictCause, ...],
+    *,
+    inherited_category_id: str | None,
+) -> tuple[ConflictRemediation, ...]:
+    values: list[ConflictRemediation] = []
+    seen: set[tuple[str, str]] = set()
+    for cause in causes:
+        if cause.kind in {"ADMINISTRATOR", "BASE_ROLE", "ROLE_OVERWRITE"}:
+            if cause.source_id is None:
+                continue
+            role_removal = _role_removal_remediation(guild, int(cause.source_id))
+            if role_removal is not None:
+                _append_remediation(values, seen, role_removal)
+            if cause.kind == "ROLE_OVERWRITE":
+                _append_remediation(
+                    values,
+                    seen,
+                    ConflictRemediation(
+                        kind="EDIT_ROLE_OVERWRITE",
+                        target_id=inherited_category_id or str(channel.channel_id),
+                        route="matrix",
+                        requires_separate_plan=True,
+                        collateral_losses=cause.permission_names,
+                        collateral_scope=(cause.source_id,),
+                        reason_key="policy.conflict.remediation.edit_role_overwrite",
+                    ),
+                )
+        elif cause.kind == "MEMBER_OVERWRITE":
+            _append_remediation(
+                values,
+                seen,
+                ConflictRemediation(
+                    kind="EDIT_MEMBER_OVERWRITE",
+                    target_id=inherited_category_id or str(channel.channel_id),
+                    route="matrix",
+                    requires_separate_plan=True,
+                    collateral_losses=cause.permission_names,
+                    collateral_scope=(str(member.user_id),),
+                    reason_key="policy.conflict.remediation.edit_member_overwrite",
+                ),
+            )
+        elif cause.kind == "EVERYONE_OVERWRITE":
+            _append_remediation(
+                values,
+                seen,
+                ConflictRemediation(
+                    kind="EDIT_EVERYONE_OVERWRITE",
+                    target_id=inherited_category_id or str(channel.channel_id),
+                    route="matrix",
+                    requires_separate_plan=True,
+                    collateral_losses=cause.permission_names,
+                    collateral_scope=("ALL_MEMBERS",),
+                    reason_key="policy.conflict.remediation.edit_everyone_overwrite",
+                ),
+            )
+    return tuple(values)
+
+
+def _policy_conflict_remediations(
+    conflict: PolicyConflict,
+    causes: tuple[ConflictCauseRole, ...],
+    *,
+    guild: GuildSnapshot | None,
+    member: MemberSnapshot | None,
+) -> tuple[ConflictRemediation, ...]:
+    values: list[ConflictRemediation] = []
+    seen: set[tuple[str, str]] = set()
+    if guild is not None and member is not None:
+        for cause in causes:
+            role_id = int(cause.role_id)
+            if role_id not in member.role_ids:
+                continue
+            remediation = _role_removal_remediation(guild, role_id)
+            if remediation is not None:
+                _append_remediation(values, seen, remediation)
+    for policy_id in conflict.policy_ids:
+        _append_remediation(
+            values,
+            seen,
+            ConflictRemediation(
+                kind="EDIT_POLICY_DRAFT",
+                target_id=str(policy_id),
+                route="policies",
+                requires_separate_plan=True,
+                collateral_losses=(),
+                collateral_scope=tuple(str(value) for value in conflict.policy_ids),
+                reason_key="policy.conflict.remediation.edit_policy_draft",
+            ),
+        )
+    return tuple(values)
+
+
+def _role_removal_remediation(
+    guild: GuildSnapshot, role_id: int
+) -> ConflictRemediation | None:
+    role = guild.role(role_id)
+    if role is None or role.role_id == guild.guild_id or role.managed:
+        return None
+    collateral_bits = role.permissions
+    collateral_scope: set[str] = set()
+    for resource in guild.channels:
+        for overwrite in resource.overwrites:
+            if overwrite.target_type == 0 and overwrite.target_id == role.role_id:
+                collateral_bits |= overwrite.allow
+                if overwrite.allow:
+                    collateral_scope.add(str(resource.channel_id))
+    return ConflictRemediation(
+        kind="REMOVE_MEMBER_ROLE",
+        target_id=str(role.role_id),
+        route="roles",
+        requires_separate_plan=True,
+        collateral_losses=DEFAULT_PERMISSION_REGISTRY.names(collateral_bits),
+        collateral_scope=tuple(sorted(collateral_scope)),
+        reason_key="policy.conflict.remediation.remove_role",
+    )
+
+
+def _append_remediation(
+    values: list[ConflictRemediation],
+    seen: set[tuple[str, str]],
+    remediation: ConflictRemediation,
+) -> None:
+    key = (remediation.kind, remediation.target_id)
+    if key not in seen:
+        seen.add(key)
+        values.append(remediation)
+
+
 __all__ = [
     "BlacklistRegrant",
     "ConflictCauseRole",
     "ConflictExplanation",
+    "ConflictRemediation",
+    "ObservableAccessConflict",
+    "ObservableConflictCause",
     "explain_conflicts",
+    "explain_observable_access_conflict",
     "find_blacklist_regrants",
 ]

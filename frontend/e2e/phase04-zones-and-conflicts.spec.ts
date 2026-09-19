@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const USER = '700000000000000003'
@@ -22,6 +23,7 @@ type Harness = {
   requests: Array<{ path: string; method: string; body: unknown }>
   resolutionCallCount: number
   blacklist?: boolean
+  observable?: boolean
 }
 
 const can = () => ({ outcome: 'CAN', causes: [], remediations: [] })
@@ -41,9 +43,6 @@ function roles() {
 function structure() {
   const base = { guild_id: GUILD, position: 0, resource_kind: 'CHANNEL', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }
   return { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ ...base, id: CAT, type: 4, name: 'General', parent_id: null, channels: [{ ...base, id: CHANNEL, type: 0, name: 'board', parent_id: CAT }] }], root_channels: [] }
-}
-function scope(overrides: Partial<Scope>): Scope {
-  return { id: STAFF_SCOPE_ID, guild_id: GUILD, scope_type: 'STAFF', scope_key: 'staff', name: 'Staff', logical_group_id: null, config: {}, version: 1, rules: [], explicit_member_ids: [], ...overrides }
 }
 function draftPolicy(overrides: Record<string, unknown> = {}) {
   return { policy_id: POLICY_DRAFT, guild_id: GUILD, policy_type: 'ACCESS_CONTROL', contract_version: 1, name: 'Board access', description: 'Managers only', lifecycle_state: 'DRAFT', revision: 1, priority: 0, scope_type: 'CHANNEL', scope_id: CHANNEL, conditions: [{ kind: 'ROLE_MATCH', match: 'ANY', role_ids: [STAFF_ROLE] }], effects: [{ kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' }], metadata: { summary: 'Managers only', tags: ['did-native:visible_only'], reason: null }, created_by_user_id: USER, modified_by_user_id: USER, created_at: '2026-09-15T08:00:00Z', updated_at: '2026-09-15T08:00:00Z', activated_at: null, disabled_at: null, retired_at: null, ...overrides }
@@ -95,6 +94,16 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith(`/policies/${POLICY_DRAFT}/versions`)) return route.fulfill({ json: { guild_id: GUILD, policy_id: POLICY_DRAFT, versions: [] } })
     if (path.endsWith('/policy-resolution')) {
       harness.resolutionCallCount += 1
+      if (harness.observable) {
+        return route.fulfill({ json: resolution('CANNOT', {
+          observable_access_conflict: {
+            member_id: MEMBER, resource_id: CHANNEL, policy_ids: [POLICY_DRAFT], expected_outcome: 'CANNOT', actual_outcome: 'ALLOWED',
+            granting_causes: [{ kind: 'ADMINISTRATOR', source_id: STAFF_ROLE, source_name: 'Administrators', decision: 'ALLOW', permission_names: ['VIEW_CHANNEL'], inherited_from_category_id: null, reason_key: 'policy.conflict.cause.administrator' }],
+            denying_causes: [],
+            remediations: [{ kind: 'REMOVE_MEMBER_ROLE', target_id: STAFF_ROLE, route: 'roles', requires_separate_plan: true, collateral_losses: ['ADMINISTRATOR', 'MANAGE_CHANNELS'], collateral_scope: [CHANNEL], reason_key: 'policy.conflict.remediation.remove_role' }],
+          },
+        }) })
+      }
       if (harness.blacklist) {
         return route.fulfill({ json: resolution('CAN', {
           blacklist_regrants: [{ excluding_policy_id: POLICY_BLACKLIST, excluding_role_ids: [CONTRACTORS_ROLE], regranting_policy_id: POLICY_REGRANT, regranting_role_ids: [{ role_id: MANAGERS_ROLE, source_policy_id: POLICY_REGRANT, source: 'AUDIENCE_INCLUDE' }], accepted: false, reason_key: 'policy.conflict.blacklist_bypassed_by_role' }],
@@ -182,5 +191,32 @@ test('C: a blacklist bypass names the exact regranting role and can become a doc
   await page.getByRole('button', { name: 'Accept this exception' }).click()
   await expect(page.getByText('Exception documented. It will no longer show as a silent conflict.')).toBeVisible()
   expect(harness.requests.some((item) => item.path.endsWith('/accept-exception'))).toBe(true)
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
+})
+
+test('@a11y D: observable ADMINISTRATOR conflict shows who, rule and collateral impact before routing to a separate Plan workspace', async ({ page }) => {
+  const harness: Harness = { policies: [draftPolicy()], scopes: [], requests: [], resolutionCallCount: 0, observable: true }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: 'Preview impact' }).click()
+  await page.getByRole('button', { name: 'Why this result?' }).click()
+
+  const panel = page.getByLabel('Observed access contradicts the Policy')
+  await expect(panel).toBeVisible()
+  await expect(panel.getByText(/Member …0301.*resource 700000000000000201.*Board access/)).toBeVisible()
+  await expect(panel.getByText('ADMINISTRATOR bypass')).toBeVisible()
+  await expect(panel.getByText(/ADMINISTRATOR, MANAGE_CHANNELS/)).toBeVisible()
+  await expect(panel.getByText(/separate Plan/)).toBeVisible()
+  const accessibility = await new AxeBuilder({ page }).include('.observable-conflict').analyze()
+  expect(accessibility.violations).toEqual([])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(async () => (await page.locator('.premium-sidebar').boundingBox())?.x ?? 0).toBeLessThan(-200)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true)
+
+  await panel.getByRole('button', { name: 'Review and prepare safely' }).click()
+  await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/roles$`))
   expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
 })

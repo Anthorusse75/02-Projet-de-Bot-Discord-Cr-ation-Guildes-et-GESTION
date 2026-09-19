@@ -43,6 +43,15 @@
 .policy-conflict { margin: .75rem 0; padding: .75rem; border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--line)); border-radius: .65rem; background: color-mix(in srgb, var(--danger) 7%, var(--panel)); }
 .policy-conflict p { margin: .35rem 0; }
 .policy-conflict ul { margin-bottom: 0; color: var(--muted); }
+.observable-conflict { display: grid; gap: .8rem; }
+.observable-conflict p { overflow-wrap: anywhere; }
+.observable-conflict .access-panel-heading { padding: 0; }
+.observable-conflict .access-panel-heading small { color: var(--text); }
+.observable-remediation-heading { margin-top: .25rem; }
+.observable-cause-list, .observable-remediation-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .65rem; }
+.observable-cause-list article, .observable-remediation-list article { display: grid; gap: .35rem; align-content: start; padding: .7rem; border: 1px solid var(--line); border-radius: .6rem; background: color-mix(in srgb, var(--panel-2) 72%, transparent); }
+.observable-cause-list small, .observable-remediation-list small { color: var(--text); }
+.observable-remediation-list .button { justify-self: start; margin-top: .25rem; }
 .policy-preview-entries details { margin-top: .65rem; }
 .policy-preview-entries summary { cursor: pointer; color: var(--muted); }
 
@@ -99,4 +108,5 @@
   .policy-expert-editor dl > div, .policy-explain-panel dl > div { grid-template-columns: 1fr; gap: .2rem; }
   .policy-compliance-heading { align-items: stretch; flex-direction: column; }
   .policy-card-badges { justify-content: flex-start; }
+  .observable-conflict .access-panel-heading { align-items: flex-start; flex-direction: column; }
 }

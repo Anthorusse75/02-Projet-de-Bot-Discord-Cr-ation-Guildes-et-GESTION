@@ -1,18 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import UUID
 
-from did.domain.discord_runtime import CoverageMode, FreshnessState
+from did.domain.discord_runtime import CoverageMode, FreshnessState, ObservabilityState
 from did.domain.policies import Policy, PolicyLifecycleState, PolicyScopeType
-from did.policies.conflict_explanations import explain_conflicts, find_blacklist_regrants
-from did.policies.resolver import PolicyResolutionContext, PolicyResolver, PolicyTargetState
+from did.domain.read_model import (
+    ChannelSnapshot,
+    CoverageSnapshot,
+    FreshnessSnapshot,
+    GuildSnapshot,
+    MemberSnapshot,
+    OverwriteSnapshot,
+    RoleSnapshot,
+)
+from did.domain.read_model.models import ChannelType
+from did.permissions import DEFAULT_PERMISSION_REGISTRY, PermissionEvaluator
+from did.policies.conflict_explanations import (
+    explain_conflicts,
+    explain_observable_access_conflict,
+    find_blacklist_regrants,
+)
+from did.policies.resolver import (
+    PolicyResolution,
+    PolicyResolutionContext,
+    PolicyResolver,
+    PolicyTargetState,
+)
 
 GUILD_ID = 100
 SUBJECT_ID = 101
 CHANNEL_ID = "300"
 CONTRACTORS = "500"
 MANAGERS = "600"
+NOW = datetime(2026, 9, 18, tzinfo=UTC)
+VIEW = DEFAULT_PERMISSION_REGISTRY.value("VIEW_CHANNEL")
+ADMINISTRATOR = DEFAULT_PERMISSION_REGISTRY.value("ADMINISTRATOR")
 
 
 def _policy(number: int, *, effects: tuple[dict[str, object], ...], priority: int = 0) -> Policy:
@@ -191,3 +215,183 @@ def test_accepted_exception_tag_marks_the_bypass_as_intentional() -> None:
     assert len(explanations) == 1
     assert explanations[0].accepted is True
     assert explanations[0].reason_key == "policy.conflict.exception_accepted"
+
+
+def _observable_facts(
+    *,
+    role_permissions: int = 0,
+    member_overwrite_allow: int = 0,
+    inherited: bool = False,
+) -> tuple[GuildSnapshot, MemberSnapshot, ChannelSnapshot]:
+    fresh = FreshnessSnapshot(FreshnessState.FRESH, "CACHE", 1, NOW, NOW, NOW)
+    coverage = CoverageSnapshot(
+        GUILD_ID,
+        CoverageMode.FULL,
+        FreshnessState.FRESH,
+        "CACHE",
+        1,
+        known_channels=2 if inherited else 1,
+        visible_channels=2 if inherited else 1,
+        known_roles=2,
+        members_complete=True,
+        overwrites_complete=True,
+    )
+    parent_id = 299 if inherited else None
+    overwrites = (
+        (OverwriteSnapshot(GUILD_ID, int(CHANNEL_ID), SUBJECT_ID, 1, member_overwrite_allow, 0),)
+        if member_overwrite_allow
+        else ()
+    )
+    channel = ChannelSnapshot(
+        GUILD_ID,
+        int(CHANNEL_ID),
+        ChannelType.GUILD_TEXT,
+        1,
+        parent_id,
+        "board",
+        overwrites,
+        True,
+        ObservabilityState.VISIBLE,
+        fresh,
+    )
+    channels = (channel,)
+    if inherited:
+        parent_overwrites = tuple(
+            replace(value, channel_id=parent_id) for value in overwrites if parent_id is not None
+        )
+        parent = ChannelSnapshot(
+            GUILD_ID,
+            parent_id,
+            ChannelType.GUILD_CATEGORY,
+            0,
+            None,
+            "parent",
+            parent_overwrites,
+            True,
+            ObservabilityState.VISIBLE,
+            fresh,
+        )
+        channels = (parent, channel)
+    guild = GuildSnapshot(
+        GUILD_ID,
+        999,
+        (
+            RoleSnapshot(GUILD_ID, GUILD_ID, "@everyone", 0, 0, False, fresh),
+            RoleSnapshot(
+                GUILD_ID, int(MANAGERS), "Managers", 1, role_permissions, False, fresh
+            ),
+        ),
+        channels,
+        coverage,
+        fresh,
+    )
+    member = MemberSnapshot(GUILD_ID, SUBJECT_ID, (int(MANAGERS),), True, fresh)
+    return guild, member, channel
+
+
+def _deny_resolution() -> tuple[Policy, PolicyResolution]:
+    deny = _policy(
+        20,
+        effects=({"kind": "SET_ACCESS", "access": "VIEW", "decision": "DENY"},),
+    )
+    resolution = PolicyResolver().resolve(
+        policies=(deny,), context=_context((MANAGERS,))
+    )
+    return deny, resolution
+
+
+def test_observable_conflict_attributes_administrator_and_role_removal_collateral() -> None:
+    deny, resolution = _deny_resolution()
+    guild, member, channel = _observable_facts(role_permissions=ADMINISTRATOR)
+    decision = PermissionEvaluator().evaluate(guild=guild, member=member, resource=channel)
+
+    conflict = explain_observable_access_conflict(
+        resolution, guild=guild, member=member, channel=channel, permission_decision=decision
+    )
+
+    assert conflict is not None and conflict.policy_ids == (deny.policy_id,)
+    assert conflict.actual_outcome == "ALLOWED"
+    assert conflict.granting_causes[0].kind == "ADMINISTRATOR"
+    removal = next(item for item in conflict.remediations if item.kind == "REMOVE_MEMBER_ROLE")
+    assert removal.requires_separate_plan is True
+    assert "ADMINISTRATOR" in removal.collateral_losses
+
+
+def test_observable_conflict_attributes_raw_member_overwrite_and_category_inheritance() -> None:
+    _deny, resolution = _deny_resolution()
+    guild, member, channel = _observable_facts(
+        member_overwrite_allow=VIEW,
+        inherited=True,
+    )
+    decision = PermissionEvaluator().evaluate(guild=guild, member=member, resource=channel)
+
+    conflict = explain_observable_access_conflict(
+        resolution, guild=guild, member=member, channel=channel, permission_decision=decision
+    )
+
+    assert conflict is not None
+    cause = conflict.granting_causes[0]
+    assert cause.kind == "MEMBER_OVERWRITE"
+    assert cause.inherited_from_category_id == "299"
+    remediation = conflict.remediations[0]
+    assert remediation.kind == "EDIT_MEMBER_OVERWRITE"
+    assert remediation.target_id == "299"
+    assert remediation.collateral_losses == ("VIEW_CHANNEL",)
+
+
+def test_two_contradictory_roles_on_one_member_name_both_role_causes() -> None:
+    manager_allow = replace(
+        _policy(30, effects=({"kind": "SET_ACCESS", "access": "VIEW", "decision": "ALLOW"},)),
+        conditions=({"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [MANAGERS]},),
+    )
+    contractor_deny = replace(
+        _policy(31, effects=({"kind": "SET_ACCESS", "access": "VIEW", "decision": "DENY"},)),
+        conditions=({"kind": "ROLE_MATCH", "match": "ANY", "role_ids": [CONTRACTORS]},),
+    )
+    policies = (manager_allow, contractor_deny)
+    resolution = PolicyResolver().resolve(
+        policies=policies, context=_context((MANAGERS, CONTRACTORS))
+    )
+    guild, member, _channel = _observable_facts(
+        role_permissions=DEFAULT_PERMISSION_REGISTRY.value("MANAGE_CHANNELS")
+    )
+    guild = replace(
+        guild,
+        roles=(
+            *guild.roles,
+            RoleSnapshot(
+                GUILD_ID,
+                int(CONTRACTORS),
+                "Contractors",
+                2,
+                DEFAULT_PERMISSION_REGISTRY.value("SEND_MESSAGES"),
+                False,
+                guild.freshness,
+            ),
+        ),
+        coverage=replace(guild.coverage, known_roles=3),
+    )
+    member = replace(member, role_ids=(int(MANAGERS), int(CONTRACTORS)))
+
+    explanations = explain_conflicts(
+        resolution,
+        policies_by_id={policy.policy_id: policy for policy in policies},
+        member_role_ids=(MANAGERS, CONTRACTORS),
+        guild=guild,
+        member=member,
+    )
+
+    assert resolution.outcome.value == "BLOCKED"
+    assert {cause.role_id for cause in explanations[0].causing_roles} == {
+        MANAGERS,
+        CONTRACTORS,
+    }
+    role_removals = tuple(
+        item for item in explanations[0].remediations if item.kind == "REMOVE_MEMBER_ROLE"
+    )
+    assert {item.target_id for item in role_removals} == {MANAGERS, CONTRACTORS}
+    assert {item.collateral_losses for item in role_removals} == {
+        ("MANAGE_CHANNELS",),
+        ("SEND_MESSAGES",),
+    }
+    assert all(item.requires_separate_plan for item in explanations[0].remediations)

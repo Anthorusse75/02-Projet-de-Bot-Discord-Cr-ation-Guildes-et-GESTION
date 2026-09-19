@@ -790,7 +790,7 @@ export function PoliciesScreen() {
           <div className="policy-entry-heading"><div><strong>{t('policies.member.partial', { suffix: partialMember(entry.target.subject_id) })}</strong><small>{t(`policies.access.${entry.target.requested_access}`)}</small></div><Badge tone={entry.proposed.outcome === 'CAN' ? 'ok' : entry.proposed.outcome === 'CANNOT' ? 'danger' : 'warning'}>{t(`policies.outcome.${entry.proposed.outcome}`)}</Badge></div>
           <p>{t('policies.preview.change', { before: t(`policies.outcome.${entry.current.outcome}`), after: t(`policies.outcome.${entry.proposed.outcome}`) })}</p>
           {[...new Set([...entry.proposed.incomplete_reasons, ...entry.diagnostics])].map((reason) => <p className="access-callout warning" key={reason}>{t('policies.reason', { reason })}</p>)}
-          {entry.proposed.conflicts.map((conflict, conflictIndex) => <div className="policy-conflict" key={`${conflict.policy_ids.join('-')}-${conflictIndex}`}><strong>{t('policies.conflict.member', { member: partialMember(entry.target.subject_id) })}</strong><p>{t('policies.conflict.sources', { sources: conflict.policy_ids.map(policyName).join(' / '), effects: conflict.effects.join(' / ') })}</p><p>{conflict.outcome === 'RESOLVED' ? t('policies.conflict.winner', { winner: conflict.winning_policy_ids.map(policyName).join(', '), rule: conflict.resolution_rule ?? '—' }) : t('policies.conflict.blocked')}</p><button type="button" className="button quiet" onClick={() => setRemediationKey(remediationKey === `${index}:${conflictIndex}` ? null : `${index}:${conflictIndex}`)}>{t('policies.conflict.resolve')}</button>{remediationKey === `${index}:${conflictIndex}` && <ul><li>{t('policies.conflict.option.keep')}</li><li>{t('policies.conflict.option.priority')}</li><li>{t('policies.conflict.option.draft')}</li></ul>}</div>)}
+          {entry.proposed.conflicts.map((conflict, conflictIndex) => <div className="policy-conflict" key={`${conflict.policy_ids.join('-')}-${conflictIndex}`}><strong>{t('policies.conflict.member', { member: partialMember(entry.target.subject_id) })}</strong><p>{t('policies.conflict.sources', { sources: conflict.policy_ids.map(policyName).join(' / '), effects: conflict.effects.join(' / ') })}</p><p>{conflict.outcome === 'RESOLVED' ? t('policies.conflict.winner', { winner: conflict.winning_policy_ids.map(policyName).join(', '), rule: conflict.resolution_rule ?? '—' }) : t('policies.conflict.blocked')}</p><button type="button" className="button quiet" onClick={() => setRemediationKey(remediationKey === `${index}:${conflictIndex}` ? null : `${index}:${conflictIndex}`)}>{t('policies.conflict.resolve')}</button>{remediationKey === `${index}:${conflictIndex}` && <p className="access-help">{t('policies.conflict.option.explainFirst')}</p>}</div>)}
           <button type="button" className="button quiet" disabled={busy} onClick={() => void explain(entry)}>{t('policies.explain.action')}</button>
           <details><summary>{t('policies.expert.discordDetails')}</summary><p>{entry.proposed.discord_permissions.join(', ') || '—'}</p><code>allow={entry.proposed.discord_allow_bits} · deny={entry.proposed.discord_deny_bits}</code>{entry.proposed.discord_translation_diagnostics.map((diagnostic) => <p className="access-callout warning" key={diagnostic}>{t('policies.reason', { reason: diagnostic })}</p>)}</details>
           {expert && <details><summary>{t('policies.expert.resolution')}</summary><pre>{JSON.stringify(entry.proposed, null, 2)}</pre></details>}
@@ -812,7 +812,36 @@ export function PoliciesScreen() {
       {(explanation.conflict_explanations ?? []).filter((item) => item.causing_roles.length > 0).map((item, index) => <div className="policy-conflict" key={`explain-${index}`}>
         <strong>{t('policies.conflict.roleCause', { roles: item.causing_roles.map((cause) => roles.find((role) => role.id === cause.role_id)?.name ?? cause.role_id).join(', ') })}</strong>
         {item.accepted ? <Badge tone="ok">{t('policies.conflict.exceptionVoulue')}</Badge> : <button type="button" className="button quiet" disabled={busy} onClick={() => void acceptException(item.conflict.policy_ids[0] ?? '', item.conflict.policy_ids[1] ?? '')}>{t('policies.conflict.acceptException')}</button>}
+        <div className="observable-remediation-list">{(item.remediations ?? []).map((remediation) => <article key={`${remediation.kind}-${remediation.target_id}`}>
+          <strong>{t(`policies.conflict.remediation.${remediation.kind}`)}</strong>
+          <p>{t('policies.conflict.remediation.collateralPermissions', { permissions: remediation.collateral_losses.join(', ') || t('policies.explain.none') })}</p>
+          <p>{t('policies.conflict.remediation.collateralScope', { scope: remediation.collateral_scope.map(policyName).join(', ') || t('policies.explain.none') })}</p>
+          <small>{t('policies.conflict.remediation.separatePlan')}</small>
+          <button type="button" className="button quiet" onClick={() => navigate(`/guild/${guild.guild_id}/${remediation.route}`)}>{t('policies.conflict.remediation.review')}</button>
+        </article>)}</div>
       </div>)}
+      {explanation.observable_access_conflict && <section className="policy-conflict observable-conflict" aria-label={t('policies.conflict.observable.title')}>
+        <div className="access-panel-heading"><div><small>{t('policies.conflict.observable.eyebrow')}</small><strong>{t('policies.conflict.observable.title')}</strong></div><Badge tone="danger">{t('policies.conflict.observable.badge')}</Badge></div>
+        <p>{t('policies.conflict.observable.summary', { member: partialMember(explanation.observable_access_conflict.member_id), resource: explanation.observable_access_conflict.resource_id, policies: explanation.observable_access_conflict.policy_ids.map(policyName).join(', ') || '—' })}</p>
+        <p>{t('policies.conflict.observable.expectedActual', { expected: t(`policies.outcome.${explanation.observable_access_conflict.expected_outcome}`), actual: t(`policies.conflict.actual.${explanation.observable_access_conflict.actual_outcome}`) })}</p>
+        <div className="observable-cause-list">
+          {[...explanation.observable_access_conflict.granting_causes, ...explanation.observable_access_conflict.denying_causes].map((cause, index) => <article key={`${cause.kind}-${cause.source_id ?? 'none'}-${index}`}>
+            <strong>{t(`policies.conflict.cause.${cause.kind}`)}</strong>
+            <p>{t('policies.conflict.observable.cause', { source: cause.source_name ?? cause.source_id ?? '—', permissions: cause.permission_names.join(', ') || '—' })}</p>
+            {cause.inherited_from_category_id && <small>{t('policies.conflict.observable.inherited', { category: cause.inherited_from_category_id })}</small>}
+          </article>)}
+        </div>
+        <strong className="observable-remediation-heading">{t('policies.conflict.remediation.title')}</strong>
+        {explanation.observable_access_conflict.remediations.length === 0
+          ? <p className="access-callout warning">{t('policies.conflict.remediation.none')}</p>
+          : <div className="observable-remediation-list">{explanation.observable_access_conflict.remediations.map((remediation) => <article key={`${remediation.kind}-${remediation.target_id}`}>
+              <strong>{t(`policies.conflict.remediation.${remediation.kind}`)}</strong>
+              <p>{t('policies.conflict.remediation.collateralPermissions', { permissions: remediation.collateral_losses.join(', ') || t('policies.explain.none') })}</p>
+              <p>{t('policies.conflict.remediation.collateralScope', { scope: remediation.collateral_scope.join(', ') || t('policies.explain.none') })}</p>
+              <small>{t('policies.conflict.remediation.separatePlan')}</small>
+              <button type="button" className="button quiet" onClick={() => navigate(`/guild/${guild.guild_id}/${remediation.route}`)}>{t('policies.conflict.remediation.review')}</button>
+            </article>)}</div>}
+      </section>}
       <details><summary>{t('policies.expert.discordDetails')}</summary><p>{explanation.discord_permissions.join(', ') || '—'}</p><code>allow={explanation.discord_allow_bits} · deny={explanation.discord_deny_bits}</code></details>
       {expert && <pre>{JSON.stringify(explanation, null, 2)}</pre>}
     </article>}

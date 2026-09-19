@@ -323,6 +323,7 @@ async def test_explain_api_uses_read_capability_and_serializes_canonical_result(
     assert response["target_state"] == "CURRENT"
     assert response["conflict_explanations"] == []
     assert response["blacklist_regrants"] == []
+    assert response["observable_access_conflict"] is None
     assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_READ
     policy_service.resolve_access_explained.assert_awaited_once_with(
         guild_id=123,
