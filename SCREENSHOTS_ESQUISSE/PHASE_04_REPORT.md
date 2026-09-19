@@ -1033,3 +1033,38 @@ PostgreSQL réelles et 13 scénarios Playwright ciblés passent, y compris deux
 rôles contradictoires sur le même membre et un bypass `ADMINISTRATOR`. Ruff,
 mypy, `git diff --check`, TypeScript, i18n, OpenAPI et ESLint ciblé passent.
 Zéro migration, zéro Discord live et zéro APPLY.
+
+## 22. Suppression de Policy avec stratégie explicite — 2026-09-19
+
+P4-T017 ferme `REQ-AP-014`. « Supprimer » effectue un retrait logique audité,
+jamais un `DELETE` SQL physique : les révisions Policy et la provenance des
+Plans restent des preuves immuables. L’aperçu tenant-scopé réutilise les liens
+`plans.source_policy_id`, les références de métadonnées `source-policy` et
+`exception_accepted`, les tags d’opération en lot et la liaison de scope active.
+Pour une Policy ACTIVE, il joint l’impact calculé par le preview canonique de
+désactivation ; aucune nouvelle résolution d’accès ou graphe de dépendances
+n’est introduit.
+
+Le dialogue impose une stratégie avant confirmation : `DETACH` retire la
+déclaration en conservant l’état Discord courant ; `REPLACE` exige une Policy
+ACTIVE de même type, version, scope et cible ; `DELETE_BINDINGS` retire les
+effets gérés. Les deux dernières stratégies exigent un impact exact et un Plan
+`DISABLE` canonique séparé, validé au préflight. Le dialogue ne fait aucun
+APPLY et redirige vers Plans. Le préflight au moment de l’exécution accepte
+l’état `RETIRED` uniquement pour ce Plan de désactivation exact. La stratégie,
+l’ID de remplacement et l’ID du Plan sont conservés dans la révision RETIRE.
+
+L’isolation RLS empêche une Policy de Guild B de servir de remplacement dans
+la Guild A. Les Plans historiques ne sont ni supprimés, ni réaffectés ; aucune
+cascade destructive n’est déclenchée. Le chemin lifecycle `/retire` préexistant
+reste strict et ne permet pas de contourner le choix de stratégie pour une
+Policy DRAFT ou ACTIVE.
+
+L’UI EN/FR/DE/ES expose les dépendances, l’impact et les trois choix dans un
+vrai `dialog` modal. Inspection à 1440x900 et 390x844 : contenu lisible,
+scroll interne, aucun overflow de page et axe vert.
+
+Preuves sur `d49c0f3` : 93 tests unitaires backend Policy, 13 intégrations
+PostgreSQL réelles et 14 scénarios Playwright ciblés passent. Ruff, mypy,
+`git diff --check`, TypeScript, i18n, OpenAPI et ESLint ciblé passent. Zéro
+migration, zéro Discord live et zéro APPLY.

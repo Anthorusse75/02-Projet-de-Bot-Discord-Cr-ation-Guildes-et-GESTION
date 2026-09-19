@@ -23,10 +23,10 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: 9e62acd (feat(policies): complete conflict explanations)
+Current HEAD: d49c0f3 (feat(policies): add dependency-safe deletion)
 
-Current independently verified SHA: `9e62acd` (P4-T016 completion).
-P4-T017 is the active atomic task.
+Current independently verified SHA: `d49c0f3` (P4-T017 completion).
+P4-T018 is the active atomic task.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -338,6 +338,11 @@ The P4-T016 observable-conflict/remediation panel was also inspected at
 separate-Plan warning remain legible without page-level overflow; the mobile
 heading/badge wrapping and text contrast defects found during inspection were
 fixed, then the panel passed axe.
+The P4-T017 deletion-strategy dialog was inspected at 1440x900 and 390x844.
+Dependency counts, immutable-history warning, access impact and all strategy
+descriptions remain readable in the internally scrollable modal; the page has
+no horizontal overflow. A native modal `dialog` keeps the background inert,
+and the Playwright scenario passes axe.
 Defects found and FIXED (see P4-T021, done, commit 2ce541f):
 - body had `min-width:1180px` (src/shared/redesign.css) — forced horizontal
   scroll on literally every screen below 1180px, defeating every existing
@@ -733,28 +738,37 @@ Desktop/mobile visual inspection and axe PASS. No migration or Discord live
 mutation. Product commit: `9e62acd`.
 
 ### P4-T017 — Custom policy deletion with explicit strategy
-Status: IN_PROGRESS
+Status: DONE
 Purpose: REQ-AP-014 — deletion of an in-use custom Policy must be blocked
 until an explicit strategy (detach / replace / delete bindings) is chosen,
 with Preview/Impact, tenant-safe.
-Already implemented: everything except deletion (P4-T005 explicitly
-deferred this: "la suppression n'est volontairement pas exposée").
-Remaining: dependency-usage check (what currently references this Policy:
-Plans, bulk tags, bindings), the three strategies UI, Preview/Impact before
-commit, tenant isolation test.
-NEXT EXACT ACTION:
-1. Grep for existing Policy-usage/dependency queries (Plan provenance
-   already links Plan→Policy per P4-T004 — reuse that instead of building a
-   new dependency graph).
-2. Design "Supprimer" flow: if in use, force strategy choice
-   (detach/replace/delete-bindings) with Preview before commit.
-3. Backend: deletion endpoint with strategy parameter, tenant-safe, RLS
-   test.
-4. UI: enable "Supprimer" in the policy list/editor with the strategy modal.
-5. Targeted unit + integration (tenant A/B) + 1 Playwright.
+Implementation: deletion is an audited soft retirement, never a physical SQL
+delete: Policy revisions and immutable Plan provenance remain intact. The
+read-only dependency preview reuses `plans.source_policy_id`, current Policy
+metadata references (`source-policy`/accepted exception), bulk-operation tags
+and the Policy's own active scope binding; it also returns the canonical
+disable impact for ACTIVE Policies. No second dependency graph was created.
+The modal forces one explicit strategy: DETACH retires the declaration and
+leaves current Discord state untouched; REPLACE accepts only an ACTIVE Policy
+with the same type/version/scope and target; DELETE_BINDINGS removes the
+managed effect. REPLACE and DELETE_BINDINGS require an exact disable preview
+and a separately created, preflight-validated canonical DISABLE Plan. The
+modal never applies it and navigates to Plans. Apply-time Policy preflight
+accepts the intentional RETIRED terminal state for that exact DISABLE Plan.
+The chosen strategy plus replacement/Plan identifiers are retained in the
+RETIRE revision tags. The legacy `/retire` lifecycle route remains strict and
+cannot bypass this strategy flow for DRAFT/ACTIVE Policies.
+Requirements: REQ-AP-014 → CONFORME. Tenant A cannot select Guild B's Policy
+as replacement through RLS; managed/@historical dependencies are preserved,
+not reassigned or cascade-deleted. No migration and no direct Discord mutation.
+Evidence: 93 backend Policy unit tests, 13 real PostgreSQL integration tests,
+14 targeted Playwright scenarios, Ruff, mypy, `git diff --check`, TypeScript,
+i18n, OpenAPI and targeted ESLint PASS. The deletion scenario proves dependency
+display, strategy selection, separate Plan routing, axe, mobile overflow and
+zero APPLY. Product commit: `d49c0f3`.
 
 ### P4-T018 — Context menus: "Gérer l'accès" + bulk policy actions
-Status: TODO
+Status: IN_PROGRESS
 Purpose: REQ-AP-BULK-004 (SHOULD), REQ-AP-UX-004 (MUST). Reuse the existing
 Action Registry — do not build a second context-menu system.
 Requirements: REQ-AP-UX-004 (from a category/channel, "Gérer l'accès" must
@@ -817,14 +831,14 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-19, after P4-T016 completion and P4-T017 start.
+Last updated: 2026-09-19, after P4-T017 completion and P4-T018 start.
 
-Current HEAD: `9e62acd` (`feat(policies): complete conflict explanations`).
+Current HEAD: `d49c0f3` (`feat(policies): add dependency-safe deletion`).
 
-Worktree state: only P4-T016 closure documentation is pending.
+Worktree state: only P4-T017 closure documentation is pending.
 
-Tasks DONE: P4-T014, P4-T015 and P4-T016. Task IN_PROGRESS: P4-T017 — custom
-Policy deletion with explicit dependency strategy.
+Tasks DONE: P4-T014 through P4-T017. Task IN_PROGRESS: P4-T018 — reuse the
+canonical Action Registry for access-management context-menu entries.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -860,10 +874,15 @@ tests and 13 Playwright scenarios PASS, plus Ruff, mypy, TypeScript, i18n,
 OpenAPI, targeted ESLint, diff check, desktop/mobile and axe. Product commit
 `9e62acd` is pushed.
 
-NEXT EXACT ACTION: inspect existing Policy dependency/provenance queries and
-the repository lifecycle contracts, then design the tenant-safe P4-T017
-detach/replace/delete-bindings preview without creating a second dependency
-graph or any direct Discord mutation.
+P4-T017 evidence: 93 backend Policy unit tests, 13 real PostgreSQL integration
+tests and 14 targeted Playwright scenarios PASS, plus Ruff, mypy, TypeScript,
+i18n, OpenAPI, targeted ESLint, diff check, desktop/mobile and axe. Product
+commit `d49c0f3` is pushed.
+
+NEXT EXACT ACTION: locate the Phase 3 canonical Action Registry and its
+ordering contract, then add a high-priority single-target “Gérer l’accès”
+navigation entry before evaluating whether the existing Matrix bulk pipeline
+can safely accept the current multi-selection.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
