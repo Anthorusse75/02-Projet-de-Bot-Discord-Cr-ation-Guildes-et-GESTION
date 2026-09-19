@@ -992,3 +992,44 @@ Preuves : un test PostgreSQL réel couvre Gateway → projection des deux rôles
 unitaire couvre symétriquement le gain du dernier rôle requis et la perte
 d’un rôle. La passe complète donne 32 tests unitaires ciblés et 17 tests
 PostgreSQL Policy/reconciler, tous verts, avec Ruff et `git diff --check`.
+
+## 21. Explication unifiée des conflits et remédiations sûres — 2026-09-19
+
+P4-T016 ferme `REQ-AP-VIS-004` et `REQ-AP-CFL-001..004/006`. Le service
+d’explication compare désormais l’intention Policy résolue à la décision de
+permission Discord canonique pour un membre et une ressource. Il ne recalcule
+pas les permissions : il consomme `PermissionDecision`, puis expose dans une
+forme commune le membre, la ressource, les Policies concernées, le résultat
+attendu/réel et les causes observables — owner/`ADMINISTRATOR`, permission de
+base d’un rôle, overwrite rôle/membre/@everyone, refus implicite et héritage
+d’une catégorie synchronisée.
+
+Les conflits Policy rôle-contre-rôle et les divergences Discord proposent
+uniquement des remédiations bornées vers les workspaces existants. Retirer un
+rôle n’est jamais proposé pour `@everyone` ou un rôle managed et affiche avant
+toute action les autres permissions de base, permissions accordées par
+overwrite et ressources affectées qui seraient perdues. Modifier un overwrite
+ou une Policy reste une navigation vers Roles/Matrix/Policies ; chaque option
+porte `requires_separate_plan=true`. L’endpoint d’explication ne mute ni la
+base ni Discord et l’UI n’appelle aucun APPLY.
+
+`REQ-AP-CFL-005` (SHOULD) est explicitement **DEFERRED**. L’unique optimiseur
+existant est limité aux rôles techniques créés par la traduction ; aucun
+signal générique fiable ne permet de conclure qu’un rôle métier est inutile,
+redondant ou compensatoire. Proposer une fusion/suppression à partir d’une
+heuristique inventerait l’intention et pourrait retirer d’autres accès. Aucun
+bouton d’optimisation trompeur n’est donc exposé. `REQ-AP-CFL-006` reste
+couvert : aucune optimisation implicite et toutes les corrections proposées
+passent par un Plan distinct et prévisualisable.
+
+L’UI EN/FR/DE/ES affiche qui, où, quelles Policies, la règle accordante ou
+refusante, l’héritage éventuel et l’impact collatéral. Le panneau a été
+inspecté à 1440x900 et 390x844 ; les défauts réels de contraste et de retour à
+la ligne mobile ont été corrigés, puis axe et l’absence d’overflow de page ont
+été vérifiés.
+
+Preuves sur `9e62acd` : 92 tests unitaires backend Policy, 12 intégrations
+PostgreSQL réelles et 13 scénarios Playwright ciblés passent, y compris deux
+rôles contradictoires sur le même membre et un bypass `ADMINISTRATOR`. Ruff,
+mypy, `git diff --check`, TypeScript, i18n, OpenAPI et ESLint ciblé passent.
+Zéro migration, zéro Discord live et zéro APPLY.

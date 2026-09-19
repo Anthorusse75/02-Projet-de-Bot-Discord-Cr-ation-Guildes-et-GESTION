@@ -23,10 +23,10 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: 0c6bef4df765b99a301d747ec3b4adbd1b5d6d0e
+Current HEAD: 9e62acd (feat(policies): complete conflict explanations)
 
-Current independently verified SHA: `0c6bef4` (P4-T015 completion).
-P4-T016 is the active atomic task.
+Current independently verified SHA: `9e62acd` (P4-T016 completion).
+P4-T017 is the active atomic task.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -241,13 +241,14 @@ The former P4-T009 limitation on `REQ-AP-ZONE-051/052` is closed by P4-T015:
 fresh member-role Gateway projection plus locked-Policy reconciliation
 regenerates the exact per-member overwrite Plan for ALL. No combination role
 is needed. `REQ-AP-ZONE-030/031/032` benefits from the same reconciler path.
-Still partial: REQ-AP-VIS-004 (role-vs-role cause covered;
-ADMINISTRATOR/raw member overwrite/category inheritance not yet unified in
-the same explanation — see P4-T016).
+The former REQ-AP-VIS-004 limitation is closed by P4-T016: Policy-vs-Discord
+mismatches now name role/base permission, ADMINISTRATOR/owner, raw
+role/member/everyone overwrite, implicit denial and category inheritance in
+one explanation shape.
 Still open, not attempted this lot: REQ-AP-ZONE-001/002/003 (public zone +
 linked staff space via Logical Group — see P4-T010), REQ-AP-PRS-*
-(composed presets — see P4-T011), REQ-AP-CFL-005/006 (role optimization —
-see P4-T016).
+(composed presets — see P4-T011). REQ-AP-CFL-005 is explicitly DEFERRED by
+P4-T016; REQ-AP-CFL-006 is covered.
 Implementation: Reuses Stage04 `visibility_scopes` +
 `scope_membership_rules` (migration 0006) as-is — zero new tables for
 Staff/Confirmed. Staff = scope_type STAFF, scope_key 'staff'. Confirmed =
@@ -332,6 +333,11 @@ The P4-T014 locked/drift compliance panel was subsequently inspected at
 1440x900 and 390x844: locked state, drift cause, automatic repair,
 intervention, Repair/Accept actions and folded Discord details remain legible
 and produce no page-level horizontal overflow.
+The P4-T016 observable-conflict/remediation panel was also inspected at
+1440x900 and 390x844. Cause, affected member/resource, collateral impact and
+separate-Plan warning remain legible without page-level overflow; the mobile
+heading/badge wrapping and text contrast defects found during inspection were
+fixed, then the panel passed axe.
 Defects found and FIXED (see P4-T021, done, commit 2ce541f):
 - body had `min-width:1180px` (src/shared/redesign.css) — forced horizontal
   scroll on literally every screen below 1180px, defeating every existing
@@ -695,36 +701,39 @@ Evidence:
   Policy/reconciler tests PASS; Ruff and `git diff --check` PASS.
 
 ### P4-T016 — Complete conflict resolution (CFL family + VIS-004 unification)
-Status: IN_PROGRESS
-Purpose: Close REQ-AP-CFL-001..006 and finish REQ-AP-VIS-004 (currently
-role-vs-role only; ADMINISTRATOR/raw overwrite/category inheritance not
-unified in the same explanation).
-Already implemented: `conflict_explanations.py` (role-vs-role cause +
-blacklist regrant), "Accept exception" flow (P4-T009).
-Remaining: REQ-AP-CFL-001 (list members whose roles produce a result
-contrary to declared policy intent — broader than the current blacklist-only
-detection), REQ-AP-CFL-002 (who/resource/policy/granting-rule/denying-rule
-for every observable cause, not just role-vs-role), REQ-AP-CFL-003/004
-("Régler ce conflit" only valid solutions + collateral impact before any
-mutation, role removal always shows what else is lost), REQ-AP-CFL-005
-(SHOULD — detect redundant/contradictory/unused/compensating roles),
-REQ-AP-CFL-006 (MUST — role optimization is always a separate previewable
-Plan, never implicit from conflict resolution).
-NEXT EXACT ACTION:
-1. Extend `conflict_explanations.py` to unify ADMINISTRATOR and raw member
-   overwrite causes (category inheritance already partly signaled via
-   `AccessMatrixCell.inherited`) into the same explanation shape used by the
-   UI panel.
-2. Build "Régler ce conflict" remediation list: only real valid actions,
-   each showing collateral impact (other things lost) before Preview/Plan.
-3. REQ-AP-CFL-005/006 (role optimization) as a clearly separate, explicitly
-   labeled "Optimiser les rôles" Plan-only flow — do not build if it would
-   require guessing without solid signal; if deferred, document why.
-4. Targeted unit tests for each new cause type + REQ-AP-TST-004 (two
-   contradictory roles on one member) + 1 Playwright on the extended panel.
+Status: DONE
+Purpose: Close REQ-AP-CFL-001..006 and finish REQ-AP-VIS-004 by unifying the
+previously separate ADMINISTRATOR/raw-overwrite/category-inheritance causes.
+Implementation: `explain_observable_access_conflict()` consumes the canonical
+`PermissionDecision` instead of creating a second resolver. It compares the
+Policy intention with effective Discord access and returns the member,
+resource, selected Policies, actual/expected outcome and exact cause family:
+owner/ADMINISTRATOR, base role, role/member/everyone overwrite or implicit
+denial. Synced category inheritance identifies the parent category.
+`ConflictExplanation` now also returns validated remediations. Role removal
+is never proposed for managed/@everyone roles and always exposes other base
+permissions, allowed-overwrite permissions and affected resources that would
+be lost. Overwrite and Policy revisions route to the existing Roles, Matrix
+or Policies workspaces; each remediation is marked `requires_separate_plan`
+and none mutates Discord from this explanation endpoint or UI.
+Requirements: REQ-AP-VIS-004 and REQ-AP-CFL-001..004/006 → CONFORME.
+REQ-AP-TST-004 is covered by the two-contradictory-roles test.
+REQ-AP-CFL-005 (SHOULD) → DEFERRED: the only existing `RoleOptimizer` is
+specialized for technical translation roles. The current read model has no
+trustworthy generic signal that a business role is unused, redundant or
+compensating; exposing deletion/merge advice would guess intent and risk
+collateral access. No optimizer action is offered. This does not weaken
+CFL-006: all offered conflict remedies are explicitly separate, previewable
+Plan-producing flows and no optimization is implicit.
+Evidence: 92 backend Policy unit tests, 12 real PostgreSQL integration tests,
+Ruff, mypy, `git diff --check`, TypeScript, i18n, OpenAPI and targeted ESLint
+PASS. Thirteen targeted Playwright scenarios PASS, including the observable
+ADMINISTRATOR conflict and the two-role Policy conflict, with zero APPLY.
+Desktop/mobile visual inspection and axe PASS. No migration or Discord live
+mutation. Product commit: `9e62acd`.
 
 ### P4-T017 — Custom policy deletion with explicit strategy
-Status: TODO
+Status: IN_PROGRESS
 Purpose: REQ-AP-014 — deletion of an in-use custom Policy must be blocked
 until an explicit strategy (detach / replace / delete bindings) is chosen,
 with Preview/Impact, tenant-safe.
@@ -808,18 +817,16 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-18, after P4-T015 completion.
+Last updated: 2026-09-19, after P4-T016 completion and P4-T017 start.
 
-Current HEAD: `0c6bef4df765b99a301d747ec3b4adbd1b5d6d0e`
-(`test(policies): prove ALL-role continuous reconciliation`).
+Current HEAD: `9e62acd` (`feat(policies): complete conflict explanations`).
 
-Worktree state: clean at P4-T016 start; this tracker transition is the first
-pending change.
+Worktree state: only P4-T016 closure documentation is pending.
 
-Tasks DONE: P4-T014 and P4-T015. Task IN_PROGRESS: P4-T016 — complete
-conflict resolution and VIS-004 cause unification.
+Tasks DONE: P4-T014, P4-T015 and P4-T016. Task IN_PROGRESS: P4-T017 — custom
+Policy deletion with explicit dependency strategy.
 
-Docker/Postgres test env: currently running for the P4-T016 follow-on. Before
+Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
 ```
 docker compose -f compose.test.yaml up -d --wait
@@ -848,9 +855,15 @@ P4-T015 evidence: 32 targeted reconciliation unit tests and 17 real
 PostgreSQL Policy/reconciler integration tests PASS. The technical-role
 decision and exact behavior are recorded in its dedicated section.
 
-NEXT EXACT ACTION: start P4-T016 from its listed cause-unification step;
-preserve the single canonical resolver and keep optimization as a separate
-previewable Plan-only flow.
+P4-T016 evidence: 92 backend Policy unit tests, 12 real PostgreSQL integration
+tests and 13 Playwright scenarios PASS, plus Ruff, mypy, TypeScript, i18n,
+OpenAPI, targeted ESLint, diff check, desktop/mobile and axe. Product commit
+`9e62acd` is pushed.
+
+NEXT EXACT ACTION: inspect existing Policy dependency/provenance queries and
+the repository lifecycle contracts, then design the tenant-safe P4-T017
+detach/replace/delete-bindings preview without creating a second dependency
+graph or any direct Discord mutation.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
