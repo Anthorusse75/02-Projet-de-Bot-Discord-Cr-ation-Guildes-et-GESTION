@@ -47,6 +47,7 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/structure')) { const base = { guild_id: GUILD, position: 0, resource_kind: 'CHANNEL', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }; return route.fulfill({ json: { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ ...base, id: CAT, type: 4, name: 'Direction', parent_id: null, channels: [{ ...base, id: CHANNEL, type: 0, name: 'board', parent_id: CAT }] }], root_channels: [] } }) }
     if (path.endsWith('/logical-groups')) return route.fulfill({ json: { guild_id: GUILD, groups: [] } })
     if (path.endsWith('/visibility-scopes')) return route.fulfill({ json: { guild_id: GUILD, scopes: [] } })
+    if (path.endsWith('/policy-favorites')) return route.fulfill({ json: { guild_id: GUILD, favorite_keys: [] } })
     if (path.endsWith('/policies') && method === 'GET') {
       return route.fulfill({ json: { guild_id: GUILD, policies: [
         policy({ policy_id: CATEGORY_POLICY, name: 'Category master', scope_type: 'CATEGORY', scope_id: CAT, lifecycle_state: 'ACTIVE' }),

@@ -14,14 +14,17 @@ from did.api.main import create_app
 from did.api.policies import (
     PolicyAcceptException,
     PolicyCreate,
+    PolicyFavoriteUpdate,
     PolicyPlanRequest,
     PolicyResolutionRequest,
     accept_policy_exception,
     create_policy,
     list_policies,
+    list_policy_favorites,
     plan_policy,
     preview_policy,
     resolve_policy,
+    update_policy_favorite,
 )
 from did.application.policies.service import ExplainedPolicyResolution, PolicyService
 from did.domain.auth import READ_ONLY_CAPABILITIES, Capability
@@ -32,6 +35,7 @@ from did.domain.policies import (
     PolicyLifecycleState,
     PolicyScopeType,
 )
+from did.infrastructure.policies_repository import PolicyTargetNotFound
 from did.policies.registry import POLICY_TYPE_REGISTRY, PolicyDefinitionValidationError
 from did.policies.resolver import PolicyResolution, PolicyResolutionOutcome, PolicyTargetState
 
@@ -201,6 +205,7 @@ def test_policy_api_and_distinct_rbac_capabilities_are_declared() -> None:
     assert f"{base}/{{policy_id}}/plan" in contract["paths"]
     assert f"{base}/{{policy_id}}/deletion-preview" in contract["paths"]
     assert f"{base}/{{policy_id}}/delete" in contract["paths"]
+    assert "/api/v1/guilds/{guild_id}/policy-favorites" in contract["paths"]
     for action in ("activate", "disable", "retire", "accept-exception"):
         path = f"{base}/{{policy_id}}/{action}"
         assert path in contract["paths"]
@@ -329,6 +334,56 @@ async def test_api_calls_distinct_read_and_create_authorization_capabilities() -
     assert authorization.authorize.await_args.kwargs["capability"] is Capability.POLICIES_CREATE
     assert authorization.authorize.await_args.kwargs["sensitive"] is True
     assert policy_service.create_draft.await_args.kwargs["priority"] == 0
+
+
+@pytest.mark.asyncio
+async def test_policy_favorites_validate_keys_and_custom_policy_tenant() -> None:
+    policy_id = uuid4()
+    repository = SimpleNamespace(
+        list_favorites=AsyncMock(return_value=("native:visible_only",)),
+        set_favorite=AsyncMock(return_value=("native:visible_only",)),
+        get=AsyncMock(return_value=_policy()),
+    )
+    service = PolicyService(repository)
+
+    assert await service.list_favorites(123, 456) == ("native:visible_only",)
+    await service.set_favorite(123, 456, "native:visible_only", pinned=True)
+    repository.get.assert_not_awaited()
+
+    await service.set_favorite(123, 456, f"custom:{policy_id}", pinned=True)
+    repository.get.assert_awaited_once_with(123, policy_id)
+    with pytest.raises(PolicyTargetNotFound, match="invalid"):
+        await service.set_favorite(123, 456, "custom:not-a-uuid", pinned=True)
+
+
+@pytest.mark.asyncio
+async def test_policy_favorites_api_uses_read_capability_and_actor_identity() -> None:
+    authorization = SimpleNamespace(authorize=AsyncMock())
+    policy_service = SimpleNamespace(
+        list_favorites=AsyncMock(return_value=("native:visible_only",)),
+        set_favorite=AsyncMock(return_value=("native:visible_only",)),
+    )
+    container = SimpleNamespace(authorization=authorization, policies=policy_service)
+    session = SimpleNamespace(discord_user_id=456)
+
+    listed = await list_policy_favorites("123", session, container)
+    updated = await update_policy_favorite(
+        "123",
+        PolicyFavoriteUpdate(favorite_key="native:visible_only", pinned=True),
+        session,
+        container,
+    )
+
+    assert listed == {"guild_id": "123", "favorite_keys": ["native:visible_only"]}
+    assert updated == {"guild_id": "123", "favorite_keys": ["native:visible_only"]}
+    assert [call.kwargs["capability"] for call in authorization.authorize.await_args_list] == [
+        Capability.POLICIES_READ,
+        Capability.POLICIES_READ,
+    ]
+    policy_service.list_favorites.assert_awaited_once_with(123, 456)
+    policy_service.set_favorite.assert_awaited_once_with(
+        123, 456, "native:visible_only", pinned=True
+    )
 
 
 @pytest.mark.asyncio

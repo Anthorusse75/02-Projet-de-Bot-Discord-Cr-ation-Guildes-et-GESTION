@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
-import { usePolicies, useRoles, useStructure } from '../../api/queries'
-import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
+import { usePolicies, usePolicyFavorites, useRoles, useStructure } from '../../api/queries'
+import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyFavorites, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
 import { apiProblem } from './errors'
@@ -139,6 +139,7 @@ export function PoliciesScreen() {
     && capabilities?.user_capabilities['plans.create']?.outcome === 'CAN'
   const policyWorkspaceEnabled = canRead === 'CAN'
   const policiesQuery = usePolicies(me.user.discord_user_id, guild.guild_id, policyWorkspaceEnabled)
+  const favoritesQuery = usePolicyFavorites(me.user.discord_user_id, guild.guild_id, policyWorkspaceEnabled)
   const rolesQuery = useRoles(me.user.discord_user_id, guild.guild_id, policyWorkspaceEnabled)
   const structureQuery = useStructure(me.user.discord_user_id, guild.guild_id, false, policyWorkspaceEnabled)
   const groupsQuery = useQuery({
@@ -193,6 +194,8 @@ export function PoliciesScreen() {
   const [replacementPolicyId, setReplacementPolicyId] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
+  const [favoriteBusy, setFavoriteBusy] = useState<string | null>(null)
+  const [favoriteProblem, setFavoriteProblem] = useState<string | null>(null)
   const deleteDialogRef = useRef<HTMLDialogElement>(null)
   const appliedTargetRequest = useRef<string | null>(null)
 
@@ -244,6 +247,11 @@ export function PoliciesScreen() {
   const channelTypes = useMemo(() => new Map(targets.filter((target) => target.scopeType === 'CHANNEL' && target.scopeId).map((target) => [target.scopeId as string, target.kind === 'VOICE_CHANNEL' ? 2 : 0])), [targets])
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
   const availableNatives = compatibleNativePolicies(selectedTarget?.kind ?? null)
+  const favoriteKeys = new Set(favoritesQuery.data?.favorite_keys ?? [])
+  const favoriteNatives = availableNatives.filter((native) => favoriteKeys.has(`native:${native.id}`))
+  const favoriteCustomPolicies = customPolicies.filter((policy) => favoriteKeys.has(`custom:${policy.policy_id}`))
+  const otherNatives = availableNatives.filter((native) => !favoriteKeys.has(`native:${native.id}`))
+  const otherCustomPolicies = customPolicies.filter((policy) => !favoriteKeys.has(`custom:${policy.policy_id}`))
   const selectedPolicy = selection?.kind === 'CUSTOM' ? selection.policy : null
   const activeNative = selection?.kind === 'NATIVE' ? selection.native : selectedPolicy ? nativePolicyByTag(selectedPolicy) : undefined
   const parentCategoryId = selectedPolicy?.scope_type === 'CHANNEL'
@@ -600,6 +608,52 @@ export function PoliciesScreen() {
     finally { setDriftBusy(false) }
   }
 
+  async function toggleFavorite(favoriteKey: string) {
+    if (favoriteBusy) return
+    setFavoriteBusy(favoriteKey); setFavoriteProblem(null)
+    try {
+      const updated = await apiRequest<PolicyFavorites>(`/api/v1/guilds/${guild.guild_id}/policy-favorites`, {
+        method: 'PATCH',
+        body: { favorite_key: favoriteKey, pinned: !favoriteKeys.has(favoriteKey) },
+      })
+      client.setQueryData(['did', me.user.discord_user_id, guild.guild_id, 'policy-favorites'], updated)
+    } catch (error) { setFavoriteProblem(apiProblem(error, t)) }
+    finally { setFavoriteBusy(null) }
+  }
+
+  function favoriteToggle(favoriteKey: string, name: string) {
+    const pinned = favoriteKeys.has(favoriteKey)
+    return <button
+      type="button"
+      className={pinned ? 'policy-favorite-toggle pinned' : 'policy-favorite-toggle'}
+      aria-pressed={pinned}
+      aria-label={t(pinned ? 'policies.favorite.remove' : 'policies.favorite.add', { name })}
+      title={t(pinned ? 'policies.favorite.remove' : 'policies.favorite.add', { name })}
+      disabled={favoritesQuery.isLoading || Boolean(favoriteBusy)}
+      onClick={() => void toggleFavorite(favoriteKey)}
+    >{pinned ? '★' : '☆'}</button>
+  }
+
+  function nativeCard(native: NativePolicy) {
+    const name = t(native.titleKey)
+    return <div className="policy-card-row" key={native.id}>
+      <button type="button" className={selection?.kind === 'NATIVE' && selection.native.id === native.id ? 'policy-card selected' : 'policy-card'} onClick={() => chooseNative(native)}>
+        <span className="policy-card-heading"><strong>{name}</strong><Badge>{t('policies.origin.did')}</Badge></span><span>{t(native.summaryKey)}</span><small>{t(`policies.family.${native.family}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''} · {t('policies.version.catalog')}</small>
+      </button>
+      {favoriteToggle(`native:${native.id}`, name)}
+    </div>
+  }
+
+  function customPolicyCard(policy: Policy) {
+    return <div className="policy-card-row" key={policy.policy_id}>
+      <button type="button" className={selectedPolicy?.policy_id === policy.policy_id ? 'policy-card selected' : 'policy-card'} onClick={() => chooseCustom(policy)}>
+        <span className="policy-card-heading"><strong>{policy.name}</strong><span className="policy-card-badges"><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge>{policy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span></span><span>{policy.metadata.summary}</span><small>{t(`policies.family.${policyFamily(policy)}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''}</small><small>{t('policies.origin.custom')} · {t('policies.revision', { revision: policy.revision })}</small>
+        <small>{sourcePolicyId(policy) ? t('policies.inherited.source') : policy.scope_type === 'CATEGORY' || policy.scope_type === 'LOGICAL_GROUP' ? t('policies.inherited.children') : t('policies.inherited.none')} · {preview?.policy_id === policy.policy_id ? t('policies.conflicts.count', { count: preview.impact.conflicts }) : t('policies.conflicts.notAnalysed')}</small>
+      </button>
+      {favoriteToggle(`custom:${policy.policy_id}`, policy.name)}
+    </div>
+  }
+
   if (!capabilities) return <Skeleton />
   if (!policyWorkspaceEnabled) return <section className="access-page"><header className="access-hero"><div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('policies.title')}</h1></div></header><p className="access-callout danger" role="alert">{t('policies.error.denied')}</p></section>
   if (policiesQuery.isLoading || rolesQuery.isLoading || structureQuery.isLoading) return <Skeleton />
@@ -736,17 +790,18 @@ export function PoliciesScreen() {
     <div className="policy-layout">
       <article className="access-panel policy-catalog-panel">
         <div className="access-panel-heading"><div><small>{t('policies.step.policy')}</small><strong>{t('policies.catalog.title')}</strong></div><Badge>{t('policies.catalog.count', { count: availableNatives.length + customPolicies.length })}</Badge></div>
+        {favoritesQuery.isError && <p className="access-callout danger" role="alert">{t('policies.favorite.loadError')} <button type="button" className="button quiet" onClick={() => void favoritesQuery.refetch()}>{t('common.retry')}</button></p>}
+        {favoriteProblem && <p className="access-callout danger" role="alert">{favoriteProblem}</p>}
+        {favoriteNatives.length + favoriteCustomPolicies.length > 0 && <section className="policy-favorites" aria-labelledby="favorite-policy-title"><h2 id="favorite-policy-title">{t('policies.favorite.title')}</h2><div className="policy-card-list">
+          {favoriteNatives.map(nativeCard)}
+          {favoriteCustomPolicies.map(customPolicyCard)}
+        </div></section>}
         <section aria-labelledby="native-policy-title"><h2 id="native-policy-title">{t('policies.native.title')}</h2><div className="policy-card-list">
-          {availableNatives.map((native) => <button type="button" className={selection?.kind === 'NATIVE' && selection.native.id === native.id ? 'policy-card selected' : 'policy-card'} key={native.id} onClick={() => chooseNative(native)}>
-            <span className="policy-card-heading"><strong>{t(native.titleKey)}</strong><Badge>{t('policies.origin.did')}</Badge></span><span>{t(native.summaryKey)}</span><small>{t(`policies.family.${native.family}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''} · {t('policies.version.catalog')}</small>
-          </button>)}
+          {otherNatives.map(nativeCard)}
         </div></section>
         <section aria-labelledby="custom-policy-title"><h2 id="custom-policy-title">{t('policies.custom.title')}</h2><div className="policy-card-list">
           {customPolicies.length === 0 && <p className="access-help">{t('policies.custom.empty')}</p>}
-          {customPolicies.map((policy) => <button type="button" className={selectedPolicy?.policy_id === policy.policy_id ? 'policy-card selected' : 'policy-card'} key={policy.policy_id} onClick={() => chooseCustom(policy)}>
-            <span className="policy-card-heading"><strong>{policy.name}</strong><span className="policy-card-badges"><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge>{policy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span></span><span>{policy.metadata.summary}</span><small>{t(`policies.family.${policyFamily(policy)}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''}</small><small>{t('policies.origin.custom')} · {t('policies.revision', { revision: policy.revision })}</small>
-            <small>{sourcePolicyId(policy) ? t('policies.inherited.source') : policy.scope_type === 'CATEGORY' || policy.scope_type === 'LOGICAL_GROUP' ? t('policies.inherited.children') : t('policies.inherited.none')} · {preview?.policy_id === policy.policy_id ? t('policies.conflicts.count', { count: preview.impact.conflicts }) : t('policies.conflicts.notAnalysed')}</small>
-          </button>)}
+          {otherCustomPolicies.map(customPolicyCard)}
         </div></section>
       </article>
 

@@ -3,7 +3,7 @@ import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
 import { useSessionStore } from '../shared/state/session'
 import { apiRequest } from './client'
 import { queryKeys } from './queryKeys'
-import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, Policy, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
+import type { AuditEvent, Campaign, CampaignDelivery, CampaignTarget, CampaignTrigger, DashboardCapabilities, GlossaryEntry, Guild, LanguageProfile, Me, Plan, PlanProgressEvent, Policy, PolicyFavorites, PortableArtifact, RetentionPolicy, Roles, Structure, Template, TemplateVariable, TranslationWorkspace, TriggerSourceBinding } from './types'
 import { tenantSignal } from './tenantLifecycle'
 
 export function useMe() {
@@ -37,6 +37,10 @@ export const useRoles = (u: DiscordSnowflake, g: DiscordSnowflake, enabled = tru
 })
 export const usePolicies = (u: DiscordSnowflake, g: DiscordSnowflake, enabled = true) => useQuery({
   ...tenantQuery<{guild_id:DiscordSnowflake;policies:Policy[]}>(u,g,'policies',`/api/v1/guilds/${g}/policies`),
+  enabled,
+})
+export const usePolicyFavorites = (u: DiscordSnowflake, g: DiscordSnowflake, enabled = true) => useQuery({
+  ...tenantQuery<PolicyFavorites>(u,g,'policy-favorites',`/api/v1/guilds/${g}/policy-favorites`),
   enabled,
 })
 export const useCoverage = (u: DiscordSnowflake, g: DiscordSnowflake) => useQuery(tenantQuery<Record<string, unknown>>(u,g,'coverage',`/api/v1/guilds/${g}/coverage`))

@@ -34,6 +34,7 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/roles')) return route.fulfill({ json: { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, roles: [] } })
     if (path.endsWith('/structure')) return route.fulfill({ json: structure() })
     if (path.endsWith('/visibility-scopes')) return route.fulfill({ json: { guild_id: GUILD, scopes: [] } })
+    if (path.endsWith('/policy-favorites')) return route.fulfill({ json: { guild_id: GUILD, favorite_keys: [] } })
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: [] } })
     if (path.endsWith('/logical-groups') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, resource_kind: 'DID_LOGICAL_RESOURCE', groups: harness.groups } })
     if (path.endsWith('/logical-groups') && method === 'POST') {

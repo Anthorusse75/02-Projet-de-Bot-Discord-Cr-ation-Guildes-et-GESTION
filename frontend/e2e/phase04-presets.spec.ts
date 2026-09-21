@@ -29,6 +29,7 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/structure')) return route.fulfill({ json: structure() })
     if (path.endsWith('/logical-groups')) return route.fulfill({ json: { guild_id: GUILD, groups: [] } })
     if (path.endsWith('/visibility-scopes')) return route.fulfill({ json: { guild_id: GUILD, scopes: [] } })
+    if (path.endsWith('/policy-favorites')) return route.fulfill({ json: { guild_id: GUILD, favorite_keys: [] } })
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') {
       const created = { policy_id: crypto.randomUUID(), guild_id: GUILD, policy_type: 'ACCESS_CONTROL', contract_version: 1, lifecycle_state: 'DRAFT', revision: 1, created_by_user_id: USER, modified_by_user_id: USER, created_at: null, updated_at: null, activated_at: null, disabled_at: null, retired_at: null, ...(body as Record<string, unknown>) }

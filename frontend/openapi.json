@@ -1638,6 +1638,27 @@
         "title": "PolicyDisable",
         "type": "object"
       },
+      "PolicyFavoriteUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "favorite_key": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Favorite Key",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "favorite_key",
+          "pinned"
+        ],
+        "title": "PolicyFavoriteUpdate",
+        "type": "object"
+      },
       "PolicyPatch": {
         "additionalProperties": false,
         "properties": {
@@ -9244,6 +9265,102 @@
           }
         },
         "summary": "Get Policy Versions",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/guilds/{guild_id}/policy-favorites": {
+      "get": {
+        "operationId": "list_policy_favorites_api_v1_guilds__guild_id__policy_favorites_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Policy Favorites Api V1 Guilds  Guild Id  Policy Favorites Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Policy Favorites",
+        "tags": [
+          "policies"
+        ]
+      },
+      "patch": {
+        "operationId": "update_policy_favorite_api_v1_guilds__guild_id__policy_favorites_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "guild_id",
+            "required": true,
+            "schema": {
+              "title": "Guild Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyFavoriteUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Policy Favorite Api V1 Guilds  Guild Id  Policy Favorites Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Policy Favorite",
         "tags": [
           "policies"
         ]

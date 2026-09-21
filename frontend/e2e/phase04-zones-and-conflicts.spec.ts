@@ -84,6 +84,7 @@ async function install(page: Page, harness: Harness) {
       if (target) { target.rules = input.rules as Record<string, unknown>[]; target.version += 1 }
       return route.fulfill({ status: 204, json: {} })
     }
+    if (path.endsWith('/policy-favorites')) return route.fulfill({ json: { guild_id: GUILD, favorite_keys: [] } })
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') {
       const created = draftPolicy({ ...(body as Record<string, unknown>), policy_id: POLICY_DRAFT })
@@ -126,7 +127,7 @@ test('@a11y A: Staff only reuses the persisted Staff definition end to end throu
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Staff only/ }).click()
+  await page.getByRole('button', { name: /^Staff only/ }).click()
   await expect(page.getByText('Staff configuration required')).toBeVisible()
   // DID may propose a detection from role names, but never applies it silently:
   // it stays an unconfirmed suggestion until the admin opens the editor and saves.
@@ -151,7 +152,7 @@ test('B: Confirmed members only is defined once, then re-evaluated live (not fro
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Confirmed members only/ }).click()
+  await page.getByRole('button', { name: /^Confirmed members only/ }).click()
   await expect(page.getByText('Confirmed-member configuration required')).toBeVisible()
   await page.getByRole('button', { name: 'Configure' }).click()
   await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Verified').click()
@@ -182,7 +183,7 @@ test('C: a blacklist bypass names the exact regranting role and can become a doc
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await page.getByRole('button', { name: 'Preview impact' }).click()
   await page.getByRole('button', { name: 'Why this result?' }).click()
   await expect(page.getByText(/still has access through Managers/)).toBeVisible()
@@ -200,7 +201,7 @@ test('@a11y D: observable ADMINISTRATOR conflict shows who, rule and collateral 
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await page.getByRole('button', { name: 'Preview impact' }).click()
   await page.getByRole('button', { name: 'Why this result?' }).click()
 

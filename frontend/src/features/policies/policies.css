@@ -5,12 +5,18 @@
 .policy-layout { display: grid; grid-template-columns: minmax(18rem, .82fr) minmax(0, 1.4fr); gap: 1rem; align-items: start; }
 .policy-catalog-panel { display: grid; gap: 1rem; max-height: 52rem; overflow: auto; }
 .policy-card-list { display: grid; gap: .55rem; }
+.policy-card-row { display: grid; grid-template-columns: minmax(0, 1fr) 2.75rem; gap: .45rem; align-items: stretch; }
 .policy-card { width: 100%; display: grid; gap: .35rem; padding: .85rem; border: 1px solid var(--line); border-radius: .75rem; background: color-mix(in srgb, var(--panel) 88%, transparent); color: #eef2ff; text-align: left; cursor: pointer; }
 .policy-card:hover, .policy-card:focus-visible { border-color: var(--accent); }
 .policy-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 .policy-card > span:not(.policy-card-heading), .policy-card small { color: var(--muted); line-height: 1.35; }
 .policy-card-heading { display: flex; justify-content: space-between; gap: .75rem; align-items: flex-start; }
 .policy-card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+.policy-favorite-toggle { display: grid; place-items: center; min-height: 2.75rem; padding: .35rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--panel-2); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
+.policy-favorite-toggle:hover, .policy-favorite-toggle:focus-visible { border-color: var(--accent); color: var(--text); }
+.policy-favorite-toggle.pinned { border-color: color-mix(in srgb, var(--warning) 72%, var(--line)); color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, var(--panel)); }
+.policy-favorite-toggle:disabled { opacity: .55; cursor: wait; }
+.policy-favorites { padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .policy-editor-panel { min-height: 24rem; }
 .policy-editor-panel textarea { min-height: 5.5rem; resize: vertical; }
 .policy-simple-editor, .policy-expert-editor { margin-top: 1rem; padding: 1rem 1.25rem 0; border-top: 1px solid var(--line); }

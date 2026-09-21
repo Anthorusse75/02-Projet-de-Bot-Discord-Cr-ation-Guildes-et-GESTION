@@ -89,6 +89,12 @@ class PolicyDeletionRequest(PolicyTransition):
     plan_id: UUID | None = None
 
 
+class PolicyFavoriteUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    favorite_key: str = Field(min_length=8, max_length=128)
+    pinned: bool
+
+
 MAX_MATRIX_ROLES = 50
 MAX_MATRIX_RESOURCES = 150
 MAX_BULK_POLICIES = 100
@@ -233,6 +239,31 @@ async def list_policies(
     await _authorize(parsed, session, container, Capability.POLICIES_READ)
     values = await container.policies.list(parsed)
     return {"guild_id": guild_id, "policies": [_policy(value) for value in values]}
+
+
+@router.get("/{guild_id}/policy-favorites")
+async def list_policy_favorites(
+    guild_id: str, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    values = await container.policies.list_favorites(parsed, session.discord_user_id)
+    return {"guild_id": guild_id, "favorite_keys": list(values)}
+
+
+@router.patch("/{guild_id}/policy-favorites")
+async def update_policy_favorite(
+    guild_id: str,
+    body: PolicyFavoriteUpdate,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    values = await container.policies.set_favorite(
+        parsed, session.discord_user_id, body.favorite_key, pinned=body.pinned
+    )
+    return {"guild_id": guild_id, "favorite_keys": list(values)}
 
 
 @router.get("/{guild_id}/policies/{policy_id}")

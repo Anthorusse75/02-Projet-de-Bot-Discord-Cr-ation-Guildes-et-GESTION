@@ -13,7 +13,7 @@ const BOT_DENIED = '700000000000000401'
 const BOT_UNKNOWN = '700000000000000402'
 const POLICY = '11111111-1111-4111-8111-111111111111'
 
-type Harness = { policies: Record<string, unknown>[]; requests: Array<{path:string;method:string;body:unknown}>; conflict?: boolean; denied?: boolean; family?: 'voice'|'mentions'|'bot'; drift?: 'DRIFT'|'UNKNOWN'|'COMPLIANT'; driftAccepted?: boolean }
+type Harness = { policies: Record<string, unknown>[]; favorites?: string[]; requests: Array<{path:string;method:string;body:unknown}>; conflict?: boolean; denied?: boolean; family?: 'voice'|'mentions'|'bot'; drift?: 'DRIFT'|'UNKNOWN'|'COMPLIANT'; driftAccepted?: boolean }
 const can = () => ({ outcome: 'CAN', causes: [], remediations: [] })
 
 function capabilities(denied = false) {
@@ -65,6 +65,14 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/roles')) return route.fulfill({ json: roles() })
     if (path.endsWith('/structure')) return route.fulfill({ json: structure() })
     if (path.endsWith('/logical-groups')) return route.fulfill({ json: { guild_id: GUILD, groups: [] } })
+    if (path.endsWith('/policy-favorites') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, favorite_keys: harness.favorites ?? [] } })
+    if (path.endsWith('/policy-favorites') && method === 'PATCH') {
+      const update = body as { favorite_key:string; pinned:boolean }
+      const favorites = new Set(harness.favorites ?? [])
+      if (update.pinned) favorites.add(update.favorite_key); else favorites.delete(update.favorite_key)
+      harness.favorites = [...favorites]
+      return route.fulfill({ json: { guild_id: GUILD, favorite_keys: harness.favorites } })
+    }
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') { const created = policy({ ...(body as Record<string, unknown>), policy_id: harness.policies.length ? '66666666-6666-4666-8666-666666666666' : POLICY }); harness.policies.push(created); return route.fulfill({ status: 201, json: created }) }
     if (path.endsWith(`/policies/${POLICY}/drift-preview`)) return route.fulfill({ json: driftPreview(harness.drift ?? 'COMPLIANT', harness.driftAccepted) })
@@ -96,7 +104,7 @@ test('@a11y creates a DRAFT from a native human intention, previews canonically 
   await page.goto(`/guild/${GUILD}/policies`)
   await expect(page.getByRole('heading', { name: 'Access policies' })).toBeVisible()
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Visible only to/ }).click()
+  await page.getByRole('button', { name: /^Visible only to/ }).click()
   await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Managers').click()
   await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Guests').click()
   await page.getByLabel('Policy name').fill('Board access')
@@ -125,7 +133,7 @@ test('shows multi-role conflict causes, BLOCKED/UNKNOWN outcomes, explain and sa
   const harness: Harness = { policies: [policy()], requests: [], conflict: true }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await page.getByRole('button', { name: 'Preview impact' }).click()
   await expect(page.getByText('Blocked', { exact: true })).toBeVisible()
   await expect(page.getByText('Unknown', { exact: true })).toBeVisible()
@@ -156,11 +164,30 @@ test('preselects the exact policy target provided by the Structure action', asyn
   await expect(page.getByLabel('Target resource')).toHaveValue(`TEXT_CHANNEL:${CHANNEL}`)
 })
 
+test('@a11y pins a Policy per Guild and keeps it first after reload without APPLY', async ({ page }) => {
+  const harness: Harness = { policies: [policy()], favorites: [], requests: [] }; await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies?targetType=CHANNEL&targetId=${CHANNEL}`)
+
+  await page.getByRole('button', { name: 'Pin Board access' }).click()
+  const favorites = page.locator('.policy-favorites')
+  await expect(favorites.getByRole('heading', { name: 'Favorites' })).toBeVisible()
+  await expect(favorites.getByText('Board access', { exact: true })).toBeVisible()
+  await expect(page.locator('.policy-catalog-panel > section').first()).toHaveClass(/policy-favorites/)
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Remove Board access from favorites' })).toBeVisible()
+  expect(harness.favorites).toEqual([`custom:${POLICY}`])
+  expect(harness.requests.filter((item) => item.path.endsWith('/policy-favorites') && item.method === 'PATCH')).toHaveLength(1)
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
+  const accessibility = await new AxeBuilder({ page }).include('.policy-catalog-panel').analyze()
+  expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 test('@families private voice selects roles, previews Discord details and prepares a Plan', async ({ page }) => {
   const harness: Harness = { policies: [], requests: [], family: 'voice' }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`VOICE_CHANNEL:${VOICE}`)
-  await page.getByRole('button', { name: /Private voice channel/ }).click()
+  await page.getByRole('button', { name: /^Private voice channel/ }).click()
   await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Managers').click()
   await page.getByRole('button', { name: 'Create draft' }).click()
   await page.getByRole('button', { name: 'Preview impact' }).click()
@@ -174,11 +201,11 @@ test('@families private voice selects roles, previews Discord details and prepar
 test('@families mention policy shows a Guild default and inherited channel exception', async ({ page }) => {
   const harness: Harness = { policies: [], requests: [], family: 'mentions' }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
-  await page.getByRole('button', { name: /Mention policy/ }).click()
+  await page.getByRole('button', { name: /^Mention policy/ }).click()
   await page.getByText('Nobody', { exact: true }).click()
   await page.getByRole('button', { name: 'Create draft' }).click()
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Mention policy/ }).click()
+  await page.getByRole('button', { name: /^Mention policy/ }).click()
   await page.getByText('Everyone', { exact: true }).click()
   await page.getByRole('button', { name: 'Create draft' }).click()
   await page.getByRole('button', { name: 'Preview impact' }).click()
@@ -192,7 +219,7 @@ test('@families minimal bot access explains CANNOT and UNKNOWN before preparing 
   const harness: Harness = { policies: [], requests: [], family: 'bot' }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Minimum bot access/ }).click()
+  await page.getByRole('button', { name: /^Minimum bot access/ }).click()
   const botSelect = page.getByRole('combobox', { name: /Observed bot/ })
   await botSelect.selectOption(BOT_DENIED)
   await page.getByRole('group', { name: 'Required functions' }).getByText('Write', { exact: true }).click()
@@ -215,7 +242,7 @@ test('@a11y locked Policy UI shows drift cause and persists lock/unlock/accepted
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await expect(page.getByRole('heading', { name: 'A Discord change no longer matches' })).toBeVisible()
   await expect(page.getByText(/Discord is Denied, policy expects Allowed/)).toBeVisible()
   await expect(page.getByText('allow=1 · deny=0')).toBeHidden()
@@ -239,7 +266,7 @@ test('unlocked drift Repair creates only a canonical Plan and opens Plans', asyn
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await page.getByRole('button', { name: 'Repair with a Plan' }).click()
   await expect(page).toHaveURL(new RegExp(`/guild/${GUILD}/plans$`))
   expect(harness.requests.some((item) => item.path.endsWith(`/policies/${POLICY}/drift-plan`))).toBe(true)
@@ -251,7 +278,7 @@ test('locked Policy with incomplete data is actionable Intervention required, ne
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await expect(page.getByRole('heading', { name: 'Intervention required' })).toBeVisible()
   await expect(page.getByText(/cannot safely prove or apply/)).toBeVisible()
   await expect(page.getByText('Compliant', { exact: true })).toHaveCount(0)
@@ -263,7 +290,7 @@ test('@a11y deletion lists dependencies and prepares a separate binding-removal 
   await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
-  await page.getByRole('button', { name: /Board access/ }).click()
+  await page.getByRole('button', { name: /^Board access/ }).click()
   await page.getByRole('button', { name: 'Delete' }).click()
   const dialog = page.getByRole('dialog', { name: /Delete “Board access”/ })
   await expect(dialog).toBeVisible()

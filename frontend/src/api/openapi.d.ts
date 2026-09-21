@@ -1629,6 +1629,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policy-favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policy Favorites */
+        get: operations["list_policy_favorites_api_v1_guilds__guild_id__policy_favorites_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Policy Favorite */
+        patch: operations["update_policy_favorite_api_v1_guilds__guild_id__policy_favorites_patch"];
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policy-resolution": {
         parameters: {
             query?: never;
@@ -3162,6 +3180,13 @@ export interface components {
             expected_revision: number;
             /** Plan Id */
             plan_id?: string | null;
+        };
+        /** PolicyFavoriteUpdate */
+        PolicyFavoriteUpdate: {
+            /** Favorite Key */
+            favorite_key: string;
+            /** Pinned */
+            pinned: boolean;
         };
         /** PolicyPatch */
         PolicyPatch: {
@@ -7415,6 +7440,76 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policy_favorites_api_v1_guilds__guild_id__policy_favorites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_policy_favorite_api_v1_guilds__guild_id__policy_favorites_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyFavoriteUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

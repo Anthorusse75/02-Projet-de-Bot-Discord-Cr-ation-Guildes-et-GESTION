@@ -114,6 +114,66 @@ class PoliciesRepository:
             raise PolicyNotFound("Policy revision not found")
         return self._policy_snapshot(dict(row["snapshot_json"]))
 
+    async def list_favorites(self, guild_id: int, actor_user_id: int) -> tuple[str, ...]:
+        async with tenant_transaction(
+            self._factory, TenantContext(guild_id, actor_user_id)
+        ) as session:
+            values = (
+                await session.execute(
+                    text(
+                        "SELECT favorite_key FROM policy_favorites "
+                        "WHERE guild_id=:guild_id AND discord_user_id=:actor_user_id "
+                        "ORDER BY created_at,favorite_key"
+                    ),
+                    {"guild_id": guild_id, "actor_user_id": actor_user_id},
+                )
+            ).scalars()
+            return tuple(str(value) for value in values)
+
+    async def set_favorite(
+        self, guild_id: int, actor_user_id: int, favorite_key: str, *, pinned: bool
+    ) -> tuple[str, ...]:
+        async with tenant_transaction(
+            self._factory, TenantContext(guild_id, actor_user_id)
+        ) as session:
+            if pinned:
+                await session.execute(
+                    text(
+                        "INSERT INTO policy_favorites "
+                        "(guild_id,discord_user_id,favorite_key) "
+                        "VALUES (:guild_id,:actor_user_id,:favorite_key) "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "actor_user_id": actor_user_id,
+                        "favorite_key": favorite_key,
+                    },
+                )
+            else:
+                await session.execute(
+                    text(
+                        "DELETE FROM policy_favorites WHERE guild_id=:guild_id "
+                        "AND discord_user_id=:actor_user_id AND favorite_key=:favorite_key"
+                    ),
+                    {
+                        "guild_id": guild_id,
+                        "actor_user_id": actor_user_id,
+                        "favorite_key": favorite_key,
+                    },
+                )
+            values = (
+                await session.execute(
+                    text(
+                        "SELECT favorite_key FROM policy_favorites "
+                        "WHERE guild_id=:guild_id AND discord_user_id=:actor_user_id "
+                        "ORDER BY created_at,favorite_key"
+                    ),
+                    {"guild_id": guild_id, "actor_user_id": actor_user_id},
+                )
+            ).scalars()
+            return tuple(str(value) for value in values)
+
     async def assert_activation_plan(
         self,
         *,

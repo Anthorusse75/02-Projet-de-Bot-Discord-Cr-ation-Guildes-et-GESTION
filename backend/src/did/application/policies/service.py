@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -17,7 +18,7 @@ from did.domain.policies import (
     PolicyVersion,
 )
 from did.domain.read_model.models import ChannelType, GuildSnapshot, MemberSnapshot
-from did.infrastructure.policies_repository import PoliciesRepository
+from did.infrastructure.policies_repository import PoliciesRepository, PolicyTargetNotFound
 from did.permissions.calculator import PermissionEvaluator
 from did.permissions.views import AccessSynthesis, synthesize_access, view_as_role
 from did.policies.conflict_explanations import (
@@ -145,6 +146,24 @@ class PolicyService:
 
     async def get_revision(self, guild_id: int, policy_id: UUID, revision: int) -> Policy:
         return await self._repository.get_revision(guild_id, policy_id, revision)
+
+    async def list_favorites(self, guild_id: int, actor_user_id: int) -> tuple[str, ...]:
+        return await self._repository.list_favorites(guild_id, actor_user_id)
+
+    async def set_favorite(
+        self, guild_id: int, actor_user_id: int, favorite_key: str, *, pinned: bool
+    ) -> tuple[str, ...]:
+        if not re.fullmatch(r"native:[a-z0-9_]{1,64}", favorite_key):
+            if not favorite_key.startswith("custom:"):
+                raise PolicyTargetNotFound("Policy favorite key is invalid")
+            try:
+                policy_id = UUID(favorite_key.removeprefix("custom:"))
+            except ValueError as exc:
+                raise PolicyTargetNotFound("Policy favorite key is invalid") from exc
+            await self._repository.get(guild_id, policy_id)
+        return await self._repository.set_favorite(
+            guild_id, actor_user_id, favorite_key, pinned=pinned
+        )
 
     async def create_draft(
         self,

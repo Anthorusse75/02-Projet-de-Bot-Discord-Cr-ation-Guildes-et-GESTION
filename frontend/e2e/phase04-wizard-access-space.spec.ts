@@ -66,6 +66,7 @@ async function install(page: Page, harness: Harness) {
     if (path.endsWith('/roles')) return route.fulfill({ json: roles() })
     if (path.endsWith('/structure')) return route.fulfill({ json: structure() })
     if (path.endsWith('/logical-groups')) return route.fulfill({ json: { guild_id: GUILD, groups: [] } })
+    if (path.endsWith('/policy-favorites')) return route.fulfill({ json: { guild_id: GUILD, favorite_keys: [] } })
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') { const created = policy(body as Record<string, unknown>); harness.policies.push(created); return route.fulfill({ status: 201, json: created }) }
     if (path.endsWith(`/policies/${POLICY}/preview`)) return route.fulfill({ json: preview() })
@@ -88,7 +89,7 @@ test('@a11y nominal: Assistants -> Configure access -> existing role -> Preview 
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
   await page.getByRole('button', { name: 'Next' }).click()
 
-  await page.getByRole('button', { name: /Visible only to/ }).click()
+  await page.getByRole('button', { name: /^Visible only to/ }).click()
   await page.getByRole('button', { name: 'Next' }).click()
 
   await page.getByRole('checkbox', { name: 'Managers' }).check()
@@ -121,7 +122,7 @@ test('missing role: proposal blocks progress (CANNOT) until resolved, role plan 
 
   await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
   await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('button', { name: /Visible only to/ }).click()
+  await page.getByRole('button', { name: /^Visible only to/ }).click()
   await page.getByRole('button', { name: 'Next' }).click()
 
   await page.getByRole('button', { name: '+ Create a role' }).click()

@@ -190,6 +190,46 @@ async def test_rls_and_repository_isolate_two_guilds(policies_context) -> None:
 
 
 @pytest.mark.asyncio
+async def test_policy_favorites_persist_idempotently_and_isolate_user_and_guild(
+    policies_context,
+) -> None:
+    _repository, service = policies_context
+    policy_a = await _create(service, GUILD_A, ACTOR_A, "favorite-a")
+    policy_b = await _create(service, GUILD_B, ACTOR_B, "favorite-b")
+    custom_a = f"custom:{policy_a.policy_id}"
+
+    assert await service.list_favorites(GUILD_A, ACTOR_A) == ()
+    assert await service.set_favorite(
+        GUILD_A, ACTOR_A, "native:visible_only", pinned=True
+    ) == ("native:visible_only",)
+    assert await service.set_favorite(GUILD_A, ACTOR_A, custom_a, pinned=True) == (
+        "native:visible_only",
+        custom_a,
+    )
+    assert await service.set_favorite(GUILD_A, ACTOR_A, custom_a, pinned=True) == (
+        "native:visible_only",
+        custom_a,
+    )
+
+    assert await service.list_favorites(GUILD_A, ACTOR_B) == ()
+    assert await service.set_favorite(
+        GUILD_B, ACTOR_B, "native:staff_only", pinned=True
+    ) == ("native:staff_only",)
+    assert await service.list_favorites(GUILD_A, ACTOR_A) == (
+        "native:visible_only",
+        custom_a,
+    )
+    with pytest.raises(PolicyNotFound):
+        await service.set_favorite(
+            GUILD_A, ACTOR_A, f"custom:{policy_b.policy_id}", pinned=True
+        )
+
+    assert await service.set_favorite(GUILD_A, ACTOR_A, custom_a, pinned=False) == (
+        "native:visible_only",
+    )
+
+
+@pytest.mark.asyncio
 async def test_policy_deletion_is_soft_audited_and_cross_tenant_replacement_is_refused(
     policies_context,
 ) -> None:
