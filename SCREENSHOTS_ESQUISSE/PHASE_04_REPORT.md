@@ -1093,3 +1093,28 @@ scénarios couvrent l’ordre prioritaire, les routes tenant-scopées, la cible
 Policies exacte, le menu bulk-only pour une sélection mixte valide et la
 pré-sélection cochée dans Matrix. Build TypeScript/Vite, ESLint, i18n et
 `git diff --check` passent. Zéro migration, zéro Discord live et zéro APPLY.
+
+## 24. Favoris de Policies par Guild — 2026-09-21
+
+P4-T019 ferme `REQ-AP-UX-007`. Les intentions natives et Policies
+personnalisées compatibles peuvent être épinglées depuis le catalogue. Elles
+sont regroupées dans une première section sans duplication, restent filtrées
+par la cible courante et persistent après rechargement. Le contrôle étoile est
+un bouton séparé de la carte, avec état pressé, libellé contextuel et
+traductions EN/FR/DE/ES.
+
+La préférence est stockée dans `policy_favorites`, par Guild et utilisateur.
+La table applique une RLS forcée sur les deux identités et des grants minimaux
+`SELECT/INSERT/DELETE`. Les clés natives sont bornées ; une clé personnalisée
+doit contenir un UUID et la Policy correspondante est résolue via le repository
+tenant-scopé avant écriture. L’opération est idempotente et locale à DID : elle
+n’ajoute aucun resolver, moteur de Plan, appel Discord ou APPLY.
+
+Preuves sur `3fe438f` : 133 tests unitaires backend Policy, 14 intégrations
+PostgreSQL réelles, 98 tests frontend et 24 scénarios Playwright Phase 4
+passent. Le scénario ciblé couvre épinglage, première position, persistance au
+rechargement, axe et absence d’APPLY ; l’intégration PostgreSQL couvre
+idempotence, isolation inter-utilisateur, isolation inter-Guild et refus d’une
+Policy personnalisée étrangère. Migration `0041_ui_phase4`, Ruff/mypy ciblés,
+build TypeScript/Vite, ESLint, i18n, OpenAPI et `git diff --check` passent.
+Zéro Discord live et zéro mutation Discord.

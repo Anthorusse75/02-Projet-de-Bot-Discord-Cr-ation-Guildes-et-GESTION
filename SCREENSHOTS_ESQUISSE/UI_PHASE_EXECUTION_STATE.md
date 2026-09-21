@@ -23,10 +23,10 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: a6f058b (feat(policies): add contextual access actions)
+Current HEAD: 3fe438f (feat(policies): add per-guild favorites)
 
-Current independently verified SHA: `a6f058b` (P4-T018 completion).
-P4-T019 is the active atomic task.
+Current independently verified SHA: `3fe438f` (P4-T019 completion).
+P4-T020 is the active atomic task.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -798,16 +798,24 @@ Structure label assertion were corrected without weakening coverage. Product
 commit: `a6f058b`.
 
 ### P4-T019 — Policy favorites (per Guild)
-Status: IN_PROGRESS
+Status: DONE
 Purpose: REQ-AP-UX-007 (SHOULD). Explicitly not prioritized above UI,
 locking, temporary access or conflicts — do last, only if it stays light.
-NEXT EXACT ACTION: inspect the existing per-user/per-Guild preference storage
-and Policy list ordering, then implement the lightest tenant-safe
-`pinned-policy-ids` preference surfaced at the top of the custom Policy list,
-with EN/FR/DE/ES controls and focused persistence/isolation/UI tests.
+Delivered: a lightweight durable `policy_favorites` preference keyed by Guild,
+user and validated native/custom Policy key. RLS requires both tenant and actor
+GUCs; custom IDs are resolved through the existing tenant-scoped Policy
+repository. The intention-first catalogue exposes accessible EN/FR/DE/ES
+pin/unpin controls, moves compatible favorites into a first section without
+duplication, persists across reloads and never calls APPLY or Discord.
+Tests: 133 targeted Policy unit tests, 14 real PostgreSQL Policy integrations,
+98 frontend unit tests and 24 Phase 4 Playwright scenarios pass. The focused
+browser scenario proves pin, first position, reload persistence, axe and zero
+APPLY. Ruff targeted, mypy targeted, TypeScript/Vite build, ESLint, i18n,
+OpenAPI and diff check pass. Migration `0041_ui_phase4` applied successfully.
+Product commit: `3fe438f`.
 
 ### P4-T020 — Writing advanced: reactions/threads/replies completion
-Status: TODO (currently PARTIAL per P4-T008)
+Status: IN_PROGRESS (currently PARTIAL per P4-T008)
 Purpose: Close REQ-AP-WRI-022 and REQ-AP-PRS-013 fully — re-inspect exactly
 what the reply/thread primitives can honestly support before promising
 anything.
@@ -837,14 +845,15 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-21, after P4-T018 completion and P4-T019 start.
+Last updated: 2026-09-21, after P4-T019 completion and P4-T020 start.
 
-Current HEAD: `a6f058b` (`feat(policies): add contextual access actions`).
+Current HEAD: `3fe438f` (`feat(policies): add per-guild favorites`).
 
-Worktree state: only P4-T018 closure documentation is pending.
+Worktree state: only P4-T019 closure documentation is pending.
 
-Tasks DONE: P4-T014 through P4-T018. Task IN_PROGRESS: P4-T019 — add the
-lightweight per-Guild Policy favorites requested by REQ-AP-UX-007.
+Tasks DONE: P4-T014 through P4-T019. Task IN_PROGRESS: P4-T020 — audit and
+complete the honest reactions/threads/replies coverage requested by
+REQ-AP-WRI-022 and REQ-AP-PRS-013.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -892,8 +901,17 @@ The single action is first and target-scoped; the mixed category/channel action
 reuses the existing Matrix bulk flow with exact preselection. Product commit
 `a6f058b` is pushed.
 
-NEXT EXACT ACTION: inspect preference persistence and Policy list ordering for
-P4-T019, then add a minimal tenant-safe pin/unpin control and focused tests.
+P4-T019 evidence: 133 targeted backend Policy unit tests, 14 real PostgreSQL
+Policy integration tests, the full 98-test frontend suite and 24 targeted
+Phase 4 Playwright scenarios PASS. The preference is durable, idempotent and
+isolated by both Guild and user under forced RLS; compatible native/custom
+favorites stay first after reload. TypeScript/Vite, ESLint, i18n, OpenAPI,
+targeted Ruff/mypy and diff check pass. Product commit `3fe438f` is pushed.
+
+NEXT EXACT ACTION: for P4-T020, re-audit the existing reaction/thread controls
+and backend registry against the official Discord permissions model, then
+close only the writable/reply behavior Discord can actually express without
+inventing a separate reply permission.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 
