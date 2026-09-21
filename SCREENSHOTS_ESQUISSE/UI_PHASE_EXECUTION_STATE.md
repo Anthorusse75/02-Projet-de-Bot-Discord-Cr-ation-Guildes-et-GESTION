@@ -16,18 +16,17 @@ EN/FR/DE/ES.
 
 Phase 4 — Roles / Permissions / Access Policies
 
-Status: IN_PROGRESS
+Status: DONE
 
 Branch: ui/complete-redesign
 
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current product HEAD: 76396fa (feat(policies): add durable temporary access)
+Current product HEAD: 2f7b9d2 (fix(ui): keep context menus within viewport)
 
-Current independently verified SHA: `76396fa` (P4-T012 completion).
-All functional Phase 4 backlog tasks are complete; P4-UI-000 remains open for
-the final visual acceptance pass.
+Current independently verified SHA: `2f7b9d2` (P4-UI-000 closure).
+Phase 4 is complete. Do not start Phase 5 without an explicit instruction.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -312,8 +311,7 @@ added below once the real running frontend has been inspected against
 Esquisse 1.
 
 ### P4-UI-000 — Visual acceptance pass (Roles/Permissions/Policies/Matrix/Wizard)
-Status: IN_PROGRESS (first pass done, desktop + mobile; a few screens still
-need a look — see NEXT EXACT ACTION)
+Status: DONE
 Purpose: Compare the real running UI for all Phase 4 screens against
 `Esquisse 1.png`, at the sizes required by the closure checkpoint, and log
 genuine defects as atomic P4-UI-* tasks. Do NOT log cosmetic nitpicks that
@@ -349,6 +347,12 @@ The P4-T012 temporary-access surface was inspected in real Chromium at
 state, expiry, queued/removal copy and intervention treatment remain readable.
 The mobile page has exact `scrollWidth===clientWidth===390`; the off-canvas
 sidebar is hidden, opens, and closes correctly, and the panel passes axe.
+The final pass inspected the remaining observable conflict/remediation,
+Named Audience inline editor, expert permission diagnosis, Matrix cell editor,
+composed preset, single-resource context menu and bulk context menu at
+1440x900 and 390x844. Their actionable content, hierarchy and controls remain
+readable and consistent with Esquisse 1. Temporary screenshot instrumentation
+and artifacts were removed after inspection.
 Defects found and FIXED (see P4-T021, done, commit 2ce541f):
 - body had `min-width:1180px` (src/shared/redesign.css) — forced horizontal
   scroll on literally every screen below 1180px, defeating every existing
@@ -365,6 +369,12 @@ Defects found and FIXED (see P4-T021, done, commit 2ce541f):
 - Wizard step pills showed the step number twice ("1 1 · Target") because
   the i18n strings embedded their own number on top of WizardShell's own
   numbered badge. Stripped the redundant prefix in all 4 locales.
+- the shared fixed-position context menu trusted the raw pointer coordinates,
+  so a long single-resource menu could extend below a 390x844 viewport. The
+  shared Menu now measures and clamps itself to an 8px viewport inset on mount
+  and resize, caps its dimensions, and scrolls internally when necessary.
+  A permanent Chromium regression asserts its complete bounding box and zero
+  page-level overflow (`2f7b9d2`).
 Verified clean after fix: scrollWidth===clientWidth===390 at mobile on both
 Policies and Matrix (Matrix's own table still scrolls internally within its
 own container, which is the explicitly allowed exception, not a page-level
@@ -372,19 +382,13 @@ scroll). All 17 Phase 4 Playwright specs still green, typecheck/i18n/lint
 clean (3 pre-existing unrelated lint errors in untouched files, 1
 pre-existing unrelated Vitest failure in StructureScreen.test.tsx — both
 confirmed pre-existing via `git status` showing those files untouched).
-NEXT EXACT ACTION:
-1. Re-run the same throwaway-spec method for screens not yet screenshotted
-   this session: the conflict/remediation explanation panel (open a policy
-   with a conflict, e.g. reuse the `conflict=true` harness pattern from
-   `phase04-policies.spec.ts`), the Named Audience inline editor (staff_only
-   native with no persisted definition yet, to see the "Configure" prompt),
-   Policy expert mode, and Access Matrix cell editor drawer/dialog.
-2. Confirm the composed-preset and context-menu surfaces added later in the
-   phase at desktop and mobile widths; temporary access, locked/drift and the
-   deletion dialog are already visually accepted as recorded above.
-3. Only mark P4-UI-000 DONE at the very end of Phase 4 closure, once every
-   screen listed in the closure checkpoint's "Vérifier au minimum" list
-   (10 items in the master instructions) has been screenshotted and compared.
+Evidence: every screen in the closure checkpoint's 10-item minimum list was
+screenshotted and compared. The final closure run passes all 99 frontend unit
+tests and all 44 selected Phase 3 Structure + Phase 4 Chromium scenarios;
+TypeScript/Vite, ESLint, i18n and diff checks pass. The earlier P4-T012 closure
+also passes 145 targeted backend tests and 16 real PostgreSQL/runtime
+integrations. No Discord live APPLY was run.
+Commit: `2f7b9d2 fix(ui): keep context menus within viewport` (pushed).
 
 ### P4-T021 — Fix visual defects found in first acceptance pass
 Status: DONE
@@ -876,15 +880,13 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-21, after P4-T012 completion.
+Last updated: 2026-09-21, after P4-UI-000 and Phase 4 closure.
 
-Current product HEAD: `76396fa` (`feat(policies): add durable temporary access`).
+Current product HEAD: `2f7b9d2` (`fix(ui): keep context menus within viewport`).
 
-Worktree state: only P4-T012 closure documentation is pending.
+Worktree state: only Phase 4 closure documentation is pending.
 
-Tasks DONE: all functional P4 tasks including P4-T012 and P4-T014 through
-P4-T020. P4-UI-000 remains IN_PROGRESS until the final visual acceptance list
-is fully covered.
+Tasks DONE: every functional P4 task and P4-UI-000. Phase 4 is DONE.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -952,11 +954,16 @@ OpenAPI, Ruff, mypy and diff checks pass. Desktop/mobile Chromium and axe pass;
 the mobile viewport has no page overflow and the scenario makes zero APPLY
 calls. Product commit `76396fa` is pushed.
 
-NEXT EXACT ACTION: finish P4-UI-000 only. Recreate the throwaway visual-audit
-spec and inspect the remaining conflict/remediation, Named Audience inline,
-expert Policy, Matrix cell-editor, composed-preset and context-menu surfaces at
-1440x900 and 390x844. Log/fix only genuine defects, run the Phase 4 closure
-suite, then mark P4-UI-000 and Phase 4 DONE. Do not start Phase 5.
+P4-UI-000 evidence: the 10-item minimum visual checklist is fully inspected at
+desktop and mobile widths. The final pass covered conflict/remediation, Named
+Audience inline editing, expert diagnosis, Matrix cell editing, composed
+presets and both context-menu variants. It found and fixed one genuine defect:
+long fixed menus now remain inside the mobile viewport. Full frontend 99/99,
+44 selected Structure/Phase 4 Chromium scenarios, build, ESLint and i18n pass.
+Product commit `2f7b9d2` is pushed.
+
+NEXT EXACT ACTION: none inside Phase 4. Stop here and wait for an explicit
+instruction before starting Phase 5 or any later phase.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 

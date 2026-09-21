@@ -1180,3 +1180,29 @@ verts. Ruff, mypy, build TypeScript/Vite, ESLint, i18n, OpenAPI et
 `git diff --check` passent. L'inspection Chromium 1440x900 et 390x844 confirme
 la lisibilité, l'absence d'overflow mobile, le menu hors-canvas fonctionnel et
 zéro violation axe sérieuse/critique. Aucun Discord live n'a été exécuté.
+
+## 27. Acceptation visuelle finale et clôture de la Phase 4 — 2026-09-21
+
+P4-UI-000 est terminé. Les dix surfaces minimales du checkpoint ont été
+comparées à l'Esquisse 1 en Chromium réel, aux viewports 1440x900 et 390x844.
+La passe finale a couvert le conflit observable et ses remédiations, l'éditeur
+inline de Named Audience, le diagnostic expert, l'éditeur de cellule Matrix,
+le preset composé et les menus contextuels simple et multiple. Les surfaces
+ajoutées auparavant — accès temporaire, Policy verrouillée/drift, dialogue de
+suppression et parcours Wizard — conservent leurs preuves desktop/mobile et
+axe dédiées.
+
+Un défaut réel a été trouvé : le menu contextuel partagé, positionné aux
+coordonnées brutes du pointeur, pouvait dépasser le bas d'un viewport mobile.
+Le composant `Menu` mesure désormais son rectangle, le recale avec une marge de
+8 px au montage et au redimensionnement, borne sa largeur/hauteur au viewport
+et active un scroll interne si nécessaire. Un scénario Chromium permanent
+vérifie que le menu long tient entièrement dans 390x844 et que la page reste à
+390 px sans overflow. Correction poussée dans `2f7b9d2`.
+
+La suite de clôture passe : 99/99 tests frontend, 44 scénarios Chromium
+Structure/Phase 4, build TypeScript/Vite, ESLint, i18n et `git diff --check`.
+Les preuves backend finales de P4-T012 restent vertes : 145 tests unitaires
+ciblés et 16 intégrations PostgreSQL/runtime réelles. Toute instrumentation et
+toute capture temporaire ont été supprimées. La Phase 4 est DONE ; aucune
+Phase 5 n'a été commencée et aucun Discord live/APPLY n'a été exécuté.
