@@ -183,6 +183,27 @@ test('@a11y pins a Policy per Guild and keeps it first after reload without APPL
   expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 
+test('@a11y separates reactions, thread creation and replies in threads without inventing a main-channel reply permission', async ({ page }) => {
+  const harness: Harness = { policies: [], favorites: [], requests: [] }; await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies?targetType=CHANNEL&targetId=${CHANNEL}`)
+  await page.getByRole('button', { name: /^Open reading, publishing limited to/ }).click()
+  await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Managers').click()
+  await page.getByRole('combobox', { name: /^Reactions/ }).selectOption('EVERYONE')
+  await page.getByRole('combobox', { name: /^Thread creation/ }).selectOption('NONE')
+  await page.getByRole('combobox', { name: /^Replies in threads/ }).selectOption('ONLY')
+  await expect(page.getByText(/Replies in the main channel still follow the publishing permission/)).toBeVisible()
+  await page.getByRole('button', { name: 'Create draft' }).click()
+
+  const created = harness.requests.find((item) => item.path.endsWith('/policies') && item.method === 'POST')?.body as { effects:Array<{access:string;decision:string}> }
+  expect(created.effects.map((effect) => `${effect.access}:${effect.decision}`)).toEqual([
+    'VIEW:ALLOW', 'WRITE:ALLOW', 'REACT:ALLOW', 'CREATE_THREAD:DENY',
+    'PARTICIPATE_THREAD:ALLOW', 'PARTICIPATE_THREAD:DENY',
+  ])
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
+  const accessibility = await new AxeBuilder({ page }).include('.policy-editor-panel').analyze()
+  expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
 test('@families private voice selects roles, previews Discord details and prepares a Plan', async ({ page }) => {
   const harness: Harness = { policies: [], requests: [], family: 'voice' }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)

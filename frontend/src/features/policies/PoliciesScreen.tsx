@@ -33,7 +33,7 @@ import {
 type Selection = { kind: 'NATIVE'; native: NativePolicy } | { kind: 'CUSTOM'; policy: Policy }
 type EditorState = {
   name: string; description: string; priority: number; roleIds: string[]
-  reactionMode: PolicyMode; threadMode: PolicyMode; includeStaff: boolean; staffRoleIds: string[]
+  reactionMode: PolicyMode; threadMode: PolicyMode; replyMode: PolicyMode; includeStaff: boolean; staffRoleIds: string[]
   botId: string; botFunctions: BotFunction[]
   excludedRoleIds: string[]
 }
@@ -46,7 +46,7 @@ type BotAccessMap = { channels: Array<{ channel_id: string; status: string; mini
 
 const emptyEditor = (): EditorState => ({
   name: '', description: '', priority: 0, roleIds: [], reactionMode: 'ONLY',
-  threadMode: 'INHERIT', includeStaff: false, staffRoleIds: [], botId: '', botFunctions: [],
+  threadMode: 'INHERIT', replyMode: 'INHERIT', includeStaff: false, staffRoleIds: [], botId: '', botFunctions: [],
   excludedRoleIds: [],
 })
 
@@ -94,6 +94,7 @@ function editorFromPolicy(policy: Policy): EditorState {
     ...emptyEditor(), name: policy.name, description: policy.description, priority: policy.priority,
     roleIds: roleIds(policy), reactionMode: modeFromPolicy(policy, 'REACT'),
     threadMode: modeFromPolicy(policy, 'CREATE_THREAD'),
+    replyMode: modeFromPolicy(policy, 'PARTICIPATE_THREAD'),
     includeStaff: policy.metadata.tags.includes('staff-explicit:true'),
     botId: botMatch?.kind === 'BOT_MATCH' ? botMatch.bot_user_ids[0] ?? '' : '',
     botFunctions: botFunctions(policy),
@@ -232,6 +233,8 @@ export function PoliciesScreen() {
     : presetOpen === 'announcement_channel' ? announcementSubRules(announcementConfig)
       : presetOpen === 'support_zone' ? supportZoneSubRules(supportZoneConfig)
         : []
+  const announcementNeedsPublishers = presetOpen === 'announcement_channel' && announcementConfig.publisherRoleIds.length === 0
+    && [announcementConfig.reactionMode, announcementConfig.threadMode, announcementConfig.replyMode].includes('ONLY')
   function roleNames(roleIds: readonly string[] | undefined): string {
     if (!roleIds?.length) return ''
     return roleIds.map((id) => roles.find((role) => role.id === id)?.name ?? id).join(', ')
@@ -758,6 +761,10 @@ export function PoliciesScreen() {
           <label className="field"><span>{t('policies.options.threads')}</span><select value={announcementConfig.threadMode} onChange={(event) => setAnnouncementConfig((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>
             {(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}
           </select></label>
+          <label className="field"><span>{t('policies.options.threadReplies')}</span><select value={announcementConfig.replyMode} onChange={(event) => setAnnouncementConfig((value) => ({ ...value, replyMode: event.target.value as PolicyMode }))}>
+            {(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}
+          </select><small>{t('policies.options.threadRepliesHelp')}</small></label>
+          {announcementNeedsPublishers && <p className="access-callout warning">{t('policies.preset.announcement.audienceRequired')}</p>}
         </>}
 
         {presetOpen === 'support_zone' && <>
@@ -780,7 +787,7 @@ export function PoliciesScreen() {
 
         {presetProblem && <p className="access-callout danger" role="alert">{presetProblem}</p>}
         <div className="button-row">
-          <button type="button" className="button primary" disabled={presetBusy || !presetName.trim() || presetSubRules.length === 0} onClick={() => void createPresetDrafts()}>{t('policies.preset.create')}</button>
+          <button type="button" className="button primary" disabled={presetBusy || !presetName.trim() || presetSubRules.length === 0 || announcementNeedsPublishers} onClick={() => void createPresetDrafts()}>{t('policies.preset.create')}</button>
           <button type="button" className="button quiet" onClick={resetPresetForm}>{t('common.cancel')}</button>
         </div>
       </div>}
@@ -866,7 +873,7 @@ export function PoliciesScreen() {
               <div className="policy-role-picker" role="group" aria-label={t('policies.audience.butNot')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.excludedRoleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, excludedRoleIds: event.target.checked ? [...value.excludedRoleIds, role.id] : value.excludedRoleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>
             </div>}
             {activeNative?.id === 'private_voice' && <div className="policy-staff-option"><label><input type="checkbox" checked={editor.includeStaff} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, includeStaff: event.target.checked }))} /><span>{t('policies.voice.staffAlwaysJoin')}</span></label>{editor.includeStaff && <><p className="access-callout warning">{t('policies.voice.staffExplicit')}</p><div className="policy-role-picker">{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.staffRoleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, staffRoleIds: event.target.checked ? [...value.staffRoleIds, role.id] : value.staffRoleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div></>}</div>}
-            {activeNative?.id === 'open_read_limited_write' && <div className="policy-secondary-options"><label className="field"><span>{t('policies.options.reactions')}</span><select value={editor.reactionMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threads')}</span><select value={editor.threadMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label></div>}
+            {activeNative?.id === 'open_read_limited_write' && <div className="policy-secondary-options"><label className="field"><span>{t('policies.options.reactions')}</span><select value={editor.reactionMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threads')}</span><select value={editor.threadMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threadReplies')}</span><select value={editor.replyMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, replyMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select><small>{t('policies.options.threadRepliesHelp')}</small></label></div>}
             {(activeNative?.id === 'at_least_one_role' || activeNative?.id === 'all_roles_required' || activeNative?.id === 'role_but_not_role') && <p className="access-help">{t(`policies.audience.example.${activeNative.id}`, { roles: (activeNative.id === 'role_but_not_role' ? [...editor.roleIds, ...editor.excludedRoleIds] : editor.roleIds).map((id) => roles.find((role) => role.id === id)?.name ?? id).slice(0, 2).join(' / ') || '—' })}</p>}
             <div className="policy-human-result"><strong>{t('policies.result.title')}</strong>{[...new Set(visibleDefinition?.effects.map((effect) => effect.access) ?? [])].map((access) => <span key={access}>{t(`policies.access.${access}`)}</span>)}<p>{activeNative?.audienceMode === 'EXCLUDE' ? t('policies.result.excluded') : t('policies.result.others')}</p></div>
           </section> : <section className="policy-expert-editor"><label className="field"><span>{t('policies.expert.priority')}</span><input type="number" min="-1000000" max="1000000" value={editor.priority} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, priority: Number(event.target.value) }))} /></label>

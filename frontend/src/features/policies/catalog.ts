@@ -79,7 +79,7 @@ export type PolicyDraftDefinition = {
 
 export type NativePolicyValues = {
   name: string; description: string; priority?: number; sourcePolicyId?: string
-  reactionMode?: PolicyMode; threadMode?: PolicyMode
+  reactionMode?: PolicyMode; threadMode?: PolicyMode; replyMode?: PolicyMode
   includeStaff?: boolean; staffRoleIds?: readonly string[]
   botId?: string; botFunctions?: readonly BotFunction[]
   /** REQ-AP-ZONE-060/061: "A mais pas B" -- roleIds is A, excludedRoleIds is B. */
@@ -191,11 +191,15 @@ export function createDefinitionFromNative(
     if (native.id === 'open_read_limited_write') {
       effects.push(...modeEffects('REACT', values.reactionMode ?? 'INHERIT', roleIds))
       effects.push(...modeEffects('CREATE_THREAD', values.threadMode ?? 'INHERIT', roleIds))
+      // Discord has no standalone "reply" permission in a normal channel.
+      // SEND_MESSAGES_IN_THREADS is the honest separately controllable primitive.
+      effects.push(...modeEffects('PARTICIPATE_THREAD', values.replyMode ?? 'INHERIT', roleIds))
     }
   }
   const tags = [`did-native:${native.id}`, `audience:${native.audienceMode.toLowerCase()}`]
   if (values.reactionMode) tags.push(`reaction-mode:${values.reactionMode.toLowerCase()}`)
   if (values.threadMode) tags.push(`thread-mode:${values.threadMode.toLowerCase()}`)
+  if (values.replyMode) tags.push(`thread-reply-mode:${values.replyMode.toLowerCase()}`)
   if (values.includeStaff) tags.push('staff-explicit:true')
   if (native.id === 'bot_minimal' && values.botFunctions?.length) tags.push(`bot-functions:${values.botFunctions.map((value) => value.toLowerCase()).join(',')}`)
   if (values.sourcePolicyId) tags.push(`source-policy:${values.sourcePolicyId}`)

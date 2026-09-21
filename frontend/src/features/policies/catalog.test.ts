@@ -67,11 +67,18 @@ describe('Phase 4 access policy catalogue', () => {
     const openRead = nativePolicies.find((policy) => policy.id === 'open_read_limited_write')
     const blacklist = nativePolicies.find((policy) => policy.id === 'visible_except')
     if (!openRead || !blacklist) throw new Error('required native policy missing')
-    const openDefinition = createDefinitionFromNative(openRead, target, ['700000000000000011'], { name: 'Announcements', description: 'Readers and publishers' })
+    const openDefinition = createDefinitionFromNative(openRead, target, ['700000000000000011'], {
+      name: 'Announcements', description: 'Readers and publishers', reactionMode: 'EVERYONE', threadMode: 'NONE', replyMode: 'ONLY',
+    })
     expect(openDefinition.effects).toEqual([
       { kind: 'SET_ACCESS', access: 'VIEW', decision: 'ALLOW' },
       { kind: 'SET_ACCESS', access: 'WRITE', decision: 'ALLOW', audience: { mode: 'INCLUDE', match: 'ANY', role_ids: ['700000000000000011'] } },
+      { kind: 'SET_ACCESS', access: 'REACT', decision: 'ALLOW' },
+      { kind: 'SET_ACCESS', access: 'CREATE_THREAD', decision: 'DENY' },
+      { kind: 'SET_ACCESS', access: 'PARTICIPATE_THREAD', decision: 'ALLOW', audience: { mode: 'INCLUDE', match: 'ANY', role_ids: ['700000000000000011'] } },
+      { kind: 'SET_ACCESS', access: 'PARTICIPATE_THREAD', decision: 'DENY', audience: { mode: 'EXCLUDE', match: 'ANY', role_ids: ['700000000000000011'] } },
     ])
+    expect(openDefinition.metadata.tags).toContain('thread-reply-mode:only')
     expect(createDefinitionFromNative(blacklist, target, ['700000000000000012'], { name: 'Exclude guests', description: 'Guest exclusion' }).effects[0]).toMatchObject({
       decision: 'ALLOW', audience: { mode: 'EXCLUDE', role_ids: ['700000000000000012'] },
     })

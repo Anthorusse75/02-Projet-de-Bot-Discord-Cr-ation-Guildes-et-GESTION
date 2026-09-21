@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 const USER = '700000000000000003'
 const GUILD = '700000000000000001'
 const CAT = '700000000000000101'
+const CHANNEL = '700000000000000201'
 const ROLE_ADMIN = '700000000000000011'
 const ROLE_VIP = '700000000000000012'
 const can = () => ({ outcome: 'CAN', causes: [], remediations: [] })
@@ -11,7 +12,7 @@ type Harness = { policies: Record<string, unknown>[]; requests: Array<{ path: st
 
 function structure() {
   const base = { guild_id: GUILD, position: 0, resource_kind: 'CATEGORY', observability: 'VISIBLE', freshness: 'FRESH', data_assertion: 'CURRENT_CONFIRMED', threads: [] }
-  return { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ ...base, id: CAT, type: 4, name: 'Direction', parent_id: null, channels: [] }], root_channels: [] }
+  return { guild_id: GUILD, source: 'LOCAL_CACHE', discord_rest_calls: 0, categories: [{ ...base, id: CAT, type: 4, name: 'Direction', parent_id: null, channels: [{ ...base, id: CHANNEL, type: 0, name: 'announcements', parent_id: CAT, resource_kind: 'CHANNEL' }] }], root_channels: [] }
 }
 
 async function install(page: Page, harness: Harness) {
@@ -78,4 +79,30 @@ test('confidential preset shows every sub-rule before creating anything, then cr
   await expect(page.getByText('Confidential (Management)')).toBeVisible()
   await expect(page.getByText('Confidential (Mentions)')).toBeVisible()
   await expect(page.getByText('Confidential (Threads)')).toBeVisible()
+})
+
+test('@a11y announcement preset separates reactions, thread creation and replies in threads', async ({ page }) => {
+  const harness: Harness = { policies: [], requests: [] }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies`)
+  await page.getByLabel('Target resource').selectOption(`TEXT_CHANNEL:${CHANNEL}`)
+  await page.getByText('Presets', { exact: true }).click()
+  await page.getByRole('button', { name: /^Announcement channel/ }).click()
+  await page.getByRole('group', { name: 'Who can publish here?' }).getByText('VIP').click()
+  await page.getByRole('combobox', { name: /^Reactions/ }).selectOption('EVERYONE')
+  await page.getByRole('combobox', { name: /^Thread creation/ }).selectOption('NONE')
+  await page.getByRole('combobox', { name: /^Replies in threads/ }).selectOption('ONLY')
+
+  await expect(page.getByText('Everyone can react')).toBeVisible()
+  await expect(page.getByText('No one can start a thread')).toBeVisible()
+  await expect(page.getByText('Only these publishers can reply in threads: VIP')).toBeVisible()
+  await expect(page.getByText(/Replies in the main channel still follow the publishing permission/)).toBeVisible()
+  await page.getByRole('button', { name: 'Create the preset policies' }).click()
+  await expect(page.getByText('4 policy draft(s) created from this preset.')).toBeVisible()
+
+  const createCalls = harness.requests.filter((request) => request.path.endsWith('/policies') && request.method === 'POST')
+  expect(createCalls).toHaveLength(4)
+  const accesses = createCalls.map((request) => (request.body as {effects:Array<{access:string}>}).effects[0]?.access)
+  expect(accesses).toEqual(['WRITE', 'REACT', 'CREATE_THREAD', 'PARTICIPATE_THREAD'])
+  expect(harness.requests.some((request) => request.path.includes('apply'))).toBe(false)
 })

@@ -77,17 +77,18 @@ export function createConfidentialDefinitions(target: PolicyTarget, name: string
 // --- Salon d'annonces (REQ-AP-PRS-010..013) ------------------------------
 // REQ-AP-PRS-011: persistent by default -- this preset never creates a
 // temporary anything, and REQ-AP-PRS-012 keeps visibility a fully separate,
-// untouched concern: only WRITE is ever constrained here.
+// untouched concern. Writing, reactions and thread capabilities stay explicit.
 
-export type AnnouncementConfig = { publisherRoleIds: readonly string[]; reactionMode: PolicyMode; threadMode: PolicyMode }
+export type AnnouncementConfig = { publisherRoleIds: readonly string[]; reactionMode: PolicyMode; threadMode: PolicyMode; replyMode: PolicyMode }
 
-export const emptyAnnouncementConfig = (): AnnouncementConfig => ({ publisherRoleIds: [], reactionMode: 'INHERIT', threadMode: 'INHERIT' })
+export const emptyAnnouncementConfig = (): AnnouncementConfig => ({ publisherRoleIds: [], reactionMode: 'INHERIT', threadMode: 'INHERIT', replyMode: 'INHERIT' })
 
 export function announcementSubRules(config: AnnouncementConfig): PresetSubRule[] {
   const rules: PresetSubRule[] = []
   if (config.publisherRoleIds.length) rules.push({ key: 'writers', labelKey: 'policies.preset.announcement.rule.writers', roleIds: config.publisherRoleIds })
-  if (config.reactionMode !== 'INHERIT') rules.push({ key: 'reactions', labelKey: `policies.preset.announcement.rule.reactions.${config.reactionMode}`, roleIds: config.publisherRoleIds })
-  if (config.threadMode !== 'INHERIT') rules.push({ key: 'threads', labelKey: `policies.preset.announcement.rule.threads.${config.threadMode}`, roleIds: config.publisherRoleIds })
+  if (config.reactionMode !== 'INHERIT' && (config.reactionMode !== 'ONLY' || config.publisherRoleIds.length)) rules.push({ key: 'reactions', labelKey: `policies.preset.announcement.rule.reactions.${config.reactionMode}`, roleIds: config.publisherRoleIds })
+  if (config.threadMode !== 'INHERIT' && (config.threadMode !== 'ONLY' || config.publisherRoleIds.length)) rules.push({ key: 'threads', labelKey: `policies.preset.announcement.rule.threads.${config.threadMode}`, roleIds: config.publisherRoleIds })
+  if (config.replyMode !== 'INHERIT' && (config.replyMode !== 'ONLY' || config.publisherRoleIds.length)) rules.push({ key: 'replies', labelKey: `policies.preset.announcement.rule.replies.${config.replyMode}`, roleIds: config.publisherRoleIds })
   return rules
 }
 
@@ -106,8 +107,9 @@ export function createAnnouncementDefinitions(target: PolicyTarget, name: string
   }
   const definitions: PolicyDraftDefinition[] = []
   if (config.publisherRoleIds.length) definitions.push(part('Writers', whitelist('WRITE', config.publisherRoleIds), 'preset-part:writers'))
-  if (config.reactionMode !== 'INHERIT') definitions.push(part('Reactions', modeEffects('REACT', config.reactionMode, config.publisherRoleIds), 'preset-part:reactions'))
-  if (config.threadMode !== 'INHERIT') definitions.push(part('Threads', modeEffects('CREATE_THREAD', config.threadMode, config.publisherRoleIds), 'preset-part:threads'))
+  if (config.reactionMode !== 'INHERIT' && (config.reactionMode !== 'ONLY' || config.publisherRoleIds.length)) definitions.push(part('Reactions', modeEffects('REACT', config.reactionMode, config.publisherRoleIds), 'preset-part:reactions'))
+  if (config.threadMode !== 'INHERIT' && (config.threadMode !== 'ONLY' || config.publisherRoleIds.length)) definitions.push(part('Threads', modeEffects('CREATE_THREAD', config.threadMode, config.publisherRoleIds), 'preset-part:threads'))
+  if (config.replyMode !== 'INHERIT' && (config.replyMode !== 'ONLY' || config.publisherRoleIds.length)) definitions.push(part('Thread replies', modeEffects('PARTICIPATE_THREAD', config.replyMode, config.publisherRoleIds), 'preset-part:thread-replies'))
   return definitions
 }
 

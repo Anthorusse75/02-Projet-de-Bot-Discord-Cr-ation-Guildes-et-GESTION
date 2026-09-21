@@ -49,8 +49,9 @@ describe('confidential preset', () => {
 
 describe('announcement channel preset', () => {
   it('never touches visibility -- only writer/reaction/thread sub-rules exist', () => {
-    const definitions = createAnnouncementDefinitions(target, 'News', '', { publisherRoleIds: ['1'], reactionMode: 'ONLY', threadMode: 'NONE' })
+    const definitions = createAnnouncementDefinitions(target, 'News', '', { publisherRoleIds: ['1'], reactionMode: 'ONLY', threadMode: 'NONE', replyMode: 'EVERYONE' })
     expect(definitions.every((definition) => !definition.effects.some((effect) => effect.access === 'VIEW'))).toBe(true)
+    expect(definitions.map((definition) => definition.effects[0]?.access)).toEqual(['WRITE', 'REACT', 'CREATE_THREAD', 'PARTICIPATE_THREAD'])
   })
 
   it('leaves reactions/threads untouched (INHERIT) when not configured (REQ-AP-PRS-013 is optional)', () => {
@@ -63,6 +64,12 @@ describe('announcement channel preset', () => {
     const definitions = createAnnouncementDefinitions(target, 'News', '', { ...emptyAnnouncementConfig(), publisherRoleIds: ['9'] })
     expect(definitions).toHaveLength(1)
     expect(definitions[0]?.effects[0]).toMatchObject({ kind: 'SET_ACCESS', access: 'WRITE', decision: 'ALLOW' })
+  })
+
+  it('does not emit an invalid ONLY sub-rule until a publisher audience exists', () => {
+    const config = { ...emptyAnnouncementConfig(), replyMode: 'ONLY' as const }
+    expect(announcementSubRules(config)).toHaveLength(0)
+    expect(createAnnouncementDefinitions(target, 'News', '', config)).toHaveLength(0)
   })
 })
 
