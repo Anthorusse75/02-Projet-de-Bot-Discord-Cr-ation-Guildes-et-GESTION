@@ -23,11 +23,11 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: d94b1a0 (feat(policies): separate advanced writing controls)
+Current product HEAD: 76396fa (feat(policies): add durable temporary access)
 
-Current independently verified SHA: `d94b1a0` (P4-T020 completion).
-P4-T012 is the next functional atomic task; P4-UI-000 remains open for the
-final visual acceptance pass.
+Current independently verified SHA: `76396fa` (P4-T012 completion).
+All functional Phase 4 backlog tasks are complete; P4-UI-000 remains open for
+the final visual acceptance pass.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -344,6 +344,11 @@ Dependency counts, immutable-history warning, access impact and all strategy
 descriptions remain readable in the internally scrollable modal; the page has
 no horizontal overflow. A native modal `dialog` keeps the background inert,
 and the Playwright scenario passes axe.
+The P4-T012 temporary-access surface was inspected in real Chromium at
+1440x900 and 390x844. Duration shortcuts, custom date, durable scheduled
+state, expiry, queued/removal copy and intervention treatment remain readable.
+The mobile page has exact `scrollWidth===clientWidth===390`; the off-canvas
+sidebar is hidden, opens, and closes correctly, and the panel passes axe.
 Defects found and FIXED (see P4-T021, done, commit 2ce541f):
 - body had `min-width:1180px` (src/shared/redesign.css) — forced horizontal
   scroll on literally every screen below 1180px, defeating every existing
@@ -374,11 +379,9 @@ NEXT EXACT ACTION:
    `phase04-policies.spec.ts`), the Named Audience inline editor (staff_only
    native with no persisted definition yet, to see the "Configure" prompt),
    Policy expert mode, and Access Matrix cell editor drawer/dialog.
-2. Once P4-T010..T020 below produce new screens (temporary access, locked
-   policy/drift banner, presets, deletion strategy modal, context menu
-   entries), screenshot those too before declaring this task DONE — the
-   Phase 4 closure checkpoint requires visual acceptance for those surfaces
-   too, not just the screens that existed at session start.
+2. Confirm the composed-preset and context-menu surfaces added later in the
+   phase at desktop and mobile widths; temporary access, locked/drift and the
+   deletion dialog are already visually accepted as recorded above.
 3. Only mark P4-UI-000 DONE at the very end of Phase 4 closure, once every
    screen listed in the closure checkpoint's "Vérifier au minimum" list
    (10 items in the master instructions) has been screenshotted and compared.
@@ -523,7 +526,7 @@ documented REQ-AP-PRS-022 N/A. Not yet screenshotted at mobile width — add
 to P4-UI-000's remaining screens list.
 
 ### P4-T012 — Temporary access (grant until date/duration)
-Status: TODO
+Status: DONE
 Purpose: REQ-AP-TMP-001..006. Full implementation, not a frontend-only
 simulation — this is explicitly forbidden ("ne jamais simuler l'expiration
 uniquement côté frontend").
@@ -532,31 +535,39 @@ drives expiration + produces the removal operation), 003 (durable, survives
 restarts), 004 (expiry+removal audited), 005 (failed removal → actionable
 state, never shown as succeeded), 006 (SHOULD — 1h/24h/7d/until shortcuts +
 custom date).
-Depends on: findings from the reconciler/worker/scheduler research
-(in progress — see NEXT EXACT ACTION).
-Remaining: everything. Needs a durable expiry record tied to a Policy or
-binding, a scheduler/worker firing the removal Plan at/after expiry, retry,
-and a "needs intervention" actionable state on failure.
-Files: TBD pending research agent findings (reuse existing worker/scheduler
-primitive if one exists — likely Stage 09 campaign automation, or Stage 03/05
-reconciliation loop; do not build a second architecture).
-Tests already executed: none yet.
-NEXT EXACT ACTION:
-1. Read the findings from the backgrounded Explore agent (dispatched this
-   session) on existing worker/scheduler/reconciliation infrastructure
-   before writing any code.
-2. Decide storage: likely a durable field/table for temporary Policy
-   bindings (expires_at, removal status) — reuse `policies`/`policy_versions`
-   metadata if sufficient, else a minimal new table with RLS + migration.
-3. Wire expiry firing through the canonical Plan/Apply pipeline only (no
-   parallel mutation path) — removal = a Plan like any other.
-4. UI: duration shortcuts (1h/24h/7j/jusqu'à…) + custom date in the relevant
-   Policy creation/Wizard flow; visible countdown/expiry badge; actionable
-   "needs intervention" state on failed removal.
-5. Targeted unit tests (expiry calc, removal Plan compilation), integration
-   test (durable persistence across simulated restart), 1 E2E ciblé, 1
-   scheduler/worker test for retry + failure state per REQ-AP-TST-005-style
-   doctrine.
+Implementation: migration `0042_ui_phase4` adds the tenant-scoped,
+forced-RLS `policy_temporary_access` schedule with deadline, lifecycle,
+retry count, lease fencing, canonical removal Plan reference and timestamps.
+The normal scheduler process claims due rows across tenants with
+`FOR UPDATE SKIP LOCKED`, bounded exponential retry and a terminal
+`INTERVENTION_REQUIRED` state after repeated preparation failures. A restart
+resumes either the schedule or its already-attached Plan.
+Removal reuses `PolicyPlanningService.create_disable_plan`, normal Plan
+validation/confirmation, `PlanningService.apply` queueing and the existing
+`ApplyPlanExecutor`; the scheduler never calls Discord and the frontend never
+calls APPLY. The reserved system actor is accepted only for a Policy-origin
+`DISABLE` Plan whose tamper-checked metadata contains
+`temporary_access=true`. Worker completion projects `REMOVED` only for the
+canonical success states and projects every terminal failure to an actionable
+state. Schedule, cancellation, retry/failure and successful removal are
+audited durably.
+API/UI: tenant-authorized GET/PUT/DELETE endpoints expose the persisted state.
+The ACTIVE Policy detail offers 1h/24h/7d shortcuts, a custom local date/time,
+reschedule/cancel, localized expiry/status badges, queued/running copy,
+intervention reason and a link to the removal Plan. The interface is complete
+in EN/FR/DE/ES and makes no optimistic frontend-only expiry claim.
+Files: `0042_ui_phase4_temporary_access.py`, Policy domain/service/repository,
+`application/policies/temporary_access.py`, runtime worker/scheduler wiring,
+Policy API/OpenAPI, `PoliciesScreen.tsx`, styles/catalog and targeted tests.
+Evidence: 145 targeted backend unit tests, 15 real PostgreSQL Policy
+integrations plus the real scheduler-process integration, full frontend suite
+99/99 and 16 Policies/Presets Chromium scenarios all pass. Ruff, mypy,
+TypeScript/Vite, ESLint, i18n, OpenAPI and diff checks pass. Real desktop and
+390px mobile Chromium inspection is accepted; axe has no serious/critical
+finding and mobile has no page overflow.
+Commit: `76396fa feat(policies): add durable temporary access` (pushed).
+Known limitations: no live Discord APPLY was run; the implementation is
+instead proven through the canonical worker boundary and real persistence.
 
 ### P4-T013 — Reapply category master policy to exceptions
 Status: DONE
@@ -865,15 +876,15 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-21, after P4-T020 completion.
+Last updated: 2026-09-21, after P4-T012 completion.
 
-Current HEAD: `d94b1a0` (`feat(policies): separate advanced writing controls`).
+Current product HEAD: `76396fa` (`feat(policies): add durable temporary access`).
 
-Worktree state: only P4-T020 closure documentation is pending.
+Worktree state: only P4-T012 closure documentation is pending.
 
-Tasks DONE: P4-T014 through P4-T020. P4-T012 remains the only functional
-backlog task not completed; P4-UI-000 remains IN_PROGRESS until the final
-visual acceptance list is fully covered.
+Tasks DONE: all functional P4 tasks including P4-T012 and P4-T014 through
+P4-T020. P4-UI-000 remains IN_PROGRESS until the final visual acceptance list
+is fully covered.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -934,11 +945,18 @@ PASS. TypeScript/Vite, ESLint, i18n and diff check pass. The real Chromium
 render is visually accepted, axe reports no serious/critical violation and
 the scenarios make zero APPLY calls. Product commit `d94b1a0` is pushed.
 
-NEXT EXACT ACTION: resume P4-T012 from the persisted scheduler/reconciler
-research below. Re-audit current files first, then implement durable temporary
-access through the canonical Policy → Preview → Plan → worker path only. Keep
-P4-UI-000 open and visually inspect every new temporary-access state before
-Phase 4 closure.
+P4-T012 evidence: 145 targeted backend unit tests, 15 real PostgreSQL Policy
+integrations, the real scheduler-process integration, full frontend suite
+99/99 and 16 Policies/Presets Playwright scenarios pass. Build, ESLint, i18n,
+OpenAPI, Ruff, mypy and diff checks pass. Desktop/mobile Chromium and axe pass;
+the mobile viewport has no page overflow and the scenario makes zero APPLY
+calls. Product commit `76396fa` is pushed.
+
+NEXT EXACT ACTION: finish P4-UI-000 only. Recreate the throwaway visual-audit
+spec and inspect the remaining conflict/remediation, Named Audience inline,
+expert Policy, Matrix cell-editor, composed-preset and context-menu surfaces at
+1440x900 and 390x844. Log/fix only genuine defects, run the Phase 4 closure
+suite, then mark P4-UI-000 and Phase 4 DONE. Do not start Phase 5.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 

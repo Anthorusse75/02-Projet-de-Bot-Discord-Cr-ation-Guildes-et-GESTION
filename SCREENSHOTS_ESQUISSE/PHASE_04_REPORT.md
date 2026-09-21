@@ -1145,3 +1145,38 @@ scénarios ciblés vérifient les effets exacts, axe et zéro APPLY. Build
 TypeScript/Vite, ESLint, i18n et `git diff --check` passent. Le panneau a été
 inspecté dans un rendu Chromium réel et reste lisible et cohérent avec
 Esquisse 1. Aucun Discord live ni mutation Discord n'a été exécuté.
+
+## 26. Accès temporaire durable et retrait canonique — 2026-09-21
+
+P4-T012 ferme `REQ-AP-TMP-001..006` sans expiration simulée dans le frontend.
+La migration `0042_ui_phase4` ajoute `policy_temporary_access`, une projection
+durable par Guild et Policy sous RLS forcée. Elle conserve l'échéance, l'état
+du retrait, le Plan canonique associé, les tentatives, le lease et les dates
+d'audit. Le scheduler existant réclame les échéances dues avec
+`FOR UPDATE SKIP LOCKED`; son traitement reprend après redémarrage, y compris
+lorsqu'un Plan de retrait avait déjà été attaché.
+
+À l'échéance, le service crée un Plan Policy `DISABLE` via le compilateur et le
+préflight existants, le confirme, puis le place dans la file normale avec
+`PlanningService.apply`. Seul `ApplyPlanExecutor`, derrière le governor REST,
+peut modifier Discord. L'acteur système réservé n'est autorisé que pour ce Plan
+Policy exact dont la provenance intègre contient `temporary_access=true`.
+Les succès du worker produisent `REMOVED`; les échecs terminaux, Plans
+partiellement appliqués ou obsolètes produisent `INTERVENTION_REQUIRED`. Les
+erreurs transitoires de préparation suivent un retry exponentiel borné. La
+programmation, l'annulation, les échecs et le retrait sont audités.
+
+Les endpoints GET/PUT/DELETE sont tenant-scopés et exigent les capacités
+sensibles adaptées. Dans le détail d'une Policy ACTIVE, l'UI EN/FR/DE/ES expose
+1 h, 24 h, 7 jours, une date personnalisée, la reprogrammation, l'annulation,
+l'échéance et les états de préparation/retrait/intervention, avec accès au Plan
+de retrait. Elle n'appelle jamais APPLY et ne prétend jamais qu'une expiration
+locale a réussi.
+
+Preuves sur `76396fa` : 145 tests unitaires backend ciblés, 15 intégrations
+PostgreSQL Policy et l'intégration réelle du processus scheduler passent ; la
+suite frontend passe à 99/99 et 16 scénarios Chromium Policies/Presets sont
+verts. Ruff, mypy, build TypeScript/Vite, ESLint, i18n, OpenAPI et
+`git diff --check` passent. L'inspection Chromium 1440x900 et 390x844 confirme
+la lisibilité, l'absence d'overflow mobile, le menu hors-canvas fonctionnel et
+zéro violation axe sérieuse/critique. Aucun Discord live n'a été exécuté.
