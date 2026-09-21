@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -15,7 +16,9 @@ from did.domain.policies import (
     PolicyLifecycleError,
     PolicyLifecycleState,
     PolicyScopeType,
+    PolicyTemporaryAccess,
     PolicyVersion,
+    TemporaryAccessState,
 )
 from did.domain.read_model.models import ChannelType, GuildSnapshot, MemberSnapshot
 from did.infrastructure.policies_repository import PoliciesRepository, PolicyTargetNotFound
@@ -163,6 +166,62 @@ class PolicyService:
             await self._repository.get(guild_id, policy_id)
         return await self._repository.set_favorite(
             guild_id, actor_user_id, favorite_key, pinned=pinned
+        )
+
+    async def get_temporary_access(
+        self, guild_id: int, policy_id: UUID
+    ) -> PolicyTemporaryAccess | None:
+        await self._repository.get(guild_id, policy_id)
+        return await self._repository.get_temporary_access(guild_id, policy_id)
+
+    async def schedule_temporary_access(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        expires_at: datetime,
+        correlation_id: UUID,
+    ) -> PolicyTemporaryAccess:
+        policy = await self._repository.get(guild_id, policy_id)
+        if policy.lifecycle_state is not PolicyLifecycleState.ACTIVE:
+            raise PolicyLifecycleError("temporary access requires an ACTIVE Policy")
+        current_schedule = await self._repository.get_temporary_access(guild_id, policy_id)
+        if current_schedule and current_schedule.status in {
+            TemporaryAccessState.PROCESSING,
+            TemporaryAccessState.REMOVAL_SCHEDULED,
+        }:
+            raise PolicyLifecycleError("temporary access removal is already in progress")
+        if expires_at.tzinfo is None:
+            raise ValueError("expires_at must include a timezone")
+        normalized = expires_at.astimezone(UTC)
+        now = datetime.now(UTC)
+        if normalized < now + timedelta(minutes=5):
+            raise ValueError("temporary access must expire at least five minutes in the future")
+        if normalized > now + timedelta(days=366):
+            raise ValueError("temporary access cannot exceed one year")
+        return await self._repository.schedule_temporary_access(
+            guild_id=guild_id,
+            policy_id=policy_id,
+            actor_user_id=actor_user_id,
+            expires_at=normalized,
+            correlation_id=correlation_id,
+        )
+
+    async def cancel_temporary_access(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        correlation_id: UUID,
+    ) -> PolicyTemporaryAccess:
+        await self._repository.get(guild_id, policy_id)
+        return await self._repository.cancel_temporary_access(
+            guild_id=guild_id,
+            policy_id=policy_id,
+            actor_user_id=actor_user_id,
+            correlation_id=correlation_id,
         )
 
     async def create_draft(
@@ -443,9 +502,7 @@ class PolicyService:
         replacements: list[dict[str, Any]] = []
         for policy in policies:
             tags = tuple(
-                str(value)
-                for value in policy.metadata.get("tags", ())
-                if isinstance(value, str)
+                str(value) for value in policy.metadata.get("tags", ()) if isinstance(value, str)
             )
             kinds = tuple(
                 kind
@@ -471,9 +528,7 @@ class PolicyService:
             ):
                 replacements.append({"policy_id": policy.policy_id, "name": policy.name})
         own_tags = tuple(
-            str(value)
-            for value in current.metadata.get("tags", ())
-            if isinstance(value, str)
+            str(value) for value in current.metadata.get("tags", ()) if isinstance(value, str)
         )
         return PolicyDeletionDependencies(
             policy=current,
@@ -532,11 +587,15 @@ class PolicyService:
             raise PolicyLifecycleError("a deletion Plan is not valid for this strategy or state")
         metadata = dict(current.metadata)
         raw_tags = metadata.get("tags", ())
-        deletion_tags = [
-            str(value)
-            for value in raw_tags
-            if isinstance(value, str) and not value.startswith("deletion-")
-        ] if isinstance(raw_tags, list | tuple) else []
+        deletion_tags = (
+            [
+                str(value)
+                for value in raw_tags
+                if isinstance(value, str) and not value.startswith("deletion-")
+            ]
+            if isinstance(raw_tags, list | tuple)
+            else []
+        )
         deletion_tags.append(f"deletion-strategy:{strategy}")
         if replacement_policy_id is not None:
             deletion_tags.append(f"deletion-replacement:{replacement_policy_id}")

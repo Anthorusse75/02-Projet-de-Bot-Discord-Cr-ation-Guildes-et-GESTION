@@ -52,6 +52,7 @@ function driftPreview(mode: NonNullable<Harness['drift']>, accepted = false) {
 }
 
 async function install(page: Page, harness: Harness) {
+  let temporaryAccess: Record<string, unknown> | null = null
   await page.route('**/health/features', (route) => route.fulfill({ json: { features: { oauth: true, live_events: true, portability: true } } }))
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method(); const body = request.postDataJSON() ?? null
@@ -72,6 +73,15 @@ async function install(page: Page, harness: Harness) {
       if (update.pinned) favorites.add(update.favorite_key); else favorites.delete(update.favorite_key)
       harness.favorites = [...favorites]
       return route.fulfill({ json: { guild_id: GUILD, favorite_keys: harness.favorites } })
+    }
+    if (path.endsWith(`/policies/${POLICY}/temporary-access`) && method === 'GET') return route.fulfill({ json: { temporary_access: temporaryAccess } })
+    if (path.endsWith(`/policies/${POLICY}/temporary-access`) && method === 'PUT') {
+      temporaryAccess = { guild_id: GUILD, policy_id: POLICY, expires_at: (body as {expires_at:string}).expires_at, status: 'SCHEDULED', removal_plan_id: null, attempt_count: 0, last_error: null, created_at: '2026-09-21T08:00:00Z', updated_at: '2026-09-21T08:00:00Z', removal_started_at: null, completed_at: null }
+      return route.fulfill({ json: { temporary_access: temporaryAccess } })
+    }
+    if (path.endsWith(`/policies/${POLICY}/temporary-access`) && method === 'DELETE') {
+      temporaryAccess = { ...temporaryAccess, status: 'CANCELLED' }
+      return route.fulfill({ json: { temporary_access: temporaryAccess } })
     }
     if (path.endsWith('/policies') && method === 'GET') return route.fulfill({ json: { guild_id: GUILD, policies: harness.policies } })
     if (path.endsWith('/policies') && method === 'POST') { const created = policy({ ...(body as Record<string, unknown>), policy_id: harness.policies.length ? '66666666-6666-4666-8666-666666666666' : POLICY }); harness.policies.push(created); return route.fulfill({ status: 201, json: created }) }
@@ -201,6 +211,34 @@ test('@a11y separates reactions, thread creation and replies in threads without 
   ])
   expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
   const accessibility = await new AxeBuilder({ page }).include('.policy-editor-panel').analyze()
+  expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
+})
+
+test('@a11y schedules durable temporary access with shortcuts and no direct APPLY', async ({ page }) => {
+  const harness: Harness = { policies: [policy({ lifecycle_state: 'ACTIVE', revision: 3, activated_at: '2026-09-21T07:00:00Z' })], requests: [], drift: 'COMPLIANT' }
+  await install(page, harness)
+  await page.goto(`/guild/${GUILD}/policies?targetType=CHANNEL&targetId=${CHANNEL}`)
+  await page.getByRole('button', { name: /^Board access/ }).click()
+
+  const temporary = page.locator('.policy-temporary-access')
+  await expect(temporary.getByRole('heading', { name: 'Temporary access' })).toBeVisible()
+  await temporary.getByRole('button', { name: '1 hour' }).click()
+  await expect(temporary.getByText('Scheduled', { exact: true })).toBeVisible()
+  await expect(temporary.getByText(/Scheduled expiry:/)).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await page.getByRole('button', { name: /^Board access/ }).click()
+  await expect(page.locator('.policy-temporary-access').getByText('Scheduled', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }))).toEqual({ client: 390, scroll: 390 })
+  await expect(page.locator('.premium-sidebar')).not.toBeVisible()
+  await page.getByRole('button', { name: 'Open navigation menu' }).click()
+  await expect(page.locator('.premium-sidebar')).toBeVisible()
+  await page.getByRole('button', { name: 'Close navigation menu' }).click()
+  await expect(page.locator('.premium-sidebar')).not.toBeVisible()
+
+  expect(harness.requests.filter((item) => item.path.endsWith('/temporary-access') && item.method === 'PUT')).toHaveLength(1)
+  expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
+  const accessibility = await new AxeBuilder({ page }).include('.policy-temporary-access').analyze()
   expect(accessibility.violations.filter((item) => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([])
 })
 

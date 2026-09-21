@@ -6,6 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -135,7 +136,8 @@ async def policies_context() -> AsyncIterator[tuple[PoliciesRepository, PolicySe
                     },
                 )
         factory = async_sessionmaker(app_engine, expire_on_commit=False)
-        repository = PoliciesRepository(factory)
+        admin_factory = async_sessionmaker(admin_engine, expire_on_commit=False)
+        repository = PoliciesRepository(factory, admin_factory=admin_factory)
         yield repository, PolicyService(repository)
     finally:
         async with admin_engine.begin() as connection:
@@ -227,6 +229,85 @@ async def test_policy_favorites_persist_idempotently_and_isolate_user_and_guild(
     assert await service.set_favorite(GUILD_A, ACTOR_A, custom_a, pinned=False) == (
         "native:visible_only",
     )
+
+
+@pytest.mark.asyncio
+async def test_temporary_access_is_durable_audited_and_tenant_isolated(
+    policies_context,
+) -> None:
+    repository, service = policies_context
+    created = await _create(service, GUILD_A, ACTOR_A, "temporary-access")
+    repository.assert_activation_plan = AsyncMock(return_value={"id": uuid4()})  # type: ignore[method-assign]
+    active = await service.activate(
+        GUILD_A, created.policy_id, ACTOR_A, 1, "temporary-access-activate", uuid4()
+    )
+    expires_at = datetime.now(UTC) + timedelta(hours=24)
+    scheduled = await service.schedule_temporary_access(
+        guild_id=GUILD_A,
+        policy_id=active.policy_id,
+        actor_user_id=ACTOR_A,
+        expires_at=expires_at,
+        correlation_id=uuid4(),
+    )
+    assert scheduled.status.value == "SCHEDULED"
+    assert scheduled.expires_at == expires_at
+
+    # A fresh repository instance simulates a process restart: the schedule
+    # remains in PostgreSQL rather than in frontend/runtime memory.
+    factory = object.__getattribute__(repository, "_factory")
+    restarted = PolicyService(PoliciesRepository(factory))
+    persisted = await restarted.get_temporary_access(GUILD_A, active.policy_id)
+    assert persisted is not None and persisted.expires_at == expires_at
+    with pytest.raises(PolicyNotFound):
+        await restarted.get_temporary_access(GUILD_B, active.policy_id)
+
+    cancelled = await restarted.cancel_temporary_access(
+        guild_id=GUILD_A,
+        policy_id=active.policy_id,
+        actor_user_id=ACTOR_A,
+        correlation_id=uuid4(),
+    )
+    assert cancelled.status.value == "CANCELLED"
+
+    await restarted.schedule_temporary_access(
+        guild_id=GUILD_A,
+        policy_id=active.policy_id,
+        actor_user_id=ACTOR_A,
+        expires_at=expires_at,
+        correlation_id=uuid4(),
+    )
+    async with tenant_transaction(factory, TenantContext(GUILD_A)) as session:
+        audit_counts = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT event_type,count(*) FROM internal_audit_events "
+                        "WHERE target_id=:policy_id AND event_type LIKE "
+                        "'POLICY_TEMPORARY_ACCESS_%' GROUP BY event_type"
+                    ),
+                    {"policy_id": str(active.policy_id)},
+                )
+            ).all()
+        )
+    assert audit_counts == {
+        "POLICY_TEMPORARY_ACCESS_CANCELLED": 1,
+        "POLICY_TEMPORARY_ACCESS_SCHEDULED": 2,
+    }
+    admin_factory = object.__getattribute__(repository, "_admin_factory")
+    assert admin_factory is not None
+    async with admin_factory.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE policy_temporary_access SET next_attempt_at=now()-interval '1 second' "
+                "WHERE guild_id=:guild_id AND policy_id=:policy_id"
+            ),
+            {"guild_id": GUILD_A, "policy_id": active.policy_id},
+        )
+    after_restart = PoliciesRepository(factory, admin_factory=admin_factory)
+    claimed = await after_restart.claim_due_temporary_accesses(lease_owner="restart-proof")
+    assert [(item.guild_id, item.policy_id, item.status.value) for item in claimed] == [
+        (GUILD_A, active.policy_id, "PROCESSING")
+    ]
 
 
 @pytest.mark.asyncio

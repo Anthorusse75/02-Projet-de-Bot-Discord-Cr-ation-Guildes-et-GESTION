@@ -1591,6 +1591,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guilds/{guild_id}/policies/{policy_id}/temporary-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy Temporary Access */
+        get: operations["get_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_get"];
+        /** Schedule Policy Temporary Access */
+        put: operations["schedule_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_put"];
+        post?: never;
+        /** Cancel Policy Temporary Access */
+        delete: operations["cancel_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guilds/{guild_id}/policies/{policy_id}/unlock": {
         parameters: {
             query?: never;
@@ -3244,6 +3263,14 @@ export interface components {
          * @enum {string}
          */
         PolicyScopeType: "GUILD" | "LOGICAL_GROUP" | "CATEGORY" | "CHANNEL" | "ROLE" | "MEMBER" | "BOT" | "CAMPAIGN" | "TEMPLATE";
+        /** PolicyTemporaryAccessSchedule */
+        PolicyTemporaryAccessSchedule: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** PolicyTransition */
         PolicyTransition: {
             /** Expected Revision */
@@ -7366,6 +7393,112 @@ export interface operations {
                 "application/json": components["schemas"]["PolicyTransition"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schedule_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTemporaryAccessSchedule"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_policy_temporary_access_api_v1_guilds__guild_id__policies__policy_id__temporary_access_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                guild_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

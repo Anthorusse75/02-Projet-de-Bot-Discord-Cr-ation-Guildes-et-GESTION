@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from did.api.stage05 import _plan_response
 from did.application.policies.planning import drift_fingerprint
 from did.application.policies.service import BulkPolicyDraftDefinition, PolicyService
 from did.domain.auth import AuthorizationScope, Capability
-from did.domain.policies import Policy, PolicyScopeType, PolicyVersion
+from did.domain.policies import Policy, PolicyScopeType, PolicyTemporaryAccess, PolicyVersion
 
 router = APIRouter(prefix="/api/v1/guilds", tags=["policies"])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=160)]
@@ -93,6 +94,11 @@ class PolicyFavoriteUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     favorite_key: str = Field(min_length=8, max_length=128)
     pinned: bool
+
+
+class PolicyTemporaryAccessSchedule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expires_at: datetime
 
 
 MAX_MATRIX_ROLES = 50
@@ -199,6 +205,24 @@ def _policy(value: Policy) -> dict[str, Any]:
     }
 
 
+def _temporary_access(value: PolicyTemporaryAccess | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "guild_id": str(value.guild_id),
+        "policy_id": str(value.policy_id),
+        "expires_at": value.expires_at,
+        "status": value.status.value,
+        "removal_plan_id": str(value.removal_plan_id) if value.removal_plan_id else None,
+        "attempt_count": value.attempt_count,
+        "last_error": value.last_error,
+        "created_at": value.created_at,
+        "updated_at": value.updated_at,
+        "removal_started_at": value.removal_started_at,
+        "completed_at": value.completed_at,
+    }
+
+
 def _version(value: PolicyVersion) -> dict[str, Any]:
     return {
         "version_id": str(value.version_id),
@@ -273,6 +297,57 @@ async def get_policy(
     parsed = parse_snowflake(guild_id)
     await _authorize(parsed, session, container, Capability.POLICIES_READ)
     return _policy(await container.policies.get(parsed, policy_id))
+
+
+@router.get("/{guild_id}/policies/{policy_id}/temporary-access")
+async def get_policy_temporary_access(
+    guild_id: str, policy_id: UUID, session: CurrentSessionDep, container: ServicesDep
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_READ)
+    value = await container.policies.get_temporary_access(parsed, policy_id)
+    return {"temporary_access": _temporary_access(value)}
+
+
+@router.put("/{guild_id}/policies/{policy_id}/temporary-access")
+async def schedule_policy_temporary_access(
+    guild_id: str,
+    policy_id: UUID,
+    body: PolicyTemporaryAccessSchedule,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
+    await _authorize(parsed, session, container, Capability.PLANS_CREATE, sensitive=True)
+    value = await container.policies.schedule_temporary_access(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+        expires_at=body.expires_at,
+        correlation_id=UUID(str(request.state.correlation_id)),
+    )
+    return {"temporary_access": _temporary_access(value)}
+
+
+@router.delete("/{guild_id}/policies/{policy_id}/temporary-access")
+async def cancel_policy_temporary_access(
+    guild_id: str,
+    policy_id: UUID,
+    request: Request,
+    session: CsrfSessionDep,
+    container: ServicesDep,
+) -> dict[str, Any]:
+    parsed = parse_snowflake(guild_id)
+    await _authorize(parsed, session, container, Capability.POLICIES_ACTIVATE, sensitive=True)
+    value = await container.policies.cancel_temporary_access(
+        guild_id=parsed,
+        policy_id=policy_id,
+        actor_user_id=session.discord_user_id,
+        correlation_id=UUID(str(request.state.correlation_id)),
+    )
+    return {"temporary_access": _temporary_access(value)}
 
 
 @router.get("/{guild_id}/policies/{policy_id}/versions")
@@ -370,9 +445,7 @@ async def resolve_policy(
     assert isinstance(encoded, dict)
     encoded["conflict_explanations"] = jsonable_encoder(explained.conflict_explanations)
     encoded["blacklist_regrants"] = jsonable_encoder(explained.blacklist_regrants)
-    encoded["observable_access_conflict"] = jsonable_encoder(
-        explained.observable_access_conflict
-    )
+    encoded["observable_access_conflict"] = jsonable_encoder(explained.observable_access_conflict)
     return encoded
 
 
@@ -925,12 +998,9 @@ async def preview_policy_deletion(
             policy_id=policy_id,
             actor_user_id=session.discord_user_id,
         )
-    replacement_ids = {
-        value["policy_id"] for value in dependencies.available_replacements
-    }
+    replacement_ids = {value["policy_id"] for value in dependencies.available_replacements}
     selected_replacement_valid = (
-        body.replacement_policy_id is None
-        or body.replacement_policy_id in replacement_ids
+        body.replacement_policy_id is None or body.replacement_policy_id in replacement_ids
     )
     encoded = jsonable_encoder(dependencies)
     assert isinstance(encoded, dict)

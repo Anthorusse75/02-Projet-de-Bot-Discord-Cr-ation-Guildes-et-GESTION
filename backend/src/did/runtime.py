@@ -13,6 +13,10 @@ from did.application.planning import ApplyActorAuthorizer, PlanningService
 from did.application.policies.planning import PolicyPlanningService
 from did.application.policies.reconciler import PolicyReconcilerService
 from did.application.policies.service import PolicyService
+from did.application.policies.temporary_access import (
+    CompositePlanCompletion,
+    TemporaryAccessScheduler,
+)
 from did.application.reconciliation import (
     AdaptiveReconcilePolicy,
     DiscordSyncService,
@@ -172,9 +176,8 @@ async def run_process(
                 )
                 planning_repository = PlanningRepository(session_factory)
                 stage04_repository = Stage04Repository(session_factory)
-                policy_service = PolicyService(
-                    PoliciesRepository(session_factory), read_models=stage04_repository
-                )
+                policies_repository = PoliciesRepository(session_factory)
+                policy_service = PolicyService(policies_repository, read_models=stage04_repository)
                 policy_preflight = PolicyPlanningService(
                     policies=policy_service,
                     read_models=stage04_repository,
@@ -195,6 +198,14 @@ async def run_process(
                     policy_planning=policy_preflight,
                     planning=planning_service,
                 )
+                temporary_access = TemporaryAccessScheduler(
+                    repository=policies_repository,
+                    policies=policy_service,
+                    policy_planning=policy_preflight,
+                    planning=planning_service,
+                    planning_repository=planning_repository,
+                    lease_owner=f"temporary-access-worker-{worker_id}",
+                )
                 campaigns_repository = CampaignsRepository(session_factory)
                 message_sender = DiscordPyMessageSender(rest_client)
                 worker = DurableDiscordIOWorker(
@@ -212,7 +223,7 @@ async def run_process(
                         worker_id=worker_id,
                         authorization=ApplyActorAuthorizer(worker_authorization),
                         preflight=planning_service,
-                        completion=policy_reconciler,
+                        completion=CompositePlanCompletion(policy_reconciler, temporary_access),
                         post_verification=Stage08PostVerificationMaterializer(
                             Stage08LifecycleRepository(session_factory)
                         ),
@@ -299,9 +310,35 @@ async def run_process(
                 poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
                 routing_batch_size=settings.discord_runtime_routing_batch_size,
             )
-            runners: list[Awaitable[None]] = [scheduler.run(stop_event)]
+            admin_engine = create_database_engine(settings.database_admin_url.get_secret_value())
+            admin_factory = create_session_factory(admin_engine)
+            planning_repository = PlanningRepository(session_factory)
+            stage04_repository = Stage04Repository(session_factory)
+            policies_repository = PoliciesRepository(session_factory, admin_factory=admin_factory)
+            policy_service = PolicyService(policies_repository, read_models=stage04_repository)
+            policy_planning = PolicyPlanningService(
+                policies=policy_service, read_models=stage04_repository
+            )
+            planning_service = PlanningService(
+                planning_repository,
+                stage04_repository,
+                policy_preflight=policy_planning,
+            )
+            policy_planning.bind_planning(planning_service)
+            temporary_access_scheduler = TemporaryAccessScheduler(
+                repository=policies_repository,
+                policies=policy_service,
+                policy_planning=policy_planning,
+                planning=planning_service,
+                planning_repository=planning_repository,
+                lease_owner=f"temporary-access-scheduler-{uuid4().hex}",
+                poll_interval_seconds=settings.reconcile_scheduler_poll_seconds,
+            )
+            runners: list[Awaitable[None]] = [
+                scheduler.run(stop_event),
+                temporary_access_scheduler.run(stop_event),
+            ]
             scheduler_member: HttpDiscordMemberClient | None = None
-            admin_engine = None
             if settings.discord_bot_token is not None:
                 # Stage09 campaign scheduling shares the exact same
                 # live-authorization contract the "worker" process already
@@ -310,10 +347,6 @@ async def run_process(
                 # .CampaignGuildAuthorizationChecker. Without a configured
                 # bot token, only the pre-existing structural
                 # ReconcileScheduler runs, exactly as before this pass.
-                admin_engine = create_database_engine(
-                    settings.database_admin_url.get_secret_value()
-                )
-                admin_factory = create_session_factory(admin_engine)
                 campaigns_repository = CampaignsRepository(session_factory)
                 scheduler_member = HttpDiscordMemberClient(
                     bot_token=settings.discord_bot_token.get_secret_value()
@@ -362,8 +395,7 @@ async def run_process(
                 failure = await background_failure()
                 if scheduler_member is not None:
                     await scheduler_member.aclose()
-                if admin_engine is not None:
-                    await admin_engine.dispose()
+                await admin_engine.dispose()
                 await redis.aclose()
                 await engine.dispose()
                 if failure is not None:

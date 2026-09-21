@@ -409,6 +409,7 @@ class PolicyPlanningService:
         idempotency_key: str,
         correlation_id: UUID,
         expected_revision: int,
+        temporary_access: bool = False,
     ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         """REQ-AP-INH-003: compile preview_disable()'s simulation to the same
         canonical DSG/Plan/preflight pipeline as any other Policy Plan --
@@ -430,6 +431,7 @@ class PolicyPlanningService:
             correlation_id=correlation_id,
             expected_revision=expected_revision,
             simulate=PreviewSimulation.DISABLE,
+            temporary_access=temporary_access,
         )
 
     async def detect_drift(
@@ -644,6 +646,7 @@ class PolicyPlanningService:
         expected_revision: int,
         simulate: PreviewSimulation = PreviewSimulation.ACTIVATE,
         auto_reconcile: bool = False,
+        temporary_access: bool = False,
     ) -> tuple[PolicyPreview, dict[str, Any], bool, PreflightResult]:
         if preview.policy_revision != expected_revision:
             raise PolicyLifecycleError("Policy revision changed before Plan creation")
@@ -666,6 +669,7 @@ class PolicyPlanningService:
             "source_versions": list(preview.source_versions),
             "simulate": simulate.value,
             "auto_reconcile": auto_reconcile,
+            "temporary_access": temporary_access,
         }
         metadata["preview_fingerprint"] = canonical_hash(metadata)
         provenance = PlanProvenance.policy(

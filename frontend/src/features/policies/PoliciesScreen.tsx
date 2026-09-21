@@ -4,7 +4,7 @@ import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, usePolicyFavorites, useRoles, useStructure } from '../../api/queries'
-import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyFavorites, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyVersion } from '../../api/types'
+import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyFavorites, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyTemporaryAccess, PolicyVersion } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
 import { apiProblem } from './errors'
@@ -51,6 +51,10 @@ const emptyEditor = (): EditorState => ({
 })
 
 const lifecycleTone = { DRAFT: 'warning', ACTIVE: 'ok', DISABLED: 'neutral', RETIRED: 'danger' } as const
+
+function localDateTimeInput(value: Date): string {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
 
 function partialMember(value: string): string {
   return value.length <= 4 ? value : `…${value.slice(-4)}`
@@ -136,7 +140,8 @@ export function PoliciesScreen() {
   const canCreate = capabilities?.user_capabilities['policies.create']?.outcome ?? 'UNKNOWN'
   const canUpdate = capabilities?.user_capabilities['policies.update']?.outcome ?? 'UNKNOWN'
   const canRetire = capabilities?.user_capabilities['policies.retire']?.outcome ?? 'UNKNOWN'
-  const canPrepare = capabilities?.user_capabilities['policies.activate']?.outcome === 'CAN'
+  const canActivate = capabilities?.user_capabilities['policies.activate']?.outcome === 'CAN'
+  const canPrepare = canActivate
     && capabilities?.user_capabilities['plans.create']?.outcome === 'CAN'
   const policyWorkspaceEnabled = canRead === 'CAN'
   const policiesQuery = usePolicies(me.user.discord_user_id, guild.guild_id, policyWorkspaceEnabled)
@@ -197,6 +202,9 @@ export function PoliciesScreen() {
   const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
   const [favoriteBusy, setFavoriteBusy] = useState<string | null>(null)
   const [favoriteProblem, setFavoriteProblem] = useState<string | null>(null)
+  const [temporaryUntil, setTemporaryUntil] = useState(() => localDateTimeInput(new Date(Date.now() + 24 * 60 * 60 * 1000)))
+  const [temporaryBusy, setTemporaryBusy] = useState(false)
+  const [temporaryProblem, setTemporaryProblem] = useState<string | null>(null)
   const deleteDialogRef = useRef<HTMLDialogElement>(null)
   const appliedTargetRequest = useRef<string | null>(null)
 
@@ -290,6 +298,11 @@ export function PoliciesScreen() {
     queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy?.policy_id ?? 'none', 'drift', selectedPolicy?.revision ?? 0],
     queryFn: () => apiRequest<PolicyPreview>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy?.policy_id}/drift-preview`, { method: 'POST' }),
   })
+  const temporaryQuery = useQuery({
+    enabled: Boolean(selectedPolicy?.lifecycle_state === 'ACTIVE'),
+    queryKey: ['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy?.policy_id ?? 'none', 'temporary-access'],
+    queryFn: () => apiRequest<{ temporary_access: PolicyTemporaryAccess | null }>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy?.policy_id}/temporary-access`),
+  })
 
   function chooseNative(native: NativePolicy) {
     setSelection({ kind: 'NATIVE', native })
@@ -311,6 +324,29 @@ export function PoliciesScreen() {
       setZoneName(''); setZonePublicValue(''); setZoneStaffValue(''); setZoneFormOpen(false)
     } catch (error) { setZoneProblem(apiProblem(error, t)) }
     finally { setZoneBusy(false) }
+  }
+
+  async function scheduleTemporaryAccess(hours?: number) {
+    if (!selectedPolicy) return
+    const expiresAt = hours === undefined ? new Date(temporaryUntil) : new Date(Date.now() + hours * 60 * 60 * 1000)
+    if (Number.isNaN(expiresAt.getTime())) return
+    setTemporaryBusy(true); setTemporaryProblem(null)
+    try {
+      const result = await apiRequest<{ temporary_access: PolicyTemporaryAccess }>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/temporary-access`, { method: 'PUT', body: { expires_at: expiresAt.toISOString() } })
+      client.setQueryData(['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy.policy_id, 'temporary-access'], result)
+      setTemporaryUntil(localDateTimeInput(expiresAt))
+    } catch (error) { setTemporaryProblem(apiProblem(error, t)) }
+    finally { setTemporaryBusy(false) }
+  }
+
+  async function cancelTemporaryAccess() {
+    if (!selectedPolicy) return
+    setTemporaryBusy(true); setTemporaryProblem(null)
+    try {
+      const result = await apiRequest<{ temporary_access: PolicyTemporaryAccess }>(`/api/v1/guilds/${guild.guild_id}/policies/${selectedPolicy.policy_id}/temporary-access`, { method: 'DELETE' })
+      client.setQueryData(['did', me.user.discord_user_id, guild.guild_id, 'policies', selectedPolicy.policy_id, 'temporary-access'], result)
+    } catch (error) { setTemporaryProblem(apiProblem(error, t)) }
+    finally { setTemporaryBusy(false) }
   }
 
   function resetPresetForm() {
@@ -676,6 +712,9 @@ export function PoliciesScreen() {
   const interventionRequired = selectedPolicy?.metadata.tags.includes('reconciler:intervention_required') ?? false
   const lastRepairVerified = selectedPolicy?.metadata.tags.includes('reconciler:repaired') ?? false
   const driftUnknown = Boolean(drift && (drift.impact.accuracy !== 'EXACT' || driftedEntries.some((entry) => entry.current.outcome === 'UNKNOWN' || entry.proposed.outcome === 'UNKNOWN' || entry.proposed.outcome === 'BLOCKED')))
+  const temporaryAccess = temporaryQuery.data?.temporary_access ?? null
+  const temporaryEditable = !temporaryAccess || ['SCHEDULED', 'INTERVENTION_REQUIRED', 'CANCELLED'].includes(temporaryAccess.status)
+  const temporaryExpiryLabel = temporaryAccess ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(temporaryAccess.expires_at)) : ''
 
   return <section className="access-page policies-workbench">
     <header className="access-hero">
@@ -816,6 +855,26 @@ export function PoliciesScreen() {
         {!selection ? <div className="access-empty"><span>◇</span><p>{t('policies.editor.empty')}</p></div> : <>
           <div className="access-panel-heading"><div><small>{selection.kind === 'NATIVE' ? t('policies.origin.did') : t('policies.origin.custom')}</small><strong>{editor.name || t('policies.editor.untitled')}</strong></div>{selectedPolicy && <span className="policy-card-badges"><Badge tone={lifecycleTone[selectedPolicy.lifecycle_state]}>{t(`policies.lifecycle.${selectedPolicy.lifecycle_state}`)}</Badge>{selectedPolicy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span>}</div>
           {selectedPolicy?.lifecycle_state !== 'DRAFT' && <p className="access-callout warning">{t('policies.editor.immutable')}</p>}
+          {selectedPolicy?.lifecycle_state === 'ACTIVE' && <section className={`policy-temporary-access ${temporaryAccess?.status === 'INTERVENTION_REQUIRED' ? 'danger' : ''}`} aria-labelledby="policy-temporary-title">
+            <div className="policy-compliance-heading"><div><small>{t('policies.temporary.eyebrow')}</small><h2 id="policy-temporary-title">{t('policies.temporary.title')}</h2></div>{temporaryAccess && temporaryAccess.status !== 'CANCELLED' && <Badge tone={temporaryAccess.status === 'INTERVENTION_REQUIRED' ? 'danger' : temporaryAccess.status === 'REMOVED' ? 'ok' : 'warning'}>{t(`policies.temporary.status.${temporaryAccess.status}`)}</Badge>}</div>
+            {temporaryQuery.isLoading ? <p>{t('policies.temporary.loading')}</p> : temporaryQuery.isError ? <p className="access-callout danger" role="alert">{t('policies.temporary.loadFailed')}</p> : <>
+              {temporaryAccess && temporaryAccess.status !== 'CANCELLED' && <p>{t('policies.temporary.expires', { date: temporaryExpiryLabel })}</p>}
+              {temporaryAccess?.status === 'INTERVENTION_REQUIRED' && <p className="access-callout danger" role="alert">{t('policies.temporary.intervention', { reason: temporaryAccess.last_error ?? t('policies.temporary.unknownReason') })}</p>}
+              {temporaryAccess?.status === 'REMOVAL_SCHEDULED' || temporaryAccess?.status === 'PROCESSING' ? <p>{t('policies.temporary.removing')}</p> : null}
+              {temporaryEditable && <div className="policy-temporary-controls">
+                <p>{t('policies.temporary.help')}</p>
+                <div className="button-row" aria-label={t('policies.temporary.shortcuts')}>
+                  <button type="button" className="button quiet" disabled={temporaryBusy || !canPrepare} onClick={() => void scheduleTemporaryAccess(1)}>{t('policies.temporary.oneHour')}</button>
+                  <button type="button" className="button quiet" disabled={temporaryBusy || !canPrepare} onClick={() => void scheduleTemporaryAccess(24)}>{t('policies.temporary.oneDay')}</button>
+                  <button type="button" className="button quiet" disabled={temporaryBusy || !canPrepare} onClick={() => void scheduleTemporaryAccess(24 * 7)}>{t('policies.temporary.sevenDays')}</button>
+                </div>
+                <label className="field"><span>{t('policies.temporary.custom')}</span><input type="datetime-local" min={localDateTimeInput(new Date(Date.now() + 5 * 60 * 1000))} value={temporaryUntil} onChange={(event) => setTemporaryUntil(event.target.value)} /></label>
+                <div className="button-row"><button type="button" className="button primary" disabled={temporaryBusy || !canPrepare || !temporaryUntil} onClick={() => void scheduleTemporaryAccess()}>{t(temporaryAccess?.status === 'SCHEDULED' ? 'policies.temporary.reschedule' : 'policies.temporary.schedule')}</button>{temporaryAccess && ['SCHEDULED', 'INTERVENTION_REQUIRED'].includes(temporaryAccess.status) && <button type="button" className="button quiet" disabled={temporaryBusy || !canActivate} onClick={() => void cancelTemporaryAccess()}>{t('policies.temporary.cancel')}</button>}</div>
+              </div>}
+              {temporaryAccess?.removal_plan_id && <button type="button" className="button quiet" onClick={() => navigate(`/guild/${guild.guild_id}/plans`)}>{t('policies.temporary.openPlan')}</button>}
+            </>}
+            {temporaryProblem && <p className="access-callout danger" role="alert">{temporaryProblem}</p>}
+          </section>}
           {selectedPolicy?.lifecycle_state === 'ACTIVE' && <section className={`policy-compliance ${interventionRequired || driftUnknown ? 'danger' : driftedEntries.length ? 'warning' : 'ok'}`} aria-labelledby="policy-compliance-title">
             <div className="policy-compliance-heading"><div><small>{t('policies.drift.eyebrow')}</small><h2 id="policy-compliance-title">{t(interventionRequired || driftUnknown ? 'policies.drift.interventionTitle' : driftedEntries.length ? selectedPolicy.locked ? 'policies.drift.autoRepairTitle' : driftAccepted ? 'policies.drift.acceptedTitle' : 'policies.drift.detectedTitle' : 'policies.drift.compliantTitle')}</h2></div><Badge tone={interventionRequired || driftUnknown ? 'danger' : driftedEntries.length ? 'warning' : 'ok'}>{t(interventionRequired || driftUnknown ? 'policies.drift.interventionBadge' : driftedEntries.length ? 'policies.drift.driftBadge' : 'policies.drift.compliantBadge')}</Badge></div>
             {driftQuery.isLoading ? <p>{t('policies.drift.checking')}</p> : driftQuery.isError ? <p className="access-callout danger" role="alert">{t('policies.drift.checkFailed')}</p> : <>

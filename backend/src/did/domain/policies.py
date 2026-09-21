@@ -32,6 +32,15 @@ class PolicyScopeType(StrEnum):
     TEMPLATE = "TEMPLATE"
 
 
+class TemporaryAccessState(StrEnum):
+    SCHEDULED = "SCHEDULED"
+    PROCESSING = "PROCESSING"
+    REMOVAL_SCHEDULED = "REMOVAL_SCHEDULED"
+    REMOVED = "REMOVED"
+    INTERVENTION_REQUIRED = "INTERVENTION_REQUIRED"
+    CANCELLED = "CANCELLED"
+
+
 class PolicyLifecycleError(ValueError):
     """Raised when a Policy lifecycle transition is not allowed."""
 
@@ -110,3 +119,19 @@ class PolicyVersion:
     correlation_id: UUID
     idempotency_key: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyTemporaryAccess:
+    guild_id: int
+    policy_id: UUID
+    expires_at: datetime
+    status: TemporaryAccessState
+    created_by_user_id: int
+    removal_plan_id: UUID | None = None
+    attempt_count: int = 0
+    last_error: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    removal_started_at: datetime | None = None
+    completed_at: datetime | None = None

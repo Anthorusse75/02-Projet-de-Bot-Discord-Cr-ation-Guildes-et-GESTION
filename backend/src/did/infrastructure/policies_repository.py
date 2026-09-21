@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -13,7 +13,9 @@ from did.domain.policies import (
     PolicyLifecycleError,
     PolicyLifecycleState,
     PolicyScopeType,
+    PolicyTemporaryAccess,
     PolicyVersion,
+    TemporaryAccessState,
 )
 from did.infrastructure.database import tenant_transaction
 from did.tenancy import TenantContext
@@ -49,8 +51,14 @@ class PolicyTargetNotFound(LookupError):
 class PoliciesRepository:
     """Short-transaction persistence for current Policies and append-only history."""
 
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        *,
+        admin_factory: async_sessionmaker[AsyncSession] | None = None,
+    ) -> None:
         self._factory = factory
+        self._admin_factory = admin_factory
 
     async def list(self, guild_id: int) -> tuple[Policy, ...]:
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -174,6 +182,283 @@ class PoliciesRepository:
             ).scalars()
             return tuple(str(value) for value in values)
 
+    async def get_temporary_access(
+        self, guild_id: int, policy_id: UUID
+    ) -> PolicyTemporaryAccess | None:
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM policy_temporary_access "
+                            "WHERE guild_id=:guild_id AND policy_id=:policy_id"
+                        ),
+                        {"guild_id": guild_id, "policy_id": policy_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return None if row is None else self._temporary_access(row)
+
+    async def schedule_temporary_access(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        expires_at: datetime,
+        correlation_id: UUID,
+    ) -> PolicyTemporaryAccess:
+        now = datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "INSERT INTO policy_temporary_access "
+                            "(guild_id,policy_id,expires_at,status,next_attempt_at,created_by_user_id,"
+                            "created_at,updated_at) VALUES "
+                            "(:guild_id,:policy_id,:expires_at,'SCHEDULED',:expires_at,:actor,"
+                            ":now,:now) "
+                            "ON CONFLICT (guild_id,policy_id) DO UPDATE SET "
+                            "expires_at=EXCLUDED.expires_at,status='SCHEDULED',"
+                            "removal_plan_id=NULL,attempt_count=0,next_attempt_at=EXCLUDED.expires_at,"
+                            "lease_owner=NULL,lease_expires_at=NULL,last_error=NULL,"
+                            "created_by_user_id=EXCLUDED.created_by_user_id,updated_at=:now,"
+                            "removal_started_at=NULL,completed_at=NULL RETURNING *"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "policy_id": policy_id,
+                            "expires_at": expires_at,
+                            "actor": actor_user_id,
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await self._temporary_access_audit(
+                session,
+                guild_id=guild_id,
+                policy_id=policy_id,
+                actor_user_id=actor_user_id,
+                event_type="POLICY_TEMPORARY_ACCESS_SCHEDULED",
+                result_state="SUCCEEDED",
+                correlation_id=correlation_id,
+                data={"expires_at": expires_at.isoformat()},
+                now=now,
+            )
+        return self._temporary_access(row)
+
+    async def cancel_temporary_access(
+        self,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        correlation_id: UUID,
+    ) -> PolicyTemporaryAccess:
+        now = datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE policy_temporary_access SET status='CANCELLED',updated_at=:now,"
+                            "lease_owner=NULL,lease_expires_at=NULL WHERE guild_id=:guild_id "
+                            "AND policy_id=:policy_id "
+                            "AND status IN ('SCHEDULED','INTERVENTION_REQUIRED') "
+                            "RETURNING *"
+                        ),
+                        {"guild_id": guild_id, "policy_id": policy_id, "now": now},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise PolicyConflict("temporary access cannot be cancelled in its current state")
+            await self._temporary_access_audit(
+                session,
+                guild_id=guild_id,
+                policy_id=policy_id,
+                actor_user_id=actor_user_id,
+                event_type="POLICY_TEMPORARY_ACCESS_CANCELLED",
+                result_state="SUCCEEDED",
+                correlation_id=correlation_id,
+                data={},
+                now=now,
+            )
+        return self._temporary_access(row)
+
+    async def claim_due_temporary_accesses(
+        self, *, lease_owner: str, limit: int = 20, lease_seconds: int = 60
+    ) -> tuple[PolicyTemporaryAccess, ...]:
+        if self._admin_factory is None:
+            raise RuntimeError("admin factory is required to claim cross-tenant expirations")
+        now = datetime.now(UTC)
+        lease_until = now + timedelta(seconds=lease_seconds)
+        async with self._admin_factory.begin() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "WITH due AS (SELECT guild_id,policy_id FROM policy_temporary_access "
+                            "WHERE status IN ('SCHEDULED','PROCESSING','REMOVAL_SCHEDULED') "
+                            "AND next_attempt_at<=:now "
+                            "AND (lease_expires_at IS NULL OR lease_expires_at<=:now) "
+                            "ORDER BY next_attempt_at,guild_id,policy_id FOR UPDATE SKIP LOCKED "
+                            "LIMIT :limit) UPDATE policy_temporary_access item SET "
+                            "status='PROCESSING',lease_owner=:lease_owner,"
+                            "lease_expires_at=:lease_until,updated_at=:now FROM due "
+                            "WHERE item.guild_id=due.guild_id AND item.policy_id=due.policy_id "
+                            "RETURNING item.*"
+                        ),
+                        {
+                            "now": now,
+                            "limit": limit,
+                            "lease_owner": lease_owner,
+                            "lease_until": lease_until,
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(self._temporary_access(row) for row in rows)
+
+    async def mark_temporary_removal_scheduled(
+        self, *, guild_id: int, policy_id: UUID, plan_id: UUID
+    ) -> PolicyTemporaryAccess:
+        now = datetime.now(UTC)
+        recovery_at = now + timedelta(minutes=5)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE policy_temporary_access SET status='REMOVAL_SCHEDULED',"
+                            "removal_plan_id=:plan_id,"
+                            "removal_started_at=COALESCE(removal_started_at,:now),"
+                            "next_attempt_at=:recovery_at,lease_owner=NULL,lease_expires_at=NULL,"
+                            "updated_at=:now "
+                            "WHERE guild_id=:guild_id AND policy_id=:policy_id RETURNING *"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "policy_id": policy_id,
+                            "plan_id": plan_id,
+                            "now": now,
+                            "recovery_at": recovery_at,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return self._temporary_access(row)
+
+    async def mark_temporary_failure(
+        self, *, guild_id: int, policy_id: UUID, error: str, max_attempts: int = 3
+    ) -> PolicyTemporaryAccess:
+        now = datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            current = await session.execute(
+                text(
+                    "SELECT attempt_count FROM policy_temporary_access "
+                    "WHERE guild_id=:guild_id AND policy_id=:policy_id FOR UPDATE"
+                ),
+                {"guild_id": guild_id, "policy_id": policy_id},
+            )
+            attempts = int(current.scalar_one()) + 1
+            terminal = attempts >= max_attempts
+            next_attempt = now + timedelta(seconds=min(300, 2**attempts * 5))
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE policy_temporary_access SET status=:status,"
+                            "attempt_count=:attempts,"
+                            "next_attempt_at=:next_attempt,last_error=:error,lease_owner=NULL,"
+                            "lease_expires_at=NULL,updated_at=:now WHERE guild_id=:guild_id "
+                            "AND policy_id=:policy_id RETURNING *"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "policy_id": policy_id,
+                            "status": "INTERVENTION_REQUIRED" if terminal else "SCHEDULED",
+                            "attempts": attempts,
+                            "next_attempt": next_attempt,
+                            "error": error[:160],
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            await self._temporary_access_audit(
+                session,
+                guild_id=guild_id,
+                policy_id=policy_id,
+                actor_user_id=1,
+                event_type="POLICY_TEMPORARY_ACCESS_REMOVAL_FAILED",
+                result_state="FAILED" if terminal else "RETRY_SCHEDULED",
+                correlation_id=uuid4(),
+                data={"attempt_count": attempts, "error": error[:160]},
+                now=now,
+            )
+        return self._temporary_access(row)
+
+    async def mark_temporary_plan_outcome(
+        self, *, guild_id: int, plan_id: UUID, succeeded: bool, error: str | None = None
+    ) -> None:
+        now = datetime.now(UTC)
+        async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            "UPDATE policy_temporary_access SET status=:status,last_error=:error,"
+                            "completed_at=CASE WHEN :succeeded THEN :now ELSE completed_at END,"
+                            "lease_owner=NULL,lease_expires_at=NULL,updated_at=:now "
+                            "WHERE guild_id=:guild_id AND removal_plan_id=:plan_id "
+                            "RETURNING policy_id"
+                        ),
+                        {
+                            "guild_id": guild_id,
+                            "plan_id": plan_id,
+                            "status": "REMOVED" if succeeded else "INTERVENTION_REQUIRED",
+                            "error": error,
+                            "succeeded": succeeded,
+                            "now": now,
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                return
+            await self._temporary_access_audit(
+                session,
+                guild_id=guild_id,
+                policy_id=UUID(str(row["policy_id"])),
+                actor_user_id=1,
+                event_type=(
+                    "POLICY_TEMPORARY_ACCESS_REMOVED"
+                    if succeeded
+                    else "POLICY_TEMPORARY_ACCESS_REMOVAL_FAILED"
+                ),
+                result_state="SUCCEEDED" if succeeded else "FAILED",
+                correlation_id=uuid4(),
+                data={"plan_id": str(plan_id), **({} if error is None else {"error": error})},
+                now=now,
+            )
+
     async def assert_activation_plan(
         self,
         *,
@@ -251,9 +536,7 @@ class PoliciesRepository:
             )
         return dict(row)
 
-    async def plan_dependencies(
-        self, guild_id: int, policy_id: UUID
-    ) -> tuple[dict[str, Any], ...]:
+    async def plan_dependencies(self, guild_id: int, policy_id: UUID) -> tuple[dict[str, Any], ...]:
         """Return immutable Plan provenance without crossing the active tenant."""
 
         async with tenant_transaction(self._factory, TenantContext(guild_id)) as session:
@@ -675,6 +958,39 @@ class PoliciesRepository:
         )
 
     @staticmethod
+    async def _temporary_access_audit(
+        session: AsyncSession,
+        *,
+        guild_id: int,
+        policy_id: UUID,
+        actor_user_id: int,
+        event_type: str,
+        result_state: str,
+        correlation_id: UUID,
+        data: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        await session.execute(
+            text(
+                "INSERT INTO internal_audit_events (id,guild_id,actor_user_id,source,event_type,"
+                "target_type,target_id,correlation_id,result_state,data_json,occurred_at) VALUES "
+                "(:id,:guild_id,:actor,'SYSTEM',:event_type,'POLICY',:target_id,"
+                ":correlation_id,:result_state,CAST(:data AS jsonb),:now)"
+            ),
+            {
+                "id": uuid4(),
+                "guild_id": guild_id,
+                "actor": actor_user_id,
+                "event_type": event_type,
+                "target_id": str(policy_id),
+                "correlation_id": correlation_id,
+                "result_state": result_state,
+                "data": json.dumps(data, separators=(",", ":")),
+                "now": now,
+            },
+        )
+
+    @staticmethod
     def _write_params(policy: Policy) -> dict[str, object]:
         return {
             "policy_id": policy.policy_id,
@@ -743,6 +1059,27 @@ class PoliciesRepository:
             activated_at=row["activated_at"],
             disabled_at=row["disabled_at"],
             retired_at=row["retired_at"],
+        )
+
+    @staticmethod
+    def _temporary_access(row: Any) -> PolicyTemporaryAccess:
+        return PolicyTemporaryAccess(
+            guild_id=int(row["guild_id"]),
+            policy_id=UUID(str(row["policy_id"])),
+            expires_at=row["expires_at"],
+            status=TemporaryAccessState(str(row["status"])),
+            created_by_user_id=int(row["created_by_user_id"]),
+            removal_plan_id=(
+                UUID(str(row["removal_plan_id"]))
+                if row.get("removal_plan_id") is not None
+                else None
+            ),
+            attempt_count=int(row["attempt_count"]),
+            last_error=str(row["last_error"]) if row.get("last_error") is not None else None,
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+            removal_started_at=row.get("removal_started_at"),
+            completed_at=row.get("completed_at"),
         )
 
     @staticmethod

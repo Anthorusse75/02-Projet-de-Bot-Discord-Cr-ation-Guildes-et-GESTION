@@ -149,11 +149,19 @@ class ApplyPlanExecutor:
         )
         plan = await self._repository.get_plan(guild_id, plan_id)
         origin_metadata = dict(plan.get("origin_metadata") or {})
-        automatic_policy_repair = (
+        automatic_policy_operation = (
             actor_user_id == POLICY_RECONCILER_ACTOR_ID
             and str(plan.get("origin_type")) == "POLICY"
-            and origin_metadata.get("simulate") == "REASSERT"
-            and origin_metadata.get("auto_reconcile") is True
+            and (
+                (
+                    origin_metadata.get("simulate") == "REASSERT"
+                    and origin_metadata.get("auto_reconcile") is True
+                )
+                or (
+                    origin_metadata.get("simulate") == "DISABLE"
+                    and origin_metadata.get("temporary_access") is True
+                )
+            )
         )
         try:
 
@@ -162,7 +170,7 @@ class ApplyPlanExecutor:
                     guild_id=guild_id, actor_user_id=actor_user_id
                 )
 
-            if not automatic_policy_repair:
+            if not automatic_policy_operation:
                 (
                     await governor.run_distributed(guild_id, authorize_actor)
                     if governor is not None
