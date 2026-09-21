@@ -23,10 +23,10 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: d49c0f3 (feat(policies): add dependency-safe deletion)
+Current HEAD: a6f058b (feat(policies): add contextual access actions)
 
-Current independently verified SHA: `d49c0f3` (P4-T017 completion).
-P4-T018 is the active atomic task.
+Current independently verified SHA: `a6f058b` (P4-T018 completion).
+P4-T019 is the active atomic task.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -768,37 +768,43 @@ display, strategy selection, separate Plan routing, axe, mobile overflow and
 zero APPLY. Product commit: `d49c0f3`.
 
 ### P4-T018 — Context menus: "Gérer l'accès" + bulk policy actions
-Status: IN_PROGRESS
+Status: DONE
 Purpose: REQ-AP-BULK-004 (SHOULD), REQ-AP-UX-004 (MUST). Reuse the existing
 Action Registry — do not build a second context-menu system.
 Requirements: REQ-AP-UX-004 (from a category/channel, "Gérer l'accès" must
 appear before technical role/permission entries in the context menu),
 REQ-AP-BULK-004 (from a multi-selection, frequent Policy actions if
 genuinely compatible).
-Already implemented: canonical Action Registry (Phase 3) with a structural
-bulk "move channels" action; Access Matrix bulk policy pipeline (P4-T007).
-Remaining: register "Gérer l'accès" as a high-priority entry in the existing
-category/channel context menu (opens Policies scoped to that target); for
-multi-selection, only surface bulk Policy actions when the current
-selection is a valid category/channel mix the Matrix bulk pipeline already
-supports — reuse it, don't duplicate.
-NEXT EXACT ACTION:
-1. Locate the canonical Action Registry (Phase 3 structure explorer) and its
-   ordering/priority mechanism.
-2. Add "Gérer l'accès" entry (single target) navigating to Policies
-   pre-scoped to that target, ordered before technical entries.
-3. Add a multi-selection entry that opens the existing Access Matrix bulk
-   flow pre-seeded with the current selection, reusing bulk-preview/bulk-plan
-   — no new bulk engine.
-4. Targeted unit/interaction test + 1 Playwright for each entry point.
+Implementation: `manage_access` and `manage_access_bulk` are registered first
+in the Phase 3 canonical Action Registry. A single category/channel navigates
+to Policies with an exact tenant/type/id scope; the Policies target selector
+applies that scope after its cache-first resources load. A selection of two
+to 150 categories/channels from one Guild exposes the bulk entry and routes
+to the existing Access Matrix, whose existing bulk-preview/bulk-plan UI is
+pre-seeded with only valid resource IDs. Mixed selections containing another
+resource kind and cross-Guild selections remain rejected. Capability checks
+require `policies.read`, plus `permissions.read` for Matrix bulk. No second
+menu, resolver, bulk engine, backend endpoint, Discord call or APPLY path was
+introduced. Labels are complete in EN/FR/DE/ES.
+Requirements: REQ-AP-UX-004 → CONFORME; REQ-AP-BULK-004 → CONFORME.
+Evidence: 12 interaction unit tests including exact routes/order/mixed source;
+the full frontend suite is 98/98 PASS. Twenty-seven Structure/Policies/Matrix
+Playwright scenarios plus the reapply regression scenario PASS; the new cases
+prove first-position single action, exact target scope, mixed category/channel
+bulk-only menu and checked Matrix preselection. TypeScript production build,
+ESLint, i18n and `git diff --check` PASS. Two pre-existing Phase 4 lint defects
+(unsafe numeric Snowflake fixtures and non-null assertions) and one stale
+Structure label assertion were corrected without weakening coverage. Product
+commit: `a6f058b`.
 
 ### P4-T019 — Policy favorites (per Guild)
-Status: TODO
+Status: IN_PROGRESS
 Purpose: REQ-AP-UX-007 (SHOULD). Explicitly not prioritized above UI,
 locking, temporary access or conflicts — do last, only if it stays light.
-NEXT EXACT ACTION: implement only after P4-T010..T018 (or explicitly
-DEFERRED with justification if session time runs out) — a simple per-Guild
-pinned-policy-ids preference, surfaced at the top of the catalog/list.
+NEXT EXACT ACTION: inspect the existing per-user/per-Guild preference storage
+and Policy list ordering, then implement the lightest tenant-safe
+`pinned-policy-ids` preference surfaced at the top of the custom Policy list,
+with EN/FR/DE/ES controls and focused persistence/isolation/UI tests.
 
 ### P4-T020 — Writing advanced: reactions/threads/replies completion
 Status: TODO (currently PARTIAL per P4-T008)
@@ -831,14 +837,14 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-19, after P4-T017 completion and P4-T018 start.
+Last updated: 2026-09-21, after P4-T018 completion and P4-T019 start.
 
-Current HEAD: `d49c0f3` (`feat(policies): add dependency-safe deletion`).
+Current HEAD: `a6f058b` (`feat(policies): add contextual access actions`).
 
-Worktree state: only P4-T017 closure documentation is pending.
+Worktree state: only P4-T018 closure documentation is pending.
 
-Tasks DONE: P4-T014 through P4-T017. Task IN_PROGRESS: P4-T018 — reuse the
-canonical Action Registry for access-management context-menu entries.
+Tasks DONE: P4-T014 through P4-T018. Task IN_PROGRESS: P4-T019 — add the
+lightweight per-Guild Policy favorites requested by REQ-AP-UX-007.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -879,10 +885,15 @@ tests and 14 targeted Playwright scenarios PASS, plus Ruff, mypy, TypeScript,
 i18n, OpenAPI, targeted ESLint, diff check, desktop/mobile and axe. Product
 commit `d49c0f3` is pushed.
 
-NEXT EXACT ACTION: locate the Phase 3 canonical Action Registry and its
-ordering contract, then add a high-priority single-target “Gérer l’accès”
-navigation entry before evaluating whether the existing Matrix bulk pipeline
-can safely accept the current multi-selection.
+P4-T018 evidence: 12 interaction unit tests and the full 98-test frontend
+suite PASS; 27 Structure/Policies/Matrix Playwright scenarios plus one reapply
+regression PASS. TypeScript production build, ESLint, i18n and diff check pass.
+The single action is first and target-scoped; the mixed category/channel action
+reuses the existing Matrix bulk flow with exact preselection. Product commit
+`a6f058b` is pushed.
+
+NEXT EXACT ACTION: inspect preference persistence and Policy list ordering for
+P4-T019, then add a minimal tenant-safe pin/unpin control and focused tests.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 

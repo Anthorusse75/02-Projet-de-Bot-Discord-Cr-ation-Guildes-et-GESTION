@@ -1068,3 +1068,28 @@ Preuves sur `d49c0f3` : 93 tests unitaires backend Policy, 13 intégrations
 PostgreSQL réelles et 14 scénarios Playwright ciblés passent. Ruff, mypy,
 `git diff --check`, TypeScript, i18n, OpenAPI et ESLint ciblé passent. Zéro
 migration, zéro Discord live et zéro APPLY.
+
+## 23. Actions contextuelles d’accès et sélection en lot — 2026-09-21
+
+P4-T018 ferme `REQ-AP-UX-004` et `REQ-AP-BULK-004` sans créer de second menu
+contextuel ni de second moteur en lot. Les actions `manage_access` et
+`manage_access_bulk` vivent dans l’Action Registry canonique de la Phase 3.
+« Gérer l’accès » est la première action d’une catégorie ou d’un salon et
+ouvre Policies avec le type et l’identifiant exacts dans l’URL ; la cible est
+sélectionnée après le chargement cache-first des ressources.
+
+Pour deux à 150 catégories/salons d’une même Guild, « Gérer les accès
+sélectionnés » ouvre la Matrix existante et coche les ressources valides avant
+toute opération. Le parcours réutilise donc strictement `bulk-preview` et
+`bulk-plan`. Les sélections mêlant un autre type de ressource, les sélections
+inter-Guild et les capacités insuffisantes restent refusées. Aucun endpoint,
+resolver, moteur de Plan, appel Discord ou APPLY n’a été ajouté. Les libellés
+sont présents en EN/FR/DE/ES.
+
+Preuves sur `a6f058b` : 12 tests unitaires d’interaction et la suite frontend
+complète (98/98) passent. Vingt-sept scénarios Playwright Structure/Policies/
+Matrix, plus un scénario de non-régression reapply, passent. Les nouveaux
+scénarios couvrent l’ordre prioritaire, les routes tenant-scopées, la cible
+Policies exacte, le menu bulk-only pour une sélection mixte valide et la
+pré-sélection cochée dans Matrix. Build TypeScript/Vite, ESLint, i18n et
+`git diff --check` passent. Zéro migration, zéro Discord live et zéro APPLY.
