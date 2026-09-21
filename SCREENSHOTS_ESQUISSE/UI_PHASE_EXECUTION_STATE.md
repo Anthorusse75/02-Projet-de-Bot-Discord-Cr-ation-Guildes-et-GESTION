@@ -23,10 +23,11 @@ Branch: ui/complete-redesign
 Phase baseline SHA: 8b77bb9 (feat(ui): add access policies workspace — first
 Phase 4 reopening commit after the initial permissions socle)
 
-Current HEAD: 3fe438f (feat(policies): add per-guild favorites)
+Current HEAD: d94b1a0 (feat(policies): separate advanced writing controls)
 
-Current independently verified SHA: `3fe438f` (P4-T019 completion).
-P4-T020 is the active atomic task.
+Current independently verified SHA: `d94b1a0` (P4-T020 completion).
+P4-T012 is the next functional atomic task; P4-UI-000 remains open for the
+final visual acceptance pass.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
 completed and independently revalidated on `ui/complete-redesign`.
@@ -815,19 +816,38 @@ OpenAPI and diff check pass. Migration `0041_ui_phase4` applied successfully.
 Product commit: `3fe438f`.
 
 ### P4-T020 — Writing advanced: reactions/threads/replies completion
-Status: IN_PROGRESS (currently PARTIAL per P4-T008)
+Status: DONE
 Purpose: Close REQ-AP-WRI-022 and REQ-AP-PRS-013 fully — re-inspect exactly
 what the reply/thread primitives can honestly support before promising
 anything.
-NEXT EXACT ACTION:
-1. Re-inspect current reaction/thread option coverage in the catalog
-   (`features/policies/catalog.ts`) and backend registry to see precisely
-   what's missing for "replies" specifically (Discord has no granular
-   "reply" permission separate from SEND_MESSAGES_IN_THREADS — verify this
-   before promising a control that Discord cannot express).
-2. Close only what the primitives genuinely allow; if a sub-option cannot be
-   honestly built (Discord limitation), document it the same way
-   REQ-AP-REA-001/MEN-001 were documented in P4-T008, not silently dropped.
+Requirements: REQ-AP-WRI-022 and REQ-AP-PRS-013 → CONFORME within Discord's
+real permission model. Discord exposes `ADD_REACTIONS`,
+`CREATE_PUBLIC_THREADS`/`CREATE_PRIVATE_THREADS`, and
+`SEND_MESSAGES_IN_THREADS`; it does not expose a distinct permission for a
+reply sent in the main channel. The UI therefore labels the third control
+"Replies in threads" and explicitly explains that main-channel replies still
+follow the publishing permission. Official sources:
+https://github.com/discord/discord-api-docs/blob/main/developers/topics/permissions.mdx
+and
+https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx.
+Implementation: the native "Open reading, publishing limited to..." Policy
+and the Announcement preset now expose three independent, intention-first
+controls for reactions, thread creation and thread replies. The new reply
+control reuses the canonical `PARTICIPATE_THREAD` access primitive, which the
+existing backend registry and compiler already map to
+`SEND_MESSAGES_IN_THREADS`; no backend capability, resolver or mutation path
+was duplicated. `ONLY` preset sub-rules fail closed until at least one
+publisher is selected, preventing an empty audience from producing an invalid
+definition. All copy is available in EN/FR/DE/ES.
+Evidence: full frontend suite 99/99 PASS; 40 targeted backend Policy
+foundation/planning tests PASS; 15 Policies/Presets Playwright scenarios PASS,
+including exact generated effects, axe and zero APPLY; focused new Playwright
+tests 2/2 PASS. TypeScript/Vite build, ESLint, i18n and `git diff --check`
+PASS. The new panel was visually inspected from a real Chromium render and is
+legible and consistent with Esquisse 1. Product commit: `d94b1a0`.
+Known limitation: Discord's main-channel reply is an ordinary message with a
+message reference, so it cannot be permissioned separately from publishing.
+The product states this limitation instead of presenting a fake control.
 
 ---
 
@@ -845,15 +865,15 @@ P4-T014 designs before writing code for those two tasks.
 
 ## Handoff notes (update before every stop)
 
-Last updated: 2026-09-21, after P4-T019 completion and P4-T020 start.
+Last updated: 2026-09-21, after P4-T020 completion.
 
-Current HEAD: `3fe438f` (`feat(policies): add per-guild favorites`).
+Current HEAD: `d94b1a0` (`feat(policies): separate advanced writing controls`).
 
-Worktree state: only P4-T019 closure documentation is pending.
+Worktree state: only P4-T020 closure documentation is pending.
 
-Tasks DONE: P4-T014 through P4-T019. Task IN_PROGRESS: P4-T020 — audit and
-complete the honest reactions/threads/replies coverage requested by
-REQ-AP-WRI-022 and REQ-AP-PRS-013.
+Tasks DONE: P4-T014 through P4-T020. P4-T012 remains the only functional
+backlog task not completed; P4-UI-000 remains IN_PROGRESS until the final
+visual acceptance list is fully covered.
 
 Docker/Postgres test env: currently running for the P4-T017 follow-on. Before
 any future integration test if it has been torn down:
@@ -908,10 +928,17 @@ isolated by both Guild and user under forced RLS; compatible native/custom
 favorites stay first after reload. TypeScript/Vite, ESLint, i18n, OpenAPI,
 targeted Ruff/mypy and diff check pass. Product commit `3fe438f` is pushed.
 
-NEXT EXACT ACTION: for P4-T020, re-audit the existing reaction/thread controls
-and backend registry against the official Discord permissions model, then
-close only the writable/reply behavior Discord can actually express without
-inventing a separate reply permission.
+P4-T020 evidence: full frontend suite 99/99, 40 targeted backend Policy tests,
+15 Policies/Presets Playwright scenarios and the 2 focused new scenarios all
+PASS. TypeScript/Vite, ESLint, i18n and diff check pass. The real Chromium
+render is visually accepted, axe reports no serious/critical violation and
+the scenarios make zero APPLY calls. Product commit `d94b1a0` is pushed.
+
+NEXT EXACT ACTION: resume P4-T012 from the persisted scheduler/reconciler
+research below. Re-audit current files first, then implement durable temporary
+access through the canonical Policy → Preview → Plan → worker path only. Keep
+P4-UI-000 open and visually inspect every new temporary-access state before
+Phase 4 closure.
 
 ## Reconciler/scheduler research findings (for P4-T012 and P4-T014)
 

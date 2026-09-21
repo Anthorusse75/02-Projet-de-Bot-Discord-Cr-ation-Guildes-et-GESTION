@@ -1118,3 +1118,30 @@ idempotence, isolation inter-utilisateur, isolation inter-Guild et refus d’une
 Policy personnalisée étrangère. Migration `0041_ui_phase4`, Ruff/mypy ciblés,
 build TypeScript/Vite, ESLint, i18n, OpenAPI et `git diff --check` passent.
 Zéro Discord live et zéro mutation Discord.
+
+## 25. Écriture avancée : réactions, threads et réponses — 2026-09-21
+
+P4-T020 ferme `REQ-AP-WRI-022` et complète `REQ-AP-PRS-013` dans les limites
+réelles de Discord. Le modèle officiel distingue les réactions, la création de
+threads et l'envoi de messages dans les threads. En revanche, une réponse dans
+le salon principal reste un message ordinaire avec une référence et ne possède
+pas de permission autonome. L'interface expose donc honnêtement « Réponses dans
+les threads » et précise que les réponses dans le salon principal suivent la
+permission de publication. Références officielles : [Permissions Discord](https://github.com/discord/discord-api-docs/blob/main/developers/topics/permissions.mdx)
+et [ressource Message](https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx).
+
+La Policy native « lecture ouverte, publication limitée » et le preset Salon
+d'annonces proposent désormais trois sélecteurs indépendants : réactions,
+création de threads et réponses dans les threads. Le troisième réutilise
+strictement l'accès canonique `PARTICIPATE_THREAD`, déjà traduit côté backend
+en `SEND_MESSAGES_IN_THREADS`. Aucun endpoint, resolver, compilateur de Plan,
+appel Discord ou chemin APPLY supplémentaire n'a été créé. Dans le preset, un
+mode `ONLY` sans éditeur sélectionné est bloqué et ne génère aucune définition
+invalide. Les libellés et explications sont complets en EN/FR/DE/ES.
+
+Preuves sur `d94b1a0` : suite frontend complète 99/99, 40 tests backend Policy
+ciblés et 15 scénarios Playwright Policies/Presets passent ; les 2 nouveaux
+scénarios ciblés vérifient les effets exacts, axe et zéro APPLY. Build
+TypeScript/Vite, ESLint, i18n et `git diff --check` passent. Le panneau a été
+inspecté dans un rendu Chromium réel et reste lisible et cohérent avec
+Esquisse 1. Aucun Discord live ni mutation Discord n'a été exécuté.
