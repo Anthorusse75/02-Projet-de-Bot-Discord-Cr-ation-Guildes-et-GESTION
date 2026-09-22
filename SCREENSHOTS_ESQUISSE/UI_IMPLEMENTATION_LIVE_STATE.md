@@ -30,7 +30,7 @@ du 22/09/2026 a rejeté la qualité UX globale. Le nouveau chantier UI reprend d
 
 **Phase 1 — RESET VISUEL ET COMPRÉHENSION IMMÉDIATE**
 
-Status: READY_TO_START
+Status: IN_PROGRESS — VISUAL_DIRECTION_APPROVED
 
 Aucune Phase 2 ou Phase 3 ne doit commencer avant validation humaine explicite du
 gate Phase 1.
@@ -301,28 +301,49 @@ Known limitations: none.
 NEXT EXACT ACTION: corriger dans Phase 1 sans créer de chantier séparé.
 
 ### UX1-T011 — Prototypes visuels de départ
-Status: TODO
-Purpose: ne plus coder une refonte entière avant que la direction visuelle soit
-validée.
-User problem: l'ancienne refonte a été techniquement validée avant qu'un vrai humain
-constate qu'elle était désagréable.
+Status: DONE
+Purpose: figer la direction visuelle avant toute migration massive.
+User problem: l'ancienne refonte avait été déclarée techniquement valide avant une
+vraie validation humaine de l'expérience.
 Requirements:
-- 2 à 3 propositions réalistes ;
-- Accueil desktop ;
-- Accès desktop ;
-- au moins une vue mobile ;
+- plusieurs pages desktop ;
+- Wizards ;
+- Accueil ;
+- Construire ;
+- Accès ;
+- Rôles ;
+- Modifications prêtes ;
+- Centre des opérations ;
+- au moins une vraie proposition mobile ;
 - palette multi-couleur ;
 - navigation simplifiée ;
-- faible verbosité ;
-- vrais composants plausibles.
-Implementation: non commencée.
-Files: artefacts de conception à déterminer.
-Packages: conception selon stack canonique.
-Tests executed: n/a.
-Visual evidence: à produire.
-Commit: none.
-Known limitations: aucune implémentation large avant validation.
-NEXT EXACT ACTION: C'EST LA PREMIÈRE TÂCHE D'IMPLÉMENTATION À EXÉCUTER.
+- faible verbosité.
+Implementation: 9 maquettes réalistes produites puis validées explicitement par
+l'utilisateur le 22/09/2026. Elles sont maintenant versionnées dans
+`SCREENSHOTS_ESQUISSE/` et déclarées cible visuelle exacte par
+`UI_UX_CANONICAL_REFERENCE.md`.
+Files:
+- tableau_de_bord_discord_pastel_en_français.png
+- assistant_de_création_de_serveur_discord.png
+- assistant_discord_gestion_des_accès.png
+- constructeur_discord_pastel_en_français.png
+- tableau_de_bord_français_des_accès_serveur.png
+- gestion_pastel_des_rôles_discord.png
+- modifications_prêtes_pour_votre_serveur.png
+- centre_des_opérations_discord_pastel.png
+- maquette_mobile_bunny_server_assistant_francais.png
+Packages: la réalisation doit utiliser la stack canonique Mantine/Lucide/Motion
+plutôt que recréer les primitives montrées.
+Tests executed: n/a — gate humain de conception.
+Visual evidence: validation utilisateur explicite : « C'est parfait ça » puis
+« JE VEUX EXACTEMENT CET UI ».
+Commit: captures poussées par l'utilisateur, documentation canonique synchronisée.
+Known limitations: le branding textuel historique éventuellement visible dans une
+capture doit être remplacé par Bunny Server Assistant / Bunny sans modifier la
+direction graphique.
+NEXT EXACT ACTION: UX1-T009 — inventorier les primitives UI maison puis installer la
+stack canonique ; en parallèle préparer le shell correspondant exactement aux
+captures validées.
 
 ---
 
@@ -360,16 +381,16 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: documentation reset in progress; no product code
-changed by this reset yet.
+Current implementation status: nouvelle direction visuelle validée et versionnée.
+Aucun refactoring produit massif n'a encore commencé.
 
-Active task: documentation only.
+Active task: Phase 1 prête pour implémentation.
 
-NEXT EXACT ACTION after documentation commit:
+NEXT EXACT ACTION:
 
-1. vérifier que les trois nouveaux documents canoniques sont présents ;
-2. vérifier que les anciens documents pointent clairement vers eux ;
-3. créer le prompt maître unique Phase 1 ;
-4. commencer par `UX1-T011 — Prototypes visuels de départ` ;
-5. ne pas lancer la migration massive avant validation humaine des prototypes.
+1. démarrer le prompt maître unique Phase 1 ;
+2. commencer par UX1-T009 (inventaire + stack UI canonique) ;
+3. mettre en place le shell et les tokens correspondant aux 9 screenshots ;
+4. implémenter UX1-T001..T010 sans dévier visuellement ;
+5. mettre ce tracker à jour en temps réel après chaque tâche atomique.
 
