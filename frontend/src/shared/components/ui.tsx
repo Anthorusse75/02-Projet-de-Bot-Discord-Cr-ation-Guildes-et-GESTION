@@ -94,7 +94,7 @@ export function Dialog(props: { open: boolean; titleKey: MessageKey; children: R
       opened={props.open}
       onClose={props.onClose}
       title={t(props.titleKey)}
-      className="dialog"
+      classNames={{ content: 'dialog' }}
       closeButtonProps={{ 'aria-label': t('common.close') }}
       onExitTransitionEnd={() => props.returnFocus?.current?.focus()}
     >

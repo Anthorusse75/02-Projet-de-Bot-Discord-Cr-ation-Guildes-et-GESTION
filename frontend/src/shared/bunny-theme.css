@@ -27,25 +27,30 @@
   --bunny-shadow-card: 0 16px 42px rgba(54, 64, 112, 0.1);
   --bunny-radius-card: 20px;
 
-  /* Compatibility aliases while legacy screens migrate to Mantine. */
-  --did-bg: var(--bunny-bg);
-  --did-bg-soft: var(--bunny-bg-accent);
-  --did-panel: var(--bunny-surface);
-  --did-panel-2: var(--bunny-surface-soft);
-  --did-panel-3: var(--bunny-primary-soft);
-  --did-line: var(--bunny-border);
-  --did-line-soft: #e9edf6;
-  --did-text: var(--bunny-text);
-  --did-muted: var(--bunny-text-muted);
-  --did-muted-2: var(--bunny-text-soft);
-  --did-blue: var(--bunny-blue);
-  --did-violet: var(--bunny-primary);
-  --did-cyan: #35b8c9;
-  --did-green: var(--bunny-mint);
-  --did-yellow: var(--bunny-amber);
-  --did-red: var(--bunny-coral);
-  --did-shadow: var(--bunny-shadow-card);
-  --did-radius: var(--bunny-radius-card);
+  /*
+   * Compatibility bridge for screens that still use the historical dark
+   * surfaces. Keep the matching foreground tokens until each surface moves to
+   * the Bunny shell; mapping these aliases to the light palette made inherited
+   * text and controls unreadable on the still-dark cards.
+   */
+  --did-bg: #07111f;
+  --did-bg-soft: #0a1626;
+  --did-panel: #0d1a2d;
+  --did-panel-2: #11223a;
+  --did-panel-3: #162b49;
+  --did-line: #1d3455;
+  --did-line-soft: #152944;
+  --did-text: #f4f7ff;
+  --did-muted: #9eafc7;
+  --did-muted-2: #7f93b2;
+  --did-blue: #5d7cff;
+  --did-violet: #865dff;
+  --did-cyan: #55bdf7;
+  --did-green: #4cd7a0;
+  --did-yellow: #f2c66d;
+  --did-red: #ff7188;
+  --did-shadow: 0 28px 70px rgba(0, 0, 0, 0.36);
+  --did-radius: 18px;
 }
 
 [data-mantine-color-scheme='dark'] {
@@ -97,6 +102,56 @@ body {
 ::selection {
   color: var(--bunny-text);
   background: color-mix(in srgb, var(--bunny-primary) 22%, white);
+}
+
+/* Mantine adapters share legacy class names during the progressive migration. */
+.mantine-Badge-root.badge {
+  max-width: 100%;
+  height: auto;
+  min-height: 1.5rem;
+  padding-block: 0.18rem;
+  flex-shrink: 0;
+}
+
+.mantine-Badge-root.badge .mantine-Badge-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: visible;
+}
+
+.guild-card-title-row > .mantine-Badge-root.badge {
+  max-width: 48%;
+}
+
+.guild-card-title-row > .mantine-Badge-root.badge .mantine-Badge-label {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.button:disabled,
+.mantine-Button-root.button[data-disabled] {
+  opacity: 0.64;
+}
+
+/* Legacy dark surfaces must not inherit the light Bunny page foreground. */
+.guild-hub-topbar,
+.guild-card,
+.premium-sidebar,
+.premium-topbar,
+.overview-card,
+.overview-panel,
+.access-panel,
+.role-capability-card {
+  color: var(--did-text);
+}
+
+@media (max-width: 480px) {
+  /* The status label is hidden at this width; do not leave an empty pill. */
+  .topbar-actions > .mantine-Badge-root.badge {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
