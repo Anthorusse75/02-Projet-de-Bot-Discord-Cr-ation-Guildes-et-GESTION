@@ -1,4 +1,4 @@
-# Discord Infrastructure Designer — Plan d'implémentation UI en 3 phases
+# Bunny Server Assistant — Plan d'implémentation UI en 3 phases
 
 > **Statut : CANONIQUE**
 >
