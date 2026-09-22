@@ -180,58 +180,29 @@ actuel dans le shell canonique puis reconstruire le parcours d'intention selon l
 maquettes, sans modifier les invariants Policy/Plan.
 
 ### UX1-T003 — Remplacer le mur "Politiques d'accès" par un parcours d'intention
-Status: DONE
-Purpose: permettre de configurer l'accès sans comprendre Policy/roles/scopes.
-User problem: catalogue très dense, textes longs, métadonnées répétées, panneau
-d'édition lourd et plus de vingt checkboxes de rôles visibles simultanément.
+Status: IN_PROGRESS — REOPENED_AFTER_HUMAN_REVIEW
+Purpose: permettre de configurer l'accès sans comprendre Policy/roles/scopes ni les primitives internes de Bunny.
+User problem: la validation humaine réelle du 22/09/2026 rejette l'écran actuel. Le haut de la page affiche notamment "Zone publique + espace staff associé", "Nom de la liaison", "Côté public", "Côté staff" sans expliquer clairement le besoin utilisateur. Le terme "liaison" correspond à une association technique entre deux ressources Discord existantes enregistrée via logical_groups ; cette notion n'est pas compréhensible pour un utilisateur lambda et ne doit pas être le point d'entrée du parcours Accès.
 Requirements:
-- intentions humaines ;
-- recherche + multi-select + chips ;
-- presets visuels ;
-- phrase de résultat ;
-- impact simple ;
-- détails avancés repliés ;
-- pas de répétition serveur/catalogue sur chaque carte.
-Implementation: le moteur Policy, les lectures cache-first, la Preview canonique et
-la préparation de Plan sont inchangés. La couche de présentation est reconstruite
-dans le langage visuel Bunny : cartes d'intention compactes avec icônes et accents
-fonctionnels, recherche du catalogue, préréglages visuels, choix de rôles par
-recherche + multi-sélection + chips, puis phrase de résultat contextualisée. Les
-métadonnées serveur/catalogue répétées ont disparu des cartes ; les détails
-Discord restent dans le mode Expert et les sections repliées. L'ensemble des
-libellés Policy historiques qui exposaient DID est rebrandé Bunny au runtime dans
-les quatre langues. Une régression existante qui affichait l'avertissement de
-révision immuable sur une intention native a aussi été corrigée.
-Files: `frontend/src/features/policies/PoliciesScreen.tsx`,
-`frontend/src/shared/bunny-access.css`,
-`frontend/src/localization/bunnyAccessCatalog.ts`,
-`frontend/src/localization/runtime.tsx`, `frontend/src/main.tsx`,
-`frontend/e2e/phase04-policies.spec.ts`, ce tracker et
-`docs/10_implementation/00_CURRENT_STATE.md`.
-Packages: Mantine Core, Lucide.
-Tests executed: `npm.cmd run build` PASS avec
-`NODE_OPTIONS=--max-old-space-size=12288` ; typecheck autonome PASS avec la même
-limite (un premier passage à 8192 Mo a seulement épuisé le heap Node local) ;
-ESLint ciblé des fichiers Accès/i18n/E2E PASS ; `npm.cmd run i18n:check` PASS
-(scan + 3 tests catalogue) ; parcours Playwright ciblé création DRAFT → Preview
-→ Plan + audit a11y PASS 1/1 ; test visuel UX1-T003 PASS 1/1 ; préréglages
-Confidentiel et Annonces PASS 2/2. Le premier audit a11y a trouvé des contrastes
-insuffisants sur les libellés d'impact ; ils ont été corrigés avant le run vert.
-Aucun test backend lancé.
-Visual evidence: captures Chromium Playwright réelles générées et inspectées en
-1440x1000 (page et viewport du parcours) et 390x844 (catalogue puis éditeur). La
-hiérarchie, les cartes pastel, la recherche, les chips, la phrase de résultat, les
-CTA et la navigation basse sont lisibles ; aucun débordement horizontal. Le
-navigateur intégré ne disposait d'aucune instance ; cette inspection image par
-image n'est pas présentée comme une nouvelle validation humaine utilisateur.
-Commit: `dbf10a74aa32e09124701d0c5706c3cf4cc92be2`.
-Known limitations: l'écran reste volontairement séquentiel sur mobile et le
-catalogue affiche toutes les intentions réellement compatibles ; aucune capacité
-Discord ni donnée backend n'a été inventée pour reproduire les préréglages de la
-maquette.
-NEXT EXACT ACTION: UX1-T005 — passer la tâche à IN_PROGRESS, auditer les tokens
-multi-couleurs déjà introduits par la fondation puis les compléter sans créer de
-nouvelle phase ni modifier les parcours métier.
+- l'écran Accès doit commencer par une question/intention humaine : qui peut voir, écrire, participer ou gérer ;
+- aucun concept "liaison", logical_group, Policy, scope, ANY/ALL/NOT ou structure interne ne doit apparaître dans le parcours novice ;
+- le cas "zone publique + espace staff associé" doit être soit masqué dans un niveau avancé, soit reformulé comme un cas d'usage explicite et guidé avec bénéfice concret avant toute sélection de ressources ;
+- si ce cas d'usage reste disponible, l'utilisateur doit comprendre AVANT toute action pourquoi deux espaces sont associés et ce que Bunny en fera ; aucune fausse relation Discord ne doit être suggérée ;
+- recherche + multi-sélection + chips de rôles ;
+- presets visuels réellement compréhensibles ;
+- phrase de résultat humain ;
+- aperçu de l'impact ;
+- détails Discord uniquement en mode Expert ;
+- chemins cache-first, Policy, Preview et Plan préservés ;
+- aucune mutation Discord directe depuis l'UI.
+Implementation: une première refonte a été livrée au commit `dbf10a7`, puis déclarée terminée dans `f748a38`, mais cette clôture est invalidée par la revue humaine réelle. Le parcours principal par intentions existe, cependant l'ancien bloc avancé "zone publique + espace staff associé" reste placé trop haut et domine visuellement l'écran, ce qui rend la page incompréhensible malgré les tests verts.
+Files: principalement `frontend/src/features/policies/PoliciesScreen.tsx`, `frontend/src/features/policies/zones.ts`, catalogues i18n Access et CSS Bunny Access ; autres fichiers selon audit.
+Packages: Mantine Core/Form, Lucide, Motion ; ne pas ajouter de bibliothèque concurrente.
+Tests executed: build/typecheck PASS ; ESLint ciblé PASS ; i18n PASS ; parcours DRAFT → Preview → Plan avec audit a11y PASS ; presets 2/2 PASS lors de la première implémentation. Ces tests ne valident pas la compréhension humaine.
+Visual evidence: revue utilisateur réelle du 22/09/2026 sur l'écran Accès. Verdict explicite : "ça ne veut strictement rien dire", "c'est qui cette liaison ?", "on ne sait même pas pourquoi on doit faire une liaison". Cette preuve humaine annule le DONE précédent.
+Commit: première implémentation `dbf10a7`; clôture documentaire précédente `f748a38` désormais invalidée fonctionnellement côté UX.
+Known limitations: le backend de paired zones/logical groups peut rester inchangé ; le problème est d'abord de présentation, hiérarchie et langage. Ne pas supprimer une capacité métier simplement parce qu'elle est trop technique aujourd'hui.
+NEXT EXACT ACTION: auditer la totalité du rendu Accès réel en partant des 9 screenshots canoniques, déplacer ou reformuler complètement le cas "zone publique + espace staff associé" derrière une intention compréhensible/avancée, puis refaire une validation visuelle réelle avant de re-clôturer UX1-T003.
 
 ### UX1-T004 — Refaire la navigation principale par intention
 Status: DONE
@@ -493,6 +464,29 @@ capture doit être remplacé par Bunny Server Assistant / Bunny sans modifier la
 direction graphique.
 NEXT EXACT ACTION: aucune pour cette tâche fermée ; suivre la tâche active du handoff.
 
+
+### UX1-T012 — Utiliser l'identité et l'avatar réels du bot Discord
+Status: TODO
+Purpose: afficher Bunny comme le vrai bot Discord connecté, et non comme une identité visuelle factice codée en dur.
+User problem: le shell affiche actuellement une icône Lucide `Rabbit` et des initiales génériques alors que l'utilisateur attend l'avatar réel du bot configuré sur Discord.
+Requirements:
+- récupérer l'identité réelle du bot Discord faisant autorité pour la Guild/runtime ;
+- exposer au frontend au minimum le nom affiché et l'avatar du bot lorsque disponibles ;
+- utiliser l'avatar Discord réel dans le branding/assistant Bunny aux endroits appropriés ;
+- fallback propre uniquement si Discord ne fournit aucun avatar ou si l'identité n'est pas encore disponible ;
+- ne jamais hardcoder un snowflake ou une URL d'avatar spécifique ;
+- ne pas confondre l'avatar du compte utilisateur OAuth avec l'avatar du bot ;
+- conserver Bunny Server Assistant / Bunny comme nom produit même si le username Discord technique du bot diffère ;
+- si un petit changement backend est nécessaire, limiter les tests aux chemins d'identité réellement modifiés.
+Implementation: non commencée. Vérification code du 22/09/2026 : `AppShell.tsx` utilise actuellement `Rabbit` pour la marque Bunny ; le backend persiste déjà `bot_user_id` dans l'installation/runtime mais aucune donnée d'avatar bot n'est exposée au frontend. L'API `/api/v1/me` expose seulement `avatar_hash` de l'utilisateur OAuth, pas celui du bot.
+Files: à déterminer après audit ; probablement runtime/installations API + type frontend + AppShell/Guild hub.
+Packages: aucun nouveau package nécessaire.
+Tests executed: aucun.
+Visual evidence: captures utilisateur du 22/09/2026 montrant une marque Bunny générique sans avatar Discord réel.
+Commit: none.
+Known limitations: l'API et le bot runtime sont des processus séparés ; choisir une source d'identité durable/propre plutôt qu'un couplage direct fragile.
+NEXT EXACT ACTION: après correction prioritaire de UX1-T003, tracer la source d'identité bot existante (`bot_user_id` / gateway ready), choisir le minimum de données à persister/exposer et afficher l'avatar Discord réel avec fallback.
+
 ---
 
 # Phase 1 — tâches à découvrir pendant l'implémentation
@@ -529,23 +523,18 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: UX1-T009, UX1-T004, UX1-T007, UX1-T001, UX1-T002
-et UX1-T003 sont fermées. La fondation, le shell canonique desktop/mobile,
-l'Accueil novice, la vue Rôles et le parcours Accès par intention sont implémentés
-et vérifiés visuellement. Les routes métier, lectures cache-first et chemins
-DSG/Policy/Preview/Plan existants sont préservés ; aucun backend n'a été modifié.
+Current implementation status: la fondation, le shell desktop/mobile, l'Accueil et la vue Rôles restent livrés. Une première refonte Accès a été poussée (`dbf10a7`) puis marquée DONE (`f748a38`), mais la validation humaine réelle du 22/09/2026 a démontré que cet écran reste incompréhensible à cause de concepts internes exposés sans contexte, notamment "Zone publique + espace staff associé" / "liaison". UX1-T003 est donc officiellement rouverte. La revue a également identifié l'absence de récupération de l'avatar réel du bot Discord ; UX1-T012 est créée pour ce défaut.
 
-Current code HEAD: `dbf10a74aa32e09124701d0c5706c3cf4cc92be2` avant le
-commit documentaire courant. Le HEAD publié final est le commit qui contient cette
-mise à jour du tracker, avec `dbf10a7` comme parent code.
-Worktree attendu après commit/push documentaire: clean.
+Current published HEAD before this tracker correction: `f748a38c97abb631c196cc6daa7c3a7b7a959f79`.
+Worktree attendu côté utilisateur avant prochain développement: clean après pull.
 
-Active task: aucune ; prochaine tâche canonique `UX1-T005`.
+Active task: `UX1-T003` — REOPENED_AFTER_HUMAN_REVIEW.
 
 NEXT EXACT ACTION:
 
-1. passer `UX1-T005` à `IN_PROGRESS` avant toute modification ;
-2. auditer les tokens multi-couleurs existants et les écrans Phase 1 déjà migrés ;
-3. compléter uniquement les lacunes de palette, surfaces, contraste et statuts ;
-4. exécuter des contrôles frontend ciblés et une vérification visuelle réelle
-   avant toute clôture.
+1. ne PAS commencer UX1-T005 ;
+2. reprendre UX1-T003 et auditer l'écran Accès réel, pas seulement ses tests ;
+3. retirer le concept technique "liaison" du premier niveau et réorganiser le cas public+staff derrière une intention réellement compréhensible ou un mode avancé ;
+4. vérifier que la page explique le résultat attendu avant de demander des ressources/rôles ;
+5. faire une vraie validation visuelle desktop + mobile avant de re-marquer UX1-T003 DONE ;
+6. ensuite traiter UX1-T012 (avatar réel du bot Discord), puis suivre le tracker pour T005/T006/T008/T010.
