@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import type { CapabilityDecision, DashboardCapabilities } from '../../api/types'
 import { discordSnowflake } from '../../shared/discord-id'
+import { BunnyTestProvider } from '../../test/BunnyTestProvider'
 import { RolesScreen } from './RolesScreen'
 
 const apiRequestMock = vi.hoisted(() => vi.fn())
@@ -11,10 +12,13 @@ const apiRequestMock = vi.hoisted(() => vi.fn())
 vi.mock('../../api/client', () => ({ apiRequest: (...args: unknown[]) => apiRequestMock(...args) }))
 vi.mock('react-i18next', async () => {
   const { phase4Packs } = await import('../../localization/phase4Catalog')
+  const { bunnyRolesPacks } = await import('../../localization/bunnyRolesCatalog')
+  const { phase4Overrides } = await import('../../localization/phase4Overrides')
+  const messages = { ...phase4Packs.en, ...phase4Overrides.en, ...bunnyRolesPacks.en } as Record<string, string>
   return {
     useTranslation: () => ({
       t: (key: string, params: Record<string, string | number> = {}) => {
-        const template = (phase4Packs.en as Record<string, string>)[key] ?? key
+        const template = messages[key] ?? key
         return template.replace(/{{\s*([\w.-]+)\s*}}/g, (_, name: string) => String(params[name] ?? ''))
       },
     }),
@@ -68,30 +72,30 @@ function Harness() {
 
 async function renderDecision(decision: CapabilityDecision | Error | 'pending') {
   apiRequestMock.mockReset()
-  if (decision === 'pending') apiRequestMock.mockReturnValueOnce(new Promise(() => undefined))
-  else if (decision instanceof Error) apiRequestMock.mockRejectedValueOnce(decision)
-  else apiRequestMock.mockResolvedValueOnce(capabilities(decision))
+  if (decision === 'pending') apiRequestMock.mockReturnValue(new Promise(() => undefined))
+  else if (decision instanceof Error) apiRequestMock.mockRejectedValue(decision)
+  else apiRequestMock.mockResolvedValue(capabilities(decision))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/guild/${guildId}/roles`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="roles" element={<RolesScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+  render(<BunnyTestProvider><QueryClientProvider client={client}><MemoryRouter initialEntries={[`/guild/${guildId}/roles`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="roles" element={<RolesScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider></BunnyTestProvider>)
   await userEvent.click(screen.getByRole('option', { name: /bots/i }))
 }
 
 describe('role bot capability presentation', () => {
   it('renders loading without calling it a business UNKNOWN', async () => {
     await renderDecision('pending')
-    expect(screen.getByText('Checking the bot capability…')).toBeVisible()
+    expect(screen.getByText('Bunny is checking this role')).toBeVisible()
     expect(screen.queryByText('Bot capability is unknown')).not.toBeInTheDocument()
   })
 
   it('renders CAN and enables compatible actions', async () => {
     await renderDecision(can)
-    expect(await screen.findByText('Bot can manage this role')).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Rename role' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Rename role' })).toBeEnabled()
   })
 
   it('renders CANNOT with the exact cause and remediation', async () => {
     await renderDecision({ outcome: 'CANNOT', causes: ['capability.permission_missing.manage_roles'], remediations: ['capability.remediation.grant.manage_roles'] })
-    expect(await screen.findByText('Bot cannot manage this role')).toBeVisible()
+    expect(await screen.findByText('This role is protected')).toBeVisible()
     expect(screen.getByText('The bot does not have the Manage Roles permission.')).toBeVisible()
     expect(screen.getByText('Grant the bot the Manage Roles permission.')).toBeVisible()
   })
@@ -104,14 +108,14 @@ describe('role bot capability presentation', () => {
 
   it('renders a legitimate UNKNOWN with its synchronization reason', async () => {
     await renderDecision({ outcome: 'UNKNOWN', causes: ['capability.hierarchy.bot_roles_incomplete'], remediations: ['capability.remediation.refresh_discord_data'] })
-    expect(await screen.findByText('Bot capability is unknown')).toBeVisible()
+    expect(await screen.findByText('A check is needed before editing')).toBeVisible()
     expect(screen.getByText('The hierarchy cannot be checked because the bot’s roles are not fully synchronized.')).toBeVisible()
     expect(screen.getByText('Refresh the Discord data, then retry.')).toBeVisible()
   })
 
   it('renders an HTTP error separately from business UNKNOWN and offers retry', async () => {
     await renderDecision(new Error('network down'))
-    expect(await screen.findByText('Capability check failed')).toBeVisible()
+    expect(await screen.findByText('The check could not be completed')).toBeVisible()
     expect(screen.getByText(/request error, not an unknown Discord capability/i)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible()
     expect(screen.queryByText('Bot capability is unknown')).not.toBeInTheDocument()

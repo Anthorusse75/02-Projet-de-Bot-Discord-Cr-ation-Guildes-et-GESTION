@@ -94,7 +94,8 @@ test('role hierarchy prepares create, rename, reorder and delete as validated pl
   const harness: Harness = { plans: [] }; await installRoutes(page, harness)
   await page.goto(`/guild/${GUILD}/roles`)
   await expect(page.getByRole('heading', { name: 'Roles' })).toBeVisible()
-  await expect(page.getByText('Role hierarchy', { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Filter roles' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Search for a role' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Create role' }).click()
   await page.getByLabel('Role name').fill('Support')

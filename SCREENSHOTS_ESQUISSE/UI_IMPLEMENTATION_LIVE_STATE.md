@@ -129,7 +129,7 @@ historique jusqu'à leurs tâches Phase 1 dédiées.
 NEXT EXACT ACTION: UX1-T002 — simplifier l'écran Rôles dans la direction canonique.
 
 ### UX1-T002 — Simplifier radicalement l'écran Rôles
-Status: TODO
+Status: DONE
 Purpose: rendre les rôles compréhensibles sans connaissance Discord.
 User problem: l'écran expose ID Discord, position brute, fraîcheur, bitfield, capacité
 bot inconnue et une grille de boutons indisponibles.
@@ -139,14 +139,45 @@ Requirements:
 - actions contextuelles ;
 - détails Discord repliés ;
 - boutons indisponibles masqués ou expliqués sans bruit.
-Implementation: non commencée.
-Files: à déterminer.
+Implementation: l'ancien workbench sombre a été remplacé par la présentation
+canonique claire : familles Administration/Modération/Communauté/Bots, cartes
+pastel, recherche et filtres, usage humain déduit des permissions connues, sélection
+visuelle, détail contextuel et actions réellement disponibles uniquement. ID,
+position, fraîcheur, bitfield et flags sont désormais repliés dans un Accordion
+« Détails Discord ». La création et les actions de renommage/réordonnancement/
+suppression utilisent des composants Mantine et conservent intégralement le chemin
+DSG/Plan existant. Le rôle bot historique est présenté comme Bunny, sans exposer DID.
+La vue se recompose en une liste pleine largeur puis une fiche tactile sur mobile.
+Files: `frontend/src/features/roles/RolesScreen.tsx`,
+`frontend/src/shared/bunny-roles.css`,
+`frontend/src/localization/bunnyRolesCatalog.ts`,
+`frontend/src/localization/runtime.tsx`, `frontend/src/main.tsx`,
+`frontend/src/features/roles/RolesScreen.test.tsx`,
+`frontend/e2e/phase04-access.spec.ts`,
+`frontend/e2e/ux1-roles-visual.spec.ts`, ce tracker.
 Packages: Mantine Core, Lucide.
-Tests executed: aucun.
-Visual evidence: capture utilisateur 22/09/2026.
-Commit: none.
-Known limitations: none.
-NEXT EXACT ACTION: prototype Rôles dans la nouvelle vue "Construire" ou "Accès".
+Tests executed: `npm.cmd run build` PASS avec
+`NODE_OPTIONS=--max-old-space-size=8192` (le premier lancement sans cette limite a
+seulement épuisé le heap Node local) ; ESLint ciblé des fichiers Rôles/i18n/E2E PASS ;
+`npm.cmd run i18n:check` PASS (scan + 3 tests catalogue) ;
+`npm.cmd run test -- --run src/features/roles/RolesScreen.test.tsx` PASS, 6/6 ;
+`npx.cmd playwright test e2e/ux1-roles-visual.spec.ts --project=chromium` PASS, 1/1 ;
+`npx.cmd playwright test e2e/phase04-access.spec.ts --project=chromium --grep
+"role hierarchy prepares"` PASS, 1/1. Aucun test backend lancé.
+Visual evidence: captures Chromium Playwright réelles générées puis inspectées en
+1440x1000, 390x844 liste et 390x844 détail. Les familles pastel, la hiérarchie, les
+libellés, le contraste, les actions, l'Accordion technique et la navigation basse
+sont lisibles ; aucun débordement horizontal. Le navigateur intégré n'était pas
+disponible ; cette inspection image par image n'est pas présentée comme une nouvelle
+validation humaine utilisateur.
+Commit: commit de code à renseigner après création.
+Known limitations: l'endpoint cache-first Rôles ne fournit actuellement ni couleur
+Discord ni compteur de membres. L'UI utilise donc des accents fonctionnels par
+famille et n'invente aucun compteur ; aucune extension backend n'a été introduite
+pour cette tâche visuelle.
+NEXT EXACT ACTION: UX1-T003 — passer la tâche à IN_PROGRESS, inspecter l'écran Accès
+actuel dans le shell canonique puis reconstruire le parcours d'intention selon les
+maquettes, sans modifier les invariants Policy/Plan.
 
 ### UX1-T003 — Remplacer le mur "Politiques d'accès" par un parcours d'intention
 Status: TODO
@@ -466,22 +497,23 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: UX1-T009, UX1-T004, UX1-T007 et UX1-T001 sont
-fermées. La fondation Mantine/Lucide/Motion, le shell canonique desktop/mobile et
-l'Accueil novice sont implémentés et vérifiés visuellement. Les routes métier et
-lectures cache-first existantes sont préservées ; aucun backend n'a été modifié.
+Current implementation status: UX1-T009, UX1-T004, UX1-T007, UX1-T001 et UX1-T002
+sont fermées. La fondation, le shell canonique desktop/mobile, l'Accueil novice et
+la vue Rôles canonique sont implémentés et vérifiés visuellement. Les routes métier,
+lectures cache-first et chemins DSG/Plan existants sont préservés ; aucun backend
+n'a été modifié.
 
-Current code HEAD: `0dd8646` avant le commit documentaire courant. Le HEAD publié
-final est le commit qui contient cette mise à jour du tracker, avec `0dd8646` comme
-parent code.
-Worktree attendu après commit/push documentaire: clean.
+Current code HEAD: `c8136a8` avant le commit UX1-T002 courant. Le HEAD publié final
+sera le commit qui contient cette mise à jour et l'implémentation Rôles.
+Worktree courant avant commit: modifications UX1-T002 listées dans la tâche.
 
-Active task: aucune ; la prochaine tâche canonique est `UX1-T002`.
+Active task: aucune ; la prochaine tâche canonique est `UX1-T003`.
 
 NEXT EXACT ACTION:
 
-1. passer UX1-T002 à IN_PROGRESS avant toute modification ;
-2. inspecter l'écran Rôles actuel dans le nouveau shell en desktop et mobile ;
-3. reconstruire Rôles avec nom/couleur/usage humain d'abord, hiérarchie visuelle,
-   actions contextuelles et détails Discord repliés ;
-4. vérifier visuellement en desktop et 390x844 avant de considérer UX1-T002 DONE.
+1. passer UX1-T003 à IN_PROGRESS avant toute modification ;
+2. inspecter l'écran Accès/Politiques actuel dans le shell canonique en desktop et
+   mobile ;
+3. reconstruire le parcours par intention avec presets, recherche, chips, résultat
+   humain, impact simple et détails avancés repliés ;
+4. préserver strictement les lectures cache-first et les chemins Policy/Plan.

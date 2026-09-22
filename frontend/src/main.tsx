@@ -18,6 +18,7 @@ import './features/matrix/matrix.css'
 import './features/wizards/wizards.css'
 import './shared/bunny-theme.css'
 import './shared/bunny-shell.css'
+import './shared/bunny-roles.css'
 
 const root = document.getElementById('root')
 
