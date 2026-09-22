@@ -300,6 +300,43 @@ explain the reason via tooltip/popover with a remediation path if possible.
 
 ---
 
+# 6.6 Complexity composition rule
+
+This is a global product requirement.
+
+**Complex backend/domain capability must be exposed as a sequence of simple human choices.**
+
+Do not make the UI complex just because the underlying capability is complex.
+
+The user should express intent such as:
+
+- who can see;
+- who can write;
+- who can manage;
+- whether an area is public or private;
+- whether access is temporary;
+- what outcome they want.
+
+Bunny may internally create or combine:
+
+- roles;
+- permissions;
+- policies;
+- logical groups;
+- scopes;
+- overwrites;
+- Plans;
+- dependency rules;
+- validation steps.
+
+Those internal concepts must not become required user vocabulary.
+
+Prefer several simple steps over one technical form.
+
+A feature is not DONE if a normal user cannot explain what their choices will do.
+
+---
+
 # 7. Approved UI stack
 
 The current frontend historically used too many custom primitives.
