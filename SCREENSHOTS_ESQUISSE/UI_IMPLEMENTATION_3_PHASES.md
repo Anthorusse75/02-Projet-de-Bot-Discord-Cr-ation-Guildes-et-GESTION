@@ -24,6 +24,39 @@ La référence UI canonique fixe comment cette complexité doit être présenté
 
 ---
 
+# Principe global — complexité derrière Bunny
+
+**Bunny Server Assistant peut réaliser des opérations complexes, mais l'utilisateur ne doit manipuler que des choix simples et compréhensibles.**
+
+Cette règle s'applique à toutes les phases et à toutes les fonctionnalités.
+
+Le frontend ne doit jamais demander à l'utilisateur de raisonner en :
+
+- Policies ;
+- scopes ;
+- logical groups ;
+- bitfields ;
+- overwrites ;
+- cache/freshness ;
+- identifiants Discord ;
+- états internes ;
+- dépendances techniques.
+
+L'utilisateur exprime une intention simple. Bunny compose ensuite les rôles, permissions, relations, Plans et validations nécessaires.
+
+Une fonction complexe doit être décomposée en plusieurs décisions simples plutôt qu'exposée comme un formulaire technique complexe.
+
+Exemples attendus :
+
+- « Tout le monde peut lire, seul le staff peut publier »
+- « Cet espace est privé pour mon équipe »
+- « Créer un espace support avec une partie publique et une partie privée »
+- « Donner cet accès pendant 24 heures »
+
+Une fonctionnalité UI n'est pas terminée si un utilisateur lambda ne peut pas expliquer ce qu'il choisit et quel sera le résultat sans comprendre le modèle technique interne.
+
+---
+
 # Règle de pilotage
 
 ## Une phase = un seul prompt maître
@@ -170,7 +203,21 @@ Par défaut :
 - accès temporaire ?
 - espace privé/public/staff ?
 
-La matrice et les traces de résolution deviennent des outils avancés.
+Le parcours ne doit jamais commencer par une primitive interne comme « liaison », « logical group », « scope » ou « Policy ».
+
+Pour les cas complexes, Bunny demande plusieurs choix simples successifs.
+
+Exemple :
+
+> **Créer un espace support**
+>
+> 1. Où les membres écrivent-ils ?
+> 2. Où votre équipe travaille-t-elle en privé ?
+> 3. Qui fait partie de l'équipe ?
+>
+> Bunny prépare automatiquement la configuration nécessaire.
+
+La matrice, les traces de résolution et les relations internes deviennent des outils avancés.
 
 ### Mobile
 
