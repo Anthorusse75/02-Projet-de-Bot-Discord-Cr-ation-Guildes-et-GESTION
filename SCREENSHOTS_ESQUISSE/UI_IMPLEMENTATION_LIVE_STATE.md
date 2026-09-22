@@ -27,6 +27,20 @@ Phase 4 historique était techniquement fermée à ce SHA, mais l'acceptation hu
 du 22/09/2026 a rejeté la qualité UX globale. Le nouveau chantier UI reprend donc
 à partir de cette baseline sans nier le travail backend déjà livré.
 
+## Principe transversal — simplicité visible
+
+Décision produit du 22/09/2026 :
+
+**toutes les fonctionnalités, même complexes, doivent être présentées comme une combinaison de choix simples.**
+
+La complexité (Policies, logical groups, scopes, permissions, Plans, relations entre ressources, etc.) reste derrière l'interface.
+
+Un écran n'est pas considéré terminé si un utilisateur lambda doit comprendre le modèle technique interne pour l'utiliser.
+
+Cette règle s'applique à toutes les tâches UI actuelles et futures.
+
+---
+
 ## Grande phase active
 
 **Phase 1 — RESET VISUEL ET COMPRÉHENSION IMMÉDIATE**
