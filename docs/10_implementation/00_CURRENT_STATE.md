@@ -85,3 +85,14 @@ frontend ciblés, ESLint/typecheck/i18n, OpenAPI courant et 3 parcours Playwrigh
 ciblés. Les campagnes globales, PostgreSQL/RLS, Discord live A/B et APPLY réel
 n’ont pas été exécutés. Le détail et les limites officielles sont consignés
 dans `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md` et l’addendum du handoff Stage 04.
+
+## Addendum de branche UI — Phase 1 au 2026-09-22
+
+Sur `ui/complete-redesign`, les tâches UX1-T009, UX1-T004, UX1-T007, UX1-T001,
+UX1-T002 et UX1-T003 sont fermées. Le shell Bunny, l'Accueil, les Rôles et le
+parcours Accès par intention sont implémentés avec contrôles frontend ciblés et
+captures desktop/mobile inspectées. Aucun backend, invariant RLS, chemin cache-first
+ou chaîne Policy/Preview/Plan n'a été modifié. La vérité opérationnelle détaillée
+et le prochain geste exact restent dans
+`SCREENSHOTS_ESQUISSE/UI_IMPLEMENTATION_LIVE_STATE.md` ; la prochaine tâche est
+UX1-T005 et ne doit pas être commencée silencieusement.

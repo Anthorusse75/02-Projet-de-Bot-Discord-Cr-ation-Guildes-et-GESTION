@@ -139,6 +139,28 @@ test('@a11y creates a DRAFT from a native human intention, previews canonically 
   expect(harness.requests.some((item) => /apply/i.test(item.path))).toBe(false)
 })
 
+test('UX1-T003 renders the access intention flow on desktop and mobile', async ({ page }) => {
+  const harness: Harness = { policies: [policy()], requests: [] }; await install(page, harness)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(`/guild/${GUILD}/policies?targetType=CHANNEL&targetId=${CHANNEL}`)
+  await page.getByText('Presets', { exact: true }).click()
+  await page.getByRole('button', { name: /^Visible only to/ }).click()
+  await page.getByRole('group', { name: 'Roles and audiences' }).getByText('Managers').click()
+  await expect(page.locator('.policy-human-result')).toContainText('Managers')
+  await expect(page.locator('.policy-human-result')).toContainText('board')
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: 'test-results/ux1-t003-access-desktop.png', fullPage: true })
+  await page.locator('.policy-layout').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/ux1-t003-access-desktop-viewport.png', fullPage: false })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('.policy-layout').scrollIntoViewIfNeeded()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: 'test-results/ux1-t003-access-mobile.png', fullPage: false })
+  await page.locator('.policy-editor-panel').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/ux1-t003-access-mobile-editor.png', fullPage: false })
+})
+
 test('shows multi-role conflict causes, BLOCKED/UNKNOWN outcomes, explain and safe revision reuse', async ({ page }) => {
   const harness: Harness = { policies: [policy()], requests: [], conflict: true }; await install(page, harness)
   await page.goto(`/guild/${GUILD}/policies`)

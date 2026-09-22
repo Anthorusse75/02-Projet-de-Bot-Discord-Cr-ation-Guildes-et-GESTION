@@ -180,7 +180,7 @@ actuel dans le shell canonique puis reconstruire le parcours d'intention selon l
 maquettes, sans modifier les invariants Policy/Plan.
 
 ### UX1-T003 — Remplacer le mur "Politiques d'accès" par un parcours d'intention
-Status: IN_PROGRESS
+Status: DONE
 Purpose: permettre de configurer l'accès sans comprendre Policy/roles/scopes.
 User problem: catalogue très dense, textes longs, métadonnées répétées, panneau
 d'édition lourd et plus de vingt checkboxes de rôles visibles simultanément.
@@ -192,22 +192,46 @@ Requirements:
 - impact simple ;
 - détails avancés repliés ;
 - pas de répétition serveur/catalogue sur chaque carte.
-Implementation: reprise depuis le handoff canonique. L'intention est de conserver
-le moteur Policy, ses lectures cache-first, la Preview et la préparation de Plan,
-tout en remplaçant le catalogue/panneau technique par le parcours canonique : choix
-d'un préréglage humain, sélection recherchable par chips, phrase de résultat,
-aperçu d'impact et détails avancés repliés.
+Implementation: le moteur Policy, les lectures cache-first, la Preview canonique et
+la préparation de Plan sont inchangés. La couche de présentation est reconstruite
+dans le langage visuel Bunny : cartes d'intention compactes avec icônes et accents
+fonctionnels, recherche du catalogue, préréglages visuels, choix de rôles par
+recherche + multi-sélection + chips, puis phrase de résultat contextualisée. Les
+métadonnées serveur/catalogue répétées ont disparu des cartes ; les détails
+Discord restent dans le mode Expert et les sections repliées. L'ensemble des
+libellés Policy historiques qui exposaient DID est rebrandé Bunny au runtime dans
+les quatre langues. Une régression existante qui affichait l'avertissement de
+révision immuable sur une intention native a aussi été corrigée.
 Files: `frontend/src/features/policies/PoliciesScreen.tsx`,
-`frontend/src/features/policies/policies.css`, catalogues i18n associés, tests
-frontend/E2E Accès ciblés et ce tracker.
-Packages: Mantine Core/Form, Spotlight/Combobox patterns, Lucide, Motion.
-Tests executed: aucun.
-Visual evidence: capture utilisateur 22/09/2026.
-Commit: none.
-Known limitations: none.
-NEXT EXACT ACTION: inspecter la vue Politiques/Accès réelle en desktop et mobile,
-identifier les chemins métier à préserver, puis implémenter le parcours d'intention
-canonique sans mutation Discord directe.
+`frontend/src/shared/bunny-access.css`,
+`frontend/src/localization/bunnyAccessCatalog.ts`,
+`frontend/src/localization/runtime.tsx`, `frontend/src/main.tsx`,
+`frontend/e2e/phase04-policies.spec.ts`, ce tracker et
+`docs/10_implementation/00_CURRENT_STATE.md`.
+Packages: Mantine Core, Lucide.
+Tests executed: `npm.cmd run build` PASS avec
+`NODE_OPTIONS=--max-old-space-size=12288` ; typecheck autonome PASS avec la même
+limite (un premier passage à 8192 Mo a seulement épuisé le heap Node local) ;
+ESLint ciblé des fichiers Accès/i18n/E2E PASS ; `npm.cmd run i18n:check` PASS
+(scan + 3 tests catalogue) ; parcours Playwright ciblé création DRAFT → Preview
+→ Plan + audit a11y PASS 1/1 ; test visuel UX1-T003 PASS 1/1 ; préréglages
+Confidentiel et Annonces PASS 2/2. Le premier audit a11y a trouvé des contrastes
+insuffisants sur les libellés d'impact ; ils ont été corrigés avant le run vert.
+Aucun test backend lancé.
+Visual evidence: captures Chromium Playwright réelles générées et inspectées en
+1440x1000 (page et viewport du parcours) et 390x844 (catalogue puis éditeur). La
+hiérarchie, les cartes pastel, la recherche, les chips, la phrase de résultat, les
+CTA et la navigation basse sont lisibles ; aucun débordement horizontal. Le
+navigateur intégré ne disposait d'aucune instance ; cette inspection image par
+image n'est pas présentée comme une nouvelle validation humaine utilisateur.
+Commit: en attente du commit de code immédiat ; parent publié `08cf494`.
+Known limitations: l'écran reste volontairement séquentiel sur mobile et le
+catalogue affiche toutes les intentions réellement compatibles ; aucune capacité
+Discord ni donnée backend n'a été inventée pour reproduire les préréglages de la
+maquette.
+NEXT EXACT ACTION: UX1-T005 — passer la tâche à IN_PROGRESS, auditer les tokens
+multi-couleurs déjà introduits par la fondation puis les compléter sans créer de
+nouvelle phase ni modifier les parcours métier.
 
 ### UX1-T004 — Refaire la navigation principale par intention
 Status: DONE
@@ -505,25 +529,23 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: UX1-T009, UX1-T004, UX1-T007, UX1-T001 et UX1-T002
-sont fermées. La fondation, le shell canonique desktop/mobile, l'Accueil novice et
-la vue Rôles canonique sont implémentés et vérifiés visuellement. Les routes métier,
-lectures cache-first et chemins DSG/Plan existants sont préservés ; aucun backend
-n'a été modifié.
+Current implementation status: UX1-T009, UX1-T004, UX1-T007, UX1-T001, UX1-T002
+et UX1-T003 sont fermées. La fondation, le shell canonique desktop/mobile,
+l'Accueil novice, la vue Rôles et le parcours Accès par intention sont implémentés
+et vérifiés visuellement. Les routes métier, lectures cache-first et chemins
+DSG/Policy/Preview/Plan existants sont préservés ; aucun backend n'a été modifié.
 
-Current code HEAD: `d1a7bbe09f01bcb272b541a6f3a443c31684ef0e` avant le
-commit documentaire courant. Le HEAD publié final est le commit qui contient cette
-mise à jour du tracker, avec `d1a7bbe` comme parent code.
-Worktree attendu après commit/push documentaire: clean.
+Current code HEAD: le commit de code UX1-T003 à créer avec `08cf494` comme parent.
+Le HEAD publié final sera le commit documentaire qui remplacera cette mention par
+le SHA exact.
+Worktree attendu après les deux commits/pushs: clean.
 
-Active task: `UX1-T003` — reconstruction canonique du parcours Accès.
+Active task: aucune ; prochaine tâche canonique `UX1-T005`.
 
 NEXT EXACT ACTION:
 
-1. inspecter l'écran Accès/Politiques actuel dans le shell canonique en desktop et
-   mobile ;
-2. reconstruire le parcours par intention avec presets, recherche, chips, résultat
-   humain, impact simple et détails avancés repliés ;
-3. préserver strictement les lectures cache-first et les chemins Policy/Plan ;
-4. exécuter uniquement les contrôles frontend ciblés et vérifier les captures
-   desktop/mobile avant toute clôture.
+1. passer `UX1-T005` à `IN_PROGRESS` avant toute modification ;
+2. auditer les tokens multi-couleurs existants et les écrans Phase 1 déjà migrés ;
+3. compléter uniquement les lacunes de palette, surfaces, contraste et statuts ;
+4. exécuter des contrôles frontend ciblés et une vérification visuelle réelle
+   avant toute clôture.

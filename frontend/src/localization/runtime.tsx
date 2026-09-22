@@ -11,6 +11,7 @@ import { phase4PoliciesPacks } from './phase4PoliciesCatalog'
 import { phase4WizardPacks } from './phase4WizardCatalog'
 import { phase4MatrixPacks } from './phase4MatrixCatalog'
 import { bunnyRolesPacks } from './bunnyRolesCatalog'
+import { bunnyAccessPacks } from './bunnyAccessCatalog'
 
 export const CATALOG_VERSION = 'did-ui-v2'
 const bootstrap = Object.keys(bootstrapPacks) as BootstrapLocaleCode[]
@@ -39,11 +40,11 @@ export function validatePack(payload: unknown): MessagePack { if (!payload || ty
 function bundledPack(locale: string): Record<string, string> | undefined {
   if (!bootstrap.includes(locale as BootstrapLocaleCode)) return undefined
   const code = locale as BootstrapLocaleCode
-  return { ...bootstrapPacks[code], ...phase2Packs[code], ...phase3Packs[code], ...phase4Packs[code], ...phase4PoliciesPacks[code], ...phase4WizardPacks[code], ...phase4MatrixPacks[code], ...phase4Overrides[code], ...bunnyRolesPacks[code] }
+  return { ...bootstrapPacks[code], ...phase2Packs[code], ...phase3Packs[code], ...phase4Packs[code], ...phase4PoliciesPacks[code], ...phase4WizardPacks[code], ...phase4MatrixPacks[code], ...phase4Overrides[code], ...bunnyRolesPacks[code], ...bunnyAccessPacks[code] }
 }
 
 const bundledResources = Object.fromEntries(
-  bootstrap.map((code) => [code, { translation: { ...bootstrapPacks[code], ...phase2Packs[code], ...phase3Packs[code], ...phase4Packs[code], ...phase4PoliciesPacks[code], ...phase4WizardPacks[code], ...phase4MatrixPacks[code], ...phase4Overrides[code], ...bunnyRolesPacks[code] } }]),
+  bootstrap.map((code) => [code, { translation: { ...bootstrapPacks[code], ...phase2Packs[code], ...phase3Packs[code], ...phase4Packs[code], ...phase4PoliciesPacks[code], ...phase4WizardPacks[code], ...phase4MatrixPacks[code], ...phase4Overrides[code], ...bunnyRolesPacks[code], ...bunnyAccessPacks[code] } }]),
 )
 
 void i18n.init({

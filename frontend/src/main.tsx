@@ -19,6 +19,7 @@ import './features/wizards/wizards.css'
 import './shared/bunny-theme.css'
 import './shared/bunny-shell.css'
 import './shared/bunny-roles.css'
+import './shared/bunny-access.css'
 
 const root = document.getElementById('root')
 

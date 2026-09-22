@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { TextInput } from '@mantine/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bot, Check, ChevronRight, Eye, MessageCircle, Mic2, Search, ShieldCheck, Star, UsersRound, X, type LucideIcon } from 'lucide-react'
 import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../../api/client'
 import { usePolicies, usePolicyFavorites, useRoles, useStructure } from '../../api/queries'
-import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyFavorites, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyTemporaryAccess, PolicyVersion } from '../../api/types'
+import type { CapabilityOutcome, LogicalGroup, Policy, PolicyAccess, PolicyDeletionPreview, PolicyDeletionStrategy, PolicyFavorites, PolicyPreview, PolicyPreviewEntry, PolicyResolution, PolicyTemporaryAccess, PolicyVersion, Role } from '../../api/types'
 import type { DashboardContext } from '../../app/AppShell'
 import { Badge, ErrorState, Skeleton } from '../../shared/components/ui'
 import { apiProblem } from './errors'
@@ -51,6 +53,60 @@ const emptyEditor = (): EditorState => ({
 })
 
 const lifecycleTone = { DRAFT: 'warning', ACTIVE: 'ok', DISABLED: 'neutral', RETIRED: 'danger' } as const
+
+const familyIcons: Record<NativePolicy['family'], LucideIcon> = {
+  VISIBILITY: Eye,
+  WRITING: MessageCircle,
+  AUDIENCE: UsersRound,
+  ZONE: ShieldCheck,
+  VOCAL: Mic2,
+  THREADS: MessageCircle,
+  REACTIONS: Star,
+  MENTIONS: UsersRound,
+  BOTS: Bot,
+}
+
+function policyIcon(native: NativePolicy): LucideIcon {
+  if (native.editorKind === 'BOT') return Bot
+  if (native.compatibility.includes('VOICE_CHANNEL')) return Mic2
+  return familyIcons[native.family]
+}
+
+type RoleChipPickerProps = {
+  label: string
+  roles: readonly Role[]
+  selected: readonly string[]
+  disabled?: boolean
+  searchLabel: string
+  selectedLabel: string
+  moreLabel: string
+  lessLabel: string
+  emptyLabel: string
+  onChange: (roleIds: string[]) => void
+}
+
+function RoleChipPicker({ label, roles, selected, disabled = false, searchLabel, selectedLabel, moreLabel, lessLabel, emptyLabel, onChange }: RoleChipPickerProps) {
+  const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState(false)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matches = roles.filter((role) => role.name.toLocaleLowerCase().includes(normalizedQuery))
+  const visible = normalizedQuery || expanded ? matches : matches.slice(0, 8)
+  const selectedRoles = selected.map((id) => roles.find((role) => role.id === id)).filter((role): role is Role => Boolean(role))
+  const toggle = (roleId: string, checked: boolean) => onChange(checked ? [...selected, roleId] : selected.filter((id) => id !== roleId))
+
+  return <div className="policy-role-selector" role="group" aria-label={label}>
+    <div className="policy-role-selector-heading"><strong>{label}</strong><span>{selected.length}</span></div>
+    {selectedRoles.length > 0 && <div className="policy-selected-roles" aria-label={selectedLabel}>
+      {selectedRoles.map((role) => <button type="button" key={role.id} disabled={disabled} onClick={() => toggle(role.id, false)}><Check size={13} /><span>{role.name}</span><X size={12} aria-hidden="true" /></button>)}
+    </div>}
+    <TextInput value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={searchLabel} aria-label={`${searchLabel} — ${label}`} leftSection={<Search size={15} />} disabled={disabled} />
+    <div className="policy-role-options">
+      {visible.map((role) => <label key={role.id} className={selected.includes(role.id) ? 'selected' : ''}><input type="checkbox" checked={selected.includes(role.id)} disabled={disabled} onChange={(event) => toggle(role.id, event.target.checked)} /><span>{role.name}</span>{selected.includes(role.id) && <Check size={15} aria-hidden="true" />}</label>)}
+      {visible.length === 0 && <p>{emptyLabel}</p>}
+    </div>
+    {!normalizedQuery && matches.length > 8 && <button type="button" className="policy-role-more" disabled={disabled} onClick={() => setExpanded((value) => !value)}>{expanded ? lessLabel : moreLabel}</button>}
+  </div>
+}
 
 function localDateTimeInput(value: Date): string {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
@@ -180,6 +236,7 @@ export function PoliciesScreen() {
   const [audienceEditorOpen, setAudienceEditorOpen] = useState(false)
   const [audienceDraftRoleIds, setAudienceDraftRoleIds] = useState<string[]>([])
   const [audienceBusy, setAudienceBusy] = useState(false)
+  const [intentSearch, setIntentSearch] = useState('')
   const [expert, setExpert] = useState(false)
   const [targetValue, setTargetValue] = useState('GUILD:*')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -248,12 +305,23 @@ export function PoliciesScreen() {
     return roleIds.map((id) => roles.find((role) => role.id === id)?.name ?? id).join(', ')
   }
 
+  function rolePicker(labelKey: string, selected: readonly string[], onChange: (roleIds: string[]) => void, disabled = false) {
+    return <RoleChipPicker
+      label={t(labelKey)}
+      roles={roles}
+      selected={selected}
+      disabled={disabled}
+      searchLabel={t('policies.roles.search')}
+      selectedLabel={t('policies.roles.selected')}
+      moreLabel={t('policies.roles.more')}
+      lessLabel={t('policies.roles.less')}
+      emptyLabel={t('policies.roles.empty')}
+      onChange={onChange}
+    />
+  }
+
   function presetRolePicker(labelKey: string, selected: readonly string[], onChange: (roleIds: string[]) => void) {
-    return <label className="field"><span>{t(labelKey)}</span>
-      <div className="policy-role-picker" role="group" aria-label={t(labelKey)}>
-        {roles.map((role) => <label key={role.id}><input type="checkbox" checked={selected.includes(role.id)} onChange={(event) => onChange(event.target.checked ? [...selected, role.id] : selected.filter((id) => id !== role.id))} /><span>{role.name}</span></label>)}
-      </div>
-    </label>
+    return rolePicker(labelKey, selected, onChange)
   }
   const channelTypes = useMemo(() => new Map(targets.filter((target) => target.scopeType === 'CHANNEL' && target.scopeId).map((target) => [target.scopeId as string, target.kind === 'VOICE_CHANNEL' ? 2 : 0])), [targets])
   const customPolicies = (policiesQuery.data?.policies ?? []).filter((policy) => isPolicyCompatible(policy, selectedTarget, channelTypes))
@@ -263,6 +331,13 @@ export function PoliciesScreen() {
   const favoriteCustomPolicies = customPolicies.filter((policy) => favoriteKeys.has(`custom:${policy.policy_id}`))
   const otherNatives = availableNatives.filter((native) => !favoriteKeys.has(`native:${native.id}`))
   const otherCustomPolicies = customPolicies.filter((policy) => !favoriteKeys.has(`custom:${policy.policy_id}`))
+  const normalizedIntentSearch = intentSearch.trim().toLocaleLowerCase()
+  const nativeMatches = (native: NativePolicy) => `${t(native.titleKey)} ${t(native.summaryKey)}`.toLocaleLowerCase().includes(normalizedIntentSearch)
+  const customMatches = (policy: Policy) => `${policy.name} ${policy.metadata.summary}`.toLocaleLowerCase().includes(normalizedIntentSearch)
+  const visibleFavoriteNatives = favoriteNatives.filter(nativeMatches)
+  const visibleFavoriteCustomPolicies = favoriteCustomPolicies.filter(customMatches)
+  const visibleOtherNatives = otherNatives.filter(nativeMatches)
+  const visibleOtherCustomPolicies = otherCustomPolicies.filter(customMatches)
   const selectedPolicy = selection?.kind === 'CUSTOM' ? selection.policy : null
   const activeNative = selection?.kind === 'NATIVE' ? selection.native : selectedPolicy ? nativePolicyByTag(selectedPolicy) : undefined
   const parentCategoryId = selectedPolicy?.scope_type === 'CHANNEL'
@@ -670,24 +745,29 @@ export function PoliciesScreen() {
       title={t(pinned ? 'policies.favorite.remove' : 'policies.favorite.add', { name })}
       disabled={favoritesQuery.isLoading || Boolean(favoriteBusy)}
       onClick={() => void toggleFavorite(favoriteKey)}
-    >{pinned ? '★' : '☆'}</button>
+    ><Star size={17} fill={pinned ? 'currentColor' : 'none'} /></button>
   }
 
   function nativeCard(native: NativePolicy) {
     const name = t(native.titleKey)
+    const Icon = policyIcon(native)
     return <div className="policy-card-row" key={native.id}>
       <button type="button" className={selection?.kind === 'NATIVE' && selection.native.id === native.id ? 'policy-card selected' : 'policy-card'} onClick={() => chooseNative(native)}>
-        <span className="policy-card-heading"><strong>{name}</strong><Badge>{t('policies.origin.did')}</Badge></span><span>{t(native.summaryKey)}</span><small>{t(`policies.family.${native.family}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''} · {t('policies.version.catalog')}</small>
+        <span className={`policy-intent-icon policy-intent-${native.family.toLocaleLowerCase()}`}><Icon size={19} /></span>
+        <span className="policy-card-copy"><strong>{name}</strong><span>{t(native.summaryKey)}</span></span>
+        <ChevronRight className="policy-card-arrow" size={17} aria-hidden="true" />
       </button>
       {favoriteToggle(`native:${native.id}`, name)}
     </div>
   }
 
   function customPolicyCard(policy: Policy) {
+    const Icon = familyIcons[policyFamily(policy)]
     return <div className="policy-card-row" key={policy.policy_id}>
       <button type="button" className={selectedPolicy?.policy_id === policy.policy_id ? 'policy-card selected' : 'policy-card'} onClick={() => chooseCustom(policy)}>
-        <span className="policy-card-heading"><strong>{policy.name}</strong><span className="policy-card-badges"><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge>{policy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span></span><span>{policy.metadata.summary}</span><small>{t(`policies.family.${policyFamily(policy)}`)} · {selectedTarget ? `${t(`policies.target.kind.${selectedTarget.kind}`)} — ${selectedTarget.label}` : ''}</small><small>{t('policies.origin.custom')} · {t('policies.revision', { revision: policy.revision })}</small>
-        <small>{sourcePolicyId(policy) ? t('policies.inherited.source') : policy.scope_type === 'CATEGORY' || policy.scope_type === 'LOGICAL_GROUP' ? t('policies.inherited.children') : t('policies.inherited.none')} · {preview?.policy_id === policy.policy_id ? t('policies.conflicts.count', { count: preview.impact.conflicts }) : t('policies.conflicts.notAnalysed')}</small>
+        <span className={`policy-intent-icon policy-intent-${policyFamily(policy).toLocaleLowerCase()}`}><Icon size={19} /></span>
+        <span className="policy-card-copy"><span className="policy-card-title"><strong>{policy.name}</strong><Badge tone={lifecycleTone[policy.lifecycle_state]}>{t(`policies.lifecycle.${policy.lifecycle_state}`)}</Badge></span><span>{policy.metadata.summary}</span></span>
+        <ChevronRight className="policy-card-arrow" size={17} aria-hidden="true" />
       </button>
       {favoriteToggle(`custom:${policy.policy_id}`, policy.name)}
     </div>
@@ -715,10 +795,15 @@ export function PoliciesScreen() {
   const temporaryAccess = temporaryQuery.data?.temporary_access ?? null
   const temporaryEditable = !temporaryAccess || ['SCHEDULED', 'INTERVENTION_REQUIRED', 'CANCELLED'].includes(temporaryAccess.status)
   const temporaryExpiryLabel = temporaryAccess ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(temporaryAccess.expires_at)) : ''
+  const resultAccesses = [...new Set(visibleDefinition?.effects.map((effect) => effect.access) ?? [])]
+  const resultActors = activeNative?.audienceMode === 'EXCLUDE'
+    ? t('policies.result.everyoneExcept', { roles: roleNames(editor.roleIds) || t('policies.result.noRoles'), interpolation: { escapeValue: false } })
+    : roleNames(editor.roleIds) || t('policies.result.noRoles')
+  const resultActions = resultAccesses.map((access) => t(`policies.access.${access}`)).join(', ').toLocaleLowerCase()
 
-  return <section className="access-page policies-workbench">
-    <header className="access-hero">
-      <div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('policies.title')}</h1><p>{t('policies.subtitle')}</p></div>
+  return <section className="access-page policies-workbench bunny-access-page">
+    <header className="access-hero bunny-access-header">
+      <div className="bunny-access-heading"><span className="bunny-access-heading-icon"><ShieldCheck size={26} /></span><div><p className="access-eyebrow">{t('access.eyebrow')}</p><h1>{t('policies.title')}</h1><p>{t('policies.subtitle')}</p></div></div>
       <div className="access-mode-switch" role="tablist" aria-label={t('policies.mode.label')}>
         <button type="button" role="tab" aria-selected={!expert} className={!expert ? 'active' : ''} onClick={() => setExpert(false)}>{t('policies.mode.simple')}</button>
         <button type="button" role="tab" aria-selected={expert} className={expert ? 'active' : ''} onClick={() => setExpert(true)}>{t('policies.mode.expert')}</button>
@@ -836,25 +921,26 @@ export function PoliciesScreen() {
     <div className="policy-layout">
       <article className="access-panel policy-catalog-panel">
         <div className="access-panel-heading"><div><small>{t('policies.step.policy')}</small><strong>{t('policies.catalog.title')}</strong></div><Badge>{t('policies.catalog.count', { count: availableNatives.length + customPolicies.length })}</Badge></div>
+        <TextInput className="policy-intent-search" value={intentSearch} onChange={(event) => setIntentSearch(event.currentTarget.value)} placeholder={t('policies.intent.search')} aria-label={t('policies.intent.search')} leftSection={<Search size={16} />} />
         {favoritesQuery.isError && <p className="access-callout danger" role="alert">{t('policies.favorite.loadError')} <button type="button" className="button quiet" onClick={() => void favoritesQuery.refetch()}>{t('common.retry')}</button></p>}
         {favoriteProblem && <p className="access-callout danger" role="alert">{favoriteProblem}</p>}
-        {favoriteNatives.length + favoriteCustomPolicies.length > 0 && <section className="policy-favorites" aria-labelledby="favorite-policy-title"><h2 id="favorite-policy-title">{t('policies.favorite.title')}</h2><div className="policy-card-list">
-          {favoriteNatives.map(nativeCard)}
-          {favoriteCustomPolicies.map(customPolicyCard)}
+        {visibleFavoriteNatives.length + visibleFavoriteCustomPolicies.length > 0 && <section className="policy-favorites" aria-labelledby="favorite-policy-title"><h2 id="favorite-policy-title">{t('policies.favorite.title')}</h2><div className="policy-card-list">
+          {visibleFavoriteNatives.map(nativeCard)}
+          {visibleFavoriteCustomPolicies.map(customPolicyCard)}
         </div></section>}
         <section aria-labelledby="native-policy-title"><h2 id="native-policy-title">{t('policies.native.title')}</h2><div className="policy-card-list">
-          {otherNatives.map(nativeCard)}
+          {visibleOtherNatives.map(nativeCard)}
         </div></section>
         <section aria-labelledby="custom-policy-title"><h2 id="custom-policy-title">{t('policies.custom.title')}</h2><div className="policy-card-list">
           {customPolicies.length === 0 && <p className="access-help">{t('policies.custom.empty')}</p>}
-          {otherCustomPolicies.map(customPolicyCard)}
+          {visibleOtherCustomPolicies.map(customPolicyCard)}
         </div></section>
       </article>
 
       <article className="access-panel policy-editor-panel">
         {!selection ? <div className="access-empty"><span>◇</span><p>{t('policies.editor.empty')}</p></div> : <>
           <div className="access-panel-heading"><div><small>{selection.kind === 'NATIVE' ? t('policies.origin.did') : t('policies.origin.custom')}</small><strong>{editor.name || t('policies.editor.untitled')}</strong></div>{selectedPolicy && <span className="policy-card-badges"><Badge tone={lifecycleTone[selectedPolicy.lifecycle_state]}>{t(`policies.lifecycle.${selectedPolicy.lifecycle_state}`)}</Badge>{selectedPolicy.locked && <Badge tone="warning">{t('policies.drift.lockedBadge')}</Badge>}</span>}</div>
-          {selectedPolicy?.lifecycle_state !== 'DRAFT' && <p className="access-callout warning">{t('policies.editor.immutable')}</p>}
+          {selectedPolicy && selectedPolicy.lifecycle_state !== 'DRAFT' && <p className="access-callout warning">{t('policies.editor.immutable')}</p>}
           {selectedPolicy?.lifecycle_state === 'ACTIVE' && <section className={`policy-temporary-access ${temporaryAccess?.status === 'INTERVENTION_REQUIRED' ? 'danger' : ''}`} aria-labelledby="policy-temporary-title">
             <div className="policy-compliance-heading"><div><small>{t('policies.temporary.eyebrow')}</small><h2 id="policy-temporary-title">{t('policies.temporary.title')}</h2></div>{temporaryAccess && temporaryAccess.status !== 'CANCELLED' && <Badge tone={temporaryAccess.status === 'INTERVENTION_REQUIRED' ? 'danger' : temporaryAccess.status === 'REMOVED' ? 'ok' : 'warning'}>{t(`policies.temporary.status.${temporaryAccess.status}`)}</Badge>}</div>
             {temporaryQuery.isLoading ? <p>{t('policies.temporary.loading')}</p> : temporaryQuery.isError ? <p className="access-callout danger" role="alert">{t('policies.temporary.loadFailed')}</p> : <>
@@ -906,7 +992,7 @@ export function PoliciesScreen() {
               <div className="policy-role-picker" role="group" aria-label={t('policies.bot.functions')}>{(['READ', 'WRITE', 'MANAGE', ...(selectedTarget?.kind === 'VOICE_CHANNEL' ? ['VOCAL'] : ['THREADS'])] as BotFunction[]).map((value) => <label key={value}><input type="checkbox" checked={editor.botFunctions.includes(value)} disabled={editorDisabled} onChange={(event) => setEditor((state) => ({ ...state, botFunctions: event.target.checked ? [...state.botFunctions, value] : state.botFunctions.filter((item) => item !== value) }))} /><span>{t(`policies.bot.function.${value}`)}</span></label>)}</div>
               {botAccessQuery.isLoading && <p>{t('policies.bot.checking')}</p>}{botMinimum && <div className="policy-bot-result"><Badge tone={botMinimum.outcome === 'CAN' ? 'ok' : botMinimum.outcome === 'CANNOT' ? 'danger' : 'warning'}>{t(`policies.outcome.${botMinimum.outcome}`)}</Badge>{botMinimum.outcome === 'CAN' ? <p>{t('policies.bot.sufficient')}</p> : botMinimum.outcome === 'UNKNOWN' ? <><p className="access-callout warning">{t('policies.bot.unknownCause')}</p><p>{t('policies.bot.unknownRemediation')}</p></> : <><p>{t('policies.bot.missing', { permissions: botMinimum.missing_permissions.join(', ') })}</p><p>{t('policies.bot.grantRemediation')}</p></>}<details><summary>{t('policies.expert.discordDetails')}</summary><p><code>{botMinimum.required_permissions.join(', ')}</code></p>{botMinimum.causes.map((cause) => <p key={cause}><code>{cause}</code></p>)}{botMinimum.remediations.map((remediation) => <p key={remediation}><code>{remediation}</code></p>)}</details></div>}
             </div>}
-            {activeNative?.editorKind !== 'BOT' && activeNative?.editorKind !== 'NAMED_AUDIENCE' && activeNative?.editorKind !== 'ROLE_BUT_NOT' && (activeNative?.editorKind === undefined || activeNative.editorKind === 'AUDIENCE' || editor.reactionMode === 'ONLY') && <div className="policy-role-picker" role="group" aria-label={t('policies.audience.roles')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.roleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, roleIds: event.target.checked ? [...value.roleIds, role.id] : value.roleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>}
+            {activeNative?.editorKind !== 'BOT' && activeNative?.editorKind !== 'NAMED_AUDIENCE' && activeNative?.editorKind !== 'ROLE_BUT_NOT' && (activeNative?.editorKind === undefined || activeNative.editorKind === 'AUDIENCE' || editor.reactionMode === 'ONLY') && rolePicker('policies.audience.roles', editor.roleIds, (roleIds) => setEditor((value) => ({ ...value, roleIds })), editorDisabled)}
             {activeNative?.editorKind === 'NAMED_AUDIENCE' && <div className="policy-named-audience">
               {namedAudience ? <p>{t(activeNative.requiresNamedAudience === 'STAFF' ? 'policies.audience.staffDefinition' : 'policies.audience.confirmedDefinition', { roles: namedAudience.roleIds.map((id) => roles.find((role) => role.id === id)?.name ?? id).join(' + ') || '—' })}</p>
                 : <p className="access-callout warning">{t(activeNative.requiresNamedAudience === 'STAFF' ? 'policies.audience.staffConfigRequired' : 'policies.audience.confirmedConfigRequired')}</p>}
@@ -914,7 +1000,7 @@ export function PoliciesScreen() {
               {staffSuggestion.length > 0 && !namedAudience && !audienceEditorOpen && <p className="access-help">{t('policies.audience.suggestion', { roles: staffSuggestion.map((id) => roles.find((role) => role.id === id)?.name ?? id).join(' + ') })}</p>}
               {audienceEditorOpen && <div className="policy-named-audience-editor">
                 <p className="access-help">{t('policies.audience.suggestionHelp')}</p>
-                <div className="policy-role-picker" role="group" aria-label={t('policies.audience.roles')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={audienceDraftRoleIds.includes(role.id)} onChange={(event) => setAudienceDraftRoleIds((value) => event.target.checked ? [...value, role.id] : value.filter((id) => id !== role.id))} /><span>{role.name}</span></label>)}</div>
+                {rolePicker('policies.audience.roles', audienceDraftRoleIds, setAudienceDraftRoleIds)}
                 <button type="button" className="button primary" disabled={audienceBusy || audienceDraftRoleIds.length === 0} onClick={() => void (async () => {
                   setAudienceBusy(true)
                   try {
@@ -927,14 +1013,14 @@ export function PoliciesScreen() {
             </div>}
             {activeNative?.editorKind === 'ROLE_BUT_NOT' && <div className="policy-role-but-not">
               <p><strong>{t('policies.audience.has')}</strong></p>
-              <div className="policy-role-picker" role="group" aria-label={t('policies.audience.has')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.roleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, roleIds: event.target.checked ? [...value.roleIds, role.id] : value.roleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>
+              {rolePicker('policies.audience.has', editor.roleIds, (roleIds) => setEditor((value) => ({ ...value, roleIds })), editorDisabled)}
               <p><strong>{t('policies.audience.butNot')}</strong></p>
-              <div className="policy-role-picker" role="group" aria-label={t('policies.audience.butNot')}>{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.excludedRoleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, excludedRoleIds: event.target.checked ? [...value.excludedRoleIds, role.id] : value.excludedRoleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div>
+              {rolePicker('policies.audience.butNot', editor.excludedRoleIds, (excludedRoleIds) => setEditor((value) => ({ ...value, excludedRoleIds })), editorDisabled)}
             </div>}
-            {activeNative?.id === 'private_voice' && <div className="policy-staff-option"><label><input type="checkbox" checked={editor.includeStaff} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, includeStaff: event.target.checked }))} /><span>{t('policies.voice.staffAlwaysJoin')}</span></label>{editor.includeStaff && <><p className="access-callout warning">{t('policies.voice.staffExplicit')}</p><div className="policy-role-picker">{roles.map((role) => <label key={role.id}><input type="checkbox" checked={editor.staffRoleIds.includes(role.id)} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, staffRoleIds: event.target.checked ? [...value.staffRoleIds, role.id] : value.staffRoleIds.filter((id) => id !== role.id) }))} /><span>{role.name}</span></label>)}</div></>}</div>}
+            {activeNative?.id === 'private_voice' && <div className="policy-staff-option"><label><input type="checkbox" checked={editor.includeStaff} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, includeStaff: event.target.checked }))} /><span>{t('policies.voice.staffAlwaysJoin')}</span></label>{editor.includeStaff && <><p className="access-callout warning">{t('policies.voice.staffExplicit')}</p>{rolePicker('policies.audience.staffTitle', editor.staffRoleIds, (staffRoleIds) => setEditor((value) => ({ ...value, staffRoleIds })), editorDisabled)}</>}</div>}
             {activeNative?.id === 'open_read_limited_write' && <div className="policy-secondary-options"><label className="field"><span>{t('policies.options.reactions')}</span><select value={editor.reactionMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, reactionMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threads')}</span><select value={editor.threadMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, threadMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select></label><label className="field"><span>{t('policies.options.threadReplies')}</span><select value={editor.replyMode} disabled={editorDisabled} onChange={(event) => setEditor((value) => ({ ...value, replyMode: event.target.value as PolicyMode }))}>{(['INHERIT', 'EVERYONE', 'ONLY', 'NONE'] as const).map((mode) => <option key={mode} value={mode}>{t(`policies.mode.${mode}`)}</option>)}</select><small>{t('policies.options.threadRepliesHelp')}</small></label></div>}
             {(activeNative?.id === 'at_least_one_role' || activeNative?.id === 'all_roles_required' || activeNative?.id === 'role_but_not_role') && <p className="access-help">{t(`policies.audience.example.${activeNative.id}`, { roles: (activeNative.id === 'role_but_not_role' ? [...editor.roleIds, ...editor.excludedRoleIds] : editor.roleIds).map((id) => roles.find((role) => role.id === id)?.name ?? id).slice(0, 2).join(' / ') || '—' })}</p>}
-            <div className="policy-human-result"><strong>{t('policies.result.title')}</strong>{[...new Set(visibleDefinition?.effects.map((effect) => effect.access) ?? [])].map((access) => <span key={access}>{t(`policies.access.${access}`)}</span>)}<p>{activeNative?.audienceMode === 'EXCLUDE' ? t('policies.result.excluded') : t('policies.result.others')}</p></div>
+            <div className="policy-human-result"><span className="policy-result-icon"><ShieldCheck size={19} /></span><div><strong>{t('policies.result.title')}</strong><p>{t('policies.result.sentence', { actors: resultActors, actions: resultActions || t('policies.result.noAction'), target: selectedTarget?.label ?? t('policies.result.thisServer'), interpolation: { escapeValue: false } })}</p></div>{resultAccesses.map((access) => <span key={access}>{t(`policies.access.${access}`)}</span>)}</div>
           </section> : <section className="policy-expert-editor"><label className="field"><span>{t('policies.expert.priority')}</span><input type="number" min="-1000000" max="1000000" value={editor.priority} disabled={selectedPolicy?.lifecycle_state !== 'DRAFT' && selection.kind === 'CUSTOM'} onChange={(event) => setEditor((value) => ({ ...value, priority: Number(event.target.value) }))} /></label>
             <dl><div><dt>{t('policies.expert.id')}</dt><dd><code>{selectedPolicy?.policy_id ?? `native:${activeNative?.id}`}</code></dd></div><div><dt>{t('policies.expert.revision')}</dt><dd>{selectedPolicy?.revision ?? 1}</dd></div><div><dt>{t('policies.expert.scope')}</dt><dd><code>{selectedPolicy?.scope_type ?? selectedTarget?.scopeType}:{selectedPolicy?.scope_id ?? selectedTarget?.scopeId ?? '*'}</code></dd></div></dl>
             <h3>{t('policies.expert.conditions')}</h3><pre>{JSON.stringify(visibleDefinition?.conditions ?? [], null, 2)}</pre>
