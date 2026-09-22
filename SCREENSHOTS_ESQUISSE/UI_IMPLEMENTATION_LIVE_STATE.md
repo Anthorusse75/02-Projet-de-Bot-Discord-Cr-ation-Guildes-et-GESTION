@@ -224,7 +224,7 @@ hiérarchie, les cartes pastel, la recherche, les chips, la phrase de résultat,
 CTA et la navigation basse sont lisibles ; aucun débordement horizontal. Le
 navigateur intégré ne disposait d'aucune instance ; cette inspection image par
 image n'est pas présentée comme une nouvelle validation humaine utilisateur.
-Commit: en attente du commit de code immédiat ; parent publié `08cf494`.
+Commit: `dbf10a74aa32e09124701d0c5706c3cf4cc92be2`.
 Known limitations: l'écran reste volontairement séquentiel sur mobile et le
 catalogue affiche toutes les intentions réellement compatibles ; aucune capacité
 Discord ni donnée backend n'a été inventée pour reproduire les préréglages de la
@@ -535,10 +535,10 @@ l'Accueil novice, la vue Rôles et le parcours Accès par intention sont implém
 et vérifiés visuellement. Les routes métier, lectures cache-first et chemins
 DSG/Policy/Preview/Plan existants sont préservés ; aucun backend n'a été modifié.
 
-Current code HEAD: le commit de code UX1-T003 à créer avec `08cf494` comme parent.
-Le HEAD publié final sera le commit documentaire qui remplacera cette mention par
-le SHA exact.
-Worktree attendu après les deux commits/pushs: clean.
+Current code HEAD: `dbf10a74aa32e09124701d0c5706c3cf4cc92be2` avant le
+commit documentaire courant. Le HEAD publié final est le commit qui contient cette
+mise à jour du tracker, avec `dbf10a7` comme parent code.
+Worktree attendu après commit/push documentaire: clean.
 
 Active task: aucune ; prochaine tâche canonique `UX1-T005`.
 

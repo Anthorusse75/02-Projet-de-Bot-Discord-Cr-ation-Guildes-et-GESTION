@@ -95,4 +95,5 @@ captures desktop/mobile inspectées. Aucun backend, invariant RLS, chemin cache-
 ou chaîne Policy/Preview/Plan n'a été modifié. La vérité opérationnelle détaillée
 et le prochain geste exact restent dans
 `SCREENSHOTS_ESQUISSE/UI_IMPLEMENTATION_LIVE_STATE.md` ; la prochaine tâche est
-UX1-T005 et ne doit pas être commencée silencieusement.
+UX1-T005 et ne doit pas être commencée silencieusement. Le commit fonctionnel
+UX1-T003 publié est `dbf10a74aa32e09124701d0c5706c3cf4cc92be2`.
