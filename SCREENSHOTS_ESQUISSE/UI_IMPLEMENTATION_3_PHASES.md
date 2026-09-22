@@ -78,7 +78,7 @@ désagréable à utiliser.
 
 # Phase 1 — RESET VISUEL ET COMPRÉHENSION IMMÉDIATE
 
-**Statut initial : À FAIRE**
+**Statut : EN COURS — direction visuelle validée le 22/09/2026**
 
 ## Objectif
 
@@ -93,18 +93,15 @@ comprendre en moins d'une minute :
 - où gérer les accès ;
 - où voir ses changements.
 
-## Gate de départ obligatoire
+## Gate de départ — ✅ VALIDÉ LE 22/09/2026
 
-Avant tout refactoring massif :
+La direction visuelle a été validée explicitement par l'utilisateur.
 
-- produire 2 à 3 propositions visuelles réalistes basées sur la nouvelle référence ;
-- au moins une vue desktop ;
-- au moins une vue mobile ;
-- montrer Accueil + Construire + Accès ;
-- obtenir une validation humaine explicite.
+Les 9 screenshots présents dans `SCREENSHOTS_ESQUISSE/` sont désormais la cible
+visuelle exacte définie dans `UI_UX_CANONICAL_REFERENCE.md`.
 
-Cette validation visuelle est une **tâche atomique de Phase 1**, pas une phase
-supplémentaire.
+Il n'est plus nécessaire de produire d'autres propositions avant de coder.
+L'implémentation doit partir de ces captures et leur rester fidèle.
 
 ## Travail obligatoire
 
