@@ -317,11 +317,10 @@ Implementation: non commencée.
 Files: transversal.
 Packages: Mantine Alert/Badge/Tooltip.
 Tests executed: aucun.
-Visual evidence: accueil + rôles 22/09/2026.
+Visual evidence: accueil + rôles 22/09/2026 ; nouvelle revue utilisateur du 22/09/2026 montrant aussi Diagnostics avec `Source : cache local DID`, `Couverture du cache`, `Complète` et `Fraîcheur`, concepts techniques qui ne doivent pas être le niveau principal novice.
 Commit: none.
 Known limitations: none.
-NEXT EXACT ACTION: créer une table de mapping états internes -> états humains avant
-migration des écrans.
+NEXT EXACT ACTION: après les tâches prioritaires rouvertes, créer une présentation humaine centralisée des états internes et retirer du niveau novice les mentions cache/freshness/source/DID ; conserver ces informations uniquement dans Détails techniques si elles ont une valeur de diagnostic.
 
 ### UX1-T009 — Standardiser la stack UI et supprimer les primitives maison
 Status: DONE
@@ -487,6 +486,28 @@ Commit: none.
 Known limitations: l'API et le bot runtime sont des processus séparés ; choisir une source d'identité durable/propre plutôt qu'un couplage direct fragile.
 NEXT EXACT ACTION: après correction prioritaire de UX1-T003, tracer la source d'identité bot existante (`bot_user_id` / gateway ready), choisir le minimum de données à persister/exposer et afficher l'avatar Discord réel avec fallback.
 
+
+### UX1-T013 — Refaire réellement Construire / Structure selon la maquette canonique
+Status: TODO
+Purpose: transformer l'explorateur de structure technique actuel en constructeur visuel compréhensible par un utilisateur lambda.
+User problem: la revue humaine du 22/09/2026 montre que l'écran Construire actuel reste un explorateur technique sombre : IDs Discord visibles, grands panneaux noirs, zone "Destinations" et logique de sélection/mouvement peu explicites. Il ne correspond pas à la maquette canonique `constructeur_discord_pastel_en_français.png`.
+Requirements:
+- reproduire la direction de la maquette canonique Construire : catégories colorées, salons lisibles, actions "Ajouter une catégorie", "Ajouter un salon", "Utiliser un modèle", panneau de propriétés clair et contextuel ;
+- masquer les IDs Discord et métadonnées internes du niveau novice ;
+- rendre drag/drop, sélection et édition compréhensibles sans connaissance Discord avancée ;
+- préserver les fonctions de déplacement/copier/cloner existantes, mais derrière des actions humaines et contextuelles ;
+- conserver le chemin Plan/Preview sécurisé pour toute mutation réelle ;
+- responsive mobile cohérent avec la direction Bunny ;
+- ne pas réduire le travail à un simple recoloring de l'explorateur existant.
+Implementation: non commencée. Le shell "Construire" existe, mais le contenu métier Structure reste principalement hérité de l'ancienne UI.
+Files: à déterminer ; probablement écran Structure, styles Bunny Structure et composants de propriétés/DnD.
+Packages: Mantine/Lucide/Motion/dnd-kit selon stack canonique ; aucun framework concurrent.
+Tests executed: aucun pour cette tâche.
+Visual evidence: capture utilisateur réelle du 22/09/2026 comparée à `constructeur_discord_pastel_en_français.png`.
+Commit: none.
+Known limitations: la logique backend/Plan existante doit être préservée ; la refonte concerne l'expérience et la présentation.
+NEXT EXACT ACTION: après UX1-T003 et UX1-T012, auditer l'écran Structure contre la maquette canonique et implémenter la vraie expérience Construire, pas uniquement des tokens/couleurs.
+
 ---
 
 # Phase 1 — tâches à découvrir pendant l'implémentation
@@ -537,4 +558,4 @@ NEXT EXACT ACTION:
 3. retirer le concept technique "liaison" du premier niveau et réorganiser le cas public+staff derrière une intention réellement compréhensible ou un mode avancé ;
 4. vérifier que la page explique le résultat attendu avant de demander des ressources/rôles ;
 5. faire une vraie validation visuelle desktop + mobile avant de re-marquer UX1-T003 DONE ;
-6. ensuite traiter UX1-T012 (avatar réel du bot Discord), puis suivre le tracker pour T005/T006/T008/T010.
+6. ensuite traiter UX1-T012 (avatar réel du bot Discord), puis UX1-T013 (vraie refonte Construire/Structure), puis suivre le tracker pour T005/T006/T008/T010.
