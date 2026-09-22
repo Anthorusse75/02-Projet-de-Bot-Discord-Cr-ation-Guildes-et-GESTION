@@ -1,0 +1,111 @@
+:root,
+[data-mantine-color-scheme='light'] {
+  color-scheme: light;
+  --bunny-bg: #f6f8ff;
+  --bunny-bg-accent: #eef2ff;
+  --bunny-surface: #ffffff;
+  --bunny-surface-soft: #f8f9ff;
+  --bunny-sidebar: rgba(255, 255, 255, 0.94);
+  --bunny-border: #dfe5f3;
+  --bunny-border-strong: #cbd4e8;
+  --bunny-text: #101a43;
+  --bunny-text-muted: #68739a;
+  --bunny-text-soft: #8a94b3;
+  --bunny-primary: #6556f6;
+  --bunny-primary-soft: #eeebff;
+  --bunny-blue: #3b86f5;
+  --bunny-blue-soft: #e8f2ff;
+  --bunny-mint: #25c888;
+  --bunny-mint-soft: #e5f9f1;
+  --bunny-rose: #f75b91;
+  --bunny-rose-soft: #ffe8f1;
+  --bunny-amber: #f59a12;
+  --bunny-amber-soft: #fff2dd;
+  --bunny-coral: #f9576c;
+  --bunny-coral-soft: #ffe9ec;
+  --bunny-shadow-soft: 0 8px 28px rgba(54, 64, 112, 0.08);
+  --bunny-shadow-card: 0 16px 42px rgba(54, 64, 112, 0.1);
+  --bunny-radius-card: 20px;
+
+  /* Compatibility aliases while legacy screens migrate to Mantine. */
+  --did-bg: var(--bunny-bg);
+  --did-bg-soft: var(--bunny-bg-accent);
+  --did-panel: var(--bunny-surface);
+  --did-panel-2: var(--bunny-surface-soft);
+  --did-panel-3: var(--bunny-primary-soft);
+  --did-line: var(--bunny-border);
+  --did-line-soft: #e9edf6;
+  --did-text: var(--bunny-text);
+  --did-muted: var(--bunny-text-muted);
+  --did-muted-2: var(--bunny-text-soft);
+  --did-blue: var(--bunny-blue);
+  --did-violet: var(--bunny-primary);
+  --did-cyan: #35b8c9;
+  --did-green: var(--bunny-mint);
+  --did-yellow: var(--bunny-amber);
+  --did-red: var(--bunny-coral);
+  --did-shadow: var(--bunny-shadow-card);
+  --did-radius: var(--bunny-radius-card);
+}
+
+[data-mantine-color-scheme='dark'] {
+  color-scheme: dark;
+  --bunny-bg: #111426;
+  --bunny-bg-accent: #171b31;
+  --bunny-surface: #1b2038;
+  --bunny-surface-soft: #222844;
+  --bunny-sidebar: rgba(20, 24, 43, 0.96);
+  --bunny-border: #303858;
+  --bunny-border-strong: #424d72;
+  --bunny-text: #f5f6ff;
+  --bunny-text-muted: #b1b8d0;
+  --bunny-text-soft: #858eac;
+  --bunny-primary: #9d8cff;
+  --bunny-primary-soft: #302b5b;
+  --bunny-blue: #70aaff;
+  --bunny-blue-soft: #20385a;
+  --bunny-mint: #4fdaa8;
+  --bunny-mint-soft: #193f36;
+  --bunny-rose: #ff83ae;
+  --bunny-rose-soft: #502a3d;
+  --bunny-amber: #ffbc54;
+  --bunny-amber-soft: #4c3820;
+  --bunny-coral: #ff8190;
+  --bunny-coral-soft: #502932;
+  --bunny-shadow-soft: 0 8px 28px rgba(0, 0, 0, 0.2);
+  --bunny-shadow-card: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  color: var(--bunny-text);
+  background:
+    radial-gradient(circle at 82% -8%, rgba(101, 86, 246, 0.11), transparent 30rem),
+    linear-gradient(180deg, var(--bunny-bg) 0%, #fbfcff 100%);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--bunny-primary) 48%, white);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: var(--bunny-text);
+  background: color-mix(in srgb, var(--bunny-primary) 22%, white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

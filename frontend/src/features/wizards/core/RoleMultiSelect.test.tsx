@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { discordSnowflake } from '../../../shared/discord-id'
+import { BunnyTestProvider } from '../../../test/BunnyTestProvider'
 import { RoleMultiSelect, type ProposedRole } from './RoleMultiSelect'
 
 const apiRequestMock = vi.hoisted(() => vi.fn())
@@ -40,11 +41,19 @@ function Harness({ suggestedName }: { suggestedName?: string | undefined }) {
   )
 }
 
+function renderHarness(suggestedName?: string) {
+  return render(
+    <BunnyTestProvider>
+      <Harness suggestedName={suggestedName} />
+    </BunnyTestProvider>,
+  )
+}
+
 describe('RoleMultiSelect', () => {
   beforeEach(() => apiRequestMock.mockReset())
 
   it('shows managed roles but flags them as unusable instead of hiding them', () => {
-    render(<Harness />)
+    renderHarness()
     const managedCheckbox = screen.getByRole('checkbox', { name: /DID Bot/ })
     expect(managedCheckbox).toBeDisabled()
     expect(screen.getByRole('checkbox', { name: /Managers/ })).toBeEnabled()
@@ -52,7 +61,7 @@ describe('RoleMultiSelect', () => {
 
   it('a suggested or manually created role becomes a local proposal and never calls the backend (REQ-WIZ-006)', async () => {
     const user = userEvent.setup()
-    render(<Harness suggestedName="Confirmed members" />)
+    renderHarness('Confirmed members')
 
     await user.click(screen.getByRole('button', { name: 'Use this suggestion' }))
     const dialog = screen.getByRole('dialog')

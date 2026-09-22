@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { discordSnowflake } from '../../shared/discord-id'
 import { useInteractionStore } from '../../shared/state/interaction'
+import { BunnyTestProvider } from '../../test/BunnyTestProvider'
 import { StructureScreen } from './StructureScreen'
 
 const A = discordSnowflake('700000000000000001')
@@ -25,16 +26,32 @@ function Harness() {
   return <Outlet context={{ me: { authenticated: true, user: { discord_user_id: discordSnowflake('700000000000000003'), username: 'owner', global_name: null }, active_guild_id: A, csrf_token: 'csrf', policy_version: 1 }, guild, guilds: [guild], connection: 'live', capabilities: undefined }} />
 }
 
+function renderStructure() {
+  return render(
+    <BunnyTestProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[`/guild/${A}/structure`]}>
+          <Routes>
+            <Route path="/guild/:guildId" element={<Harness/>}>
+              <Route path="structure" element={<StructureScreen/>}/>
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </BunnyTestProvider>,
+  )
+}
+
 describe('mounted STAGE 07 drag lifecycle', () => {
   beforeEach(() => { useInteractionStore.getState().clearTenantState(); useStructureMock.mockClear() })
   it('requests hidden and deleted resources only after explicit opt-in', () => {
-    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    renderStructure()
     expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, false)
     fireEvent.click(screen.getByRole('checkbox', { name: 'structure.showHiddenShort' }))
     expect(useStructureMock).toHaveBeenLastCalledWith('700000000000000003', A, true)
   })
   it('opens a real move intent only after a valid mounted left drop', () => {
-    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    renderStructure()
     const source = document.querySelector<HTMLElement>('[data-drop-name="general"]'); const target = document.querySelector<HTMLElement>('[data-drop-name="Operations"]'); if (!source || !target) throw new Error('mounted drag fixtures missing')
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => target) })
     fireEvent.pointerDown(source, { pointerId: 1, button: 0, pointerType: 'mouse', clientX: 0, clientY: 0 })
@@ -45,7 +62,7 @@ describe('mounted STAGE 07 drag lifecycle', () => {
   })
 
   it('clears pointer state on pointercancel and lost capture', () => {
-    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    renderStructure()
     const source = document.querySelector<HTMLElement>('[data-drop-name="general"]'); if (!source) throw new Error('mounted drag source missing')
     fireEvent.pointerDown(source, { pointerId: 2, button: 0, pointerType: 'touch', clientX: 0, clientY: 0 }); fireEvent.pointerCancel(source, { pointerId: 2 })
     expect(useInteractionStore.getState().announcement).toBe('gesture.cancelled')
@@ -54,7 +71,7 @@ describe('mounted STAGE 07 drag lifecycle', () => {
   })
 
   it('opens the mounted object menu for a right click', () => {
-    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    renderStructure()
     const source = document.querySelector<HTMLElement>('[data-drop-name="general"]'); if (!source) throw new Error('mounted context source missing')
     fireEvent.pointerDown(source, { pointerId: 4, button: 2, pointerType: 'mouse', clientX: 2, clientY: 3 })
     fireEvent.pointerUp(source, { pointerId: 4, button: 2, pointerType: 'mouse', clientX: 2, clientY: 3 })
@@ -63,7 +80,7 @@ describe('mounted STAGE 07 drag lifecycle', () => {
   })
 
   it('opens the mounted drop menu for a right drag', () => {
-    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[`/guild/${A}/structure`]}><Routes><Route path="/guild/:guildId" element={<Harness/>}><Route path="structure" element={<StructureScreen/>}/></Route></Routes></MemoryRouter></QueryClientProvider>)
+    renderStructure()
     const source = document.querySelector<HTMLElement>('[data-drop-name="general"]'); const target = document.querySelector<HTMLElement>('[data-drop-name="Operations"]'); if (!source || !target) throw new Error('mounted right drag fixtures missing')
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => target) })
     fireEvent.pointerDown(source, { pointerId: 5, button: 2, pointerType: 'mouse', clientX: 0, clientY: 0 })

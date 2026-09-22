@@ -1,0 +1,60 @@
+import { createTheme } from '@mantine/core'
+
+const bunny = [
+  '#f1efff',
+  '#e2deff',
+  '#c5bcff',
+  '#a493ff',
+  '#8873ff',
+  '#755fff',
+  '#6556f6',
+  '#5545db',
+  '#493dc0',
+  '#3d349f',
+] as const
+
+export const bunnyTheme = createTheme({
+  primaryColor: 'bunny',
+  primaryShade: { light: 6, dark: 4 },
+  colors: {
+    bunny,
+    sky: ['#edf5ff', '#dceaff', '#bad7ff', '#8fbfff', '#65a7ff', '#4d97ff', '#3b86f5', '#2d72da', '#285fba', '#245198'],
+    mint: ['#e9fcf5', '#d6f7e9', '#abedd2', '#7de2b9', '#56d8a3', '#3bd294', '#25c888', '#17af76', '#0b9866', '#008457'],
+    rose: ['#fff0f6', '#ffe0ed', '#ffc0d8', '#ff9dc1', '#ff80ac', '#ff6d9f', '#f75b91', '#dd477c', '#c43a6c', '#ad2c5d'],
+    amber: ['#fff8e5', '#ffefc8', '#ffdc91', '#ffc657', '#ffb536', '#ffa81f', '#f59a12', '#da8506', '#bd7200', '#a46200'],
+    coral: ['#fff0f1', '#ffe0e2', '#ffc1c7', '#ff9da7', '#ff7e8d', '#ff687a', '#f9576c', '#df4359', '#c7374d', '#ad293f'],
+  },
+  fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+  fontFamilyMonospace: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+  headings: {
+    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+    fontWeight: '800',
+    textWrap: 'balance',
+  },
+  defaultRadius: 'lg',
+  radius: { xs: '8px', sm: '10px', md: '12px', lg: '16px', xl: '22px' },
+  spacing: { xs: '8px', sm: '12px', md: '16px', lg: '24px', xl: '32px' },
+  shadows: {
+    xs: '0 2px 8px rgba(54, 64, 112, 0.06)',
+    sm: '0 8px 24px rgba(54, 64, 112, 0.08)',
+    md: '0 16px 40px rgba(54, 64, 112, 0.10)',
+    lg: '0 24px 64px rgba(54, 64, 112, 0.13)',
+    xl: '0 32px 80px rgba(54, 64, 112, 0.16)',
+  },
+  defaultGradient: { from: 'bunny.6', to: 'bunny.4', deg: 135 },
+  autoContrast: true,
+  cursorType: 'pointer',
+  focusRing: 'auto',
+  respectReducedMotion: true,
+  components: {
+    Button: { defaultProps: { radius: 'md' } },
+    ActionIcon: { defaultProps: { radius: 'md' } },
+    Card: { defaultProps: { radius: 'xl', shadow: 'sm', withBorder: true } },
+    Paper: { defaultProps: { radius: 'xl' } },
+    Modal: { defaultProps: { radius: 'xl', centered: true } },
+    Drawer: { defaultProps: { radius: 'xl' } },
+    Badge: { defaultProps: { radius: 'xl' } },
+    TextInput: { defaultProps: { radius: 'md' } },
+    Select: { defaultProps: { radius: 'md' } },
+  },
+})

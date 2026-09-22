@@ -1,30 +1,84 @@
-import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type InputHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, type SelectHTMLAttributes } from 'react'
+import {
+  ActionIcon,
+  Alert,
+  Badge as MantineBadge,
+  Box,
+  Button as MantineButton,
+  Menu as MantineMenu,
+  Modal,
+  NativeSelect,
+  Notification,
+  Progress as MantineProgress,
+  Skeleton as MantineSkeleton,
+  Stack,
+  Text,
+  TextInput,
+  Tooltip as MantineTooltip,
+  type ActionIconProps as MantineActionIconProps,
+  type ButtonProps as MantineButtonProps,
+  type ElementProps,
+  type NativeSelectProps,
+  type TextInputProps,
+} from '@mantine/core'
+import { AlertCircle } from 'lucide-react'
+import { Children, isValidElement, useEffect, useRef, type CSSProperties, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageKey } from '../../localization/catalog'
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { labelKey: MessageKey; disabledReasonKey?: MessageKey; variant?: 'primary'|'quiet'|'danger' }
-export function Button({ labelKey, disabledReasonKey, variant = 'quiet', ...props }: ButtonProps) {
+type ButtonProps = Omit<MantineButtonProps & ElementProps<'button'>, 'children' | 'color' | 'variant'> & { labelKey: MessageKey; disabledReasonKey?: MessageKey; variant?: 'primary'|'quiet'|'danger' }
+export function Button({ labelKey, disabledReasonKey, variant = 'quiet', className, title, ...props }: ButtonProps) {
   const { t } = useTranslation()
-  return <button {...props} className={`button ${variant} ${props.className ?? ''}`} title={props.disabled && disabledReasonKey ? t(disabledReasonKey) : props.title}>{t(labelKey)}</button>
+  const disabledReason = props.disabled && disabledReasonKey ? t(disabledReasonKey) : undefined
+  const resolvedTitle = disabledReason ?? title
+  const button = (
+    <MantineButton
+      {...props}
+      className={`button ${variant} ${className ?? ''}`}
+      {...(resolvedTitle ? { title: resolvedTitle } : {})}
+      variant={variant === 'primary' ? 'gradient' : variant === 'danger' ? 'outline' : 'default'}
+      color={variant === 'danger' ? 'coral' : 'bunny'}
+    >
+      {t(labelKey)}
+    </MantineButton>
+  )
+  return disabledReason ? <MantineTooltip label={disabledReason}><span>{button}</span></MantineTooltip> : button
 }
-export function IconButton({ labelKey, children, ...props }: ButtonProps & { children: ReactNode }) {
-  const { t } = useTranslation(); return <button {...props} className="icon-button" aria-label={t(labelKey)} title={t(labelKey)}>{children}</button>
+type IconButtonProps = Omit<MantineActionIconProps & ElementProps<'button'>, 'children' | 'color' | 'variant'> & { labelKey: MessageKey; children: ReactNode }
+export function IconButton({ labelKey, children, ...props }: IconButtonProps) {
+  const { t } = useTranslation()
+  return <ActionIcon {...props} className="icon-button" aria-label={t(labelKey)} title={t(labelKey)} variant="subtle" color="bunny">{children}</ActionIcon>
 }
-export function Input({ labelKey, ...props }: InputHTMLAttributes<HTMLInputElement> & { labelKey: MessageKey }) {
-  const { t } = useTranslation(); const id = props.id ?? `input-${labelKey}`
-  return <label className="field" htmlFor={id}><span>{t(labelKey)}</span><input {...props} id={id} /></label>
+export function Input({ labelKey, ...props }: Omit<TextInputProps, 'label'> & { labelKey: MessageKey }) {
+  const { t } = useTranslation()
+  const id = props.id ?? `input-${labelKey}`
+  return <TextInput {...props} id={id} className="field" label={t(labelKey)} />
 }
-export function Select({ labelKey, children, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { labelKey: MessageKey; children: ReactNode }) {
-  const { t } = useTranslation(); const id = props.id ?? `select-${labelKey}`
-  return <label className="field" htmlFor={id}><span>{t(labelKey)}</span><select {...props} id={id}>{children}</select></label>
+export function Select({ labelKey, children, ...props }: Omit<NativeSelectProps, 'label'> & { labelKey: MessageKey; children: ReactNode }) {
+  const { t } = useTranslation()
+  const id = props.id ?? `select-${labelKey}`
+  return <NativeSelect {...props} id={id} className="field" label={t(labelKey)}>{children}</NativeSelect>
 }
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral'|'ok'|'warning'|'danger' }) { return <span className={`badge ${tone}`}>{children}</span> }
-export function Skeleton() { const { t } = useTranslation(); return <div className="skeleton" role="status"><span>{t('common.loading')}</span></div> }
-export function EmptyState({ messageKey }: { messageKey: MessageKey }) { const { t } = useTranslation(); return <div className="state empty">{t(messageKey)}</div> }
-export function ErrorState({ retry }: { retry?: () => void }) { const { t } = useTranslation(); return <div className="state error" role="alert"><p>{t('errors.network.offline')}</p>{retry && <Button labelKey="common.retry" onClick={retry} />}</div> }
-export function Progress({ value, labelKey }: { value: number | undefined; labelKey: MessageKey }) { const { t } = useTranslation(); return <label className="progress"><span>{t(labelKey)}</span><progress max={100} {...(value === undefined ? {} : { value })}>{value === undefined ? t('plans.progress.indeterminate') : `${value}%`}</progress></label> }
-export function Status({ children }: { children: ReactNode }) { return <span role="status" className="status">{children}</span> }
-export function Tabs({ children, ...props }: HTMLAttributes<HTMLDivElement>) { return <div role="tablist" {...props}>{children}</div> }
+export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral'|'ok'|'warning'|'danger' }) {
+  const colors = { neutral: 'gray', ok: 'mint', warning: 'amber', danger: 'coral' } as const
+  return <MantineBadge className={`badge ${tone}`} color={colors[tone]} variant="light">{children}</MantineBadge>
+}
+export function Skeleton() {
+  const { t } = useTranslation()
+  return <Box className="skeleton" role="status" aria-label={t('common.loading')}><MantineSkeleton height={72} radius="lg" /></Box>
+}
+export function EmptyState({ messageKey }: { messageKey: MessageKey }) {
+  const { t } = useTranslation()
+  return <Alert className="state empty" color="bunny" variant="light">{t(messageKey)}</Alert>
+}
+export function ErrorState({ retry }: { retry?: () => void }) {
+  const { t } = useTranslation()
+  return <Alert className="state error" role="alert" color="coral" icon={<AlertCircle size={18} />}><Stack gap="sm"><Text>{t('errors.network.offline')}</Text>{retry && <Button labelKey="common.retry" onClick={retry} />}</Stack></Alert>
+}
+export function Progress({ value, labelKey }: { value: number | undefined; labelKey: MessageKey }) {
+  const { t } = useTranslation()
+  return <Stack className="progress" gap={6}><Text size="sm">{t(labelKey)}</Text><MantineProgress value={value ?? 100} animated={value === undefined} striped={value === undefined} aria-label={t(labelKey)} /></Stack>
+}
+export function Status({ children }: { children: ReactNode }) { return <Text component="span" role="status" className="status">{children}</Text> }
 export function Tree({ children }: { children: ReactNode }) {
   const { t } = useTranslation(); const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { const items = ref.current?.querySelectorAll<HTMLElement>('[role="treeitem"]'); const values = items ? [...items] : []; const first = values.at(0); if (first && !values.some((item) => item.tabIndex === 0)) first.tabIndex = 0 }, [children])
@@ -33,50 +87,48 @@ export function Tree({ children }: { children: ReactNode }) {
 }
 export function TreeItem({ children, selected, level = 1, expandable = false, ...props }: HTMLAttributes<HTMLDivElement> & { selected?: boolean; level?: number; expandable?: boolean }) { return <div role="treeitem" aria-selected={selected} aria-level={level} aria-expanded={expandable ? true : undefined} tabIndex={selected ? 0 : -1} {...props}>{children}</div> }
 
-export function Dialog({ open, titleKey, children, onClose, returnFocus }: { open: boolean; titleKey: MessageKey; children: ReactNode; onClose: () => void; returnFocus?: RefObject<HTMLElement | null> }) {
-  const { t } = useTranslation(); const ref = useRef<HTMLDivElement>(null); const titleId = useId(); const onCloseRef = useRef(onClose); onCloseRef.current = onClose
-  useEffect(() => {
-    if (!open) return
-    const previous = document.activeElement as HTMLElement | null
-    ref.current?.querySelector<HTMLElement>('button,input,select,[tabindex="0"]')?.focus()
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return } if (event.key !== 'Tab') return; const focusable = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href],[tabindex="0"]') ?? [])]; const first = focusable.at(0); const last = focusable.at(-1); if (!first || !last) return; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
-    document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('keydown', key); (returnFocus?.current ?? previous)?.focus() }
-  }, [open])
-  if (!open) return null
-  return <div className="dialog-backdrop"><div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dialog"><h2 id={titleId}>{t(titleKey)}</h2>{children}<Button labelKey="common.close" onClick={onClose} /></div></div>
+export function Dialog(props: { open: boolean; titleKey: MessageKey; children: ReactNode; onClose: () => void; returnFocus?: RefObject<HTMLElement | null> }) {
+  const { t } = useTranslation()
+  return (
+    <Modal
+      opened={props.open}
+      onClose={props.onClose}
+      title={t(props.titleKey)}
+      className="dialog"
+      closeButtonProps={{ 'aria-label': t('common.close') }}
+      onExitTransitionEnd={() => props.returnFocus?.current?.focus()}
+    >
+      {props.children}
+    </Modal>
+  )
 }
 export const AlertDialog = Dialog
-export function Tooltip({ labelKey, children }: { labelKey: MessageKey; children: ReactNode }) { const { t } = useTranslation(); return <span title={t(labelKey)}>{children}</span> }
-export function Toast({ children }: { children: ReactNode }) { return <div className="toast" role="status" aria-live="polite">{children}</div> }
+export function Tooltip({ labelKey, children }: { labelKey: MessageKey; children: ReactNode }) {
+  const { t } = useTranslation()
+  return <MantineTooltip label={t(labelKey)}>{children}</MantineTooltip>
+}
+export function Toast({ children }: { children: ReactNode }) { return <Notification className="toast" role="status" aria-live="polite" withCloseButton={false} color="bunny">{children}</Notification> }
 export function Menu({ labelKey, children, style, onClose }: { labelKey: MessageKey; children: ReactNode; style?: CSSProperties; onClose?: () => void }) {
   const { t } = useTranslation()
-  const ref = useRef<HTMLDivElement>(null)
-  const [fittedStyle, setFittedStyle] = useState<CSSProperties | undefined>(style)
   const visibleChildren = labelKey === 'context.dropTitle'
     ? Children.toArray(children).filter((child) => isValidElement<{ disabled?: boolean }>(child) && child.props.disabled !== true)
     : children
-  useLayoutEffect(() => {
-    const fitToViewport = () => {
-      const element = ref.current
-      if (!element) return
-      const bounds = element.getBoundingClientRect()
-      const margin = 8
-      const requestedLeft = typeof style?.left === 'number' ? style.left : bounds.left
-      const requestedTop = typeof style?.top === 'number' ? style.top : bounds.top
-      const left = Math.max(margin, Math.min(requestedLeft, window.innerWidth - bounds.width - margin))
-      const top = Math.max(margin, Math.min(requestedTop, window.innerHeight - bounds.height - margin))
-      setFittedStyle({ ...style, left, top })
-    }
-    fitToViewport()
-    window.addEventListener('resize', fitToViewport)
-    return () => window.removeEventListener('resize', fitToViewport)
-  }, [style])
-  useEffect(() => { const previous = document.activeElement as HTMLElement | null; ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus(); return () => previous?.focus() }, [])
-  function keyDown(event: ReactKeyboardEvent) { const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]; const index = items.indexOf(document.activeElement as HTMLButtonElement); if (event.key === 'Escape') { event.preventDefault(); onClose?.(); return } if (!items.length) return; let next: number; if (event.key === 'ArrowDown') next = (index + 1) % items.length; else if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length; else if (event.key === 'Home') next = 0; else if (event.key === 'End') next = items.length - 1; else return; event.preventDefault(); items[next]?.focus() }
-  return <div ref={ref} role="menu" aria-label={t(labelKey)} className="menu" style={fittedStyle} onKeyDown={keyDown}>{visibleChildren}</div>
+  return (
+    <MantineMenu opened {...(onClose ? { onClose } : {})} position="bottom-start" withinPortal shadow="md">
+      <MantineMenu.Target>
+        <span style={{ position: 'fixed', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap', ...style }}>
+          {t(labelKey)}
+        </span>
+      </MantineMenu.Target>
+      <MantineMenu.Dropdown className="menu" aria-label={t(labelKey)}>{visibleChildren}</MantineMenu.Dropdown>
+    </MantineMenu>
+  )
 }
-export function MenuItem({ children, disabled, disabledReasonKey, onSelect }: { children: ReactNode; disabled?: boolean; disabledReasonKey?: MessageKey | undefined; onSelect: () => void }) { const { t } = useTranslation(); return <button type="button" role="menuitem" disabled={disabled} title={disabled && disabledReasonKey ? t(disabledReasonKey) : undefined} onClick={onSelect}>{children}</button> }
+export function MenuItem({ children, disabled, disabledReasonKey, onSelect }: { children: ReactNode; disabled?: boolean; disabledReasonKey?: MessageKey | undefined; onSelect: () => void }) {
+  const { t } = useTranslation()
+  const title = disabled && disabledReasonKey ? t(disabledReasonKey) : undefined
+  return <MantineMenu.Item {...(disabled === undefined ? {} : { disabled })} {...(title ? { title } : {})} onClick={onSelect}>{children}</MantineMenu.Item>
+}
 
 const flagColors: Record<string, string> = { en: 'flag-en', fr: 'flag-fr', de: 'flag-de', es: 'flag-es' }
 export function LocaleFlag({ locale, label }: { locale: string; label: string }) { return <span role="img" aria-label={label} className={`locale-flag ${flagColors[locale] ?? 'flag-runtime'}`}>{flagColors[locale] ? null : locale.toUpperCase()}</span> }

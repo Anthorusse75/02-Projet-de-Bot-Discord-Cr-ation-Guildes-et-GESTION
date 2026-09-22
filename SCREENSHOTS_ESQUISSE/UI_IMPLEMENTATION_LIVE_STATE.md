@@ -272,28 +272,40 @@ Requirements:
 - dnd-kit pour drag/drop adapté ;
 - aucune bibliothèque concurrente sans justification.
 Implementation: inventaire initial terminé. `frontend/src/shared/components/ui.tsx`
-réimplémente en 82 lignes 17 exports, dont Button/IconButton, Input, Select, Badge,
-Skeleton, Empty/Error states, Progress, Tabs, Dialog/AlertDialog, Tooltip, Toast,
-Menu/MenuItem et Tree/TreeItem. Ce module est importé par 25 écrans/composants. Le
-shell/navigation responsive est entièrement maison dans `AppShell.tsx`; environ
-75 Ko de CSS applicatif restent dispersés entre huit feuilles principales, avec des
-tokens historiques `--did-*` et une direction sombre contraire aux captures. La
-migration sera progressive : Mantine remplacera d'abord providers/shell/primitives
-standards, tandis que Tree/TreeItem et les interactions métier spécifiques resteront
-adaptées tant qu'aucun équivalent standard ne préserve leur comportement.
-Files: inventaire de `frontend/package.json`, `frontend/package-lock.json`,
-`frontend/src/app/AppShell.tsx`, `frontend/src/app/providers/AppProviders.tsx`,
-`frontend/src/shared/components/ui.tsx`, `frontend/src/main.tsx` et des feuilles CSS
-partagées/features ; prochaines modifications attendues dans ces fondations.
-Packages: aucun package UI dédié présent au baseline ; React Query, Zustand et
-i18next sont déjà installés et conservés.
-Tests executed: aucun.
-Visual evidence: n/a.
-Commit: none.
-Known limitations: migration progressive requise.
-NEXT EXACT ACTION: vérifier les versions publiées de Mantine 9, Lucide React, Motion
-et dayjs, installer uniquement la fondation canonique nécessaire, puis brancher les
-providers Mantine sans encore migrer un écran métier.
+réimplémentait en 82 lignes 17 exports standards. La fondation canonique est
+maintenant installée : thème Bunny multi-accent, tokens clair/sombre, providers
+Mantine/Modals/Notifications et styles packages au point d'entrée. Les adaptateurs
+Button/IconButton, Input, Select, Badge, Skeleton, Empty/Error states, Progress,
+Dialog/AlertDialog, Tooltip, Toast et Menu/MenuItem reposent désormais sur Mantine ;
+les icônes de statut reposent sur Lucide. Tree/TreeItem restent volontairement
+spécifiques pour préserver la navigation clavier et la hiérarchie Discord. Le menu
+contextuel conserve son ancrage aux coordonnées tout en exposant un nom accessible.
+Les anciens tokens `--did-*` sont temporairement mappés vers les nouveaux tokens
+Bunny pour permettre une migration progressive sans casser les écrans métier.
+Files: `frontend/package.json`, `frontend/package-lock.json`,
+`frontend/src/app/theme.ts`, `frontend/src/app/providers/AppProviders.tsx`,
+`frontend/src/shared/bunny-theme.css`, `frontend/src/shared/components/ui.tsx`,
+`frontend/src/main.tsx`, `frontend/src/test/setup.ts`,
+`frontend/src/test/BunnyTestProvider.tsx`, tests Structure et RoleMultiSelect.
+Packages: `@mantine/core`, `@mantine/hooks`, `@mantine/form`, `@mantine/modals`,
+`@mantine/notifications`, `@mantine/dates`, `@mantine/spotlight`,
+`@mantine/nprogress` 9.6.2 ; `lucide-react` 1.47.0 ; `motion` 13.4.0 ;
+`dayjs` 1.11.23. React Query, Zustand et i18next sont conservés.
+Tests executed: `npm.cmd run build` PASS ; ESLint ciblé des fondations/tests PASS ;
+`npm.cmd run test -- --run src/app/App.test.tsx src/features/structure/StructureScreen.test.tsx src/features/wizards/core/RoleMultiSelect.test.tsx` PASS, 3 fichiers et 9 tests. Premier passage : 9 échecs dus à `matchMedia`/provider absents ; second passage : 7/9 après correction du harness ; troisième passage : 9/9 après correction du nom accessible du Menu. Aucune assertion affaiblie.
+Visual evidence: les 9 références canoniques ont été inspectées en résolution
+originale avant modification. Tentative de vérification locale le 22/09/2026 :
+frontend démarré sur `http://localhost:8000` et réponse HTTP 200, mais aucune
+instance du navigateur intégré n'est disponible dans la session (`browsers.list()`
+vide). Aucune validation visuelle n'est donc revendiquée ; elle reste obligatoire
+avant DONE.
+Commit: inventaire `469ec20`; fondation non encore commitée.
+Known limitations: migration progressive requise ; AppShell et écrans conservent
+encore leur structure/CSS historiques jusqu'aux tâches dédiées. Preuve visuelle
+locale bloquée par l'absence d'une instance navigateur, pas par l'application.
+NEXT EXACT ACTION: démarrer l'application sur l'URL locale canonique, vérifier
+visuellement la fondation sur desktop et mobile, corriger toute régression réelle,
+puis commit/push avant de passer au shell canonique.
 
 ### UX1-T010 — Corriger l'URL canonique du dev OAuth
 Status: TODO
@@ -396,17 +408,17 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: nouvelle direction visuelle validée et versionnée.
-Le prompt maître Phase 1 pour Codex/Claude/autres IA est maintenant versionné dans
-`UI_PHASE1_MASTER_EXECUTION_PROMPT.md`.
-Aucun refactoring produit massif n'a encore commencé.
+Current implementation status: la fondation Mantine 9/Lucide/Motion et le thème
+Bunny multi-accent sont intégrés. Les primitives standard partagées sont migrées
+vers Mantine ; build, lint ciblé et 9 tests ciblés sont verts. La vérification
+visuelle réelle reste le dernier gate avant de fermer UX1-T009.
 
-Active task: `UX1-T009` — standardisation de la stack UI, inventaire initial en cours.
+Active task: `UX1-T009` — standardisation de la stack UI, vérification visuelle en cours.
 
 NEXT EXACT ACTION:
 
-1. vérifier les versions publiées de Mantine 9, Lucide React, Motion et dayjs ;
-2. installer uniquement les packages canoniques nécessaires à la fondation ;
-3. brancher MantineProvider/Modals/Notifications dans `AppProviders.tsx` ;
-4. mettre en place le thème et les tokens correspondant aux 9 screenshots ;
-5. valider par typecheck/build/lint ciblé avant la première vérification visuelle.
+1. démarrer l'application sur l'URL locale canonique sans exposer de secret ;
+2. vérifier la fondation en navigateur desktop puis mobile ;
+3. corriger toute régression visuelle ou interactionnelle observée ;
+4. mettre à jour ce tracker avec les preuves ;
+5. commit/push la fondation, puis commencer le shell canonique desktop/mobile.
