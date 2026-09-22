@@ -1,4 +1,4 @@
-# Discord Infrastructure Designer — Référence UI/UX canonique
+# Bunny Server Assistant — Référence UI/UX canonique
 
 > **Statut : CANONIQUE**
 >
@@ -8,6 +8,14 @@
 > Les spécifications fonctionnelles et techniques de `docs/00_reference/` restent
 > les sources de vérité sur le comportement du produit. Ce document fixe la manière
 > dont ce comportement doit être présenté à un utilisateur réel.
+
+## 0. Identité produit
+
+- **Nom produit officiel : Bunny Server Assistant**
+- **Nom court dans l'interface : Bunny**
+- **Mascotte/assistant : Bunny**
+- Le nom technique historique `DID` peut subsister dans le code, les modules ou les migrations pour éviter des renommages risqués, mais **il est interdit dans l'interface utilisateur, les titres produit, les assistants et les nouvelles captures de référence**.
+- Toute nouvelle maquette ou capture doit utiliser **Bunny Server Assistant** ou **Bunny**, jamais `DID`.
 
 ## 1. Vision produit
 
