@@ -197,6 +197,65 @@ Termes préférés :
 
 Le vocabulaire Discord réel reste disponible dans le mode expert.
 
+
+### 2.8 Complexité composée, simplicité visible
+
+**Principe produit global : Bunny peut réaliser des opérations complexes, mais l'utilisateur ne manipule que des choix simples et compréhensibles.**
+
+Une fonctionnalité avancée ne justifie jamais une interface avancée par défaut.
+
+Le rôle de Bunny est de composer derrière l'interface :
+
+- rôles ;
+- permissions ;
+- politiques ;
+- dépendances ;
+- plans ;
+- validations ;
+- relations entre ressources ;
+- conditions ;
+- contraintes techniques.
+
+L'utilisateur doit exprimer uniquement une intention humaine.
+
+Exemples :
+
+- « Tout le monde peut lire, seul le staff peut publier »
+- « Cet espace est privé pour mon équipe »
+- « Créer une zone support avec un espace public et un espace équipe »
+- « Ajouter un salon annonces réservé aux modérateurs »
+- « Donner cet accès pendant 24 heures »
+
+Bunny traduit ensuite cette intention en autant de rôles, Policies, logical groups, overwrites, Plans ou opérations internes que nécessaire.
+
+### Règle de composition
+
+Une opération complexe doit être décomposée en plusieurs choix simples plutôt qu'exposée comme un seul formulaire technique complexe.
+
+Exemple interdit :
+
+> Nom de la liaison / Côté public / Côté staff / Logical Group / Scope / Policy
+
+Exemple attendu :
+
+> **Créer un espace support**
+>
+> 1. Où les membres écrivent-ils ?
+> 2. Où votre équipe travaille-t-elle en privé ?
+> 3. Qui fait partie de l'équipe ?
+>
+> Bunny prépare automatiquement la configuration nécessaire.
+
+### Test de compréhension
+
+Avant de considérer une fonctionnalité UI terminée, poser cette question :
+
+> « Un utilisateur qui ne connaît ni Discord en profondeur ni Bunny peut-il comprendre quoi choisir et quel sera le résultat sans lire une documentation ? »
+
+Si la réponse est non, la fonctionnalité n'est pas terminée, même si elle fonctionne techniquement.
+
+---
+
 ---
 
 ## 3. Nouvelle architecture de navigation
