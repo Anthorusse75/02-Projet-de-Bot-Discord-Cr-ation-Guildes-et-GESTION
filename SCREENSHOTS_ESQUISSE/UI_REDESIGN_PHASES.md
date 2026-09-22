@@ -163,40 +163,33 @@ Tests d'interaction ciblés sur rename, menu contextuel, emoji/naming et validat
 
 # Phase 4 — Rôles, permissions et politiques d'accès
 
-**Statut : 🚧 EN COURS — réouverte après validation initiale et audit étendu**  
-**Rapport initial :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`  
+**Statut : ✅ TERMINÉE**
+**Preuve détaillée :** `SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`
 **Exigences produit :** `docs/40_decisions/ACCESS_POLICIES_PRODUCT_REQUIREMENTS.md`
 
 ### Objectif
 
 Permettre d'administrer les accès en exprimant une intention humaine plutôt que des bitfields/overwrites, tout en gardant la réalité Discord inspectable et explicable.
 
-### Socle déjà implémenté
+### Travail livré
 
-- hiérarchie et CRUD/réordonnancement des rôles par plans ;
-- mode simple et mode expert ;
-- aperçu des permissions effectives ;
-- `View As` / « Pourquoi cet accès ? » ;
-- simulation d'impact ;
-- diagnostic capacité du bot ;
-- séparation autorisation dashboard / capacité Discord.
+- hiérarchie, création, édition, réordonnancement et suppression sûre des rôles via Plans ;
+- modes simple et expert, permissions effectives, `View As`, « Pourquoi cet accès ? », simulation d'impact et diagnostic des capacités du bot ;
+- **Policy Engine générique** tenant-scopé avec RLS/RBAC, scopes, lifecycle, versions, audit et resolver déterministe ;
+- décisions explicites `CAN / CANNOT / UNKNOWN / BLOCKED`, priorité, héritage, exceptions locales et explications actionnables ;
+- policies natives DID et personnalisées, favoris par Guild, audiences nommées, zones et combinaisons `ANY / ALL / NOT` ;
+- intentions de visibilité, écriture, vocal, threads, réactions, mentions et accès bot minimal, sans inventer de capacité Discord ;
+- conflits multi-rôles jusqu'au membre concerné, causes, impact collatéral, remédiations bornées et exceptions documentées ;
+- Access Matrix, édition par cellule, sélection et opérations bulk avec preview avant Plan ;
+- socle Wizard réutilisable (`REQ-WIZ-001..010`, `013`, `014`), parcours d'espace d'accès et proposition de création d'un rôle manquant ;
+- presets simples et composés, catégories et exceptions locales avec réapplication de la policy de catégorie ;
+- verrouillage, détection de drift, reconciler durable et états d'intervention explicites ;
+- accès temporaires durables avec échéance, retry, retrait par Plan canonique et reprise après redémarrage ;
+- actions « Gérer l'accès » dans les menus contextuels simple et multiple ;
+- suppression logique de Policy avec dépendances, stratégie explicite et historique immuable ;
+- pipeline unique `intention -> preview/explain -> Plan` : aucune mutation Discord structurelle directe depuis l'UI ou l'API.
 
-### Travail restant
-
-- corriger toute cause persistante de `UNKNOWN` et exposer la remédiation ;
-- construire le **Policy Engine générique** : modèle, scopes, lifecycle/version, stockage tenant-scopé, RLS/RBAC ;
-- resolver déterministe : priorité, héritage, exception locale, conflits, verrouillage ;
-- politiques natives DID et politiques personnalisées ;
-- whitelist/blacklist visibilité/écriture, zones/audiences, vocal, threads/mentions/réactions, bots, temporaire ;
-- conflits multi-rôles jusqu'au membre concerné ;
-- `ANY` / `ALL` sur les rôles ;
-- explain/preview/remédiations avant plan ;
-- matrice d'accès / édition massive ;
-- socle Wizard générique réutilisable (`REQ-WIZ-001..010`, `013`, `014`) ;
-- rôle manquant -> `+ Créer un rôle` ;
-- aucune mutation directe hors pipeline Plan.
-
-### Use cases obligatoires
+### Use cases obligatoires validés
 
 - permission simple -> traduction Discord inspectable ;
 - `CAN / CANNOT / UNKNOWN` avec cause exploitable ;
@@ -208,9 +201,17 @@ Permettre d'administrer les accès en exprimant une intention humaine plutôt qu
 - Wizard -> rôle absent -> création proposée ;
 - sortie Phase 4 = intention validée + plan prêt, pas apply direct.
 
-### Tests utiles
+### Validation réalisée
 
-Tests unitaires ciblés resolver/conflits/lifecycle ; intégration RLS/RBAC/persistance ; quelques E2E whitelist, blacklist/conflit et Wizard. Pas de régression backend générale à chaque écran.
+Les use cases obligatoires ci-dessus sont validés. Les preuves couvrent le
+resolver, les conflits et lifecycles, la persistance PostgreSQL/RLS/RBAC, le
+scheduler/reconciler, les parcours E2E critiques, l'accessibilité et
+l'acceptation visuelle desktop/mobile. Le détail des scénarios, commandes,
+résultats et commits est conservé dans
+`SCREENSHOTS_ESQUISSE/PHASE_04_REPORT.md`.
+
+Aucun APPLY Discord live n'a été exécuté pendant cette clôture. La Phase 5
+n'est pas commencée.
 
 ---
 

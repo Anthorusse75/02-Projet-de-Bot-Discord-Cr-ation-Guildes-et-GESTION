@@ -25,7 +25,7 @@ Phase 4 reopening commit after the initial permissions socle)
 
 Current product HEAD: 2f7b9d2 (fix(ui): keep context menus within viewport)
 
-Current independently verified SHA: `2f7b9d2` (P4-UI-000 closure).
+Current independently verified SHA: `658b8799384ff14691abefd9b15990e50cd37d53` (Phase 4 closure documentation).
 Phase 4 is complete. Do not start Phase 5 without an explicit instruction.
 
 Session resumed: 2026-09-18 from checkpoint `04e4c8c`; P4-T014 was audited,
