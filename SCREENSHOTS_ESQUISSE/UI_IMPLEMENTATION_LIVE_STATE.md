@@ -294,19 +294,38 @@ Packages: `@mantine/core`, `@mantine/hooks`, `@mantine/form`, `@mantine/modals`,
 Tests executed: `npm.cmd run build` PASS ; ESLint ciblé des fondations/tests PASS ;
 `npm.cmd run test -- --run src/app/App.test.tsx src/features/structure/StructureScreen.test.tsx src/features/wizards/core/RoleMultiSelect.test.tsx` PASS, 3 fichiers et 9 tests. Premier passage : 9 échecs dus à `matchMedia`/provider absents ; second passage : 7/9 après correction du harness ; troisième passage : 9/9 après correction du nom accessible du Menu. Aucune assertion affaiblie.
 Visual evidence: les 9 références canoniques ont été inspectées en résolution
-originale avant modification. Tentative de vérification locale le 22/09/2026 :
-frontend démarré sur `http://localhost:8000` et réponse HTTP 200, mais aucune
-instance du navigateur intégré n'est disponible dans la session (`browsers.list()`
-vide). Aucune validation visuelle n'est donc revendiquée ; elle reste obligatoire
-avant DONE.
+originale avant modification. Une validation visuelle réelle a ensuite été fournie
+par l'utilisateur le 22/09/2026 sur `http://localhost:8000` avec captures desktop
+sélection serveur / vue d'ensemble / rôles et captures mobile vue d'ensemble / rôles.
+Cette validation montre que la fondation est fonctionnelle mais **pas encore
+visuellement acceptable pour clôturer UX1-T009**. Régressions/écarts observés à
+corriger avant DONE :
+- cartes de sélection serveur : noms et textes presque illisibles (texte sombre sur
+  surface sombre), badge du second serveur tronqué ;
+- top bar desktop : au moins un contrôle apparaît comme un rectangle blanc vide ;
+- vue d'ensemble : plusieurs textes/valeurs ont un contraste insuffisant sur les
+  cartes sombres ;
+- rôles : panneau de détail et boutons désactivés héritent de styles gris/sombres
+  difficilement lisibles ;
+- mobile : header ancien encore très dégradé (recherche sur deux lignes, contrôle
+  vert vide, densité excessive) et mise en page trop proche du shell historique.
+Les éléments purement structurels de l'ancienne UI (UNKNOWN, navigation technique,
+sidebar, cartes legacy) seront refondus par UX1-T001/T002/T004/T007/T008 ; ils ne
+sont pas à traiter ici comme si UX1-T009 devait déjà reproduire les 9 maquettes.
+En revanche, les défauts de contraste, contrôles vides et styles Mantine/legacy
+cassés sont des régressions de fondation et doivent être corrigés maintenant.
 Commit: inventaire `469ec20`; fondation `2614f46`, poussée sur
 `origin/ui/complete-redesign`.
 Known limitations: migration progressive requise ; AppShell et écrans conservent
-encore leur structure/CSS historiques jusqu'aux tâches dédiées. Preuve visuelle
-locale bloquée par l'absence d'une instance navigateur, pas par l'application.
-NEXT EXACT ACTION: démarrer l'application sur l'URL locale canonique, vérifier
-visuellement la fondation sur desktop et mobile, corriger toute régression réelle,
-puis commit/push avant de passer au shell canonique.
+encore leur structure/CSS historiques jusqu'aux tâches dédiées. UX1-T009 reste
+IN_PROGRESS jusqu'à correction des régressions de lisibilité/contraste et des
+contrôles visuellement cassés constatés sur les captures utilisateur.
+NEXT EXACT ACTION: corriger uniquement les régressions de fondation identifiées
+(contrastes texte/surfaces, contrôle blanc vide, badge tronqué, styles partagés
+Mantine/legacy), refaire une vérification rapide desktop + mobile sur les mêmes
+écrans, puis fermer UX1-T009 si ces régressions ont disparu. Ensuite seulement
+commencer UX1-T004/UX1-T007 pour le nouveau shell canonique et UX1-T001 pour
+l'accueil conforme aux 9 screenshots.
 
 ### UX1-T010 — Corriger l'URL canonique du dev OAuth
 Status: TODO
@@ -410,18 +429,21 @@ Last updated: 2026-09-22
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
 Current implementation status: la fondation Mantine 9/Lucide/Motion et le thème
-Bunny multi-accent sont intégrés et poussés au commit `2614f46`. Les primitives
-standard partagées sont migrées vers Mantine ; build, lint ciblé et 9 tests ciblés
-sont verts. La vérification visuelle réelle reste le dernier gate avant de fermer
-UX1-T009. Le navigateur intégré n'est pas connecté dans cette session.
+Bunny multi-accent sont intégrés et poussés au commit `2614f46`. Build, lint ciblé
+et 9 tests ciblés sont verts. Une validation visuelle réelle a été fournie par
+l'utilisateur sur desktop et mobile : la fondation fonctionne mais présente encore
+des régressions de contraste/lisibilité et des contrôles visuellement cassés. Le
+nouveau shell canonique n'est pas encore implémenté, ce qui est attendu à ce stade.
 
-Active task: `UX1-T009` — standardisation de la stack UI, vérification visuelle en cours.
+Active task: `UX1-T009` — corriger les régressions visuelles de fondation avant
+clôture.
 
 NEXT EXACT ACTION:
 
-1. connecter une instance du navigateur intégré à cette session ;
-2. redémarrer l'application sur `http://localhost:8000` si nécessaire ;
-3. vérifier la fondation en navigateur desktop puis mobile ;
-4. corriger toute régression visuelle ou interactionnelle observée ;
-5. mettre à jour ce tracker avec les preuves, fermer UX1-T009 seulement si le rendu
-   est valide, puis commencer le shell canonique desktop/mobile.
+1. corriger les contrastes texte/surfaces issus du mapping legacy/Mantine ;
+2. identifier et corriger le contrôle blanc vide de la top bar ;
+3. corriger le badge tronqué et les styles partagés visiblement cassés ;
+4. refaire une vérification rapide desktop + mobile sur sélection serveur, vue
+   d'ensemble et rôles ;
+5. si ces régressions ont disparu, marquer UX1-T009 DONE et passer au shell canonique
+   UX1-T004/UX1-T007 puis à l'accueil UX1-T001.
