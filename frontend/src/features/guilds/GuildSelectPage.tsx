@@ -68,7 +68,7 @@ export function GuildSelectPage() {
   return (
     <main id="main" className="guild-hub">
       <header className="guild-hub-topbar">
-        <div className="onboarding-brand"><span className="brand-mark">D</span><div><strong>DID</strong><small>{t('app.title')}</small></div></div>
+        <div className="onboarding-brand"><span className="brand-mark">{t('shell.brandInitial')}</span><div><strong>{t('shell.brand')}</strong><small>{t('app.title')}</small></div></div>
         <div className="guild-hub-account">
           <LanguageSelector />
           <div className="user-pill"><span className="user-avatar">{(me.user.global_name ?? me.user.username).slice(0, 2).toUpperCase()}</span><span>{me.user.global_name ?? me.user.username}</span></div>

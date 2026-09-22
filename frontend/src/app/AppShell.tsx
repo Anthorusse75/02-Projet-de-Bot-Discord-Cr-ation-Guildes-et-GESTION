@@ -1,16 +1,30 @@
 import { useEffect, useState } from 'react'
+import { ActionIcon, AppShell as MantineAppShell, Badge as MantineBadge, Drawer, Menu, NavLink as MantineNavLink, Tooltip } from '@mantine/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Activity,
+  Bell,
+  ChevronDown,
+  CircleHelp,
+  Home,
+  Menu as MenuIcon,
+  Rabbit,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiRequest } from '../api/client'
 import { useDashboardCapabilities, useGuilds } from '../api/queries'
 import type { DashboardCapabilities, Guild, Me } from '../api/types'
-import { leaveTenant } from '../api/tenantLifecycle'
 import { useGuildSocket, type GuildConnection } from '../api/useGuildSocket'
-import { discordSnowflake, type DiscordSnowflake } from '../shared/discord-id'
-import { Badge, Status } from '../shared/components/ui'
+import { discordSnowflake } from '../shared/discord-id'
+import { Status } from '../shared/components/ui'
 import { useInteractionStore } from '../shared/state/interaction'
-import { useSessionStore } from '../shared/state/session'
 import { LanguageSelector } from '../features/guilds/LanguageSelector'
 import { CommandPalette } from '../features/search/CommandPalette'
 
@@ -24,19 +38,28 @@ export type DashboardContext = {
 
 type RuntimeFeatures = { features: { oauth: boolean; live_events: boolean; portability: boolean } }
 type ShellGuild = Guild & { can_bootstrap?: boolean; dashboard_access?: boolean }
+type NavigationItem = { labelKey: string; section: string; sections: string[]; icon: LucideIcon; accent: string }
 
-const navGroups = [
-  { label: 'shell.workspace', sections: ['overview', 'structure', 'roles', 'permissions', 'policies', 'matrix', 'wizards'] as const },
-  { label: 'nav.plans', sections: ['plans', 'diagnostics', 'audit'] as const },
-  { label: 'nav.translations', sections: ['translations', 'campaigns'] as const },
-  { label: 'nav.templates', sections: ['templates', 'library', 'clone'] as const },
+const primaryNavigation: NavigationItem[] = [
+  { labelKey: 'shell.home', section: 'overview', sections: ['overview'], icon: Home, accent: 'violet' },
+  { labelKey: 'shell.build', section: 'structure', sections: ['structure', 'roles'], icon: Wrench, accent: 'blue' },
+  { labelKey: 'shell.access', section: 'policies', sections: ['policies', 'permissions', 'matrix', 'access-space'], icon: ShieldCheck, accent: 'mint' },
+  { labelKey: 'shell.automate', section: 'wizards', sections: ['wizards', 'translations', 'campaigns'], icon: Sparkles, accent: 'rose' },
+  { labelKey: 'shell.activity', section: 'plans', sections: ['plans', 'diagnostics', 'audit'], icon: Activity, accent: 'amber' },
 ]
-const portabilitySections = new Set(['templates', 'library', 'clone'])
 
-const sectionGlyph: Record<string, string> = {
-  overview: '⌂', structure: '⌘', roles: '◇', permissions: '◈', policies: '◆', matrix: '▦', wizards: '✺', plans: '▱', diagnostics: '◌', audit: '≡',
-  translations: '文', campaigns: '✦', templates: '▣', library: '▤', clone: '⇄',
-}
+const expertNavigation: ReadonlyArray<{ labelKey: string; section: string; portability?: boolean }> = [
+  { labelKey: 'nav.roles', section: 'roles' },
+  { labelKey: 'nav.permissions', section: 'permissions' },
+  { labelKey: 'nav.matrix', section: 'matrix' },
+  { labelKey: 'nav.diagnostics', section: 'diagnostics' },
+  { labelKey: 'nav.audit', section: 'audit' },
+  { labelKey: 'nav.translations', section: 'translations' },
+  { labelKey: 'nav.campaigns', section: 'campaigns' },
+  { labelKey: 'nav.templates', section: 'templates', portability: true },
+  { labelKey: 'nav.library', section: 'library', portability: true },
+  { labelKey: 'nav.clone', section: 'clone', portability: true },
+]
 
 export function AppShell() {
   const { t } = useTranslation()
@@ -46,7 +69,6 @@ export function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const setMe = useSessionStore((state) => state.setMe)
   const setCommandOpen = useInteractionStore((state) => state.setCommandOpen)
   const [navOpen, setNavOpen] = useState(false)
   const parsedGuild = guildId ? discordSnowflake(guildId) : null
@@ -91,117 +113,146 @@ export function AppShell() {
       : connection === 'unauthorized'
         ? t('errors.authorization.denied')
         : t('connection.reconnecting')
-  const connectionTone = connection === 'live' ? 'ok' : connection === 'unauthorized' ? 'danger' : 'warning'
+  const connectionColor = connection === 'live' ? 'mint' : connection === 'unauthorized' ? 'coral' : 'amber'
+  const userName = me.user.global_name ?? me.user.username
 
-  async function switchGuild(next: DiscordSnowflake) {
-    if (next === currentGuildId) return
-    const target = guilds.data?.find((item) => item.guild_id === next) as ShellGuild | undefined
-    if (!target) return
-    await leaveTenant(queryClient, me.user.discord_user_id, currentGuildId)
-    try {
-      const result = await apiRequest<{guild_id:string;csrf_token:string;policy_version:number}>(`/api/v1/guilds/${next}/select`, { method:'POST' })
-      const updated: Me = {
-        ...me,
-        active_guild_id: discordSnowflake(result.guild_id),
-        csrf_token: result.csrf_token,
-        policy_version: result.policy_version,
-      }
-      setMe(updated)
-      queryClient.setQueryData(['did', 'identity'], updated)
-      if (target.installation_status !== 'ACTIVE') {
-        navigate(`/guild/${next}/setup`)
-        return
-      }
-      const section = portabilitySections.has(activeSection) && !portabilityAvailable ? 'overview' : activeSection
-      navigate(`/guild/${next}/${section}`)
-    } catch {
-      navigate('/guilds')
-    }
-  }
+  const navigation = (mobile = false) => (
+    <div className="bunny-sidebar-content">
+      <div className="bunny-brand">
+        <span className="bunny-brand-mark"><Rabbit size={25} strokeWidth={2.4} /></span>
+        <span className="bunny-brand-copy"><strong>{t('shell.brand')}</strong><small>{t('shell.tagline')}</small></span>
+      </div>
+
+      <button type="button" className="bunny-server-switch" onClick={() => navigate('/guilds')}>
+        <span className="bunny-server-emblem">{guild.name.slice(0, 2).toUpperCase()}</span>
+        <span><small>{t('guilds.switch')}</small><strong>{guild.name}</strong></span>
+        <ChevronDown size={17} aria-hidden="true" />
+      </button>
+
+      <nav className="bunny-primary-nav" aria-label={t('shell.workspace')}>
+        {primaryNavigation.map((item) => {
+          const Icon = item.icon
+          return (
+            <MantineNavLink
+              component={NavLink}
+              to={`/guild/${currentGuildId}/${item.section}`}
+              key={item.section}
+              active={item.sections.includes(activeSection)}
+              className={`bunny-nav-link bunny-nav-${item.accent}`}
+              label={t(item.labelKey)}
+              leftSection={<Icon size={20} strokeWidth={2} />}
+              onClick={() => mobile && setNavOpen(false)}
+            />
+          )
+        })}
+      </nav>
+
+      <Menu position="top-start" width={230} shadow="md" withinPortal>
+        <Menu.Target>
+          <button type="button" className="bunny-expert-trigger">
+            <SlidersHorizontal size={18} aria-hidden="true" />
+            <span>{t('shell.expert')}</span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>{t('shell.expert')}</Menu.Label>
+          {expertNavigation.filter((item) => !item.portability || portabilityAvailable).map((item) => (
+            <Menu.Item key={item.section} onClick={() => navigate(`/guild/${currentGuildId}/${item.section}`)}>{t(item.labelKey)}</Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
+
+      <div className="bunny-sidebar-spacer" />
+      <button type="button" className="bunny-help-card" onClick={() => navigate(`/guild/${currentGuildId}/wizards`)}>
+        <span><CircleHelp size={20} /></span>
+        <span><strong>{t('shell.helpTitle')}</strong><small>{t('shell.helpCopy')}</small></span>
+      </button>
+      <button type="button" className="bunny-user-card" onClick={() => setCommandOpen(true)}>
+        <span className="bunny-user-avatar">{userName.slice(0, 2).toUpperCase()}</span>
+        <span><strong>{userName}</strong><small>@{me.user.username}</small></span>
+        <SlidersHorizontal size={16} aria-hidden="true" />
+      </button>
+    </div>
+  )
 
   return (
-    <div className="premium-app-layout">
+    <MantineAppShell
+      className="bunny-app-shell"
+      layout="alt"
+      header={{ height: { base: 64, md: 72 } }}
+      navbar={{ width: 252, breakpoint: 'md', collapsed: { mobile: true } }}
+      padding={0}
+    >
       <a href="#main" className="skip-link">{t('app.skip')}</a>
-      {navOpen && <button type="button" className="nav-backdrop" aria-label={t('shell.closeNavigation')} onClick={() => setNavOpen(false)} />}
-      <aside className={`premium-sidebar${navOpen ? ' nav-open' : ''}`} id="primary-navigation">
-        <div className="premium-brand">
-          <span className="brand-mark">D</span>
-          <div><strong>DID</strong><small>{t('app.title')}</small></div>
+      <MantineAppShell.Navbar className="bunny-sidebar" visibleFrom="md">
+        {navigation()}
+      </MantineAppShell.Navbar>
+
+      <MantineAppShell.Header className="bunny-topbar">
+        <div className="bunny-mobile-brand">
+          <ActionIcon variant="subtle" color="bunny" size="lg" aria-label={t('shell.openNavigation')} onClick={() => setNavOpen(true)}>
+            <MenuIcon size={23} />
+          </ActionIcon>
+          <span className="bunny-brand-mark small"><Rabbit size={20} /></span>
+          <strong>{t('shell.brand')}</strong>
         </div>
-
-        <button type="button" className="active-server-card" onClick={() => navigate('/guilds')}>
-          <span className="server-emblem small">{guild.name.slice(0, 2).toUpperCase()}</span>
-          <span className="active-server-copy"><small>{t('guilds.switch')}</small><strong>{guild.name}</strong></span>
-          <span aria-hidden="true">⌄</span>
+        <button type="button" className="bunny-search" onClick={() => setCommandOpen(true)}>
+          <Search size={18} aria-hidden="true" />
+          <span>{t('shell.searchHint')}</span>
+          <kbd>Ctrl K</kbd>
         </button>
-
-        <div className="sidebar-scroll">
-          {navGroups.map((group) => (
-            <section className="nav-group" key={group.label}>
-              <p>{t(group.label)}</p>
-              <nav>
-                {group.sections.map((section) => {
-                  const disabled = portabilitySections.has(section) && !portabilityAvailable
-                  if (disabled) {
-                    return <span className="nav-link nav-disabled" key={section} title={t('common.readOnly')}><span>{sectionGlyph[section]}</span>{t(`nav.${section}`)}</span>
-                  }
-                  return (
-                    <NavLink key={section} className="nav-link" to={`/guild/${currentGuildId}/${section}`}>
-                      <span>{sectionGlyph[section]}</span>{t(`nav.${section}`)}
-                    </NavLink>
-                  )
-                })}
-              </nav>
-            </section>
-          ))}
-
-          <section className="recent-servers">
-            <p>{t('shell.recentServers')}</p>
-            {(guilds.data as ShellGuild[]).filter((item) => item.installation_status === 'ACTIVE').slice(0, 4).map((item) => (
-              <button type="button" key={item.guild_id} className={item.guild_id === currentGuildId ? 'active' : ''} onClick={() => void switchGuild(item.guild_id)}>
-                <span className="recent-server-dot">{item.name.slice(0, 1).toUpperCase()}</span><span>{item.name}</span>
-              </button>
-            ))}
-          </section>
+        <div className="bunny-topbar-actions">
+          <MantineBadge className="bunny-connection" color={connectionColor} variant="light" leftSection={<span className={`bunny-connection-dot ${connection}`} />}>
+            {connectionLabel}
+          </MantineBadge>
+          <Tooltip label={t('shell.notifications')}>
+            <ActionIcon variant="subtle" color="gray" size="lg" aria-label={t('shell.notifications')} onClick={() => navigate(`/guild/${currentGuildId}/plans`)}>
+              <Bell size={20} />
+            </ActionIcon>
+          </Tooltip>
+          <LanguageSelector />
+          <Tooltip label={t('shell.account')}>
+            <button type="button" className="bunny-topbar-avatar" onClick={() => setCommandOpen(true)} aria-label={t('shell.account')}>
+              {userName.slice(0, 2).toUpperCase()}
+            </button>
+          </Tooltip>
         </div>
+      </MantineAppShell.Header>
 
-        {!portabilityAvailable && (
-          <div className="sidebar-preflight-warning"><span>!</span><div><strong>{t('nav.library')}</strong><small>{t('common.readOnly')}</small></div></div>
-        )}
-
-        <button type="button" className="sidebar-user" onClick={() => setCommandOpen(true)}>
-          <span className="user-avatar">{(me.user.global_name ?? me.user.username).slice(0, 2).toUpperCase()}</span>
-          <span><strong>{me.user.global_name ?? me.user.username}</strong><small>@{me.user.username}</small></span>
-          <kbd>⌘K</kbd>
-        </button>
-      </aside>
-
-      <div className="premium-workspace">
-        <header className="premium-topbar">
-          <button
-            type="button"
-            className="nav-toggle"
-            aria-label={t('shell.openNavigation')}
-            aria-expanded={navOpen}
-            aria-controls="primary-navigation"
-            onClick={() => setNavOpen((open) => !open)}
-          >
-            <span aria-hidden="true">☰</span>
-          </button>
-          <button type="button" className="global-search" onClick={() => setCommandOpen(true)}>
-            <span aria-hidden="true">⌕</span><span>{t('shell.searchHint')}</span><kbd>Ctrl K</kbd>
-          </button>
-          <div className="topbar-actions">
-            <Badge tone={connectionTone}><span className={`connection-led ${connection}`} /><span className="connection-label">{connectionLabel}</span></Badge>
-            <LanguageSelector />
-            <span className="topbar-avatar">{(me.user.global_name ?? me.user.username).slice(0, 2).toUpperCase()}</span>
-          </div>
-        </header>
-        <main id="main" className="premium-content">
+      <MantineAppShell.Main className="bunny-workspace">
+        <main id="main" className="bunny-content">
           <Outlet context={{ me, guild, guilds: guilds.data, connection, capabilities: capabilityQuery.data } satisfies DashboardContext} />
         </main>
-      </div>
+      </MantineAppShell.Main>
+
+      <Drawer
+        opened={navOpen}
+        onClose={() => setNavOpen(false)}
+        title={t('shell.navigation')}
+        size="min(86vw, 320px)"
+        padding={0}
+        hiddenFrom="md"
+        classNames={{ content: 'bunny-mobile-drawer', header: 'bunny-mobile-drawer-header', body: 'bunny-mobile-drawer-body' }}
+        closeButtonProps={{ 'aria-label': t('shell.closeNavigation') }}
+      >
+        {navigation(true)}
+      </Drawer>
+
+      <nav className="bunny-bottom-nav" aria-label={t('shell.navigation')}>
+        {primaryNavigation.map((item) => {
+          const Icon = item.icon
+          const active = item.sections.includes(activeSection)
+          return (
+            <NavLink key={item.section} to={`/guild/${currentGuildId}/${item.section}`} className={active ? 'active' : ''}>
+              <Icon size={21} strokeWidth={active ? 2.5 : 2} />
+              <span>{t(item.labelKey)}</span>
+            </NavLink>
+          )
+        })}
+      </nav>
+
       <CommandPalette guild={guild} capabilities={capabilityQuery.data} />
-    </div>
+    </MantineAppShell>
   )
 }

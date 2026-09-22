@@ -17,6 +17,7 @@ import './features/policies/policies.css'
 import './features/matrix/matrix.css'
 import './features/wizards/wizards.css'
 import './shared/bunny-theme.css'
+import './shared/bunny-shell.css'
 
 const root = document.getElementById('root')
 

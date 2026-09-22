@@ -17,8 +17,8 @@ export function LoginPage() {
     <main id="main" className="login shell premium-login">
       <div className="login-language"><LanguageSelector /></div>
       <div className="login-card premium-login-card">
-        <span className="brand-mark">D</span>
-        <div className="login-product"><strong>DID</strong><small>{t('app.title')}</small></div>
+        <span className="brand-mark">{t('shell.brandInitial')}</span>
+        <div className="login-product"><strong>{t('shell.brand')}</strong><small>{t('app.title')}</small></div>
         <h1>{t('app.title')}</h1>
         <p>{t('auth.welcome')}</p>
         <a className="primary-action" href="/auth/discord/login">{t('auth.login')}</a>

@@ -243,7 +243,7 @@ export function OnboardingPage() {
     <main className="onboarding-shell">
       <div className="onboarding-topbar">
         <button type="button" className="back-button" onClick={() => navigate('/guilds')} aria-label={t('guilds.title')}>←</button>
-        <div className="onboarding-brand"><span className="brand-mark">D</span><span>DID</span></div>
+        <div className="onboarding-brand"><span className="brand-mark">{t('shell.brandInitial')}</span><span>{t('shell.brand')}</span></div>
         <LanguageSelector />
       </div>
 

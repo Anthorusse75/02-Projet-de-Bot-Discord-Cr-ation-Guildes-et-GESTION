@@ -17,7 +17,7 @@ describe('STAGE 02 session shell', () => {
         <App />
       </MemoryRouter>,
     )
-    expect(await screen.findByRole('heading', { name: 'Discord Infrastructure Designer' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Bunny Server Assistant' })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Continue with Discord' })).toHaveAttribute(
       'href',
       '/auth/discord/login',
