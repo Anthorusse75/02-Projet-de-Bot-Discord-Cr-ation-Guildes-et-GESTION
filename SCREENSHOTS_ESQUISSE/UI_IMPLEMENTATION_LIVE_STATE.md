@@ -260,7 +260,7 @@ NEXT EXACT ACTION: créer une table de mapping états internes -> états humains
 migration des écrans.
 
 ### UX1-T009 — Standardiser la stack UI et supprimer les primitives maison
-Status: TODO
+Status: IN_PROGRESS
 Purpose: obtenir une qualité visuelle et interactionnelle homogène.
 User problem: package.json contient très peu de composants UI dédiés ; beaucoup de
 primitives sont faites à la main.
@@ -271,15 +271,29 @@ Requirements:
 - TanStack Table/Virtual quand nécessaire ;
 - dnd-kit pour drag/drop adapté ;
 - aucune bibliothèque concurrente sans justification.
-Implementation: non commencée.
-Files: `frontend/package.json`, providers/app shell, composants partagés.
-Packages: voir référence canonique.
+Implementation: inventaire initial terminé. `frontend/src/shared/components/ui.tsx`
+réimplémente en 82 lignes 17 exports, dont Button/IconButton, Input, Select, Badge,
+Skeleton, Empty/Error states, Progress, Tabs, Dialog/AlertDialog, Tooltip, Toast,
+Menu/MenuItem et Tree/TreeItem. Ce module est importé par 25 écrans/composants. Le
+shell/navigation responsive est entièrement maison dans `AppShell.tsx`; environ
+75 Ko de CSS applicatif restent dispersés entre huit feuilles principales, avec des
+tokens historiques `--did-*` et une direction sombre contraire aux captures. La
+migration sera progressive : Mantine remplacera d'abord providers/shell/primitives
+standards, tandis que Tree/TreeItem et les interactions métier spécifiques resteront
+adaptées tant qu'aucun équivalent standard ne préserve leur comportement.
+Files: inventaire de `frontend/package.json`, `frontend/package-lock.json`,
+`frontend/src/app/AppShell.tsx`, `frontend/src/app/providers/AppProviders.tsx`,
+`frontend/src/shared/components/ui.tsx`, `frontend/src/main.tsx` et des feuilles CSS
+partagées/features ; prochaines modifications attendues dans ces fondations.
+Packages: aucun package UI dédié présent au baseline ; React Query, Zustand et
+i18next sont déjà installés et conservés.
 Tests executed: aucun.
 Visual evidence: n/a.
 Commit: none.
 Known limitations: migration progressive requise.
-NEXT EXACT ACTION: faire l'inventaire des composants maison remplaçables avant
-installation.
+NEXT EXACT ACTION: vérifier les versions publiées de Mantine 9, Lucide React, Motion
+et dayjs, installer uniquement la fondation canonique nécessaire, puis brancher les
+providers Mantine sans encore migrer un écran métier.
 
 ### UX1-T010 — Corriger l'URL canonique du dev OAuth
 Status: TODO
@@ -387,13 +401,12 @@ Le prompt maître Phase 1 pour Codex/Claude/autres IA est maintenant versionné 
 `UI_PHASE1_MASTER_EXECUTION_PROMPT.md`.
 Aucun refactoring produit massif n'a encore commencé.
 
-Active task: Phase 1 prête pour implémentation via le prompt maître canonique.
+Active task: `UX1-T009` — standardisation de la stack UI, inventaire initial en cours.
 
 NEXT EXACT ACTION:
 
-1. démarrer le prompt maître unique Phase 1 ;
-2. commencer par UX1-T009 (inventaire + stack UI canonique) ;
-3. mettre en place le shell et les tokens correspondant aux 9 screenshots ;
-4. implémenter UX1-T001..T010 sans dévier visuellement ;
-5. mettre ce tracker à jour en temps réel après chaque tâche atomique.
-
+1. vérifier les versions publiées de Mantine 9, Lucide React, Motion et dayjs ;
+2. installer uniquement les packages canoniques nécessaires à la fondation ;
+3. brancher MantineProvider/Modals/Notifications dans `AppProviders.tsx` ;
+4. mettre en place le thème et les tokens correspondant aux 9 screenshots ;
+5. valider par typecheck/build/lint ciblé avant la première vérification visuelle.
