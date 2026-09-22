@@ -170,7 +170,7 @@ libellés, le contraste, les actions, l'Accordion technique et la navigation bas
 sont lisibles ; aucun débordement horizontal. Le navigateur intégré n'était pas
 disponible ; cette inspection image par image n'est pas présentée comme une nouvelle
 validation humaine utilisateur.
-Commit: commit de code à renseigner après création.
+Commit: `d1a7bbe09f01bcb272b541a6f3a443c31684ef0e`.
 Known limitations: l'endpoint cache-first Rôles ne fournit actuellement ni couleur
 Discord ni compteur de membres. L'UI utilise donc des accents fonctionnels par
 famille et n'invente aucun compteur ; aucune extension backend n'a été introduite
@@ -503,9 +503,10 @@ la vue Rôles canonique sont implémentés et vérifiés visuellement. Les route
 lectures cache-first et chemins DSG/Plan existants sont préservés ; aucun backend
 n'a été modifié.
 
-Current code HEAD: `c8136a8` avant le commit UX1-T002 courant. Le HEAD publié final
-sera le commit qui contient cette mise à jour et l'implémentation Rôles.
-Worktree courant avant commit: modifications UX1-T002 listées dans la tâche.
+Current code HEAD: `d1a7bbe09f01bcb272b541a6f3a443c31684ef0e` avant le
+commit documentaire courant. Le HEAD publié final est le commit qui contient cette
+mise à jour du tracker, avec `d1a7bbe` comme parent code.
+Worktree attendu après commit/push documentaire: clean.
 
 Active task: aucune ; la prochaine tâche canonique est `UX1-T003`.
 
