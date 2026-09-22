@@ -10,6 +10,7 @@
 
 - `SCREENSHOTS_ESQUISSE/UI_UX_CANONICAL_REFERENCE.md`
 - `SCREENSHOTS_ESQUISSE/UI_IMPLEMENTATION_3_PHASES.md`
+- `SCREENSHOTS_ESQUISSE/UI_PHASE1_MASTER_EXECUTION_PROMPT.md` — prompt maître obligatoire pour toute IA qui code la Phase 1
 
 Les anciens documents `UI_REDESIGN_PHASES.md` et
 `UI_PHASE_EXECUTION_STATE.md` sont historiques.
@@ -382,9 +383,11 @@ Last updated: 2026-09-22
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
 Current implementation status: nouvelle direction visuelle validée et versionnée.
+Le prompt maître Phase 1 pour Codex/Claude/autres IA est maintenant versionné dans
+`UI_PHASE1_MASTER_EXECUTION_PROMPT.md`.
 Aucun refactoring produit massif n'a encore commencé.
 
-Active task: Phase 1 prête pour implémentation.
+Active task: Phase 1 prête pour implémentation via le prompt maître canonique.
 
 NEXT EXACT ACTION:
 
