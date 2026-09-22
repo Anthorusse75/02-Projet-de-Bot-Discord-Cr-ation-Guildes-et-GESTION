@@ -180,7 +180,7 @@ actuel dans le shell canonique puis reconstruire le parcours d'intention selon l
 maquettes, sans modifier les invariants Policy/Plan.
 
 ### UX1-T003 — Remplacer le mur "Politiques d'accès" par un parcours d'intention
-Status: TODO
+Status: IN_PROGRESS
 Purpose: permettre de configurer l'accès sans comprendre Policy/roles/scopes.
 User problem: catalogue très dense, textes longs, métadonnées répétées, panneau
 d'édition lourd et plus de vingt checkboxes de rôles visibles simultanément.
@@ -192,14 +192,22 @@ Requirements:
 - impact simple ;
 - détails avancés repliés ;
 - pas de répétition serveur/catalogue sur chaque carte.
-Implementation: non commencée.
-Files: à déterminer.
+Implementation: reprise depuis le handoff canonique. L'intention est de conserver
+le moteur Policy, ses lectures cache-first, la Preview et la préparation de Plan,
+tout en remplaçant le catalogue/panneau technique par le parcours canonique : choix
+d'un préréglage humain, sélection recherchable par chips, phrase de résultat,
+aperçu d'impact et détails avancés repliés.
+Files: `frontend/src/features/policies/PoliciesScreen.tsx`,
+`frontend/src/features/policies/policies.css`, catalogues i18n associés, tests
+frontend/E2E Accès ciblés et ce tracker.
 Packages: Mantine Core/Form, Spotlight/Combobox patterns, Lucide, Motion.
 Tests executed: aucun.
 Visual evidence: capture utilisateur 22/09/2026.
 Commit: none.
 Known limitations: none.
-NEXT EXACT ACTION: inclure un prototype Accès complet au gate visuel de démarrage.
+NEXT EXACT ACTION: inspecter la vue Politiques/Accès réelle en desktop et mobile,
+identifier les chemins métier à préserver, puis implémenter le parcours d'intention
+canonique sans mutation Discord directe.
 
 ### UX1-T004 — Refaire la navigation principale par intention
 Status: DONE
@@ -508,13 +516,14 @@ commit documentaire courant. Le HEAD publié final est le commit qui contient ce
 mise à jour du tracker, avec `d1a7bbe` comme parent code.
 Worktree attendu après commit/push documentaire: clean.
 
-Active task: aucune ; la prochaine tâche canonique est `UX1-T003`.
+Active task: `UX1-T003` — reconstruction canonique du parcours Accès.
 
 NEXT EXACT ACTION:
 
-1. passer UX1-T003 à IN_PROGRESS avant toute modification ;
-2. inspecter l'écran Accès/Politiques actuel dans le shell canonique en desktop et
+1. inspecter l'écran Accès/Politiques actuel dans le shell canonique en desktop et
    mobile ;
-3. reconstruire le parcours par intention avec presets, recherche, chips, résultat
+2. reconstruire le parcours par intention avec presets, recherche, chips, résultat
    humain, impact simple et détails avancés repliés ;
-4. préserver strictement les lectures cache-first et les chemins Policy/Plan.
+3. préserver strictement les lectures cache-first et les chemins Policy/Plan ;
+4. exécuter uniquement les contrôles frontend ciblés et vérifier les captures
+   desktop/mobile avant toute clôture.
