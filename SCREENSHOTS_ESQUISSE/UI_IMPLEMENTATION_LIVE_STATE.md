@@ -1,4 +1,4 @@
-# Discord Infrastructure Designer — UI Implementation Live State
+# Bunny Server Assistant — UI Implementation Live State
 
 > **Statut : CANONIQUE — SOURCE DE VÉRITÉ OPÉRATIONNELLE**
 >
