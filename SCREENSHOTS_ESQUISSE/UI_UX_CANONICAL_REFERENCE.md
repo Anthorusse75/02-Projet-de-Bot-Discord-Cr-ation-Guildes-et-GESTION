@@ -17,6 +17,50 @@
 - Le nom technique historique `DID` peut subsister dans le code, les modules ou les migrations pour éviter des renommages risqués, mais **il est interdit dans l'interface utilisateur, les titres produit, les assistants et les nouvelles captures de référence**.
 - Toute nouvelle maquette ou capture doit utiliser **Bunny Server Assistant** ou **Bunny**, jamais `DID`.
 
+## 0.1 Références visuelles EXACTES validées le 22/09/2026
+
+Les 9 captures suivantes sont désormais **la cible visuelle canonique du produit** :
+
+- `tableau_de_bord_discord_pastel_en_français.png`
+- `assistant_de_création_de_serveur_discord.png`
+- `assistant_discord_gestion_des_accès.png`
+- `constructeur_discord_pastel_en_français.png`
+- `tableau_de_bord_français_des_accès_serveur.png`
+- `gestion_pastel_des_rôles_discord.png`
+- `modifications_prêtes_pour_votre_serveur.png`
+- `centre_des_opérations_discord_pastel.png`
+- `maquette_mobile_bunny_server_assistant_francais.png`
+
+**Règle d'implémentation : reproduire cette UI, pas seulement "s'en inspirer".**
+
+Doivent être conservés aussi fidèlement que possible :
+
+- la luminosité générale ;
+- les fonds clairs et surfaces pastel ;
+- la palette multi-couleur ;
+- les cartes nettement séparées ;
+- les grands espaces respirants ;
+- l'iconographie simple ;
+- la faible densité ;
+- la hiérarchie typographique ;
+- la navigation courte ;
+- les assistants étape par étape ;
+- les formulations accessibles ;
+- les gros CTA immédiatement compréhensibles ;
+- la présentation mobile montrée par la maquette dédiée.
+
+Les différences ne sont admises que lorsqu'elles sont nécessaires pour :
+
+- une contrainte fonctionnelle réelle ;
+- l'accessibilité ;
+- le responsive ;
+- un état absent de la maquette ;
+- une limitation technique documentée.
+
+Dans ce cas, la nouvelle surface doit rester visuellement cohérente avec les 9 captures.
+
+**Seule exception textuelle aux captures :** si une image contient encore le libellé historique `DID`, il doit être rendu dans le produit comme **Bunny Server Assistant** ou **Bunny**. Le branding historique visible dans une maquette ne constitue donc jamais une instruction de réintroduire `DID`.
+
 ## 1. Vision produit
 
 Discord Infrastructure Designer doit permettre à une personne qui **ne connaît pas
