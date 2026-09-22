@@ -93,7 +93,7 @@ Les constats ci-dessous proviennent d'une validation manuelle réelle sur
 `08ad925...`.
 
 ### UX1-T001 — Reconcevoir l'accueil pour un utilisateur novice
-Status: TODO
+Status: DONE
 Purpose: supprimer la première impression de console technique.
 User problem: la première page affiche Structure, Rôles, couverture cache, connexion
 temps réel et huit capacités bot en `UNKNOWN`. Un utilisateur lambda ne comprend
@@ -105,14 +105,28 @@ Requirements:
 - 3 à 5 actions utiles maximum ;
 - alertes actionnables ;
 - détails techniques sur demande.
-Implementation: non commencée.
-Files: à déterminer.
+Implementation: l'Accueil canonique est intégré au shell Bunny. Il traduit les
+lectures cache-first Structure/Rôles/capacités en un état de santé humain, cinq
+actions rapides, quatre statistiques lisibles et un parcours de démarrage. La
+provenance, la couverture et la fraîcheur ne sont plus exposées au premier niveau :
+elles restent disponibles dans un Accordion « Détails techniques ». Le hero utilise
+une illustration Bunny originale pastel, sans texte ni marque tierce.
+Files: `frontend/src/features/overview/OverviewScreen.tsx`,
+`frontend/src/shared/bunny-shell.css`, `frontend/src/assets/bunny-home-hero.png`,
+`frontend/src/localization/phase2Catalog.ts`.
 Packages: Mantine Core, Lucide React, Motion.
-Tests executed: aucun.
-Visual evidence: capture utilisateur 22/09/2026.
-Commit: none.
-Known limitations: none.
-NEXT EXACT ACTION: inclure cet écran dans les prototypes visuels Phase 1 avant code.
+Tests executed: `npm.cmd run build` PASS ; `npm.cmd run i18n:check` PASS (scan des
+libellés + 3 tests catalogue) ; ESLint ciblé des fichiers modifiés PASS ;
+`npm.cmd run test -- --run src/app/App.test.tsx src/features/structure/StructureScreen.test.tsx src/features/wizards/core/RoleMultiSelect.test.tsx` PASS, 3 fichiers / 9 tests.
+Visual evidence: capture Chromium réelle et inspection image par image de l'Accueil
+en 1440x1000 et 390x844. Hero, actions rapides, santé, statistiques, checklist et
+détails repliés sont lisibles ; aucune donnée interne brute au premier niveau ;
+aucun débordement horizontal à 390 px. Le navigateur intégré n'étant pas disponible,
+ce contrôle Playwright inspecté n'est pas présenté comme une validation humaine.
+Commit: `0dd8646`.
+Known limitations: les destinations ouvertes par l'Accueil conservent leur UI
+historique jusqu'à leurs tâches Phase 1 dédiées.
+NEXT EXACT ACTION: UX1-T002 — simplifier l'écran Rôles dans la direction canonique.
 
 ### UX1-T002 — Simplifier radicalement l'écran Rôles
 Status: TODO
@@ -157,7 +171,7 @@ Known limitations: none.
 NEXT EXACT ACTION: inclure un prototype Accès complet au gate visuel de démarrage.
 
 ### UX1-T004 — Refaire la navigation principale par intention
-Status: IN_PROGRESS
+Status: DONE
 Purpose: supprimer le menu qui reflète l'architecture interne.
 User problem: Vue d'ensemble, Structure, Rôles, Permissions, Politiques d'accès,
 Matrice, Assistants, Plans, Diagnostics, Audit, Traductions et Campagnes apparaissent
@@ -169,19 +183,22 @@ Requirements:
 - Automatiser ;
 - Activité ;
 - mode expert pour raccourcis techniques.
-Implementation: démarrage immédiat après clôture de la fondation. Le shell doit
-remplacer la navigation technique historique par les cinq intentions canoniques,
-sans supprimer les routes métier existantes.
-Files: `frontend/src/app/AppShell.tsx`, styles shell partagés, traductions concernées.
+Implementation: le shell Mantine expose désormais uniquement Accueil, Construire,
+Accès, Automatiser et Activité dans la navigation principale. Les routes métier
+existantes sont conservées et les raccourcis techniques sont regroupés dans
+« Outils avancés ». La sidebar claire inclut le branding Bunny, le serveur actif,
+l'aide et le compte ; la top bar conserve recherche, état de connexion, langue et
+compte. Les invariants de session, tenant, capabilities et websocket sont préservés.
+Files: `frontend/src/app/AppShell.tsx`, `frontend/src/shared/bunny-shell.css`,
+`frontend/src/main.tsx`, catalogues i18n et libellés produit associés.
 Packages: Mantine AppShell/NavLink/Drawer, Lucide.
-Tests executed: aucun.
-Visual evidence: captures desktop/mobile utilisateur.
-Commit: none.
-Known limitations: none.
-NEXT EXACT ACTION: reconstruire `AppShell` sur la structure canonique desktop
-(sidebar claire, courte, Bunny) et mobile (header compact + navigation dédiée),
-puis relier les routes techniques existantes aux cinq intentions sans les exposer
-comme navigation novice.
+Tests executed: mêmes contrôles ciblés que UX1-T001 ; aucun test backend.
+Visual evidence: capture Chromium 1440x1000 inspectée : sidebar courte, état actif,
+top bar et zone de contenu conformes à la hiérarchie des captures canoniques.
+Commit: `0dd8646`.
+Known limitations: les écrans métier non encore migrés restent accessibles dans ce
+nouveau shell mais gardent temporairement leur présentation historique.
+NEXT EXACT ACTION: UX1-T002 — migrer Rôles sans réintroduire la navigation technique.
 
 ### UX1-T005 — Introduire un vrai système visuel multi-couleur
 Status: TODO
@@ -226,7 +243,7 @@ NEXT EXACT ACTION: appliquer lors de chaque refonte d'écran, pas via un composa
 "info" supplémentaire.
 
 ### UX1-T007 — Refaire l'expérience mobile
-Status: IN_PROGRESS
+Status: DONE
 Purpose: donner la priorité au contenu.
 User problem: la capture mobile montre pratiquement uniquement la sidebar permanente.
 Requirements:
@@ -236,16 +253,22 @@ Requirements:
 - CTA atteignables ;
 - aucune table desktop compressée ;
 - aucun menu hors viewport.
-Implementation: démarrage conjoint avec UX1-T004 afin que le shell ne soit pas une
-vue desktop comprimée. Le contenu métier existant reste intact pendant cette passe.
-Files: `frontend/src/app/AppShell.tsx`, styles responsive du shell partagé.
+Implementation: sous le breakpoint desktop, la sidebar disparaît au profit d'un
+header compact, d'un Drawer Mantine et d'une navigation basse à cinq intentions.
+L'Accueil passe en contenu plein écran, les CTA du hero s'empilent et les cartes se
+recomposent sans table desktop comprimée.
+Files: `frontend/src/app/AppShell.tsx`, `frontend/src/shared/bunny-shell.css`.
 Packages: Mantine AppShell/Drawer, hooks responsive.
-Tests executed: aucun.
-Visual evidence: capture mobile utilisateur 22/09/2026.
-Commit: none.
-Known limitations: none.
-NEXT EXACT ACTION: implémenter la top bar mobile compacte, le Drawer de navigation
-et une navigation basse conforme à la maquette mobile, puis vérifier à 390x844.
+Tests executed: smoke Chromium Playwright ciblé PASS avec assertion explicite
+`scrollWidth - clientWidth <= 1` à 390x844 ; mêmes build/lint/tests ciblés que
+UX1-T001.
+Visual evidence: captures Chromium 390x844 inspectées avec Drawer fermé puis ouvert :
+contenu prioritaire, navigation basse lisible, Drawer entièrement dans le viewport,
+aucun menu hors écran et aucun débordement horizontal.
+Commit: `0dd8646`.
+Known limitations: les contenus métier legacy pourront encore nécessiter leurs
+propres adaptations mobiles lors de leur migration dédiée.
+NEXT EXACT ACTION: UX1-T002 — appliquer ce responsive à l'écran Rôles refondu.
 
 ### UX1-T008 — Remplacer les états internes par des messages humains
 Status: TODO
@@ -339,11 +362,10 @@ image par image. Ce n'est pas présenté comme une nouvelle validation humaine
 utilisateur.
 Commit: inventaire `469ec20`; fondation `2614f46`; correctif final
 `4206ed172c7579691fe199c4811bd6361d67f8d4`.
-Known limitations: AppShell, UNKNOWN, navigation technique, cartes et responsive
-historiques restent à traiter uniquement dans les tâches dédiées
-UX1-T004/UX1-T007/UX1-T001/UX1-T008.
-NEXT EXACT ACTION: UX1-T004/UX1-T007 — implémenter le vrai shell canonique Bunny
-desktop/mobile, puis UX1-T001 — reconstruire l'Accueil dans la même direction.
+Known limitations: les écrans métier historiques restent à migrer tâche par tâche ;
+le shell, le responsive global et l'Accueil sont désormais traités par
+UX1-T004/UX1-T007/UX1-T001.
+NEXT EXACT ACTION: aucune pour cette tâche fermée ; suivre la tâche active du handoff.
 
 ### UX1-T010 — Corriger l'URL canonique du dev OAuth
 Status: TODO
@@ -406,9 +428,7 @@ Commit: captures poussées par l'utilisateur, documentation canonique synchronis
 Known limitations: le branding textuel historique éventuellement visible dans une
 capture doit être remplacé par Bunny Server Assistant / Bunny sans modifier la
 direction graphique.
-NEXT EXACT ACTION: UX1-T009 — inventorier les primitives UI maison puis installer la
-stack canonique ; en parallèle préparer le shell correspondant exactement aux
-captures validées.
+NEXT EXACT ACTION: aucune pour cette tâche fermée ; suivre la tâche active du handoff.
 
 ---
 
@@ -446,23 +466,22 @@ Last updated: 2026-09-22
 
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
-Current implementation status: UX1-T009 est fermée au commit
-`4206ed172c7579691fe199c4811bd6361d67f8d4`. Fondation Mantine 9/Lucide/Motion,
-contrastes de transition legacy, badges, contrôles partagés et Dialog sont validés
-par build, lint, 9 tests ciblés et inspection de captures Chromium desktop/mobile.
-Le shell canonique est maintenant la tâche active.
+Current implementation status: UX1-T009, UX1-T004, UX1-T007 et UX1-T001 sont
+fermées. La fondation Mantine/Lucide/Motion, le shell canonique desktop/mobile et
+l'Accueil novice sont implémentés et vérifiés visuellement. Les routes métier et
+lectures cache-first existantes sont préservées ; aucun backend n'a été modifié.
 
-Current HEAD: `4206ed172c7579691fe199c4811bd6361d67f8d4` avant le commit documentaire courant.
-Worktree: uniquement la mise à jour de ce tracker avant démarrage du shell.
+Current code HEAD: `0dd8646` avant le commit documentaire courant. Le HEAD publié
+final est le commit qui contient cette mise à jour du tracker, avec `0dd8646` comme
+parent code.
+Worktree attendu après commit/push documentaire: clean.
 
-Active tasks: `UX1-T004` / `UX1-T007` — shell canonique Bunny desktop/mobile.
+Active task: aucune ; la prochaine tâche canonique est `UX1-T002`.
 
 NEXT EXACT ACTION:
 
-1. remplacer la navigation technique de `AppShell` par Accueil / Construire / Accès /
-   Automatiser / Activité avec branding Bunny ;
-2. implémenter la sidebar claire desktop et le shell mobile compact avec Drawer et
-   navigation basse ;
-3. conserver les routes métier et les invariants de session/tenant existants ;
-4. vérifier visuellement le shell en desktop et 390x844 ;
-5. enchaîner sur UX1-T001 pour l'Accueil canonique.
+1. passer UX1-T002 à IN_PROGRESS avant toute modification ;
+2. inspecter l'écran Rôles actuel dans le nouveau shell en desktop et mobile ;
+3. reconstruire Rôles avec nom/couleur/usage humain d'abord, hiérarchie visuelle,
+   actions contextuelles et détails Discord repliés ;
+4. vérifier visuellement en desktop et 390x844 avant de considérer UX1-T002 DONE.
