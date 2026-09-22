@@ -299,7 +299,8 @@ frontend démarré sur `http://localhost:8000` et réponse HTTP 200, mais aucune
 instance du navigateur intégré n'est disponible dans la session (`browsers.list()`
 vide). Aucune validation visuelle n'est donc revendiquée ; elle reste obligatoire
 avant DONE.
-Commit: inventaire `469ec20`; fondation non encore commitée.
+Commit: inventaire `469ec20`; fondation `2614f46`, poussée sur
+`origin/ui/complete-redesign`.
 Known limitations: migration progressive requise ; AppShell et écrans conservent
 encore leur structure/CSS historiques jusqu'aux tâches dédiées. Preuve visuelle
 locale bloquée par l'absence d'une instance navigateur, pas par l'application.
@@ -409,16 +410,18 @@ Last updated: 2026-09-22
 Current product baseline: `08ad925ce7dbc24e4fed9e8c8e470b953c0c6786`
 
 Current implementation status: la fondation Mantine 9/Lucide/Motion et le thème
-Bunny multi-accent sont intégrés. Les primitives standard partagées sont migrées
-vers Mantine ; build, lint ciblé et 9 tests ciblés sont verts. La vérification
-visuelle réelle reste le dernier gate avant de fermer UX1-T009.
+Bunny multi-accent sont intégrés et poussés au commit `2614f46`. Les primitives
+standard partagées sont migrées vers Mantine ; build, lint ciblé et 9 tests ciblés
+sont verts. La vérification visuelle réelle reste le dernier gate avant de fermer
+UX1-T009. Le navigateur intégré n'est pas connecté dans cette session.
 
 Active task: `UX1-T009` — standardisation de la stack UI, vérification visuelle en cours.
 
 NEXT EXACT ACTION:
 
-1. démarrer l'application sur l'URL locale canonique sans exposer de secret ;
-2. vérifier la fondation en navigateur desktop puis mobile ;
-3. corriger toute régression visuelle ou interactionnelle observée ;
-4. mettre à jour ce tracker avec les preuves ;
-5. commit/push la fondation, puis commencer le shell canonique desktop/mobile.
+1. connecter une instance du navigateur intégré à cette session ;
+2. redémarrer l'application sur `http://localhost:8000` si nécessaire ;
+3. vérifier la fondation en navigateur desktop puis mobile ;
+4. corriger toute régression visuelle ou interactionnelle observée ;
+5. mettre à jour ce tracker avec les preuves, fermer UX1-T009 seulement si le rendu
+   est valide, puis commencer le shell canonique desktop/mobile.
